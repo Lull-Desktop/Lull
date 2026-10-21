@@ -207,7 +207,3 @@ Lull 采用**分层许可**，不是单一许可：
 
 > **源码提供**：发布安装包时请同时提供同一 release tag 的源码归档；本仓库即对应源码。
 > 安装包内包含 `LICENSE`、`NOTICE`、`LICENSES/` 与 `THIRD_PARTY_NOTICES.md`。
-
-Lull 是 Serene（Copyright © 2022 Kevin Xiao，MIT）的衍生重构项目。原始 MIT 声明保留在
-[`LICENSES/MIT-Serene.txt`](LICENSES/MIT-Serene.txt)；第三方依赖与字体授权见
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
