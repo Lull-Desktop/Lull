@@ -23,6 +23,186 @@ const CAPABILITIES = new Set([
 const ID = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const ENTRY = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9][A-Za-z0-9._/-]*\.html$/;
+const COLOR = /^#[0-9A-Fa-f]{6}$/;
+const PARAM_KEY = /^[a-z][a-z0-9._-]{0,31}$/;
+const PARAM_TYPES = new Set(["number", "boolean", "string", "color", "enum"]);
+const PLATFORMS = new Set(["windows", "macos", "linux"]);
+const TIERS = new Set(["low", "medium", "high"]);
+const MANIFEST_KEYS = new Set([
+  "schemaVersion",
+  "type",
+  "id",
+  "name",
+  "version",
+  "description",
+  "author",
+  "license",
+  "capabilities",
+  "entry",
+  "theme",
+  "params",
+  "performance",
+  "compatibility",
+]);
+
+const isObject = (value) =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+function checkParams(scene, where) {
+  if (scene.params === undefined) return;
+  if (!Array.isArray(scene.params)) {
+    fail(`${where}.params 必须是数组`);
+    return;
+  }
+  const keys = new Set();
+  for (const [index, param] of scene.params.entries()) {
+    const at = `${where}.params[${index}]`;
+    if (!isObject(param)) {
+      fail(`${at} 必须是对象`);
+      continue;
+    }
+    for (const key of Object.keys(param)) {
+      if (
+        !["key", "type", "label", "description", "default", "min", "max", "step", "options"].includes(
+          key,
+        )
+      ) {
+        fail(`${at} 含未知字段: ${key}`);
+      }
+    }
+    if (typeof param.key !== "string" || !PARAM_KEY.test(param.key)) {
+      fail(`${at}.key 缺失或格式非法`);
+    } else if (keys.has(param.key)) {
+      fail(`${at}.key 重复: ${param.key}`);
+    } else {
+      keys.add(param.key);
+    }
+    if (typeof param.label !== "string" || param.label.trim() === "") {
+      fail(`${at}.label 必填`);
+    }
+    if (!PARAM_TYPES.has(param.type)) {
+      fail(`${at}.type 非法`);
+      continue;
+    }
+    if (!("default" in param)) {
+      fail(`${at}.default 必填`);
+      continue;
+    }
+    if (param.type === "number") {
+      if (typeof param.default !== "number" || !Number.isFinite(param.default)) {
+        fail(`${at}.default 必须是有限数字`);
+      }
+      for (const key of ["min", "max", "step"]) {
+        if (param[key] !== undefined && typeof param[key] !== "number") {
+          fail(`${at}.${key} 必须是数字`);
+        }
+      }
+      if (param.min !== undefined && param.max !== undefined && param.min > param.max) {
+        fail(`${at}.min 不能大于 max`);
+      }
+      if (param.step !== undefined && param.step <= 0) {
+        fail(`${at}.step 必须大于 0`);
+      }
+    } else if (param.type === "boolean") {
+      if (typeof param.default !== "boolean") {
+        fail(`${at}.default 必须是布尔值`);
+      }
+    } else if (param.type === "color") {
+      if (typeof param.default !== "string" || !COLOR.test(param.default)) {
+        fail(`${at}.default 必须是 #RRGGBB`);
+      }
+    } else if (param.type === "enum") {
+      if (!Array.isArray(param.options) || param.options.length === 0) {
+        fail(`${at}.options 必须是非空数组`);
+      } else {
+        const values = new Set();
+        for (const [optionIndex, option] of param.options.entries()) {
+          const optionAt = `${at}.options[${optionIndex}]`;
+          if (!isObject(option)) {
+            fail(`${optionAt} 必须是对象`);
+            continue;
+          }
+          if (typeof option.value !== "string" || option.value === "") {
+            fail(`${optionAt}.value 必填`);
+          } else if (values.has(option.value)) {
+            fail(`${optionAt}.value 重复: ${option.value}`);
+          } else {
+            values.add(option.value);
+          }
+          if (typeof option.label !== "string" || option.label === "") {
+            fail(`${optionAt}.label 必填`);
+          }
+        }
+        if (typeof param.default !== "string" || !values.has(param.default)) {
+          fail(`${at}.default 必须命中 options.value`);
+        }
+      }
+    } else if (typeof param.default !== "string") {
+      fail(`${at}.default 必须是字符串`);
+    }
+  }
+}
+
+function checkMetadata(scene, where) {
+  if (scene.performance !== undefined) {
+    if (!isObject(scene.performance)) {
+      fail(`${where}.performance 必须是对象`);
+    } else {
+      if (!TIERS.has(scene.performance.tier)) {
+        fail(`${where}.performance.tier 非法`);
+      }
+      const fps = scene.performance.targetFps;
+      if (
+        fps !== undefined &&
+        (!Number.isInteger(fps) || fps < 1 || fps > 240)
+      ) {
+        fail(`${where}.performance.targetFps 必须是 1-240 的整数`);
+      }
+    }
+  }
+  if (scene.compatibility !== undefined) {
+    if (!isObject(scene.compatibility)) {
+      fail(`${where}.compatibility 必须是对象`);
+    } else {
+      const hostApi = scene.compatibility.hostApi;
+      if (!Number.isInteger(hostApi) || hostApi < 1) {
+        fail(`${where}.compatibility.hostApi 必须是正整数`);
+      }
+      const maxHostApi = scene.compatibility.maxHostApi;
+      if (
+        maxHostApi !== undefined &&
+        (!Number.isInteger(maxHostApi) || maxHostApi < hostApi)
+      ) {
+        fail(`${where}.compatibility.maxHostApi 必须 >= hostApi`);
+      }
+      if (scene.compatibility.platforms !== undefined) {
+        if (
+          !Array.isArray(scene.compatibility.platforms) ||
+          scene.compatibility.platforms.length === 0
+        ) {
+          fail(`${where}.compatibility.platforms 必须是非空数组`);
+        } else {
+          for (const platform of scene.compatibility.platforms) {
+            if (!PLATFORMS.has(platform)) {
+              fail(`${where}.compatibility.platforms 含未知平台: ${platform}`);
+            }
+          }
+        }
+      }
+    }
+  }
+  if (scene.theme !== undefined) {
+    if (!isObject(scene.theme)) {
+      fail(`${where}.theme 必须是对象`);
+    } else {
+      for (const key of ["background", "accent"]) {
+        if (scene.theme[key] !== undefined && !COLOR.test(scene.theme[key])) {
+          fail(`${where}.theme.${key} 必须是 #RRGGBB`);
+        }
+      }
+    }
+  }
+}
 
 const errors = [];
 const fail = (message) => errors.push(message);
@@ -49,6 +229,11 @@ for (const [index, scene] of (catalog.scenes ?? []).entries()) {
     fail(`${where} 必须是对象`);
     continue;
   }
+  for (const key of Object.keys(scene)) {
+    if (!MANIFEST_KEYS.has(key)) fail(`${where} 含未知字段: ${key}`);
+  }
+  checkParams(scene, where);
+  checkMetadata(scene, where);
   if (scene.schemaVersion !== 1) fail(`${where}.schemaVersion 必须是 1`);
   if (scene.type !== "scene") fail(`${where}.type 必须是 "scene"`);
   if (typeof scene.id !== "string" || !ID.test(scene.id)) {

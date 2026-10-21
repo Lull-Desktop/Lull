@@ -43,7 +43,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 Rust 通过 URL 哈希把画面参数传给 WebView：
 
 ```text
-/#mode=span&sync=1&scene=lull.bamboo&canvas=-2560,0,4480,1440&view=0,0,1920,1080
+/#mode=span&sync=1&scene=lull.bamboo&canvas=-2560,0,4480,1440&view=0,0,1920,1080&params=%7B%22mist%22%3A%220.5%22%7D
 ```
 
 | 字段 | 含义 |
@@ -53,8 +53,9 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | `scene` | 场景 id（内置 `lull.*`，外部 `community.*`） |
 | `canvas` | 跨屏共享画布（物理像素桌面坐标，可为负） |
 | `view` | 当前窗口对应的桌面矩形 |
+| `params` | JSON 后再 URI 编码的场景参数（字符串键值）；为空时省略 |
 
-前端 `src/core/wallpaper/params.ts` 负责解析与几何换算，`src/scenes/host.tsx` 负责选择内置组件或外部 iframe。协议是纯函数，Rust/前端都有回归测试。
+前端 `src/core/wallpaper/params.ts` 负责解析与几何换算，`src/scenes/frame.ts` 负责合成本地帧（默认参数、能力与兼容性），`src/scenes/host.tsx` 负责选择内置组件或外部 iframe。协议是纯函数，Rust/前端都有回归测试。
 
 ## 3. 分层与依赖规则
 
@@ -191,8 +192,8 @@ lib.rs
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 16 个测试文件（91 项）
-cargo test             Rust 37 项（display 配置 / 拓扑 / 协议 / WidgetSpec）
+pnpm test              前端 19 个测试文件（113 项）
+cargo test             Rust 40 项（display 配置 / 拓扑 / 协议 / 场景参数 / WidgetSpec）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + entry 存在性
 pnpm build:next        Next 静态导出（离线字体）

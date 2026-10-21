@@ -71,6 +71,104 @@ describe("scene manifest", () => {
     };
     expect(() => parseSceneCatalog(duplicate)).toThrow(/重复/);
   });
+
+  test("rejects unknown manifest fields", () => {
+    expect(() =>
+      parseSceneManifest(validManifest({ unexpected: true })),
+    ).toThrow(/未知字段/);
+  });
+
+  test("parses params with defaults and enum options", () => {
+    const manifest = parseSceneManifest(
+      validManifest({
+        params: [
+          {
+            key: "density",
+            type: "number",
+            label: "密度",
+            default: 0.5,
+            min: 0,
+            max: 1,
+            step: 0.1,
+          },
+          {
+            key: "tone",
+            type: "enum",
+            label: "色调",
+            default: "warm",
+            options: [
+              { value: "warm", label: "暖" },
+              { value: "cool", label: "冷" },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(manifest.params).toHaveLength(2);
+    expect(manifest.params?.[0]).toMatchObject({
+      key: "density",
+      default: 0.5,
+      min: 0,
+      max: 1,
+    });
+  });
+
+  test("rejects invalid params", () => {
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          params: [
+            { key: "density", type: "number", label: "密度", default: "0.5" },
+          ],
+        }),
+      ),
+    ).toThrow(/default/);
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          params: [
+            {
+              key: "tone",
+              type: "enum",
+              label: "色调",
+              default: "hot",
+              options: [{ value: "warm", label: "暖" }],
+            },
+          ],
+        }),
+      ),
+    ).toThrow(/default/);
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          params: [
+            { key: "a", type: "number", label: "A", default: 0 },
+            { key: "a", type: "boolean", label: "B", default: false },
+          ],
+        }),
+      ),
+    ).toThrow(/重复/);
+  });
+
+  test("parses performance and compatibility metadata", () => {
+    const manifest = parseSceneManifest(
+      validManifest({
+        performance: { tier: "low", targetFps: 30 },
+        compatibility: { hostApi: 1, platforms: ["windows"] },
+      }),
+    );
+    expect(manifest.performance).toEqual({ tier: "low", targetFps: 30 });
+    expect(manifest.compatibility).toEqual({
+      hostApi: 1,
+      platforms: ["windows"],
+    });
+  });
+
+  test("rejects invalid theme colors", () => {
+    expect(() =>
+      parseSceneManifest(validManifest({ theme: { background: "black" } })),
+    ).toThrow(/background/);
+  });
 });
 
 describe("shipped content catalog", () => {

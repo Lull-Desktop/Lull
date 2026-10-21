@@ -14,6 +14,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { SceneParamFields } from "@/components/scene-params";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -76,6 +77,8 @@ type DisplayConfig = {
   mode: "mirror" | "independent" | "span";
   sync: boolean;
   scene: string;
+  /** 按场景 id 保存的参数；值统一为字符串，由 Scene SDK 还原类型。 */
+  sceneParams?: Record<string, Record<string, string>>;
 };
 
 /** 色板玻璃珠的自定义属性。 */
@@ -263,6 +266,42 @@ export default function Settings() {
     [runWallpaperCommand],
   );
 
+  const commitSceneParams = useCallback(
+    (scene: string, params: Record<string, string>): void => {
+      // 先乐观更新控件，再写盘并热更壁纸窗；失败时用后端值回滚。
+      setDisplay((current) =>
+        current
+          ? {
+              ...current,
+              sceneParams: {
+                ...(current.sceneParams ?? {}),
+                [scene]: params,
+              },
+            }
+          : current,
+      );
+      invoke("wallpaper_set_scene_params", { scene, params })
+        .then(() => {
+          refreshWallpaper();
+        })
+        .catch((err: unknown) => {
+          setWallpaperMsg(String(err));
+          refreshWallpaper();
+        });
+    },
+    [refreshWallpaper],
+  );
+
+  const updateSceneParam = useCallback(
+    (scene: string, key: string, value: string): void => {
+      commitSceneParams(scene, {
+        ...(display?.sceneParams?.[scene] ?? {}),
+        [key]: value,
+      });
+    },
+    [commitSceneParams, display],
+  );
+
   const activeScene = sceneEntries.find(
     (entry) => entry.manifest.id === display?.scene,
   );
@@ -368,6 +407,16 @@ export default function Settings() {
                       {activeScene.source === "content" ? "内容包" : "内置"}
                     </p>
                   )}
+                  {activeScene?.manifest.params && (
+                    <SceneParamFields
+                      definitions={activeScene.manifest.params}
+                      values={display.sceneParams?.[display.scene] ?? {}}
+                      onChange={(key, value) =>
+                        updateSceneParam(display.scene, key, value)
+                      }
+                      onReset={() => commitSceneParams(display.scene, {})}
+                    />
+                  )}
                 </>
               )}
             {sceneCatalogError && (
@@ -377,57 +426,79 @@ export default function Settings() {
             )}
             {sortedMonitors && sortedMonitors.length > 0 && (
               <div className="space-y-3 border-t border-border/50 pt-4">
-                {sortedMonitors.map((m, i) => (
-                  <div
-                    key={m.device}
-                    className="flex items-center justify-between"
-                    title={m.device}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-ink-soft">
-                        显示器 {i + 1}
-                      </span>
-                      <span className="text-xs font-mono tabular-nums text-muted-foreground">
-                        {m.w}×{m.h}
-                      </span>
-                      {m.primary && (
-                        <Badge
-                          variant="outline"
-                          className="border-bamboo/40 px-1.5 py-0 text-[10px] text-bamboo"
-                        >
-                          主屏
-                        </Badge>
-                      )}
-                    </div>
-                    {display?.mode === "independent" && (
-                      <Select
-                        value={m.scene}
-                        onValueChange={(v) => updateMonitorScene(m.device, v)}
+                {sortedMonitors.map((m, i) => {
+                  const monitorScene = sceneEntries.find(
+                    (entry) => entry.manifest.id === m.scene,
+                  );
+                  return (
+                    <div key={m.device} className="space-y-2">
+                      <div
+                        className="flex items-center justify-between"
+                        title={m.device}
                       >
-                        <SelectTrigger
-                          size="sm"
-                          aria-label={`显示器 ${i + 1} 场景`}
-                          className="w-28"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {sceneEntries.map(({ manifest }) => (
-                            <SelectItem key={manifest.id} value={manifest.id}>
-                              {manifest.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                    <Switch
-                      aria-label={`显示器 ${i + 1}`}
-                      checked={m.enabled}
-                      disabled={wallpaperVisible !== true}
-                      onCheckedChange={(on) => toggleMonitor(m.device, on)}
-                    />
-                  </div>
-                ))}
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-ink-soft">
+                            显示器 {i + 1}
+                          </span>
+                          <span className="text-xs font-mono tabular-nums text-muted-foreground">
+                            {m.w}×{m.h}
+                          </span>
+                          {m.primary && (
+                            <Badge
+                              variant="outline"
+                              className="border-bamboo/40 px-1.5 py-0 text-[10px] text-bamboo"
+                            >
+                              主屏
+                            </Badge>
+                          )}
+                        </div>
+                        {display?.mode === "independent" && (
+                          <Select
+                            value={m.scene}
+                            onValueChange={(v) =>
+                              updateMonitorScene(m.device, v)
+                            }
+                          >
+                            <SelectTrigger
+                              size="sm"
+                              aria-label={`显示器 ${i + 1} 场景`}
+                              className="w-28"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sceneEntries.map(({ manifest }) => (
+                                <SelectItem
+                                  key={manifest.id}
+                                  value={manifest.id}
+                                >
+                                  {manifest.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                        <Switch
+                          aria-label={`显示器 ${i + 1}`}
+                          checked={m.enabled}
+                          disabled={wallpaperVisible !== true}
+                          onCheckedChange={(on) => toggleMonitor(m.device, on)}
+                        />
+                      </div>
+                      {display?.mode === "independent" &&
+                        monitorScene?.manifest.params && (
+                          <SceneParamFields
+                            definitions={monitorScene.manifest.params}
+                            values={display?.sceneParams?.[m.scene] ?? {}}
+                            onChange={(key, value) =>
+                              updateSceneParam(m.scene, key, value)
+                            }
+                            onReset={() => commitSceneParams(m.scene, {})}
+                          />
+                        )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             <p className="text-xs text-muted-foreground">{wallpaperMsg}</p>

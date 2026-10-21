@@ -94,6 +94,7 @@ function mockWallpaper(monitors: MonitorRow[], masterVisible: boolean): void {
     wallpaper_set_visible: () => masterVisible,
     wallpaper_set_display: () => undefined,
     wallpaper_set_monitor_scene: () => undefined,
+    wallpaper_set_scene_params: () => undefined,
     greet: () => "hi",
   });
 }
@@ -111,9 +112,26 @@ function mockWallpaperWithDisplay(display: {
     wallpaper_set_visible: () => true,
     wallpaper_set_display: () => undefined,
     wallpaper_set_monitor_scene: () => undefined,
+    wallpaper_set_scene_params: () => undefined,
     greet: () => "hi",
   });
 }
+
+test("editing a scene param persists via wallpaper_set_scene_params", async () => {
+  mockWallpaper(MONITORS, true);
+  render(<Page />);
+
+  const input = await screen.findByLabelText("薄雾浓度");
+  fireEvent.change(input, { target: { value: "0.8" } });
+  fireEvent.blur(input);
+
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("wallpaper_set_scene_params", {
+      scene: "lull.bamboo",
+      params: { mist: "0.8" },
+    });
+  });
+});
 
 test("Page renders in browser mode (no tauri)", () => {
   render(<Page />);

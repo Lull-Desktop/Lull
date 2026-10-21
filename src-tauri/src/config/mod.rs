@@ -84,6 +84,13 @@ pub struct DisplayConfig {
   pub sync: bool,
   #[serde(default = "default_scene")]
   pub scene: String,
+  /// 按场景 id 保存的参数；值统一存字符串，由前端按 Manifest 类型还原。
+  #[serde(
+    default,
+    skip_serializing_if = "BTreeMap::is_empty",
+    rename = "sceneParams"
+  )]
+  pub scene_params: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl Default for DisplayConfig {
@@ -92,6 +99,7 @@ impl Default for DisplayConfig {
       mode: DisplayMode::default(),
       sync: true,
       scene: default_scene(),
+      scene_params: BTreeMap::new(),
     }
   }
 }
@@ -113,6 +121,20 @@ impl DisplayConfig {
     if let Some(s) = scene {
       self.scene = s;
     }
+  }
+
+  /// 覆盖某个场景的参数；空 map 表示恢复默认值（删除该场景的记录）。
+  pub fn set_scene_params(&mut self, scene: &str, params: BTreeMap<String, String>) {
+    if params.is_empty() {
+      self.scene_params.remove(scene);
+    } else {
+      self.scene_params.insert(scene.to_string(), params);
+    }
+  }
+
+  /// 某个场景已保存的参数；没有记录时返回空 map。
+  pub fn params_for_scene(&self, scene: &str) -> BTreeMap<String, String> {
+    self.scene_params.get(scene).cloned().unwrap_or_default()
   }
 }
 
@@ -441,5 +463,41 @@ mod tests {
       loaded.monitors.get(D2).and_then(|m| m.scene.clone()),
       Some("lull.aurora".into())
     );
+  }
+
+  #[test]
+  fn scene_params_roundtrip_and_empty_resets_defaults() {
+    let path = temp_path("scene_params");
+    let mut c = WallpaperConfig::default();
+    assert!(c.display.params_for_scene("lull.bamboo").is_empty());
+    c.display.set_scene_params(
+      "lull.bamboo",
+      BTreeMap::from([("density".to_string(), "0.6".to_string())]),
+    );
+    c.save(&path).unwrap();
+
+    let loaded = WallpaperConfig::load_outcome(&path).config;
+    assert_eq!(
+      loaded.display.params_for_scene("lull.bamboo"),
+      BTreeMap::from([("density".to_string(), "0.6".to_string())])
+    );
+
+    let mut loaded = loaded;
+    loaded
+      .display
+      .set_scene_params("lull.bamboo", BTreeMap::new());
+    assert!(loaded.display.params_for_scene("lull.bamboo").is_empty());
+  }
+
+  #[test]
+  fn scene_params_serialize_as_camel_case() {
+    let mut display = DisplayConfig::default();
+    display.set_scene_params(
+      "lull.bamboo",
+      BTreeMap::from([("density".to_string(), "0.6".to_string())]),
+    );
+    let json = serde_json::to_string(&display).unwrap();
+    assert!(json.contains("\"sceneParams\""));
+    assert!(!json.contains("\"scene_params\""));
   }
 }

@@ -3,8 +3,23 @@
 //! 该协议是 Rust 与 WebView 之间唯一的画面契约；参数必须是纯函数可测的，
 //! 不能依赖窗口或原生状态。
 
+use std::collections::BTreeMap;
+
 use super::topology::{virtual_bounds_from, MonitorInfo};
 use crate::config::{DisplayMode, WallpaperConfig};
+
+fn encode_uri_component(input: &str) -> String {
+  const UNRESERVED: &[u8] = b"-_.~";
+  let mut out = String::with_capacity(input.len());
+  for &byte in input.as_bytes() {
+    if byte.is_ascii_alphanumeric() || UNRESERVED.contains(&byte) {
+      out.push(byte as char);
+    } else {
+      out.push_str(&format!("%{byte:02X}"));
+    }
+  }
+  out
+}
 
 /// 壁纸窗参数哈希。canvas/view 为物理像素桌面坐标，可为负。
 pub(crate) fn wallpaper_hash(
@@ -13,13 +28,14 @@ pub(crate) fn wallpaper_hash(
   scene: &str,
   canvas: (i32, i32, i32, i32),
   view: (i32, i32, i32, i32),
+  params: &BTreeMap<String, String>,
 ) -> String {
   let mode = match mode {
     DisplayMode::Mirror => "mirror",
     DisplayMode::Independent => "independent",
     DisplayMode::Span => "span",
   };
-  format!(
+  let mut hash = format!(
     "#mode={mode}&sync={}&scene={scene}&canvas={},{},{},{}&view={},{},{},{}",
     if sync { 1 } else { 0 },
     canvas.0,
@@ -30,7 +46,14 @@ pub(crate) fn wallpaper_hash(
     view.1,
     view.2,
     view.3,
-  )
+  );
+  if !params.is_empty() {
+    if let Ok(json) = serde_json::to_string(params) {
+      hash.push_str("&params=");
+      hash.push_str(&encode_uri_component(&json));
+    }
+  }
+  hash
 }
 
 /// 某屏壁纸窗的 App 相对 URL（`/#mode=…`）。index 为 native 枚举序（attach 同源）。
@@ -49,6 +72,7 @@ pub(crate) fn monitor_url(
   } else {
     config.display.scene.clone()
   };
+  let params = config.display.params_for_scene(&scene);
   Ok(format!(
     "/{}",
     wallpaper_hash(
@@ -56,7 +80,8 @@ pub(crate) fn monitor_url(
       config.display.sync,
       &scene,
       canvas,
-      (monitor.x, monitor.y, monitor.w, monitor.h)
+      (monitor.x, monitor.y, monitor.w, monitor.h),
+      &params,
     )
   ))
 }
@@ -97,6 +122,7 @@ mod tests {
       "lull.bamboo",
       (-2560, 0, 4480, 1440),
       (0, 0, 1920, 1080),
+      &BTreeMap::new(),
     );
     assert_eq!(
       hash,
@@ -112,6 +138,7 @@ mod tests {
       "lull.aurora",
       (0, 0, 1920, 1080),
       (0, 0, 1920, 1080),
+      &BTreeMap::new(),
     );
     assert_eq!(
       hash,
@@ -123,8 +150,25 @@ mod tests {
       "lull.bamboo",
       (0, 0, 1920, 1080),
       (0, 0, 1920, 1080),
+      &BTreeMap::new(),
     );
     assert!(independent.starts_with("#mode=independent&sync=1&scene=lull.bamboo&"));
+  }
+
+  #[test]
+  fn wallpaper_hash_encodes_scene_params_only_when_non_empty() {
+    let mut params = BTreeMap::new();
+    params.insert("density".to_string(), "0.6".to_string());
+    params.insert("tone".to_string(), "warm".to_string());
+    let hash = wallpaper_hash(
+      DisplayMode::Mirror,
+      true,
+      "lull.bamboo",
+      (0, 0, 1920, 1080),
+      (0, 0, 1920, 1080),
+      &params,
+    );
+    assert!(hash.ends_with("&params=%7B%22density%22%3A%220.6%22%2C%22tone%22%3A%22warm%22%7D"));
   }
 
   #[test]

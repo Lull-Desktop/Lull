@@ -35,7 +35,9 @@ public/content/
       "license": "CC-BY-4.0",
       "capabilities": ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
       "entry": "scenes/mist/index.html",
-      "theme": { "background": "#0a1416", "accent": "#9fc7c2" }
+      "theme": { "background": "#0a1416", "accent": "#9fc7c2" },
+      "performance": { "tier": "low", "targetFps": 30 },
+      "compatibility": { "hostApi": 1, "platforms": ["windows"] }
     }
   ]
 }
@@ -90,7 +92,7 @@ type ContentManifest = {
 | --- | --- |
 | `schemaVersion` | 破坏性格式变更才升；当前 `1`，不支持则拒绝 |
 | 内容 `version` | 独立语义化版本；同一 id 新版本覆盖旧版本 |
-| `hostApi` | 预留：声明兼容的宿主 API 范围 |
+| `compatibility.hostApi` | 场景清单生效：超出当前宿主 API 的场景会被过滤；通用 `ContentManifest.hostApi` 仍为预留 |
 | `dependencies` | 预留：内容包之间依赖，首版不解析 |
 | `id` | 一经发布不要改名；改名视为新内容 |
 

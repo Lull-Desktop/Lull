@@ -1,5 +1,5 @@
 /**
- * 壁纸参数测试：覆盖哈希解析、同步规则、跨屏坐标变换与动画相位计算。
+ * 壁纸参数测试：覆盖哈希解析、同步规则与跨屏坐标变换。
  */
 import { expect, test } from "vitest";
 import {
@@ -8,7 +8,6 @@ import {
   DEFAULT_SCENE_ID,
   parseWallpaperParams,
   resolveSync,
-  syncedDelayMs,
 } from "./params";
 
 test("parses full span hash with negative canvas coords", () => {
@@ -21,6 +20,7 @@ test("parses full span hash with negative canvas coords", () => {
     scene: "lull.bamboo",
     canvas: { x: -2560, y: 0, w: 4480, h: 1440 },
     view: { x: 0, y: 0, w: 1920, h: 1080 },
+    params: {},
   });
   expect(DEFAULT_PARAMS.scene).toBe(DEFAULT_SCENE_ID);
 });
@@ -80,9 +80,15 @@ test("canvasTransform numbers across dpr values and single-screen span", () => {
   });
 });
 
-test("syncedDelayMs is deterministic negative phase", () => {
-  expect(syncedDelayMs(13000, 0)).toBe(0);
-  expect(syncedDelayMs(13000, 1234)).toBe(-1234);
-  expect(syncedDelayMs(13000, 26000)).toBe(0);
-  expect(syncedDelayMs(13000, 26001)).toBe(-1);
+test("parses percent-encoded scene params and ignores non-string values", () => {
+  const params = JSON.stringify({ density: "0.6", enabled: "true", bad: 3 });
+  const p = parseWallpaperParams(
+    `#scene=lull.bamboo&params=${encodeURIComponent(params)}`,
+  );
+  expect(p.params).toEqual({ density: "0.6", enabled: "true" });
+});
+
+test("invalid params payload falls back to empty object", () => {
+  expect(parseWallpaperParams("#params=%7Bbad")?.params).toEqual({});
+  expect(parseWallpaperParams("#params=%5B1%2C2%5D")?.params).toEqual({});
 });

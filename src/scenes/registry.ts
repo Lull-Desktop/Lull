@@ -25,6 +25,20 @@ const BAMBOO_MANIFEST = parseSceneManifest({
   license: "GPL-3.0-or-later",
   capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
   theme: { background: "#07110f", accent: "#a9bf9b" },
+  params: [
+    {
+      key: "mist",
+      type: "number",
+      label: "薄雾浓度",
+      description: "0 为几乎无雾，1 为最浓。",
+      default: 0.5,
+      min: 0,
+      max: 1,
+      step: 0.05,
+    },
+  ],
+  performance: { tier: "low", targetFps: 60 },
+  compatibility: { hostApi: 1, platforms: ["windows"] },
 });
 
 const AURORA_MANIFEST = parseSceneManifest({

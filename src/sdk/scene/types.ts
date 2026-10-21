@@ -7,7 +7,8 @@
  * - 跨屏场景按 `layout === "canvas"` 在共享画布坐标系内绘制。
  */
 import type { ReactNode } from "react";
-import type { SceneManifest } from "./manifest";
+import type { SceneManifest, ScenePerformanceHints } from "./manifest";
+import type { SceneParamValue } from "./params";
 
 /**
  * SDK 自有的矩形类型，避免 Apache-2.0 的 SDK 依赖 GPL 应用代码。
@@ -17,17 +18,44 @@ export type SceneRect = { x: number; y: number; w: number; h: number };
 
 export type SceneLayout = "viewport" | "canvas";
 
+/** 用户配置的显示模式；与 layout 正交。 */
+export type SceneDisplayMode = "mirror" | "independent" | "span";
+
+export type SceneViewport = {
+  /** 当前 WebView 视口 CSS 像素宽。 */
+  w: number;
+  h: number;
+  dpr: number;
+};
+
+export type SceneSync = {
+  /** 宿主是否要求按绝对时间对齐相位。 */
+  enabled: boolean;
+  /** 宿主捕获的绝对时间锚点（毫秒）；enabled=false 时无意义。 */
+  epochMs: number;
+};
+
 export type SceneFrame = {
+  /** 用户配置的显示模式；场景可据此区分 mirror 与 independent。 */
+  mode: SceneDisplayMode;
   /** viewport = 每屏独立视口；canvas = 跨屏共享画布。 */
   layout: SceneLayout;
   /** 动画是否按绝对时间对齐相位。 */
-  sync: boolean;
-  /** 共享画布矩形（物理像素桌面坐标，可为负）；viewport 布局为 null。 */
+  sync: SceneSync;
+  /** 当前 WebView 视口尺寸（CSS 像素）。 */
+  viewport: SceneViewport;
+  /** 共享画布矩形（物理像素桌面坐标，可为负）；仅 span 布局非 null。 */
   canvas: SceneRect | null;
   /** 当前窗口对应的桌面矩形（物理像素）。 */
   view: SceneRect | null;
-  /** 当前窗口的 devicePixelRatio。 */
+  /** 当前窗口的 devicePixelRatio；与 viewport.dpr 相同，保留给既有场景。 */
   dpr: number;
+  /** 按 Manifest 默认值解析后的场景参数。 */
+  params: Readonly<Record<string, SceneParamValue>>;
+  /** 用户是否要求减少动态效果。 */
+  reducedMotion: boolean;
+  /** Manifest 声明的性能提示；宿主未来可据此降级。 */
+  performance: ScenePerformanceHints | null;
 };
 
 export type SceneProps = SceneFrame;

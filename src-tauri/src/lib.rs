@@ -36,6 +36,7 @@ pub fn run() {
       wallpaper::runtime::wallpaper_set_monitor_visible,
       wallpaper::runtime::wallpaper_display_get,
       wallpaper::runtime::wallpaper_set_display,
+      wallpaper::runtime::wallpaper_set_scene_params,
       wallpaper::runtime::wallpaper_set_monitor_scene
     ])
     .setup(|app| {

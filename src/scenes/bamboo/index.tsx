@@ -95,9 +95,16 @@ const STARS = [
   [57, 28],
 ] as const;
 
-export function BambooScene({ layout, sync, canvas }: SceneProps): ReactNode {
+export function BambooScene({
+  layout,
+  sync,
+  canvas,
+  params,
+}: SceneProps): ReactNode {
   const isCanvas = layout === "canvas";
   const { w, h } = canvasSize(canvas);
+  const mist = typeof params.mist === "number" ? params.mist : 0.5;
+  const mistOpacity = 0.35 + mist * 0.65;
   const wordmarkSize = isCanvas ? canvasFont(canvas, 40) : 40;
   const clockSize = isCanvas ? canvasFont(canvas, 88) : 88;
   const subtitleSize = isCanvas ? canvasFont(canvas, 20) : 20;
@@ -138,10 +145,17 @@ export function BambooScene({ layout, sync, canvas }: SceneProps): ReactNode {
       />
 
       {/* 薄雾：按元素自身宽度平移，视口与跨屏画布都不会跑出画面 */}
-      <div className="lull-mist absolute inset-x-[-10%] top-[54%] h-[18%] bg-[linear-gradient(90deg,transparent,rgba(190,214,198,0.14),transparent)] blur-[26px]" />
+      <div
+        className="lull-mist absolute inset-x-[-10%] top-[54%] h-[18%] bg-[linear-gradient(90deg,transparent,rgba(190,214,198,0.14),transparent)] blur-[26px]"
+        style={{ opacity: mistOpacity }}
+      />
       <div
         className="lull-mist absolute inset-x-[-16%] top-[68%] h-[14%] bg-[linear-gradient(90deg,transparent,rgba(160,196,178,0.11),transparent)] blur-[30px]"
-        style={{ animationDuration: "31s", animationDirection: "reverse" }}
+        style={{
+          animationDuration: "31s",
+          animationDirection: "reverse",
+          opacity: mistOpacity,
+        }}
       />
 
       {/* 竹竿与竹叶 */}

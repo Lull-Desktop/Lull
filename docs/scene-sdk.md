@@ -27,13 +27,20 @@
   "license": "CC-BY-4.0",
   "capabilities": [
     "wallpaper.viewport",
-    "wallpaper.canvas",
-    "wallpaper.sync"
+    "wallpaper.canvas"
   ],
   "entry": "scenes/mist/index.html",
   "theme": {
     "background": "#0a1416",
     "accent": "#9fc7c2"
+  },
+  "performance": {
+    "tier": "low",
+    "targetFps": 30
+  },
+  "compatibility": {
+    "hostApi": 1,
+    "platforms": ["windows"]
   }
 }
 ```
@@ -52,36 +59,49 @@
 | `author` | — | 创作者署名 |
 | `theme.background` | — | 首帧防闪背景色（`#RRGGBB`） |
 | `theme.accent` | — | 目录/设置页强调色 |
+| `params` | — | 可选参数声明；每项含 `key/type/label/default`，number 可带 `min/max/step`，enum 必须带 `options`。参数通过 `SceneProps` 传给内置场景；外部静态包无法读取，应省略 |
+| `performance` | — | 性能提示：`tier` 为 `low/medium/high`，可选 `targetFps`（1-240） |
+| `compatibility` | — | 宿主兼容范围：`hostApi` 必填，可选 `maxHostApi` 与 `platforms` |
 
-JSON Schema：[`content/schema/scene.schema.json`](../content/schema/scene.schema.json)。
+未知字段会被拒绝。JSON Schema：[`content/schema/scene.schema.json`](../content/schema/scene.schema.json)。
 
-### 2.1 capabilities
+### 2.1 capabilities 与运行时行为
 
-| 能力 | 含义 |
-| --- | --- |
-| `wallpaper.viewport` | 场景可铺满单屏视口 |
-| `wallpaper.canvas` | 场景支持跨屏共享画布坐标 |
-| `wallpaper.sync` | 场景支持按绝对时间对齐动画相位 |
+| 能力 | 含义 | 宿主行为 |
+| --- | --- | --- |
+| `wallpaper.viewport` | 场景可铺满单屏视口 | mirror/independent 必需；缺失且无法使用画布时该场景不可运行 |
+| `wallpaper.canvas` | 场景支持跨屏共享画布坐标 | span 下缺失时自动降级为 viewport |
+| `wallpaper.sync` | 场景支持按绝对时间对齐动画相位 | 缺失时 `sync.enabled` 恒为 `false`；外部静态包没有 `SceneProps`，声明也不生效 |
 
-首版宿主不会因缺少某个 capability 而拒绝运行；这些字段用于目录展示与未来兼容性判断。
+`compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。
+当前宿主 API 版本是 `SCENE_HOST_API = 1`。
 
 ## 3. 内置场景接口
 
 ```ts
-export type SceneProps = {
+type SceneFrame = {
+  mode: "mirror" | "independent" | "span";
   layout: "viewport" | "canvas";
-  sync: boolean;
-  canvas: Rect | null; // 共享画布（物理像素）
-  view: Rect | null;   // 当前窗口矩形
+  sync: { enabled: boolean; epochMs: number };
+  viewport: { w: number; h: number; dpr: number }; // CSS 像素
+  canvas: Rect | null; // 共享画布（物理像素），仅 span 非 null
+  view: Rect | null;   // 当前显示器矩形（物理像素）
   dpr: number;
+  params: Record<string, string | number | boolean>;
+  reducedMotion: boolean;
+  performance: { tier: "low" | "medium" | "high"; targetFps?: number } | null;
 };
 
+export type SceneProps = SceneFrame;
 export type SceneComponent = (props: SceneProps) => ReactNode;
 ```
 
-- `layout === "viewport"`：组件铺满当前窗口，用 `vw/vh` 或百分比布局。
+- `mode` 是用户配置的显示模式，`layout` 是实际绘制坐标系。mirror 与 independent 都是 `viewport`，但场景可以据此区分行为。
+- `layout === "viewport"`：组件铺满当前窗口，用 `viewport.w/h` 或 `vw/vh` 或百分比布局。
 - `layout === "canvas"`：组件位于「画布尺寸」的容器内，容器已按 `view` 偏移；组件应按 `canvas.w/h` 的比例布局，不要假设窗口大小。
-- `sync`：用 `syncedDelayMs(periodMs, Date.now())` 生成负 `animation-delay`，让所有窗口相位一致。
+- `sync`：只有当场景声明 `wallpaper.sync` 且模式需要同步时才启用。用 `syncedDelayMs(periodMs, sync.epochMs)` 生成负 `animation-delay`，让所有窗口相位一致；不要自己调用 `Date.now()`。
+- `params`：宿主已按 Manifest 类型还原并应用默认值；number 会限制在 `min/max` 内。
+- `reducedMotion`：用户要求减少动态效果时为 `true`，场景应降级为静态或慢速动画。
 - `dpr`：需要把物理像素换算成 CSS 像素时使用；画布容器已经做过一次换算。
 
 参考实现：
@@ -102,6 +122,18 @@ const MY_MANIFEST = parseSceneManifest({
   version: "1.0.0",
   license: "GPL-3.0-or-later",
   capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
+  params: [
+    {
+      key: "density",
+      type: "number",
+      label: "密度",
+      default: 0.5,
+      min: 0,
+      max: 1,
+    },
+  ],
+  performance: { tier: "medium", targetFps: 60 },
+  compatibility: { hostApi: 1, platforms: ["windows"] },
 });
 ```
 
@@ -179,7 +211,13 @@ public/content/
 1. 内置场景（同步可用）；
 2. `public/content/catalog.json` 中的外部场景（异步加载，失败只降级为空列表）。
 
-设置页显示场景名、版本、许可证与来源（内置 / 内容包）。目录加载失败不会影响壁纸运行。
+设置页显示场景名、版本、许可证与来源（内置 / 内容包），并按 Manifest 的 `params` 渲染参数编辑器；参数按场景 id 持久化到配置，修改后热更新壁纸窗。
+
+合并规则：
+
+- 不兼容当前 hostApi / 平台的场景会被过滤；
+- 同 id 时内置场景优先，外部包不能覆盖官方 id；
+- 目录加载失败不会影响壁纸运行。
 
 ## 6. 校验
 
@@ -190,7 +228,10 @@ pnpm content:check
 校验内容：
 
 - catalog schemaVersion / scenes 数组；
-- manifest 必填字段、id/版本格式、capability 白名单；
+- manifest 必填字段、未知字段、id/版本格式、capability 白名单；
+- `params` 的类型、默认值、唯一 key、number 范围与 enum 选项；
+- `performance` 档位与 `targetFps`；
+- `compatibility` 的 hostApi 范围与平台；
 - entry 相对路径安全性与文件存在性；
 - 场景 id 不重复。
 
@@ -200,7 +241,7 @@ Vitest 还会解析随包目录与示例场景，防止文档与实现漂移。
 
 - `schemaVersion` 是破坏性变更开关；新增可选字段不升版本。
 - 宿主读到不支持的版本会拒绝该目录并保留内置场景，不崩溃。
-- 内容包 `version` 独立于 Lull 版本；未来会加入 `hostApi` 兼容范围。
+- 内容包 `version` 独立于 Lull 版本；`compatibility.hostApi` 声明最低宿主 API，`maxHostApi` 声明最高可用版本，`platforms` 声明平台。
 - 场景 id 一经发布不要修改；改名视为新场景。
 
 ## 8. 非目标

@@ -53,6 +53,75 @@
         "background": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
         "accent": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
       }
+    },
+    "params": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/param" }
+    },
+    "performance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier"],
+      "properties": {
+        "tier": { "enum": ["low", "medium", "high"] },
+        "targetFps": { "type": "integer", "minimum": 1, "maximum": 240 }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostApi"],
+      "properties": {
+        "hostApi": { "type": "integer", "minimum": 1 },
+        "maxHostApi": { "type": "integer", "minimum": 1 },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["windows", "macos", "linux"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type", "label", "default"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,31}$"
+        },
+        "type": {
+          "enum": ["number", "boolean", "string", "color", "enum"]
+        },
+        "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 280 },
+        "default": {
+          "oneOf": [
+            { "type": "number" },
+            { "type": "boolean" },
+            { "type": "string" }
+          ]
+        },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "step": { "type": "number", "exclusiveMinimum": 0 },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["value", "label"],
+            "properties": {
+              "value": { "type": "string", "minLength": 1 },
+              "label": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
     }
   }
 }

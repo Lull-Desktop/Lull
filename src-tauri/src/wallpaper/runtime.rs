@@ -3,6 +3,7 @@
 //! 本模块是壁纸子系统的唯一门面；窗口创建/重建在 `windows`，看门狗在
 //! `watchdog`，几何与 ABI 分别在 `topology` / `ffi`。
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -305,6 +306,29 @@ pub async fn wallpaper_set_display(
     config.data.display.apply_patch(mode, sync, scene);
     if let Err(error) = config.data.save(&config.path) {
       config.data.display = old;
+      return Err(format!("保存配置失败: {error}"));
+    }
+  }
+  windows::reapply_display(&app)
+}
+
+/// 覆盖某个场景的参数；空 map = 恢复 Manifest 默认值。写盘失败回滚。
+#[tauri::command]
+pub async fn wallpaper_set_scene_params(
+  app: AppHandle,
+  scene: String,
+  params: BTreeMap<String, String>,
+) -> Result<(), String> {
+  {
+    let mut config = config()?;
+    let old = config.data.display.scene_params.get(&scene).cloned();
+    config.data.display.set_scene_params(&scene, params);
+    if let Err(error) = config.data.save(&config.path) {
+      if let Some(old) = old {
+        config.data.display.scene_params.insert(scene.clone(), old);
+      } else {
+        config.data.display.scene_params.remove(&scene);
+      }
       return Err(format!("保存配置失败: {error}"));
     }
   }

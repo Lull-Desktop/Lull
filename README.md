@@ -122,7 +122,7 @@ scripts/                   # 构建、内容校验、预览、验收编排
 | **C · Community** | `content/schema` + `public/content` + `scripts/validate-content.mjs` | 内容包格式、示例、校验工具；尚未提供在线市场 |
 | **D · Services** | 设计文档 | 内容索引、同步、发布服务；不影响本地核心运行 |
 
-壁纸运行协议：Rust 把 `mode / sync / scene / canvas / view` 编码进窗口 URL 哈希，前端 `SceneHost` 解析后选择内置组件或外部静态包。该协议是前后端唯一画面契约。
+壁纸运行协议：Rust 把 `mode / sync / scene / canvas / view / params` 编码进窗口 URL 哈希，前端 `SceneHost` 按 Manifest 解析默认值、能力与兼容性后选择内置组件或外部静态包。该协议是前后端唯一画面契约。
 
 ## 扩展内容
 
@@ -141,7 +141,7 @@ public/content/
     index.html
 ```
 
-在 `catalog.json` 中登记 manifest（`id`、`version`、`license`、`entry`、`capabilities`），运行：
+在 `catalog.json` 中登记 manifest（`id`、`version`、`license`、`entry`、`capabilities`，可选 `performance`、`compatibility`），运行：
 
 ```powershell
 pnpm content:check

@@ -6,8 +6,13 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { loadContentSceneEntries } from "@/content/catalog";
+import { SCENE_HOST_PLATFORM } from "@/scenes/frame";
 import { builtinCatalogEntries } from "@/scenes/registry";
-import type { SceneCatalogEntry } from "@/sdk/scene";
+import {
+  isSceneCompatible,
+  SCENE_HOST_API,
+  type SceneCatalogEntry,
+} from "@/sdk/scene";
 
 export type SceneCatalogState = {
   entries: SceneCatalogEntry[];
@@ -35,10 +40,18 @@ export function useSceneCatalog(): SceneCatalogState {
     };
   }, []);
 
-  const entries = useMemo(
-    () => [...builtinCatalogEntries(), ...external],
-    [external],
-  );
+  const entries = useMemo(() => {
+    const all = [...builtinCatalogEntries(), ...external].filter((entry) =>
+      isSceneCompatible(entry.manifest, SCENE_HOST_API, SCENE_HOST_PLATFORM),
+    );
+    // 同 id 时内置场景优先，避免外部内容覆盖官方 id。
+    const seen = new Set<string>();
+    return all.filter((entry) => {
+      if (seen.has(entry.manifest.id)) return false;
+      seen.add(entry.manifest.id);
+      return true;
+    });
+  }, [external]);
 
   return { entries, error };
 }

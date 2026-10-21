@@ -1,5 +1,5 @@
 /**
- * 壁纸参数纯函数模块：解析 URL 哈希，并计算显示模式、画布变换与同步动画相位。
+ * 壁纸参数纯函数模块：解析 URL 哈希，并计算显示模式与画布变换。
  */
 
 export type DisplayMode = "mirror" | "independent" | "span";
@@ -12,6 +12,8 @@ export type WallpaperParams = {
   scene: string;
   canvas: Rect | null;
   view: Rect | null;
+  /** 场景参数以字符串形式随哈希传递；SDK 按 Manifest 类型还原。 */
+  params: Record<string, string>;
 };
 
 /**
@@ -26,6 +28,7 @@ export const DEFAULT_PARAMS: WallpaperParams = {
   scene: DEFAULT_SCENE_ID,
   canvas: null,
   view: null,
+  params: {},
 };
 
 const MODES: readonly DisplayMode[] = ["mirror", "independent", "span"];
@@ -53,6 +56,27 @@ function decodeScene(raw: string): string {
   }
 }
 
+function parseParams(raw: string | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(decodeURIComponent(raw));
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return {};
+    }
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === "string") out[key] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 export function parseWallpaperParams(hash: string): WallpaperParams {
   const fields = new Map<string, string>();
   for (const token of hash.replace(/^#/, "").split("&")) {
@@ -76,6 +100,7 @@ export function parseWallpaperParams(hash: string): WallpaperParams {
     scene,
     canvas: parseRect(fields.get("canvas")),
     view: parseRect(fields.get("view")),
+    params: parseParams(fields.get("params")),
   };
 }
 
@@ -107,13 +132,4 @@ export function canvasTransform(
     left: norm(-(view.x - canvas.x) / dpr),
     top: norm(-(view.y - canvas.y) / dpr),
   };
-}
-
-/**
- * 同步锚定：负 animation-delay = 从周期中途起播，所有窗相位一致。
- * 用绝对时间（而非帧累加）——WebView 被遮挡时 Chromium 挂起渲染，帧累加必漂移。
- */
-export function syncedDelayMs(periodMs: number, nowMs: number): number {
-  const phase = nowMs % periodMs;
-  return phase === 0 ? 0 : -phase; // 规范化 -0
 }
