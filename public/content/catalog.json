@@ -18,6 +18,16 @@
       "theme": {
         "background": "#0a1416",
         "accent": "#9fc7c2"
+      },
+      "performance": {
+        "tier": "low",
+        "targetFps": 30
+      },
+      "compatibility": {
+        "hostApi": 1,
+        "platforms": [
+          "windows"
+        ]
       }
     }
   ]

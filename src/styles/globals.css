@@ -505,7 +505,10 @@ html[data-flow-theme] .flow-topbar {
   .lull-breath,
   .lull-mist,
   .lull-sway,
-  .wp-canvas-drift {
+  .wp-canvas-drift,
+  .animate-wp-drift-a,
+  .animate-wp-drift-b,
+  .animate-wp-drift-c {
     animation: none !important;
   }
 }

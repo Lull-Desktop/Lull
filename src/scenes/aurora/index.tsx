@@ -41,6 +41,13 @@ const BANDS = [
   },
 ] as const;
 
+/** 性能档位 → 光带模糊半径；档位越低，GPU 采样成本越小。 */
+const BLUR_BY_TIER = {
+  low: "blur-[36px]",
+  medium: "blur-[60px]",
+  high: "blur-[80px]",
+} as const;
+
 const STARS = [
   [6, 12],
   [13, 22],
@@ -58,8 +65,15 @@ const STARS = [
   [57, 31],
 ] as const;
 
-export function AuroraScene({ layout, sync, canvas }: SceneProps): ReactNode {
+export function AuroraScene({
+  layout,
+  sync,
+  canvas,
+  reducedMotion,
+  performance,
+}: SceneProps): ReactNode {
   const isCanvas = layout === "canvas";
+  const blur = BLUR_BY_TIER[performance?.tier ?? "high"];
   const { w, h } = canvasSize(canvas);
   const wordmarkSize = isCanvas ? canvasFont(canvas, 38) : 38;
   const clockSize = isCanvas ? canvasFont(canvas, 84) : 84;
@@ -82,33 +96,36 @@ export function AuroraScene({ layout, sync, canvas }: SceneProps): ReactNode {
           }}
         />
       ))}
-      {BANDS.map((band) => (
-        <div
-          key={band.id}
-          data-testid={band.id}
-          className={`absolute rounded-full blur-[80px] ${
-            isCanvas ? "wp-canvas-drift" : band.cls
-          }`}
-          style={{
-            opacity: band.opacity,
-            backgroundImage: band.color,
-            ...(isCanvas
-              ? ({
-                  width: w * band.rect.w,
-                  height: h * band.rect.h,
-                  left: w * band.rect.l,
-                  top: h * band.rect.t,
-                  "--wp-from-x": `${w * band.drift.fx}px`,
-                  "--wp-from-y": `${h * band.drift.fy}px`,
-                  "--wp-to-x": `${w * band.drift.tx}px`,
-                  "--wp-to-y": `${h * band.drift.ty}px`,
-                  animationDuration: `${band.durationS}s`,
-                  animationDelay: delay(band.durationS * 1000, sync),
-                } as CSSProperties)
-              : { animationDelay: delay(band.durationS * 1000, sync) }),
-          }}
-        />
-      ))}
+      {BANDS.map((band) => {
+        const motion = isCanvas ? "wp-canvas-drift" : band.cls;
+        return (
+          <div
+            key={band.id}
+            data-testid={band.id}
+            className={`absolute rounded-full ${blur} ${
+              reducedMotion ? "" : motion
+            }`}
+            style={{
+              opacity: band.opacity,
+              backgroundImage: band.color,
+              ...(isCanvas
+                ? ({
+                    width: w * band.rect.w,
+                    height: h * band.rect.h,
+                    left: w * band.rect.l,
+                    top: h * band.rect.t,
+                    "--wp-from-x": `${w * band.drift.fx}px`,
+                    "--wp-from-y": `${h * band.drift.fy}px`,
+                    "--wp-to-x": `${w * band.drift.tx}px`,
+                    "--wp-to-y": `${h * band.drift.ty}px`,
+                    animationDuration: `${band.durationS}s`,
+                    animationDelay: delay(band.durationS * 1000, sync),
+                  } as CSSProperties)
+                : { animationDelay: delay(band.durationS * 1000, sync) }),
+            }}
+          />
+        );
+      })}
       {/* 地平线雾光：让光带落回“夜空”而不是悬空 */}
       <div className="absolute inset-x-0 bottom-0 h-[26%] bg-[linear-gradient(0deg,rgba(6,14,22,0.85),transparent)]" />
 

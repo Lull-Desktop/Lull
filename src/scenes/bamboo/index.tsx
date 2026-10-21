@@ -147,11 +147,15 @@ export function BambooScene({
       {/* 薄雾：按元素自身宽度平移，视口与跨屏画布都不会跑出画面 */}
       <div
         className="lull-mist absolute inset-x-[-10%] top-[54%] h-[18%] bg-[linear-gradient(90deg,transparent,rgba(190,214,198,0.14),transparent)] blur-[26px]"
-        style={{ opacity: mistOpacity }}
+        style={{
+          animationDelay: delay(24000, sync),
+          opacity: mistOpacity,
+        }}
       />
       <div
         className="lull-mist absolute inset-x-[-16%] top-[68%] h-[14%] bg-[linear-gradient(90deg,transparent,rgba(160,196,178,0.11),transparent)] blur-[30px]"
         style={{
+          animationDelay: delay(31000, sync),
           animationDuration: "31s",
           animationDirection: "reverse",
           opacity: mistOpacity,
@@ -171,7 +175,8 @@ export function BambooScene({
             opacity: stalk.opacity,
             backgroundImage: `linear-gradient(90deg, ${stalk.hue}00, ${stalk.hue} 32%, #b7c9a8 50%, ${stalk.hue} 68%, ${stalk.hue}00)`,
             animationDuration: `${stalk.duration}s`,
-            animationDelay: `${stalk.delay}s`,
+            animationDelay:
+              delay(stalk.duration * 1000, sync) ?? `${stalk.delay}s`,
           }}
         >
           {[18, 38, 62, 82].map((top, leafIndex) => (

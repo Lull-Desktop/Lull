@@ -63,6 +63,7 @@ scenes/<name>/
 - 只允许 HTML / CSS；iframe 空 `sandbox`，JavaScript 不执行；
 - 所有资源使用相对路径；不加载远程脚本、字体或音频；
 - 不访问 `window.parent`、Tauri API 或宿主存储；
+- 不声明 `wallpaper.sync`：静态包拿不到相位锚点，跨屏（mirror / independent）时各窗口各自播放，相位不保证一致；需要严格跨屏同步请实现内置场景；
 - 不依赖构建期工具；一个静态服务器能跑即可。
 
 ### 3.2 主题 / 声景 / 布局（预留）

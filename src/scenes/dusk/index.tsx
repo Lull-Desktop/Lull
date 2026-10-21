@@ -44,6 +44,7 @@ export function DuskScene({ layout, sync, canvas }: SceneProps): ReactNode {
             width: cloud.width,
             opacity: cloud.opacity,
             animationDuration: `${cloud.duration}s`,
+            animationDelay: delay(cloud.duration * 1000, sync),
           }}
         />
       ))}

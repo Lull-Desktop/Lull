@@ -19,7 +19,7 @@ const BAMBOO_MANIFEST = parseSceneManifest({
   type: "scene",
   id: "lull.bamboo",
   name: "竹影",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "深夜竹林、薄雾与远山，Lull 的默认场景。",
   author: "Lull",
   license: "GPL-3.0-or-later",
@@ -52,6 +52,8 @@ const AURORA_MANIFEST = parseSceneManifest({
   license: "GPL-3.0-or-later",
   capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
   theme: { background: "#07131f", accent: "#8fe4ff" },
+  performance: { tier: "medium", targetFps: 30 },
+  compatibility: { hostApi: 1, platforms: ["windows"] },
 });
 
 const DUSK_MANIFEST = parseSceneManifest({
@@ -65,6 +67,8 @@ const DUSK_MANIFEST = parseSceneManifest({
   license: "GPL-3.0-or-later",
   capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
   theme: { background: "#1b1520", accent: "#e0ad83" },
+  performance: { tier: "low", targetFps: 30 },
+  compatibility: { hostApi: 1, platforms: ["windows"] },
 });
 
 export { DEFAULT_SCENE_ID };
