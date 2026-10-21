@@ -1,0 +1,601 @@
+/* 全局样式入口：加载字体与 Tailwind，并定义花笺主题令牌、基础样式和壁纸动画。 */
+@import "tailwindcss";
+
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("../assets/fonts/HarmonyOS_Sans_SC.ttf") format("truetype");
+  font-weight: 40 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Han Serif SC";
+  src: url("../assets/fonts/SourceHanSerifSC-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme inline {
+  --font-sans:
+    "HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono:
+    "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Consolas,
+    "Liberation Mono", monospace;
+  --font-serif:
+    "Source Han Serif SC", "Songti SC", "Noto Serif CJK SC", "STSong", "SimSun",
+    serif;
+  --font-display:
+    "HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-body:
+    "HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+
+  --color-paper: var(--paper);
+  --color-paper-warm: var(--paper-warm);
+  --color-paper-deep: var(--paper-deep);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-ghost: var(--ink-ghost);
+  --color-bamboo: var(--bamboo);
+  --color-bamboo-light: var(--bamboo-light);
+  --color-bamboo-mist: var(--bamboo-mist);
+  --color-bamboo-glow: var(--bamboo-glow);
+  --color-stone: var(--stone);
+  --color-cloud: var(--cloud);
+
+  /* shadcn 语义色映射 —— 组件库（switch/button/sheet 等）用的 bg-primary /
+     bg-input / text-muted-foreground 等类名要经 --color-* 才会被 Tailwind v4
+     生成；缺失时这些工具类整体不存在，组件"只占布局、不绘制"（实测踩过：
+     开关在真机上不可见）。--* 是 HSL 三元组，包一层 hsl()。 */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: var(--flow-primary, hsl(var(--primary)));
+  --color-primary-foreground: var(
+    --flow-primary-foreground,
+    hsl(var(--primary-foreground))
+  );
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: var(--flow-accent-surface, hsl(var(--accent)));
+  --color-accent-foreground: var(
+    --flow-accent-ink,
+    hsl(var(--accent-foreground))
+  );
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: var(--flow-ring, hsl(var(--ring)));
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --radius-window: 14px;
+
+  --shadow-paper: 0 1px 8px var(--shadow-color);
+  --shadow-paper-hover: 0 6px 24px var(--shadow-hover-color);
+
+  --animate-wp-drift-a: wp-drift-a 13s ease-in-out infinite alternate;
+  --animate-wp-drift-b: wp-drift-b 17s ease-in-out infinite alternate;
+  --animate-wp-drift-c: wp-drift-c 11s ease-in-out infinite alternate;
+}
+
+@layer base {
+  :root {
+    --paper: #f6f3ec;
+    --paper-warm: #f0ebe0;
+    --paper-deep: #e8e1d3;
+    --ink: #1a1a18;
+    --ink-soft: #3d3d38;
+    --ink-faint: #8a8a80;
+    --ink-ghost: #b8b8ae;
+    --bamboo: #2d5a3d;
+    --bamboo-light: #3a7a52;
+    --bamboo-mist: #e8f0eb;
+    --bamboo-glow: #d4e8da;
+    --stone: #6b6b62;
+    --cloud: #ffffff;
+    --shadow-color: rgba(26, 26, 24, 0.04);
+    --shadow-hover-color: rgba(26, 26, 24, 0.07);
+
+    --background: 42 36% 95%;
+    --foreground: 60 4% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 60 4% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 60 4% 10%;
+    --primary: 142 33% 26%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 38 35% 91%;
+    --secondary-foreground: 60 4% 10%;
+    --muted: 38 31% 87%;
+    --muted-foreground: 60 4% 40%;
+    --accent: 143 22% 93%;
+    --accent-foreground: 142 33% 26%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 38 31% 87%;
+    --input: 38 31% 87%;
+    --ring: 142 33% 26%;
+    --radius: 0.5rem;
+    --chart-1: 142 33% 26%;
+    --chart-2: 143 36% 35%;
+    --chart-3: 38 35% 91%;
+    --chart-4: 60 4% 40%;
+    --chart-5: 143 22% 93%;
+  }
+
+  .dark {
+    --paper: #222120;
+    --paper-warm: #2c2a27;
+    --paper-deep: #3c3935;
+    --ink: #e5e1da;
+    --ink-soft: #b5b1a8;
+    --ink-faint: #928f87;
+    --ink-ghost: #706d67;
+    --bamboo: #4faa70;
+    --bamboo-light: #5fc085;
+    --bamboo-mist: #1c2e22;
+    --bamboo-glow: #243a2c;
+    --stone: #8a8880;
+    --cloud: #1a1917;
+    --shadow-color: rgba(0, 0, 0, 0.3);
+    --shadow-hover-color: rgba(0, 0, 0, 0.5);
+
+    --background: 40 3% 13%;
+    --foreground: 38 17% 88%;
+    --card: 40 6% 10%;
+    --card-foreground: 38 17% 88%;
+    --popover: 40 6% 10%;
+    --popover-foreground: 38 17% 88%;
+    --primary: 143 38% 49%;
+    --primary-foreground: 142 33% 10%;
+    --secondary: 36 6% 16%;
+    --secondary-foreground: 38 17% 88%;
+    --muted: 34 6% 22%;
+    --muted-foreground: 48 4% 52%;
+    --accent: 140 24% 15%;
+    --accent-foreground: 143 38% 49%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 34 6% 22%;
+    --input: 34 6% 22%;
+    --ring: 143 38% 49%;
+    --chart-1: 143 38% 49%;
+    --chart-2: 143 36% 40%;
+    --chart-3: 34 6% 22%;
+    --chart-4: 48 4% 52%;
+    --chart-5: 140 24% 15%;
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-ghost) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 4px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--ink-ghost);
+    border-radius: 2px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--ink-faint);
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 透明沉浸式浮窗（播放器 / 番茄钟 / 白噪音）：Tauri 窗口本身 transparent，
+     这里把 WebView 页面也变透明，让桌面 / 壁纸从玻璃件之间透出来。
+     三个工具窗共用同一个根类名，类名只在该路由挂载期间存在。 */
+  html.lull-transparent-window,
+  html.lull-transparent-window body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden !important;
+    overscroll-behavior: none;
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  html.lull-transparent-window::-webkit-scrollbar,
+  html.lull-transparent-window body::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 白噪音 / 液态番茄钟 / 液态黑胶播放器：透明沉浸式浮窗的 reduced-motion 兜底。
+     CSS Module 里不能用裸 `*` 选择器（Turbopack 会判为不纯），
+     所以把通配动画/过渡关闭放在全局样式里，按根节点类名限定作用域。 */
+  @media (prefers-reduced-motion: reduce) {
+    .liquid-pomodoro-root *,
+    .liquid-pomodoro-root *::before,
+    .liquid-pomodoro-root *::after,
+    .ether-bubbles-root *,
+    .ether-bubbles-root *::before,
+    .ether-bubbles-root *::after,
+    .liquid-player-root *,
+    .liquid-player-root *::before,
+    .liquid-player-root *::after {
+      animation: none !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* 原生交互收敛：应用界面不允许文本选择（Ctrl+A 全选 / 鼠标框选），
+     也不允许拖动图片、链接或 SVG。输入类控件保留选择能力。 */
+  html,
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  img,
+  svg,
+  a {
+    -webkit-user-drag: none;
+  }
+}
+
+/* ── 主题流光：全局皮肤令牌 ─────────────────────────────────────
+   设置窗口把选择写入 localStorage，React hook 在 <html> 上写入
+   --flow-* 变量并挂 data-flow-theme。这里把流光色接到既有的花笺
+   token 上：--bamboo / --primary / --ring 跟随主题，纸色底保持不变。
+   缺省值对应 src/lib/flow-theme.ts 的蓝/金，JS 未运行时也能正常渲染。 */
+:root {
+  --flow-a: #ffe0a0;
+  --flow-b: #8fe4ff;
+  --flow-c: #b8a4ff;
+  --flow-accent-light: #2f7c93;
+  --flow-accent-dark: #8fe4ff;
+  --flow-on-accent-light: #ffffff;
+  --flow-on-accent-dark: #062126;
+}
+
+html[data-flow-theme] {
+  --flow-accent: var(--flow-accent-light);
+  --flow-on-accent: var(--flow-on-accent-light);
+  --flow-primary: var(--flow-accent);
+  --flow-primary-foreground: var(--flow-on-accent);
+  --flow-ring: var(--flow-accent);
+  --flow-accent-surface: var(--bamboo-mist);
+  --flow-accent-ink: var(--bamboo);
+  --bamboo: var(--flow-accent);
+  --bamboo-light: color-mix(in srgb, var(--flow-accent) 82%, black);
+  --bamboo-mist: color-mix(in srgb, var(--flow-accent) 12%, var(--paper));
+  --bamboo-glow: color-mix(in srgb, var(--flow-accent) 24%, var(--paper));
+}
+
+html.dark[data-flow-theme] {
+  --flow-accent: var(--flow-accent-dark);
+  --flow-on-accent: var(--flow-on-accent-dark);
+  /* 深色模式的主按钮前景是深色，hover 要提亮而不是压暗。 */
+  --bamboo-light: color-mix(in srgb, var(--flow-accent) 76%, white);
+}
+
+/* 顶栏沿水平方向扫过一层极淡的流光；颜色仍以纸色为主。 */
+html[data-flow-theme] .flow-topbar {
+  border-bottom-color: color-mix(
+    in srgb,
+    var(--flow-accent) 18%,
+    var(--paper-deep)
+  );
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--flow-b) 9%, transparent),
+    transparent 42%,
+    color-mix(in srgb, var(--flow-a) 8%, transparent)
+  );
+}
+
+/* 设置页色板：五颗玻璃珠复用白噪音的流光渐变。 */
+.flow-theme-swatch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background:
+    radial-gradient(
+      circle at 34% 28%,
+      rgba(255, 255, 255, 0.52),
+      transparent 30%
+    ),
+    linear-gradient(135deg, var(--dot-a), var(--dot-b));
+  box-shadow:
+    inset -2px -2px 4px rgba(0, 8, 5, 0.28),
+    0 0 8px color-mix(in srgb, var(--dot-a) 38%, transparent);
+}
+
+/* ── Floral Animations ── */
+:root {
+  --ease-floral: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes shimmer {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+@keyframes float-gentle {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(0.3deg);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes window-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes window-exit {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+/* 视口布局的漂移保持“原地呼吸”：首帧必须可见，不能从屏幕外飞入。 */
+@keyframes wp-drift-a {
+  from {
+    transform: translate(-4vw, -3vh);
+  }
+  to {
+    transform: translate(4vw, 3vh);
+  }
+}
+@keyframes wp-drift-b {
+  from {
+    transform: translate(4vw, 3vh);
+  }
+  to {
+    transform: translate(-4vw, -3vh);
+  }
+}
+@keyframes wp-drift-c {
+  from {
+    transform: translate(3vw, -2vh);
+  }
+  to {
+    transform: translate(-3vw, 2vh);
+  }
+}
+/* 跨屏（画布布局）漂移：位移值经 CSS 变量注入（画布物理像素），窗口自身 vw/vh 不适用。 */
+@keyframes wp-canvas-drift {
+  from {
+    transform: translate(var(--wp-from-x, 0px), var(--wp-from-y, 0px));
+  }
+  to {
+    transform: translate(var(--wp-to-x, 0px), var(--wp-to-y, 0px));
+  }
+}
+.wp-canvas-drift {
+  animation: wp-canvas-drift 13s ease-in-out infinite alternate;
+}
+
+/* —— Lull 场景动效（壁纸层专用，不依赖 vw/vh，跨屏画布同样成立）—— */
+@keyframes lull-breath {
+  0%,
+  100% {
+    opacity: 0.78;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.035);
+  }
+}
+
+.lull-breath {
+  animation: lull-breath 9s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes lull-mist {
+  0% {
+    transform: translate3d(-4%, 0, 0);
+    opacity: 0.65;
+  }
+  50% {
+    transform: translate3d(4%, 0, 0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(-4%, 0, 0);
+    opacity: 0.65;
+  }
+}
+
+.lull-mist {
+  animation: lull-mist 24s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes lull-sway {
+  0%,
+  100% {
+    transform: rotate(-0.7deg);
+  }
+  50% {
+    transform: rotate(0.7deg);
+  }
+}
+
+.lull-sway {
+  animation: lull-sway 10s ease-in-out infinite;
+  transform-origin: bottom center;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lull-breath,
+  .lull-mist,
+  .lull-sway,
+  .wp-canvas-drift {
+    animation: none !important;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.55s var(--ease-floral) forwards;
+}
+.animate-scale-in {
+  animation: scale-in 0.45s var(--ease-floral) forwards;
+}
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+.animate-float {
+  animation: float-gentle 4s ease-in-out infinite;
+}
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out forwards;
+}
+.animate-window-enter {
+  animation: window-enter 0.18s var(--ease-floral) both;
+}
+.animate-window-exit {
+  animation: window-exit 0.12s var(--ease-floral) forwards;
+  pointer-events: none;
+}
+
+/* ── Noise Texture ── */
+.noise-bg {
+  position: relative;
+  isolation: isolate;
+}
+.noise-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: -1;
+}
+
+/* ── Theme Transition ── */
+html.theme-transition,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition:
+    color 0.35s ease,
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    box-shadow 0.35s ease,
+    fill 0.35s ease,
+    stroke 0.35s ease !important;
+  transition-delay: 0s !important;
+}
+
+/* ── Surface Frame ── */
+.app-surface-frame {
+  border-radius: var(--radius-window);
+}
+
+/* 无边框窗口的内描边：系统标题栏关闭后，仍有一条纸色细边区分窗口边界。
+   用 inset 阴影而非 border，避免把客户区挤出 1px 产生滚动条。 */
+.window-frame {
+  box-shadow: inset 0 0 0 1px var(--paper-deep);
+}
+
+/* 纸色窗口的外框与卡片：只加一层很薄的流光边，不破坏纸感。
+   放在基础规则之后，保证同一元素上的低特异性规则先声明、高特异性覆盖后声明。 */
+html[data-flow-theme] .window-frame {
+  box-shadow:
+    inset 0 0 0 1px
+    color-mix(in srgb, var(--flow-accent) 20%, var(--paper-deep)),
+    inset 0 1px 0 color-mix(in srgb, var(--flow-b) 14%, transparent);
+}
+
+html[data-flow-theme] .app-surface-frame {
+  border-color: color-mix(in srgb, var(--flow-accent) 16%, var(--paper-deep));
+  box-shadow:
+    0 1px 8px var(--shadow-color),
+    0 0 0 1px color-mix(in srgb, var(--flow-b) 5%, transparent);
+}
+
+/* ── Utility: hide scrollbar ── */
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

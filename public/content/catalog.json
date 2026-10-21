@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "community.mist",
+      "name": "雾岚",
+      "version": "1.0.0",
+      "description": "社区示例：纯静态 HTML/CSS 场景包（不执行 JavaScript），不修改核心代码即可被发现和运行。",
+      "author": "Lull Community",
+      "license": "MIT",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.canvas"
+      ],
+      "entry": "scenes/mist/index.html",
+      "theme": {
+        "background": "#0a1416",
+        "accent": "#9fc7c2"
+      }
+    }
+  ]
+}

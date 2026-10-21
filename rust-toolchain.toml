@@ -1,0 +1,6 @@
+[toolchain]
+# Lull 的原生宿主与 Tauri 构建链依赖 MSVC ABI；显式固定，避免 GNU 工具链
+# 在链接 lull_native.dll 时要求 dlltool。
+channel = "stable-x86_64-pc-windows-msvc"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

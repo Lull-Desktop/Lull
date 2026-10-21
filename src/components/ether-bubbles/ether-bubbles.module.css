@@ -1,0 +1,1715 @@
+/* EtherBubbles 沉浸式声景界面：玻璃、液体与微交互全部由 CSS / SVG 绘制，背景完全透明。 */
+
+.root {
+  --ether-pulse: 0;
+  --stage-pad: clamp(18px, 4vw, 34px);
+  --ease-ether: cubic-bezier(0.22, 1, 0.36, 1);
+  /* --flow-a/b/c 来自全局「主题流光」，由 <html> 的内联变量继承进来；
+     设置窗口统一切换，这里不再维护第二份配色表。 */
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  height: auto;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+  color: #edf7f3;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── 顶部品牌 / 拖拽与窗口控制 ─────────────────────────────────── */
+
+.dockTop {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  width: max-content;
+  height: 32px;
+  padding: 0 6px 0 9px;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  margin-bottom: 5px;
+  margin-left: calc(
+    (100% - var(--rail-width)) *
+    var(--rail-offset) +
+    var(--rail-width) /
+    2
+  );
+  border: 1px solid
+    color-mix(in srgb, var(--flow-b) 18%, rgba(200, 231, 255, 0.16));
+  border-radius: 999px;
+  background:
+    radial-gradient(
+      circle at 28% 16%,
+      rgba(255, 255, 255, 0.11),
+      transparent 54%
+    ),
+    rgba(5, 16, 13, 0.52);
+  box-shadow:
+    0 4px 10px rgba(0, 5, 3, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  opacity: 0.3;
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px) saturate(122%);
+  transition: opacity 0.25s ease;
+}
+
+.dockTop:hover,
+.dockTop:focus-within {
+  opacity: 1;
+}
+
+.root[data-side="left"] .dockTop {
+  margin-left: calc(
+    (100% - var(--rail-width)) *
+    0.3691 +
+    var(--rail-width) /
+    2
+  );
+}
+
+/* 与播放器顶栏同一组成：拖拽点阵 + 双行品牌 + 分隔线 + 圆形窗口按钮。 */
+.dockDragHandle {
+  display: flex;
+  height: 100%;
+  padding-right: 1px;
+  align-items: center;
+  gap: 7px;
+  color: rgba(224, 242, 255, 0.66);
+  cursor: grab;
+}
+
+.dockDragHandle:active {
+  cursor: grabbing;
+}
+
+.dockGrip {
+  display: grid;
+  grid-template-columns: repeat(2, 2px);
+  grid-auto-rows: 2px;
+  gap: 2px;
+  opacity: 0.56;
+}
+
+.dockGrip i {
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dockControls {
+  display: flex;
+  gap: 4px;
+}
+
+.dockButton {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid
+    color-mix(in srgb, var(--flow-b) 14%, rgba(201, 231, 255, 0.16));
+  border-radius: 50%;
+  color: rgba(238, 249, 255, 0.82);
+  background: rgba(6, 18, 13, 0.36);
+  box-shadow: 0 2px 6px rgba(0, 5, 3, 0.28);
+  cursor: pointer;
+  transition:
+    color 0.25s ease,
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+
+.dockButton:hover {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--flow-b) 42%, transparent);
+  background: color-mix(in srgb, var(--flow-b) 14%, rgba(8, 22, 16, 0.42));
+}
+
+.dockButton svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 1.5;
+}
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  border: 1px solid rgba(211, 242, 231, 0.16);
+  border-radius: 999px;
+  background: rgba(9, 22, 16, 0.4);
+  color: rgba(222, 245, 236, 0.68);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  transition:
+    color 0.4s ease,
+    border-color 0.4s ease,
+    background 0.3s ease;
+}
+
+.statusPill svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 1.4;
+  transition:
+    color 0.4s ease,
+    filter 0.4s ease;
+}
+
+.statusPill:hover {
+  border-color: rgba(211, 242, 231, 0.2);
+  background: rgba(9, 22, 16, 0.34);
+}
+
+.statusPill[data-live="true"] {
+  border-color: color-mix(in srgb, var(--flow-b) 24%, transparent);
+  color: rgba(207, 245, 231, 0.7);
+}
+
+.statusPill[data-live="true"] svg {
+  color: var(--flow-b);
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--flow-b) 68%, transparent)
+  );
+}
+
+.statusPill[aria-pressed="true"] {
+  border-color: rgba(255, 222, 174, 0.24);
+  color: rgba(255, 231, 194, 0.74);
+}
+
+.statusPill[aria-pressed="true"] svg {
+  color: rgba(255, 221, 170, 0.76);
+}
+
+/* ── 舞台与玻璃舱 ─────────────────────────────────────────────── */
+
+.stage {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  padding: 0 var(--stage-pad) 8px;
+}
+
+.ribbonAnchor {
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.root[data-side="left"] .ribbonAnchor {
+  justify-content: flex-start;
+}
+
+.ribbonGroup {
+  --child-size: 50px;
+  --mother-size: 68px;
+  --rail-width: 90px;
+  --row-gap: 5px;
+  --rail-offset: 0.6327;
+  position: relative;
+  display: flex;
+  width: min(530px, 100%);
+  flex-direction: column;
+  gap: var(--row-gap);
+  padding: 3px 0;
+  transform-origin: center;
+}
+
+.rail {
+  position: absolute;
+  z-index: 0;
+  top: 40px;
+  bottom: 0;
+  left: calc((100% - var(--rail-width)) * var(--rail-offset));
+  width: var(--rail-width);
+  overflow: hidden;
+  border: 1px solid rgba(222, 250, 240, 0.16);
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(230, 250, 242, 0.18),
+      rgba(128, 164, 146, 0.12) 26%,
+      rgba(30, 54, 42, 0.24) 68%,
+      rgba(198, 228, 211, 0.12)
+    ),
+    rgba(22, 44, 33, 0.22);
+  box-shadow:
+    inset 1px 1px 1px rgba(247, 255, 251, 0.22),
+    inset -2px -4px 16px rgba(0, 8, 5, 0.38),
+    inset 0 0 34px rgba(188, 227, 209, 0.055),
+    0 2px 5px rgba(0, 8, 5, 0.32),
+    0 0 4px rgba(0, 9, 6, 0.22);
+  backdrop-filter: blur(26px) saturate(155%);
+}
+
+.railShine {
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  background:
+    radial-gradient(
+      ellipse 80% 12% at 45% 1%,
+      rgba(255, 255, 255, 0.24),
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse 40% 28% at 18% 9%,
+      rgba(245, 255, 251, 0.12),
+      transparent 76%
+    ),
+    radial-gradient(
+      ellipse 70% 20% at 72% 99%,
+      rgba(194, 226, 211, 0.07),
+      transparent 78%
+    );
+  pointer-events: none;
+}
+
+.railThread {
+  position: absolute;
+  top: 9%;
+  bottom: 8%;
+  left: 50%;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(225, 251, 240, 0.11) 22%,
+    rgba(225, 251, 240, 0.05) 70%,
+    transparent
+  );
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.soundRow {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.71fr) var(--rail-width)
+    minmax(0, 1fr);
+  align-items: center;
+  min-height: var(--child-size);
+}
+
+/* 右停靠时标题在左，左停靠时整套标签翻到轨道右侧。 */
+.rowLabel {
+  grid-row: 1;
+  grid-column: 1;
+}
+.rowBubble {
+  grid-row: 1;
+  grid-column: 2;
+}
+.rowSpacer {
+  grid-row: 1;
+  grid-column: 3;
+}
+
+.root[data-side="left"] .soundRow {
+  grid-template-columns:
+    minmax(0, 1fr) var(--rail-width)
+    minmax(0, 1.71fr);
+}
+
+.root[data-side="left"] .rowLabel {
+  grid-column: 3;
+  justify-self: start;
+  padding-right: 0;
+  padding-left: 20px;
+  text-align: left;
+}
+
+.root[data-side="left"] .rowBubble {
+  grid-column: 2;
+}
+
+.root[data-side="left"] .rowSpacer {
+  grid-column: 1;
+}
+
+.root[data-side="left"] .rail {
+  left: calc((100% - var(--rail-width)) * 0.3691);
+}
+
+.masterRow {
+  min-height: var(--mother-size);
+}
+
+.rowLabel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-self: end;
+  gap: 3px;
+  padding-right: 12px;
+  text-align: right;
+  transition: opacity 0.7s ease;
+}
+
+.glyphTitle {
+  color: rgba(239, 250, 245, 0.82);
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-shadow:
+    0 1px 3px rgba(0, 5, 3, 0.62),
+    0 1px 18px rgba(3, 12, 8, 0.5);
+}
+
+.rowMeta {
+  overflow: hidden;
+  color: rgba(213, 238, 229, 0.42);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 8px rgba(0, 5, 3, 0.62);
+}
+
+.rowBubble {
+  display: flex;
+  justify-self: center;
+}
+
+.rowSpacer {
+  min-width: 0;
+}
+
+.soundRow[data-active="false"] .rowLabel {
+  opacity: 0.42;
+}
+
+.root[data-muted="true"] .masterRow .rowLabel {
+  opacity: 0.5;
+}
+
+/* ── 子泡 ─────────────────────────────────────────────────────── */
+
+.bubbleShell {
+  position: relative;
+  display: grid;
+  width: var(--child-size);
+  height: var(--child-size);
+  place-items: center;
+  transition: transform 0.5s var(--ease-ether);
+}
+
+.bubbleAura {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--tone) 32%, transparent),
+    transparent 64%
+  );
+  filter: blur(5px);
+  opacity: 0.2;
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s var(--ease-ether);
+  pointer-events: none;
+}
+
+.bubbleShell[data-active="true"] .bubbleAura {
+  opacity: 0.72;
+  animation: auraBreathe 6.5s ease-in-out infinite;
+}
+
+.bubbleShell[data-dragging="true"] .bubbleAura {
+  opacity: 1;
+  transform: scale(1.12);
+}
+
+.volumeRing {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.ringTrack {
+  fill: none;
+  stroke: rgba(224, 249, 240, 0.09);
+  stroke-width: 1;
+}
+
+.ringProgress {
+  fill: none;
+  stroke: var(--tone);
+  stroke-linecap: round;
+  stroke-width: 1.5;
+  opacity: 0.74;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--tone) 72%, transparent));
+  transition:
+    stroke-dasharray 0.32s var(--ease-ether),
+    opacity 0.4s ease;
+}
+
+.bubbleShell[data-dragging="true"] .ringTrack {
+  stroke: rgba(233, 255, 246, 0.17);
+}
+
+.bubbleShell[data-dragging="true"] .ringProgress {
+  opacity: 1;
+}
+
+.bubbleButton {
+  width: calc(100% - 10px);
+  height: calc(100% - 10px);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bubbleButton:focus-visible {
+  outline: 1px solid rgba(213, 250, 236, 0.68);
+  outline-offset: 7px;
+}
+
+.sphere {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(223, 250, 240, 0.18);
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 33% 24%,
+      rgba(255, 255, 255, 0.14),
+      transparent 29%
+    ),
+    radial-gradient(
+      circle at 63% 70%,
+      rgba(120, 154, 143, 0.1),
+      transparent 50%
+    ),
+    rgba(7, 18, 13, 0.2);
+  box-shadow:
+    inset 1px 2px 3px rgba(255, 255, 255, 0.15),
+    inset -4px -6px 14px rgba(0, 7, 4, 0.4),
+    inset 0 0 18px rgba(0, 7, 4, 0.26),
+    0 2px 5px rgba(0, 7, 4, 0.22);
+  transition:
+    transform 0.55s var(--ease-ether),
+    filter 0.6s ease,
+    opacity 0.6s ease;
+  transform: scale(calc(1 + var(--ether-pulse) * 0.014));
+}
+
+.bubbleShell[data-active="true"] .sphere {
+  border-color: color-mix(in srgb, var(--tone) 42%, rgba(255, 255, 255, 0.2));
+  box-shadow:
+    inset 1px 2px 4px rgba(255, 255, 255, 0.22),
+    inset -4px -7px 16px rgba(0, 7, 4, 0.38),
+    inset 0 0 22px color-mix(in srgb, var(--tone) 18%, transparent),
+    0 0 5px color-mix(in srgb, var(--tone) 25%, transparent),
+    0 2px 5px rgba(0, 7, 4, 0.28);
+}
+
+.liquid {
+  position: absolute;
+  z-index: 1;
+  right: 2px;
+  bottom: 2px;
+  left: 2px;
+  height: var(--fill);
+  max-height: calc(100% - 4px);
+  border-radius: 0 0 50% 50% / 0 0 10% 10%;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--tone) 48%, #04110d) 0%,
+    color-mix(in srgb, var(--tone) 72%, transparent) 48%,
+    color-mix(in srgb, var(--tone) 92%, white) 100%
+  );
+  box-shadow:
+    inset 0 7px 14px color-mix(in srgb, var(--tone) 48%, transparent),
+    0 0 5px color-mix(in srgb, var(--tone) 55%, transparent);
+  opacity: 0.88;
+  filter: saturate(1.08)
+    drop-shadow(0 0 5px color-mix(in srgb, var(--tone) 40%, transparent));
+  transition:
+    height 0.52s var(--ease-ether),
+    opacity 0.55s ease;
+}
+
+.bubbleShell[data-active="false"] .liquid {
+  opacity: 0;
+}
+
+/* 熄灭的泡泡保持「空心薄玻璃」：去掉彩色底光，只留下极淡的白色边缘反光。 */
+.bubbleShell[data-active="false"] .sphere {
+  border-color: rgba(219, 243, 234, 0.12);
+  box-shadow:
+    inset 1px 2px 3px rgba(255, 255, 255, 0.09),
+    inset -4px -6px 14px rgba(0, 7, 4, 0.3),
+    inset 0 0 14px rgba(0, 7, 4, 0.2),
+    0 2px 5px rgba(0, 7, 4, 0.16);
+}
+
+.bubbleShell[data-active="false"] .bubbleAura {
+  opacity: 0.05;
+}
+
+/* 100% 满溢：外缘浮出一圈极细的虹彩折射。 */
+.bubbleShell[data-full="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 8;
+  border-radius: 50%;
+  padding: 1px;
+  background: conic-gradient(
+    from 12deg,
+    #ffb7dc,
+    #9ce9ff,
+    #a7ffda,
+    #ffe6a8,
+    #cbb9ff,
+    #ffb7dc
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.72;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--tone) 55%, transparent));
+  animation: motherSpin 9s linear infinite;
+  pointer-events: none;
+}
+
+.liquidSurface,
+.liquidSurfaceAlt {
+  position: absolute;
+  top: -7px;
+  left: -18%;
+  width: 136%;
+  height: 15px;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at 52% 55%,
+    rgba(255, 255, 255, 0.88),
+    color-mix(in srgb, var(--tone) 64%, white) 26%,
+    transparent 70%
+  );
+  filter: blur(1.5px);
+  opacity: 0.72;
+  animation: liquidWave 7s ease-in-out infinite alternate;
+}
+
+.liquidSurfaceAlt {
+  top: -3px;
+  left: -5%;
+  width: 118%;
+  height: 11px;
+  opacity: 0.34;
+  animation-duration: 5.2s;
+  animation-direction: alternate-reverse;
+}
+
+.liquidShaft {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 38% 70% at 34% 100%,
+      rgba(255, 255, 255, 0.28),
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse 22% 36% at 66% 70%,
+      color-mix(in srgb, var(--tone) 70%, white),
+      transparent 76%
+    );
+  mix-blend-mode: screen;
+  opacity: 0.55;
+}
+
+.liquidMotes {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(
+      circle at 27% 42%,
+      rgba(255, 255, 255, 0.85) 0 0.9px,
+      transparent 1.5px
+    ),
+    radial-gradient(
+      circle at 62% 28%,
+      rgba(255, 255, 255, 0.7) 0 0.7px,
+      transparent 1.2px
+    ),
+    radial-gradient(
+      circle at 74% 66%,
+      rgba(255, 255, 255, 0.8) 0 1px,
+      transparent 1.6px
+    ),
+    radial-gradient(
+      circle at 42% 78%,
+      rgba(255, 255, 255, 0.6) 0 0.7px,
+      transparent 1.2px
+    );
+  background-size:
+    62% 58%,
+    48% 52%,
+    55% 61%,
+    51% 49%;
+  opacity: 0.36;
+  mix-blend-mode: screen;
+  animation: moteDrift 12s linear infinite;
+}
+
+.sphereShade {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 66% 74%, rgba(0, 7, 4, 0.4), transparent 49%),
+    radial-gradient(circle at 50% 112%, rgba(0, 6, 3, 0.56), transparent 48%);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+
+.sphereRim {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 29% 21%,
+      rgba(255, 255, 255, 0.65),
+      transparent 12%
+    ),
+    radial-gradient(
+      ellipse 22% 9% at 37% 11%,
+      rgba(255, 255, 255, 0.33),
+      transparent 80%
+    ),
+    radial-gradient(
+      ellipse 26% 13% at 72% 88%,
+      color-mix(in srgb, var(--tone) 60%, white) 0%,
+      transparent 80%
+    );
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.24),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.08);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.glyph {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(245, 255, 251, 0.86);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--tone) 80%, transparent));
+  opacity: 0.52;
+  transition:
+    opacity 0.5s ease,
+    filter 0.5s ease,
+    transform 0.55s var(--ease-ether);
+  pointer-events: none;
+}
+
+.bubbleShell[data-active="true"] .glyph {
+  opacity: 0.95;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--tone) 85%, transparent))
+    drop-shadow(0 0 5px color-mix(in srgb, var(--tone) 42%, transparent));
+}
+
+.glyphSvg {
+  width: 31%;
+  height: 31%;
+  stroke-width: 1.15;
+}
+
+.bubbleShell[data-active="false"] .sphereRim {
+  background:
+    radial-gradient(
+      circle at 29% 21%,
+      rgba(255, 255, 255, 0.38),
+      transparent 12%
+    ),
+    radial-gradient(
+      ellipse 22% 9% at 37% 11%,
+      rgba(255, 255, 255, 0.18),
+      transparent 80%
+    ),
+    radial-gradient(
+      ellipse 26% 13% at 72% 88%,
+      rgba(255, 255, 255, 0.08) 0%,
+      transparent 80%
+    );
+  opacity: 0.38;
+}
+
+.bubbleShell[data-active="false"] .glyph {
+  color: rgba(238, 250, 245, 0.52);
+  filter: none;
+  opacity: 0.24;
+}
+
+.bubbleShell[data-active="true"] .bubbleButton:hover .sphere {
+  transform: scale(calc(1.035 + var(--ether-pulse) * 0.01));
+}
+
+.bubbleShell[data-dragging="true"] .sphere {
+  transform: scale(1.045);
+}
+
+/* 鼠标掠过时，相邻泡泡会向空隙轻轻靠拢，暗示液体之间的表面张力。 */
+@media (hover: hover) {
+  .soundRow:has(+ .soundRow .bubbleShell:hover) .bubbleShell {
+    transform: translateY(2px) scale(0.985);
+  }
+
+  .soundRow:has(.bubbleShell:hover) + .soundRow .bubbleShell {
+    transform: translateY(-2px) scale(0.985);
+  }
+}
+
+.bubbleReadout,
+.masterReadout {
+  position: absolute;
+  z-index: 6;
+  top: -5px;
+  right: -5px;
+  padding: 2px 4px;
+  border: 1px solid rgba(221, 250, 239, 0.16);
+  border-radius: 999px;
+  color: rgba(235, 253, 246, 0.78);
+  background: rgba(8, 21, 15, 0.58);
+  box-shadow: 0 2px 5px rgba(0, 6, 3, 0.28);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(3px);
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s var(--ease-ether);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.bubbleShell[data-readout="true"] .bubbleReadout,
+.masterReadout[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (hover: hover) {
+  .bubbleShell[data-active="true"]:hover .bubbleReadout {
+    opacity: 0.75;
+    transform: translateY(0);
+  }
+}
+
+.root[data-muted="true"] .bubbleShell[data-active="true"] .sphere {
+  filter: saturate(0.28) brightness(0.62);
+}
+
+.root[data-muted="true"] .bubbleShell[data-active="true"] .bubbleAura {
+  opacity: 0.1;
+  animation: none;
+}
+
+/* ── 白噪音 ─────────────────────────────────────────────────── */
+
+.masterShell {
+  position: relative;
+  display: grid;
+  width: var(--mother-size);
+  height: var(--mother-size);
+  place-items: center;
+}
+
+.masterAura {
+  position: absolute;
+  inset: -25%;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 43% 41%,
+      color-mix(in srgb, var(--flow-a) 54%, transparent),
+      transparent 38%
+    ),
+    radial-gradient(
+      circle at 66% 59%,
+      color-mix(in srgb, var(--flow-b) 30%, transparent),
+      transparent 56%
+    ),
+    radial-gradient(circle, rgba(196, 224, 214, 0.16), transparent 67%);
+  filter: blur(5px);
+  opacity: 0.65;
+  animation: motherBreathe 7.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.masterRing {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from -90deg,
+    var(--flow-a) 0 var(--master-level),
+    rgba(235, 255, 246, 0.1) var(--master-level) 100%
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 2px),
+    #000 calc(100% - 1.6px)
+  );
+  filter: drop-shadow(
+    0 0 5px color-mix(in srgb, var(--flow-a) 55%, transparent)
+  );
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.masterRing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(235, 255, 246, 0.08);
+}
+
+.masterButton {
+  position: relative;
+  z-index: 2;
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.masterButton:focus-visible {
+  outline: 1px solid rgba(255, 235, 190, 0.7);
+  outline-offset: 9px;
+}
+
+.motherSphere {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(242, 255, 249, 0.26);
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 37% 30%,
+      rgba(255, 246, 220, 0.28),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at 50% 53%,
+      rgba(187, 205, 241, 0.18),
+      transparent 58%
+    ),
+    rgba(6, 14, 12, 0.24);
+  box-shadow:
+    inset 2px 3px 5px rgba(255, 255, 255, 0.24),
+    inset -6px -8px 20px rgba(0, 4, 4, 0.5),
+    inset 0 0 30px rgba(255, 236, 194, 0.09),
+    0 0 5px rgba(255, 229, 174, 0.14),
+    0 2px 5px rgba(0, 5, 3, 0.32);
+  transition:
+    filter 0.65s ease,
+    transform 0.65s var(--ease-ether);
+  transform: scale(calc(var(--master-scale, 1) + var(--ether-pulse) * 0.02));
+}
+
+.masterButton:hover .motherSphere {
+  transform: scale(calc(var(--master-scale, 1) * 1.018));
+}
+
+.motherDeep {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at 51% 51%,
+    #fff8df 0%,
+    #ffe2a1 11%,
+    #b7c5ef 27%,
+    rgba(59, 82, 121, 0.65) 45%,
+    rgba(7, 18, 35, 0.72) 65%,
+    rgba(3, 9, 8, 0.9) 100%
+  );
+  opacity: 0.95;
+}
+
+.motherRays {
+  position: absolute;
+  inset: -28%;
+  background: repeating-conic-gradient(
+    from 4deg,
+    rgba(255, 250, 230, 0.65) 0deg 0.45deg,
+    transparent 0.45deg 17deg
+  );
+  mask: radial-gradient(
+    circle,
+    transparent 0 26%,
+    #000 44%,
+    rgba(0, 0, 0, 0.8) 58%,
+    transparent 74%
+  );
+  mix-blend-mode: screen;
+  opacity: 0.42;
+  animation: motherSpin 38s linear infinite;
+}
+
+.motherFlare {
+  position: absolute;
+  top: 18%;
+  left: 28%;
+  width: 56%;
+  height: 22%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse,
+    rgba(255, 255, 255, 0.75),
+    rgba(255, 236, 181, 0.2) 45%,
+    transparent 72%
+  );
+  filter: blur(4px);
+  transform: rotate(-33deg);
+  mix-blend-mode: screen;
+  opacity: 0.5;
+}
+
+.motherGlass {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      circle at 30% 21%,
+      rgba(255, 255, 255, 0.66),
+      transparent 11%
+    ),
+    radial-gradient(
+      ellipse 25% 10% at 44% 8%,
+      rgba(255, 255, 255, 0.3),
+      transparent 80%
+    ),
+    radial-gradient(
+      ellipse 50% 20% at 72% 93%,
+      rgba(228, 206, 255, 0.17),
+      transparent 80%
+    );
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.36),
+    inset 0 -2px 5px rgba(255, 255, 255, 0.1);
+  opacity: 0.72;
+}
+
+.motherGlyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 252, 239, 0.92);
+  filter: drop-shadow(0 0 4px rgba(255, 250, 221, 0.92))
+    drop-shadow(0 0 5px rgba(166, 191, 255, 0.48));
+}
+
+.motherGlyph svg {
+  width: 72%;
+  height: 72%;
+  opacity: 0.9;
+  animation: motherSpin 46s linear infinite reverse;
+}
+
+.masterShell[data-muted="true"] .motherSphere {
+  filter: saturate(0.22) brightness(0.55);
+}
+
+.masterShell[data-muted="true"] .masterAura {
+  opacity: 0.16;
+  animation: none;
+}
+
+.masterShell[data-muted="true"] .masterRing {
+  opacity: 0.25;
+}
+
+.masterReadout {
+  top: -1px;
+  right: -3px;
+}
+
+/* ── 底部齿轮与提示 ───────────────────────────────────────────── */
+
+.gearRow {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: var(--rail-width);
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 1px 0 0;
+  margin-left: calc((100% - var(--rail-width)) * var(--rail-offset));
+}
+
+.root[data-side="left"] .gearRow {
+  margin-left: calc((100% - var(--rail-width)) * 0.3691);
+}
+
+.gearButton {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid rgba(222, 250, 239, 0.16);
+  border-radius: 50%;
+  color: rgba(222, 246, 237, 0.56);
+  background: rgba(13, 28, 21, 0.36);
+  cursor: pointer;
+  transition:
+    color 0.3s ease,
+    border-color 0.3s ease,
+    background 0.3s ease,
+    transform 0.4s var(--ease-ether);
+  backdrop-filter: blur(8px);
+}
+
+.gearButton svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 1.35;
+}
+
+.gearButton:hover,
+.gearButton[aria-expanded="true"] {
+  border-color: rgba(219, 248, 237, 0.25);
+  color: rgba(238, 253, 247, 0.86);
+  background: rgba(212, 244, 233, 0.08);
+  transform: rotate(18deg);
+}
+
+/* ── 切换停靠侧的雾化重组 ─────────────────────────────────────── */
+
+.ribbonGroup[data-switching="true"] {
+  animation: materialize 0.82s var(--ease-ether) both;
+}
+
+.root[data-side="left"] .ribbonGroup[data-switching="true"] {
+  animation-name: materializeLeft;
+}
+
+.switchVeil {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse 26% 46% at 64% 48%,
+      rgba(208, 255, 239, 0.16),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 15% 32% at 73% 52%,
+      rgba(239, 255, 249, 0.1),
+      transparent 62%
+    );
+  filter: blur(22px);
+}
+
+.switchVeil[data-active="true"] {
+  animation: veilWash 0.82s ease-out both;
+}
+
+/* ── 设置浮层 ─────────────────────────────────────────────────── */
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.settingsPanel {
+  position: absolute;
+  right: calc(var(--stage-pad) + 264px);
+  bottom: 8px;
+  left: auto;
+  z-index: 50;
+  display: block;
+  width: min(280px, calc(100vw - 300px));
+  overflow: hidden;
+  border: 1px solid rgba(221, 250, 239, 0.18);
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      ellipse 84% 36% at 14% 0%,
+      color-mix(in srgb, var(--flow-b) 10%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(
+      150deg,
+      rgba(51, 72, 61, 0.62),
+      rgba(14, 28, 21, 0.78) 58%,
+      rgba(8, 18, 13, 0.8)
+    );
+  box-shadow:
+    inset 1px 1px 1px rgba(248, 255, 252, 0.17),
+    inset -1px -1px 1px rgba(255, 255, 255, 0.03),
+    0 2px 5px rgba(0, 6, 3, 0.52),
+    0 0 5px rgba(0, 15, 9, 0.2);
+  backdrop-filter: blur(24px) saturate(150%);
+  animation: panelInLeft 0.44s var(--ease-ether) both;
+}
+
+.settingsPanel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    138deg,
+    rgba(255, 255, 255, 0.28),
+    transparent 28%,
+    transparent 66%,
+    color-mix(in srgb, var(--flow-b) 32%, transparent)
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.settingsPanel::after {
+  content: "";
+  position: absolute;
+  top: 22%;
+  left: -1px;
+  width: 2px;
+  height: 48%;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    var(--flow-b),
+    var(--flow-a),
+    transparent
+  );
+  filter: blur(2px);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.root[data-side="left"] .settingsPanel {
+  right: auto;
+  left: calc(var(--stage-pad) + 264px);
+  animation-name: panelInRight;
+}
+
+.root[data-side="left"] .settingsPanel::after {
+  right: -1px;
+  left: auto;
+}
+
+.settingsBody {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 9px 11px 8px;
+}
+
+.settingsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 0 4px;
+}
+
+.settingsHead strong {
+  color: rgba(238, 252, 246, 0.84);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.settingsHead button {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: rgba(221, 247, 237, 0.34);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.settingsHead button:hover {
+  border-color: rgba(221, 247, 237, 0.16);
+  color: rgba(242, 255, 250, 0.86);
+}
+
+.settingsHead button svg {
+  width: 9px;
+  height: 9px;
+}
+
+.settingInline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(220, 248, 237, 0.075);
+}
+
+.settingLabel {
+  color: rgba(230, 248, 241, 0.66);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.themeBadge {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--flow-b) 16%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--flow-b) 49%, rgba(255, 255, 255, 0.42));
+  background: color-mix(in srgb, var(--flow-b) 5%, transparent);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+}
+
+.otherSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-top: 6px;
+  border-top: 1px solid rgba(220, 248, 237, 0.075);
+}
+
+.sectionLabel {
+  margin-bottom: 3px;
+  color: rgba(214, 241, 230, 0.37);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+.menuRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 3px;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.25s ease;
+}
+
+.menuRow:hover {
+  background: rgba(224, 250, 239, 0.045);
+}
+
+.menuRow[data-static="true"] {
+  cursor: default;
+}
+
+.menuRow[data-static="true"]:hover {
+  background: transparent;
+}
+
+.menuIcon {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(219, 247, 237, 0.12);
+  border-radius: 50%;
+  color: rgba(219, 245, 235, 0.42);
+  background: rgba(214, 243, 231, 0.035);
+}
+
+.menuIcon svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 1.3;
+}
+
+.menuText {
+  flex: 1;
+  color: rgba(231, 249, 242, 0.64);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.menuValue {
+  color: rgba(206, 234, 223, 0.31);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.menuRow > svg {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  color: rgba(207, 234, 223, 0.24);
+  stroke-width: 1.3;
+}
+
+.switch {
+  position: relative;
+  width: 26px;
+  height: 15px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid rgba(219, 248, 236, 0.14);
+  border-radius: 999px;
+  background: rgba(6, 16, 11, 0.4);
+  cursor: pointer;
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease;
+}
+
+.switch span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(216, 239, 230, 0.45);
+  box-shadow: 0 2px 5px rgba(0, 5, 3, 0.35);
+  transition:
+    transform 0.32s var(--ease-ether),
+    background 0.3s ease;
+}
+
+.switch[aria-checked="true"] {
+  border-color: color-mix(in srgb, var(--flow-b) 28%, transparent);
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--flow-b) 31%, transparent),
+    color-mix(in srgb, var(--flow-a) 20%, transparent)
+  );
+}
+
+.switch[aria-checked="true"] span {
+  background: #e4fff3;
+  transform: translateX(11px);
+}
+
+.settingsFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  margin-top: 1px;
+  border-top: 1px solid rgba(220, 248, 237, 0.075);
+}
+
+.resetButton {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  border: 1px solid rgba(219, 248, 237, 0.1);
+  border-radius: 7px;
+  color: rgba(224, 246, 237, 0.46);
+  background: rgba(211, 242, 230, 0.035);
+  cursor: pointer;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  transition:
+    color 0.28s ease,
+    border-color 0.28s ease,
+    background 0.28s ease;
+}
+
+.resetButton:hover {
+  border-color: rgba(219, 248, 237, 0.24);
+  color: rgba(241, 255, 249, 0.88);
+  background: rgba(211, 242, 230, 0.08);
+}
+
+.resetButton svg {
+  width: 9px;
+  height: 9px;
+}
+
+.settingsNote {
+  margin: 0;
+  color: rgba(204, 232, 221, 0.22);
+  font-size: 8px;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+/* ── 自动隐去 ─────────────────────────────────────────────────── */
+
+.root[data-dormant="true"] .rowLabel {
+  opacity: 0.12;
+}
+
+.root[data-dormant="true"] .bubbleShell,
+.root[data-dormant="true"] .masterShell {
+  opacity: 0.58;
+}
+
+.root[data-dormant="true"] .rail {
+  border-color: rgba(222, 250, 240, 0.05);
+  background: rgba(10, 24, 17, 0.1);
+}
+
+.bubbleShell,
+.masterShell {
+  transition: opacity 0.9s ease;
+}
+
+/* ── 响应式 ───────────────────────────────────────────────────── */
+
+@media (max-width: 680px) {
+  .root {
+    --stage-pad: 16px;
+  }
+
+  .ribbonGroup {
+    --child-size: 46px;
+    --mother-size: 62px;
+    --rail-width: 84px;
+    --row-gap: 4px;
+  }
+
+  .glyphTitle {
+    font-size: 18px;
+  }
+
+  .rowLabel {
+    padding-right: 10px;
+  }
+
+  .root[data-side="left"] .rowLabel {
+    padding-right: 0;
+    padding-left: 10px;
+  }
+}
+
+@media (max-width: 540px) {
+  .ribbonGroup {
+    --child-size: 42px;
+    --mother-size: 58px;
+    --rail-width: 78px;
+    --row-gap: 4px;
+  }
+
+  .glyphTitle {
+    font-size: 17px;
+  }
+
+  .rowMeta {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+
+  .statusPill {
+    display: none;
+  }
+
+  .settingsPanel {
+    right: calc(var(--stage-pad) + 264px);
+    bottom: 8px;
+    left: auto;
+    width: min(280px, calc(100vw - 300px));
+  }
+
+  .root[data-side="left"] .settingsPanel {
+    right: auto;
+    left: calc(var(--stage-pad) + 264px);
+  }
+}
+
+/* ── 动效关键帧 ───────────────────────────────────────────────── */
+
+@keyframes auraBreathe {
+  0%,
+  100% {
+    transform: scale(calc(0.94 + var(--ether-pulse) * 0.04));
+    opacity: 0.52;
+  }
+  50% {
+    transform: scale(calc(1.08 + var(--ether-pulse) * 0.06));
+    opacity: 0.82;
+  }
+}
+
+@keyframes liquidWave {
+  from {
+    transform: translateX(-2%) rotate(-1.2deg)
+      scaleY(calc(0.9 + var(--ether-pulse) * 0.2));
+  }
+  to {
+    transform: translateX(2%) rotate(1.2deg)
+      scaleY(calc(1.16 + var(--ether-pulse) * 0.22));
+  }
+}
+
+@keyframes moteDrift {
+  from {
+    transform: translateY(3%);
+  }
+  to {
+    transform: translateY(-4%);
+  }
+}
+
+@keyframes motherBreathe {
+  0%,
+  100% {
+    transform: scale(0.96);
+    opacity: 0.52;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.78;
+  }
+}
+
+@keyframes motherSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes materialize {
+  0% {
+    opacity: 0.16;
+    filter: blur(13px);
+    transform: translateX(22px) scale(0.975);
+  }
+  54% {
+    opacity: 0.6;
+    filter: blur(5px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes materializeLeft {
+  0% {
+    opacity: 0.16;
+    filter: blur(13px);
+    transform: translateX(-22px) scale(0.975);
+  }
+  54% {
+    opacity: 0.6;
+    filter: blur(5px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes veilWash {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes panelInLeft {
+  from {
+    opacity: 0;
+    filter: blur(7px);
+    transform: translateX(-14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes panelInRight {
+  from {
+    opacity: 0;
+    filter: blur(7px);
+    transform: translateX(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0) scale(1);
+  }
+}

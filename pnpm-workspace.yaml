@@ -1,0 +1,5 @@
+# pnpm 11 的依赖构建白名单。
+# esbuild / sharp 需要在本机编译或下载平台二进制；其余依赖保持默认禁用脚本。
+allowBuilds:
+  esbuild: true
+  sharp: true

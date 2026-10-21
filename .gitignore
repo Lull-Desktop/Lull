@@ -38,3 +38,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 __pycache__/
+
+# native host build artifacts（由 scripts/prebuild.mjs 或 test-mode 重新生成）
+/src-tauri/native/*.dll
+/src-tauri/native/*.obj
+/src-tauri/native/*.exp
+/src-tauri/native/*.lib

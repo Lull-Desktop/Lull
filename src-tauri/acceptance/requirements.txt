@@ -1,0 +1,2 @@
+# 验收脚本依赖（verify_shot.py 截图用 PIL；test_desktop_input.py 纯标准库无依赖）
+pillow

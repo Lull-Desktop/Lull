@@ -1,0 +1,118 @@
+# 贡献指南
+
+感谢你愿意参与 Lull。请先读 [架构说明](architecture.md) 与 [迁移记录](migration-from-serene.md)，再开始改代码。
+
+## 1. 环境
+
+| 依赖 | 要求 |
+| --- | --- |
+| Windows | 10 / 11 |
+| Node.js | 24（`.node-version`） |
+| pnpm | 11（`packageManager`） |
+| Rust | `stable-x86_64-pc-windows-msvc`（`rust-toolchain.toml`） |
+| Visual Studio | C++ 桌面开发 + Windows SDK |
+| Git Bash | 编译 `lull_native.dll` |
+| Python / uv | `pnpm test-mode` 需要 Pillow；有 uv 时自动准备临时环境 |
+
+```powershell
+pnpm install
+& "C:\Program Files\Git\bin\bash.exe" src-tauri/native/build-shim.sh
+pnpm test
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+## 2. 常用命令
+
+| 命令 | 说明 |
+| --- | --- |
+| `pnpm dev` | Tauri 开发模式（debug 默认不启用壁纸） |
+| `pnpm test` | Vitest 单元测试 |
+| `cargo test` | Rust 单元测试 |
+| `pnpm lint` / `pnpm fix` | Biome 检查 / 自动修复 |
+| `pnpm content:check` | 内容目录校验 |
+| `pnpm build:next` | 静态导出 |
+| `pnpm test-mode` | Windows 真机壁纸验收（原生改动必须跑） |
+| `pnpm build` | 完整安装包 |
+
+## 3. 代码约定
+
+### 3.1 前端
+
+- 使用 Biome 格式化；提交前 `pnpm fix`。
+- 纯函数优先：几何、协议、清单校验放在 `src/core` / `src/sdk`，React 组件只做渲染。
+- 场景组件只接收 `SceneProps`，不读全局配置、不调用 Tauri。
+- 新增工具窗必须同时更新 `src/widgets/registry.ts` 与 `src-tauri/src/window_host/spec.rs`。
+- 外部内容包只放 `public/content/`，不要 import 到 `src/`。
+- 中文注释用于解释“为什么”，不要复述代码。
+
+### 3.2 Rust
+
+- 2 空格缩进（`.rustfmt.toml`）。
+- `lib.rs` 只做接线；业务逻辑进 `wallpaper` / `window_host` / `config`。
+- 壁纸建窗只能从非主线程发起；不要在同步命令里调用 `WebviewWindowBuilder`。
+- 配置写入必须走事务模型：改内存 → 写盘 → 失败回滚。
+- `unsafe` 只允许出现在 `wallpaper/ffi.rs`、`wallpaper/{runtime,windows,watchdog}.rs` 等已声明的模块，新增时在模块顶部说明安全前提。
+- 原生 ABI 变更必须同步 Rust 绑定、构建脚本、`tauri.conf.json`、验收工具与文档。
+
+### 3.3 原生
+
+- C++ 不依赖 React / Tauri / 内容包。
+- 不改变 `lull_native_*` 导出签名而不更新 Rust。
+- 修改挂载、Z 序、DPI、看门狗逻辑后必须跑 `pnpm test-mode`，并在 PR 里贴日志/截图。
+- 不提交 `.dll/.obj/.exp/.lib`（已 gitignore）。
+
+## 4. 测试要求
+
+| 改动 | 最低验证 |
+| --- | --- |
+| 前端纯函数 / SDK | `pnpm test` + `pnpm lint` |
+| 设置页 / 窗口 UI | `pnpm test` + 手动打开对应窗口 |
+| Rust 逻辑 | `cargo test` |
+| 原生宿主 | `cargo test` + `pnpm test-mode` |
+| 内容格式 | `pnpm content:check` + `pnpm test` |
+| 构建链 | `pnpm build:next`，必要时 `pnpm build` |
+
+当前基线（会随测试增加）：
+
+- 前端：16 个测试文件 / 91 项；
+- Rust：37 项；
+- 内容：1 个外部场景示例。
+
+新增行为请补测试；修复回归请先写失败用例。不要通过删除测试来“修复”失败。
+
+## 5. 架构检查清单
+
+提交前问自己：
+
+- [ ] 这段逻辑属于 Core、Extensions 还是 App？有没有放错层？
+- [ ] 是否让 `core` 反向依赖 `scenes/widgets/app`？
+- [ ] 是否把 Tauri 命令直接暴露成“公共插件 API”？
+- [ ] 是否新增了第三方可执行代码路径？首版不允许。
+- [ ] 配置写入失败时是否会回滚？
+- [ ] 是否硬编码了 Serene / 旧包名 / 旧 DLL 名？
+- [ ] 新增文件是否在文档与目录树中体现？
+
+## 6. 新增内容 / 场景 / 工具
+
+- 内置场景：`src/scenes/<id>/index.tsx` + `src/scenes/registry.ts`。
+- 外部场景：`public/content/scenes/<id>/index.html` + `catalog.json` + `pnpm content:check`。
+- 内置工具：路由 + `src/widgets/registry.ts` + `window_host/spec.rs` + capability + 托盘/测试。
+- 新增 IPC：先确定归属模块，再在 `lib.rs` 注册；更新 `docs/architecture.md` 的命令表。
+- 新增配置字段：提升 `CURRENT_VERSION` 并写迁移测试；旧字段保留默认值。
+
+## 7. 提交与 PR
+
+- 一个 PR 只做一类改动：命名迁移不要和 Win32 逻辑重构混在一起。
+- 提交信息建议：`feat(scene): ...` / `fix(native): ...` / `docs: ...` / `refactor(core): ...`。
+- PR 描述包含：动机、改动范围、验证命令与结果、风险/回滚方式。
+- 原生改动附 `%TEMP%\lull\app.log` 关键行与真机截图。
+- 不提交生成物（`dist/`、`.next/`、`target/`、DLL、`node_modules/`）。
+
+## 8. 安全问题
+
+桌面挂载、WebView、内容包都涉及安全边界。发现以下问题请不要公开细节，先按 [SECURITY.md](../SECURITY.md) 私密报告：
+
+- 内容包逃逸 iframe / 访问宿主 IPC；
+- 路径穿越读写；
+- 原生宿主导致桌面不可恢复；
+- 权限提升或任意命令执行。

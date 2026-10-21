@@ -1,0 +1,2382 @@
+/* LiquidPlayer：透明浮窗里的黑胶透镜 + 水幕曲库。所有玻璃、光弧与粒子均由 CSS / SVG 绘制。 */
+
+.root {
+  --ease-liquid: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-return: cubic-bezier(0.34, 1.4, 0.64, 1);
+  /* 与白噪音换边动画同一套缓动与时长。 */
+  --ease-ether: cubic-bezier(0.22, 1, 0.36, 1);
+  --dock-switch-ms: 0.82s;
+  --text: #f3f9ff;
+  --text-soft: rgba(220, 236, 255, 0.7);
+  --text-faint: rgba(202, 224, 255, 0.46);
+  --glass-line: rgba(194, 227, 255, 0.18);
+  --glass-line-strong: rgba(214, 239, 255, 0.34);
+  /* 与白噪音的设置 / 分段按钮同一套文字规格。 */
+  --button-font-size: 10px;
+  --button-letter-spacing: 0.08em;
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  /* 四边只留 10px 的透明渐隐带：背景光晕 / 投影到这里已经被柔化，
+     不会在透明窗边缘出现被 WebView 生硬裁断的亮边或黑边。 */
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent 0,
+      #000 10px,
+      #000 calc(100% - 10px),
+      transparent 100%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 10px,
+      #000 calc(100% - 10px),
+      transparent 100%
+    );
+  mask-composite: intersect;
+  isolation: isolate;
+  color: var(--text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  background: transparent;
+}
+
+/* 背景保持 100% 透明：不再铺全窗噪点 / 氛围光层，
+   只保留玻璃件自身的局部边缘与投影。 */
+
+/* ── 播放器顶部拖拽 / 窗口控制 ───────────────────────────────── */
+
+.topDock {
+  position: absolute;
+  top: -64px;
+  left: 50%;
+  z-index: 12;
+  display: flex;
+  height: 32px;
+  padding: 0 6px 0 9px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 18%, rgba(200, 231, 255, 0.16));
+  border-radius: 999px;
+  background:
+    radial-gradient(
+      circle at 28% 16%,
+      rgba(255, 255, 255, 0.11),
+      transparent 54%
+    ),
+    rgba(5, 16, 30, 0.5);
+  box-shadow:
+    0 4px 10px rgba(0, 5, 14, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px) saturate(122%);
+}
+
+.dragHandle {
+  display: flex;
+  height: 100%;
+  padding-right: 1px;
+  align-items: center;
+  gap: 7px;
+  color: rgba(224, 242, 255, 0.66);
+  cursor: grab;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.grip {
+  display: grid;
+  grid-template-columns: repeat(2, 2px);
+  grid-auto-rows: 2px;
+  gap: 2px;
+  opacity: 0.56;
+}
+
+.grip i {
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dockBrand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.dockBrand strong {
+  color: rgba(242, 250, 255, 0.82);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.dockBrand em {
+  color: var(--text-faint);
+  font-size: 6.5px;
+  font-style: normal;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.dockDivider {
+  width: 1px;
+  height: 14px;
+  margin: 0 1px;
+  background: rgba(202, 229, 255, 0.16);
+}
+
+.dockControls {
+  display: flex;
+  gap: 4px;
+}
+
+.dockButton {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 14%, rgba(201, 231, 255, 0.16));
+  border-radius: 50%;
+  color: rgba(238, 249, 255, 0.82);
+  background: rgba(6, 18, 33, 0.36);
+  box-shadow: 0 2px 6px rgba(0, 5, 14, 0.28);
+  cursor: pointer;
+  transition:
+    color 0.25s ease,
+    border-color 0.25s ease,
+    background 0.25s ease;
+}
+
+.dockButton:hover {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, rgba(8, 22, 40, 0.42));
+}
+
+.dockButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dockButton svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 1.5;
+}
+
+/* ── 舞台与左半区 ───────────────────────────────────────────── */
+
+.stage {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.playerCluster {
+  position: absolute;
+  top: calc(50% + 33px);
+  left: 67px;
+  display: grid;
+  grid-template-columns: 62px 296px;
+  gap: 10px;
+  align-items: center;
+  transform: translateY(-50%);
+}
+
+/* ── 三态循环泡 ─────────────────────────────────────────────── */
+
+.modeRail {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+}
+
+.modeBubble {
+  position: absolute;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  place-items: center;
+  pointer-events: auto;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 16%, rgba(190, 224, 255, 0.16));
+  border-radius: 50%;
+  color: rgba(228, 243, 255, 0.72);
+  background:
+    radial-gradient(
+      circle at 34% 22%,
+      rgba(255, 255, 255, 0.12),
+      transparent 44%
+    ),
+    linear-gradient(155deg, rgba(30, 51, 76, 0.44), rgba(5, 15, 29, 0.54));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -2px 6px rgba(0, 5, 14, 0.35),
+    0 3px 8px rgba(0, 7, 18, 0.3);
+  backdrop-filter: blur(16px) saturate(122%);
+  cursor: pointer;
+  transition:
+    transform 0.32s var(--ease-liquid),
+    color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    background 0.3s ease;
+}
+
+.modeBubble:hover {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  transform: translateY(-2px) scale(1.045);
+}
+
+.modeBubble:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.modeBubble svg {
+  position: relative;
+  z-index: 2;
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.35;
+}
+
+.modeHalo {
+  position: absolute;
+  inset: -9px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--accent) 24%, transparent),
+    transparent 68%
+  );
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+
+.modeBubble[data-active="true"] {
+  color: #071a2a;
+  border-color: rgba(255, 255, 255, 0.68);
+  background:
+    radial-gradient(
+      circle at 32% 20%,
+      #ffffff,
+      rgba(240, 250, 255, 0.94) 35%,
+      transparent 74%
+    ),
+    radial-gradient(
+      circle at 50% 120%,
+      color-mix(in srgb, var(--accent) 62%, #e8f8ff),
+      #dff5ff
+    );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.26),
+    0 0 10px color-mix(in srgb, var(--accent) 34%, transparent),
+    inset 0 -4px 10px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.modeBubble[data-active="true"] .modeHalo {
+  opacity: 1;
+}
+
+.modeBubble[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 50%;
+  animation: modeHalo 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.modeBubble:nth-of-type(2)::after {
+  animation-delay: 0.7s;
+}
+
+.modeBubble:nth-of-type(3)::after {
+  animation-delay: 1.4s;
+}
+
+.modeLabel {
+  position: absolute;
+  top: 50%;
+  right: 52px;
+  left: auto;
+  z-index: 8;
+  padding: 4px 8px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 18%, rgba(200, 230, 255, 0.12));
+  border-radius: 6px;
+  color: rgba(236, 248, 255, 0.86);
+  background: rgba(5, 15, 29, 0.7);
+  box-shadow: 0 4px 10px rgba(0, 5, 14, 0.3);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(4px, -50%);
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+  backdrop-filter: blur(10px);
+}
+
+.modeBubble:hover .modeLabel,
+.modeBubble:focus-visible .modeLabel {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+.root[data-dock="left"] .modeLabel {
+  right: auto;
+  left: 52px;
+  transform: translate(-4px, -50%);
+}
+
+.root[data-dock="left"] .modeBubble:hover .modeLabel,
+.root[data-dock="left"] .modeBubble:focus-visible .modeLabel {
+  transform: translate(0, -50%);
+}
+
+/* ── 主球与高光进度环 ───────────────────────────────────────── */
+
+.orbColumn {
+  position: relative;
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  width: 296px;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 左停靠：整套播放器镜像到窗口右侧，曲库从左边弹出。
+   主球相对窗口的球心仍然距同侧边缘 308px，窗口在换边时同步平移，
+   因此主球在桌面上的位置不变。 */
+.root[data-dock="left"] .playerCluster {
+  right: 67px;
+  left: auto;
+  grid-template-columns: 296px 62px;
+}
+
+.root[data-dock="left"] .orbColumn {
+  grid-column: 1;
+}
+
+.root[data-dock="left"] .modeRail {
+  grid-column: 2;
+}
+
+/* 换边分两拍：
+   1) data-dock-leaving：旧组先淡出，原生窗口在看不到内容时完成移动；
+   2) data-switching：窗口就位后再触发 materialize，新组第一帧就在正确坐标。
+   不再用 key 重新挂载整组玻璃件，避免首帧重新栅格化造成闪烁。 */
+.root[data-dock-leaving="true"] .playerCluster {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s var(--ease-ether);
+}
+
+/* 换边时整组播放器按白噪音的 materialize 方式重组：
+   blur 13px → 0、沿换边方向 22px 位移、0.975 缩放与透明度一起收束。 */
+.playerCluster[data-switching="true"] {
+  animation: playerMaterialize var(--dock-switch-ms) var(--ease-ether) both;
+}
+
+.root[data-dock="left"] .playerCluster[data-switching="true"] {
+  animation-name: playerMaterializeLeft;
+}
+
+.orbStage {
+  position: relative;
+  display: flex;
+  width: 296px;
+  height: 330px;
+  flex-direction: column;
+  align-items: center;
+}
+
+.orbAura {
+  position: absolute;
+  top: 17px;
+  left: 50%;
+  width: 262px;
+  height: 262px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--accent) 16%, transparent) 0%,
+    color-mix(in srgb, var(--cover-glow) 10%, transparent) 56%,
+    transparent 100%
+  );
+  filter: blur(4px);
+  opacity: 0.58;
+  transform: translateX(-50%);
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+
+.root[data-playing="true"] .orbAura {
+  opacity: 0.72;
+}
+
+.orbAuraInner {
+  position: absolute;
+  top: 23px;
+  left: 50%;
+  width: 250px;
+  height: 250px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 38% 30%,
+    color-mix(in srgb, var(--cover-water) 14%, transparent),
+    transparent 62%
+  );
+  filter: blur(5px);
+  opacity: 0.7;
+  transform: translateX(-50%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.ringLayer {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 7;
+  width: 296px;
+  height: 296px;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.ringLayer:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 64%, white);
+  outline-offset: 2px;
+}
+
+.ring {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.ringAura {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 36%, rgba(255, 255, 255, 0.22));
+  stroke-width: 7;
+  opacity: 0.15;
+  filter: blur(5px);
+}
+
+.ringBase {
+  fill: none;
+  stroke: rgba(210, 237, 255, 0.2);
+  stroke-width: 1.1;
+}
+
+.ringTicks {
+  fill: none;
+  stroke: rgba(218, 242, 255, 0.36);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.ringGlow {
+  fill: none;
+  stroke-width: 7;
+  opacity: 0.3;
+  stroke-linecap: round;
+  filter: blur(3px);
+  transition: stroke-dasharray 0.15s linear;
+}
+
+.ringArc {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--accent) 70%, transparent)
+  );
+  transition: stroke-dasharray 0.15s linear;
+}
+
+.knobHalo {
+  fill: var(--accent);
+  opacity: 0.18;
+  filter: blur(3px);
+  animation: knobBreathe 2.8s ease-in-out infinite;
+}
+
+.knobRing {
+  fill: rgba(7, 21, 38, 0.5);
+  stroke: rgba(234, 249, 255, 0.82);
+  stroke-width: 1;
+}
+
+.knobCore {
+  fill: #ffffff;
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.9));
+}
+
+.knobSpark {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.7);
+  stroke-width: 0.7;
+  stroke-linecap: round;
+  opacity: 0.72;
+}
+
+.ringHit {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.001);
+  stroke-width: 32;
+  pointer-events: stroke;
+  cursor: grab;
+}
+
+.orbStage[data-scrubbing="true"] .ringHit {
+  cursor: grabbing;
+}
+
+.orbStage[data-scrubbing="true"] .ringArc {
+  stroke-width: 2.1;
+}
+
+.orbStage[data-scrubbing="true"] .knobCore {
+  filter: drop-shadow(0 0 8px #ffffff);
+}
+
+.scrubBubble {
+  position: absolute;
+  z-index: 9;
+  padding: 4px 8px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 32%, rgba(255, 255, 255, 0.18));
+  border-radius: 999px;
+  color: #f9fdff;
+  background: rgba(6, 18, 33, 0.76);
+  box-shadow:
+    0 4px 10px rgba(0, 5, 14, 0.4),
+    0 0 10px color-mix(in srgb, var(--accent) 18%, transparent);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.84);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s var(--ease-return);
+  backdrop-filter: blur(12px);
+}
+
+.scrubBubble[data-visible="true"] {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.orbFloat {
+  position: absolute;
+  top: 28px;
+  left: 50%;
+  z-index: 4;
+  width: 240px;
+  height: 240px;
+  transform: translateX(-50%);
+  /* 主球外壳不参与任何持续位移动画：曲库开合时只让抽屉动。 */
+}
+
+.orbButton {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.orbButton::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 210deg,
+    rgba(255, 126, 206, 0.26),
+    rgba(112, 223, 255, 0.4),
+    rgba(183, 162, 255, 0.2),
+    rgba(255, 241, 182, 0.3),
+    rgba(255, 126, 206, 0.26)
+  );
+  filter: blur(1.4px);
+  opacity: 0.58;
+}
+
+.orb {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 32% 20%,
+    rgba(46, 84, 112, 0.92),
+    #07111f 68%
+  );
+  box-shadow:
+    0 4px 8px rgba(0, 5, 14, 0.52),
+    0 0 6px color-mix(in srgb, var(--accent) 14%, transparent),
+    inset 0 0 44px rgba(3, 14, 27, 0.48);
+  transform: scale(1);
+  transition:
+    transform 0.36s var(--ease-liquid),
+    box-shadow 0.36s ease;
+}
+
+.orbButton:hover .orb {
+  box-shadow:
+    0 4px 8px rgba(0, 5, 14, 0.56),
+    0 0 6px color-mix(in srgb, var(--accent) 22%, transparent),
+    inset 0 0 44px rgba(3, 14, 27, 0.48);
+  transform: scale(1.012);
+}
+
+.orbButton:active .orb {
+  transform: scale(0.985);
+}
+
+.orbButton:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 70%, white);
+  outline-offset: 4px;
+}
+
+.orbCoverLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  animation: coverBleed 0.5s var(--ease-liquid) both;
+}
+
+.orbCover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: scale(1.05);
+  filter: saturate(0.98) contrast(1.04);
+  animation: coverDrift 22s ease-in-out infinite alternate;
+}
+
+.orbTone {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--accent) 10%, transparent),
+      transparent 42%,
+      color-mix(in srgb, var(--cover-far) 42%, transparent)
+    ),
+    radial-gradient(
+      circle at 50% 105%,
+      color-mix(in srgb, var(--cover-water) 22%, transparent),
+      transparent 54%
+    );
+  mix-blend-mode: color;
+  opacity: 0.52;
+  pointer-events: none;
+}
+
+.orbGrooves {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: repeating-radial-gradient(
+    circle at 50% 50%,
+    transparent 0 6px,
+    rgba(255, 255, 255, 0.055) 7px 7.6px,
+    transparent 8px 14px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.2;
+  animation: grooveSpin 42s linear infinite;
+  pointer-events: none;
+}
+
+.root[data-playing="true"] .orbGrooves {
+  opacity: 0.32;
+}
+
+.orbSheen {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      ellipse 55% 28% at 32% 11%,
+      rgba(255, 255, 255, 0.58),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 46% 20% at 66% 89%,
+      color-mix(in srgb, var(--accent) 26%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(
+      118deg,
+      rgba(255, 255, 255, 0.14) 0%,
+      transparent 31%,
+      transparent 68%,
+      rgba(255, 255, 255, 0.07) 100%
+    );
+  mix-blend-mode: screen;
+  opacity: 0.82;
+  pointer-events: none;
+}
+
+.orbShade {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    linear-gradient(
+      to top,
+      rgba(2, 9, 19, 0.76) 0%,
+      rgba(2, 9, 19, 0.18) 34%,
+      transparent 54%
+    ),
+    radial-gradient(ellipse at 50% 108%, rgba(1, 6, 14, 0.7), transparent 54%);
+  pointer-events: none;
+}
+
+.orbWaves {
+  position: absolute;
+  inset: 9px;
+  border-radius: 50%;
+  opacity: calc(0.08 + var(--level, 0.05) * 0.78);
+  transition: opacity 0.18s linear;
+  pointer-events: none;
+}
+
+.orbWaves i {
+  position: absolute;
+  inset: 0;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 48%, rgba(255, 255, 255, 0.34));
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 18px color-mix(in srgb, var(--accent) 8%, transparent),
+    0 0 10px color-mix(in srgb, var(--accent) 6%, transparent);
+  animation: waveRipple 3.8s ease-out infinite;
+}
+
+.orbWaves i:nth-child(2) {
+  animation-delay: 1.25s;
+}
+
+.orbWaves i:nth-child(3) {
+  animation-delay: 2.5s;
+}
+
+.orbCaustic {
+  position: absolute;
+  top: 13%;
+  left: 8%;
+  width: 68%;
+  height: 40%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at 38% 42%,
+    rgba(255, 255, 255, 0.32),
+    color-mix(in srgb, var(--accent) 22%, transparent) 38%,
+    transparent 70%
+  );
+  filter: blur(10px);
+  mix-blend-mode: screen;
+  opacity: 0.55;
+  animation: causticDrift 7.5s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.orbPulse {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--accent) 34%, transparent),
+    inset 0 0 24px rgba(255, 255, 255, 0.14);
+  animation: orbPulse 0.58s var(--ease-liquid) both;
+  pointer-events: none;
+}
+
+.orbGlyph {
+  position: absolute;
+  top: 43%;
+  left: 50%;
+  z-index: 4;
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(7, 20, 36, 0.24);
+  box-shadow:
+    0 0 10px rgba(0, 8, 20, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    inset 0 -2px 9px rgba(0, 5, 14, 0.28);
+  transform: translate(-50%, -50%);
+  transition:
+    transform 0.3s var(--ease-liquid),
+    background 0.3s ease,
+    box-shadow 0.3s ease;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.orbButton:hover .orbGlyph {
+  background: rgba(10, 29, 49, 0.38);
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--accent) 24%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%) scale(1.06);
+}
+
+.orbGlyph svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+  stroke-width: 1;
+}
+
+.orbCaption {
+  position: absolute;
+  right: 0;
+  bottom: 32px;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  padding: 0 22px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  text-shadow: 0 2px 16px rgba(0, 6, 14, 0.85);
+  pointer-events: none;
+}
+
+.orbTitle {
+  overflow: hidden;
+  width: 100%;
+  color: #f8fcff;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.16;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbArtist {
+  overflow: hidden;
+  width: 100%;
+  color: rgba(226, 242, 255, 0.62);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orbRim {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border: 1px solid rgba(232, 248, 255, 0.46);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 1px rgba(195, 231, 255, 0.1),
+    inset 0 2px 2px rgba(255, 255, 255, 0.24),
+    inset 0 -3px 8px rgba(1, 7, 16, 0.42),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}
+
+.dissolveLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.dissolveLayer i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    #ffffff 0%,
+    var(--accent) 45%,
+    transparent 72%
+  );
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+  opacity: 0;
+  transform: rotate(var(--angle, 0deg)) translateY(-30px) scale(0.2);
+  animation: dissolveParticle 0.82s var(--ease-liquid) both;
+  animation-delay: calc(var(--particle) * 11ms);
+}
+
+/* 时间、跳曲与来源标签 */
+
+.timeRow {
+  position: absolute;
+  top: 300px;
+  left: 50%;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transform: translateX(-50%);
+}
+
+.timeReadout {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 13px;
+  border: 1px solid rgba(204, 233, 255, 0.11);
+  border-radius: 999px;
+  background: rgba(6, 18, 33, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  backdrop-filter: blur(14px);
+}
+
+.timeCurrent {
+  color: #f7fcff;
+  font-size: 12px;
+}
+
+.timeSlash {
+  color: rgba(214, 236, 255, 0.28);
+  font-size: 9px;
+}
+
+.timeTotal {
+  color: var(--text-faint);
+}
+
+.skipButton {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(200, 231, 255, 0.12);
+  border-radius: 50%;
+  color: rgba(222, 240, 255, 0.58);
+  background: rgba(6, 18, 33, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition:
+    color 0.22s ease,
+    border-color 0.22s ease,
+    background 0.22s ease,
+    transform 0.22s var(--ease-liquid);
+  backdrop-filter: blur(12px);
+}
+
+.skipButton:hover:not(:disabled) {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  background: rgba(12, 34, 56, 0.38);
+  transform: translateY(-1px);
+}
+
+.skipButton:disabled {
+  opacity: 0.22;
+  cursor: default;
+}
+
+.skipButton svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5;
+}
+
+.libraryBubble {
+  position: absolute;
+  top: 0;
+  left: 234px;
+  z-index: 8;
+  display: flex;
+  width: max-content;
+  height: 42px;
+  padding: 0 15px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 18%, rgba(193, 226, 255, 0.18));
+  border-radius: 999px;
+  color: rgba(226, 242, 255, 0.72);
+  background:
+    radial-gradient(
+      circle at 32% 20%,
+      rgba(255, 255, 255, 0.1),
+      transparent 44%
+    ),
+    linear-gradient(150deg, rgba(24, 45, 69, 0.42), rgba(5, 15, 29, 0.56));
+  box-shadow:
+    0 4px 10px rgba(0, 6, 16, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.13);
+  font-family: var(--font-body);
+  font-size: var(--button-font-size);
+  font-weight: 400;
+  letter-spacing: var(--button-letter-spacing);
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.28s ease,
+    border-color 0.28s ease,
+    transform 0.3s var(--ease-liquid),
+    box-shadow 0.3s ease,
+    background 0.3s ease;
+  backdrop-filter: blur(18px) saturate(128%);
+}
+
+.libraryBubble:hover {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+  transform: translateY(-2px);
+  box-shadow:
+    0 4px 10px rgba(0, 6, 16, 0.36),
+    0 0 10px color-mix(in srgb, var(--accent) 14%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.libraryBubble svg {
+  position: relative;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+  stroke-width: 1.3;
+}
+
+.libraryBubble > span:last-child {
+  position: relative;
+  z-index: 2;
+}
+
+.libraryBubble[data-active="true"] {
+  color: #071a2a;
+  border-color: rgba(255, 255, 255, 0.64);
+  background:
+    radial-gradient(
+      circle at 30% 20%,
+      #ffffff,
+      rgba(240, 250, 255, 0.94) 34%,
+      transparent 74%
+    ),
+    radial-gradient(
+      circle at 50% 120%,
+      color-mix(in srgb, var(--accent) 58%, #e8f8ff),
+      #e3f6ff
+    );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.24),
+    0 0 10px color-mix(in srgb, var(--accent) 30%, transparent),
+    inset 0 -4px 10px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.libraryBubble[data-active="true"] svg {
+  color: #0b273c;
+}
+
+.libraryHalo {
+  position: absolute;
+  inset: -7px;
+  border-radius: 999px;
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    color-mix(in srgb, var(--accent) 22%, transparent),
+    transparent 70%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.libraryBubble[data-active="true"] .libraryHalo {
+  opacity: 1;
+}
+
+/* 展开态的细光线把「曲库」泡与当前停靠侧的水幕面板接起来。 */
+.root[data-dock="left"] .libraryBubble {
+  right: 234px;
+  left: auto;
+}
+
+/* 主球变小后曲库泡与抽屉之间留白更宽，不再绘制长连接线，避免横跨空白。 */
+
+/* ── 水幕曲库抽屉 ───────────────────────────────────────────── */
+
+.drawerSlot {
+  --drawer-shift: 22px;
+  position: absolute;
+  top: 50%;
+  right: 28px;
+  z-index: 6;
+  width: 338px;
+  height: min(456px, calc(100vh - 96px));
+  opacity: 1;
+  filter: blur(0);
+  transform: translateY(-50%) translateX(0) scale(1);
+  transform-origin: center;
+  transition:
+    opacity 0.52s var(--ease-ether),
+    filter 0.52s var(--ease-ether),
+    transform 0.52s var(--ease-ether);
+}
+
+.root[data-dock="left"] .drawerSlot {
+  --drawer-shift: -22px;
+  right: auto;
+  left: 28px;
+}
+
+/* 曲库与白噪音的换边同款「雾化」：透明度、blur 与沿停靠侧方向的位移一起收束。
+   退场缩到 0.24s，右停靠收起后可以紧接着收窄原生窗口，不会切到可见残影。 */
+.root[data-drawer="closed"] .drawerSlot,
+.root[data-drawer-hold="true"] .drawerSlot {
+  opacity: 0;
+  filter: blur(13px);
+  transform: translateY(-50%) translateX(var(--drawer-shift)) scale(0.975);
+  pointer-events: none;
+  transition-duration: 0.24s;
+}
+
+/* 换边时抽屉也走 materialize 关键帧，而不是从旧的隐藏位移反推：
+   关键帧固定从当前停靠侧的 ±22px 起，与主球组同一时长、同一缓动，
+   因此左右两侧都会从各自的方向雾化重组。 */
+.root[data-drawer-entering="true"] .drawerSlot {
+  animation: drawerMaterialize var(--dock-switch-ms) var(--ease-ether) both;
+  /* 关键帧自己负责 opacity / blur / 位移，关掉底层 transition，
+     否则 240ms 的 transform 过渡会抢在 820ms 关键帧前面把位移走完。 */
+  transition: none;
+}
+
+.root[data-dock="left"][data-drawer-entering="true"] .drawerSlot {
+  animation-name: drawerMaterializeLeft;
+}
+
+.drawer {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 18%, rgba(188, 225, 255, 0.14));
+  border-radius: 26px;
+  background:
+    radial-gradient(
+      120% 48% at 16% -4%,
+      color-mix(in srgb, var(--accent) 10%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      90% 50% at 88% 104%,
+      color-mix(in srgb, var(--cover-far) 20%, transparent),
+      transparent 68%
+    ),
+    linear-gradient(
+      158deg,
+      rgba(18, 35, 58, 0.68) 0%,
+      rgba(6, 15, 30, 0.78) 52%,
+      rgba(3, 8, 18, 0.84) 100%
+    );
+  box-shadow:
+    0 5px 10px rgba(1, 7, 18, 0.5),
+    0 0 10px color-mix(in srgb, var(--accent) 8%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 5, 14, 0.38),
+    inset 0 0 42px rgba(1, 10, 22, 0.26);
+  backdrop-filter: blur(28px) saturate(142%);
+  isolation: isolate;
+}
+
+.drawer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    146deg,
+    rgba(255, 255, 255, 0.38),
+    transparent 26%,
+    transparent 66%,
+    color-mix(in srgb, var(--accent) 42%, transparent)
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.drawer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='d'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23d)'/%3E%3C/svg%3E");
+  background-size: 170px 170px;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+.drawerHead {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  padding: 14px 16px 9px 17px;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.sourcePill {
+  position: relative;
+  display: grid;
+  width: 164px;
+  height: 34px;
+  padding: 3px;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid rgba(202, 232, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(5, 15, 29, 0.4);
+  box-shadow:
+    inset 0 1px 3px rgba(255, 255, 255, 0.07),
+    inset 0 -2px 5px rgba(0, 5, 14, 0.3);
+}
+
+.sourceLiquid {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  z-index: 0;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background:
+    radial-gradient(
+      circle at 32% 18%,
+      #ffffff,
+      rgba(239, 250, 255, 0.94) 34%,
+      transparent 72%
+    ),
+    radial-gradient(
+      circle at 50% 120%,
+      color-mix(in srgb, var(--accent) 54%, #eaf9ff),
+      #e3f6ff
+    );
+  box-shadow:
+    0 2px 10px rgba(0, 8, 20, 0.3),
+    0 0 10px color-mix(in srgb, var(--accent) 22%, transparent),
+    inset 0 1px 0 #ffffff,
+    inset 0 -3px 8px color-mix(in srgb, var(--accent) 24%, transparent);
+  transition: transform 0.58s var(--ease-liquid);
+}
+
+.sourceLiquid[data-at="online"] {
+  transform: translateX(100%);
+}
+
+.sourceLiquid::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    #ffffff,
+    var(--accent) 66%,
+    transparent 72%
+  );
+  filter: blur(1.5px);
+  opacity: 0.8;
+  transition:
+    right 0.58s var(--ease-liquid),
+    left 0.58s var(--ease-liquid);
+}
+
+.sourceLiquid[data-at="online"]::after {
+  right: auto;
+  left: -4px;
+}
+
+.sourceTab {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-faint);
+  background: none;
+  font-family: var(--font-body);
+  font-size: var(--button-font-size);
+  font-weight: 400;
+  letter-spacing: var(--button-letter-spacing);
+  line-height: 1.2;
+  cursor: pointer;
+  transition: color 0.35s ease;
+}
+
+.sourceTab svg {
+  width: 11px;
+  height: 11px;
+  opacity: 0.68;
+  stroke-width: 1.4;
+}
+
+.sourceTab[data-active="true"] {
+  color: #0a1b2c;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.44);
+}
+
+.sourceTab[data-active="true"] svg {
+  opacity: 1;
+}
+
+.sourceTab:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.drawerAdd {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  margin-left: auto;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(201, 232, 255, 0.16);
+  border-radius: 50%;
+  color: var(--text-soft);
+  background: rgba(6, 18, 33, 0.34);
+  cursor: pointer;
+  transition:
+    color 0.22s ease,
+    border-color 0.22s ease,
+    background 0.22s ease,
+    transform 0.22s var(--ease-liquid);
+}
+
+.drawerAdd:hover {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: rgba(17, 42, 68, 0.5);
+  transform: rotate(90deg);
+}
+
+.drawerAdd svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.5;
+}
+
+.drawerLive {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  margin-left: auto;
+  place-items: center;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 18%, rgba(200, 232, 255, 0.12));
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--accent) 72%, white);
+  background: rgba(6, 18, 33, 0.3);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.drawerLive svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 1.4;
+  animation: liveBars 2.6s ease-in-out infinite;
+}
+
+.listScroll {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 3px 9px 11px 11px;
+  overflow-y: auto;
+  scrollbar-color: rgba(190, 225, 255, 0.24) transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 7px,
+    #000 calc(100% - 7px),
+    transparent 100%
+  );
+}
+
+.listScroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.listScroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.listScroll::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background: rgba(190, 225, 255, 0.22);
+}
+
+.trackList {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 5px;
+  list-style: none;
+  animation: listReveal 0.28s ease both;
+}
+
+.trackRow {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 51px;
+  padding: 6px 9px;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.3s var(--ease-liquid);
+}
+
+.trackRow:hover {
+  border-color: rgba(204, 234, 255, 0.1);
+  background: rgba(255, 255, 255, 0.045);
+  transform: translateX(2px);
+}
+
+.trackRow[data-active="true"] {
+  border-color: color-mix(
+    in srgb,
+    var(--accent) 28%,
+    rgba(190, 225, 255, 0.16)
+  );
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 15%, rgba(25, 52, 82, 0.42)),
+    rgba(20, 42, 70, 0.16) 72%,
+    rgba(20, 42, 70, 0.04)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    inset 0 -1px 0 rgba(0, 8, 18, 0.25),
+    0 3px 8px rgba(1, 8, 20, 0.16),
+    0 0 10px color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.trackRow[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, var(--accent), #ffffff);
+  box-shadow: 0 0 8px var(--accent);
+  opacity: 0.8;
+}
+
+.trackRow[data-active="true"]:hover {
+  transform: translateX(1px);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 19%, rgba(25, 52, 82, 0.46)),
+    rgba(20, 42, 70, 0.2) 72%,
+    rgba(20, 42, 70, 0.06)
+  );
+}
+
+.trackRow:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 58%, white);
+  outline-offset: -1px;
+}
+
+.rowGlow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    120% 130% at 0% 50%,
+    color-mix(in srgb, var(--accent) 24%, transparent) 0%,
+    transparent 62%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+
+.trackRow[data-active="true"] .rowGlow {
+  opacity: 1;
+  animation: rowBreathe 4.6s ease-in-out infinite;
+}
+
+.rowCover {
+  position: relative;
+  z-index: 1;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 10px;
+  box-shadow:
+    0 3px 8px rgba(0, 5, 14, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.trackRow[data-active="true"] .rowCover {
+  border-color: color-mix(
+    in srgb,
+    var(--accent) 36%,
+    rgba(255, 255, 255, 0.22)
+  );
+  box-shadow:
+    0 3px 8px rgba(0, 5, 14, 0.32),
+    0 0 10px color-mix(in srgb, var(--accent) 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.rowCoverArt {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.rowEq {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  padding-bottom: 5px;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  background: linear-gradient(to top, rgba(2, 10, 21, 0.72), transparent 56%);
+}
+
+.rowEq i {
+  width: 2px;
+  height: 9px;
+  border-radius: 2px;
+  background: linear-gradient(to top, var(--accent), #ffffff);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: eqBar 1.05s ease-in-out infinite;
+}
+
+.rowEq i:nth-child(2) {
+  height: 13px;
+  animation-delay: 0.16s;
+}
+
+.rowEq i:nth-child(3) {
+  height: 7px;
+  animation-delay: 0.32s;
+}
+
+.rowText {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rowText strong {
+  overflow: hidden;
+  color: rgba(241, 249, 255, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowText em {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 9px;
+  font-style: normal;
+  letter-spacing: 0.05em;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackRow[data-active="true"] .rowText strong {
+  color: #ffffff;
+  text-shadow: 0 0 14px rgba(180, 230, 255, 0.32);
+}
+
+.trackRow[data-active="true"] .rowText em {
+  color: color-mix(in srgb, var(--accent) 44%, rgba(220, 239, 255, 0.62));
+}
+
+.rowMeta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  padding-left: 3px;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--text-faint);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+.trackRow[data-active="true"] .rowMeta {
+  color: color-mix(in srgb, var(--accent) 62%, #ffffff);
+}
+
+.rowSpinner {
+  width: 11px;
+  height: 11px;
+  opacity: 0.48;
+  animation: spin 1.1s linear infinite;
+}
+
+.emptyState {
+  display: flex;
+  height: 100%;
+  min-height: 248px;
+  padding: 18px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  text-align: center;
+}
+
+.emptyIcon {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 5px;
+  place-items: center;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 26%, rgba(203, 233, 255, 0.14));
+  border-radius: 50%;
+  color: var(--accent);
+  background:
+    radial-gradient(
+      circle at 36% 26%,
+      rgba(255, 255, 255, 0.18),
+      transparent 48%
+    ),
+    rgba(6, 18, 33, 0.38);
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--accent) 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.emptyIcon svg {
+  width: 21px;
+  height: 21px;
+  stroke-width: 1.3;
+}
+
+.emptyState strong {
+  color: rgba(238, 248, 255, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.emptyState p {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+.emptyAction {
+  display: flex;
+  height: 30px;
+  margin-top: 10px;
+  padding: 0 13px;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(206, 235, 255, 0.2);
+  border-radius: 999px;
+  color: #f9fdff;
+  background: rgba(255, 255, 255, 0.065);
+  font-family: var(--font-body);
+  font-size: var(--button-font-size);
+  font-weight: 400;
+  letter-spacing: var(--button-letter-spacing);
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    transform 0.25s var(--ease-liquid);
+}
+
+.emptyAction:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 13%, rgba(255, 255, 255, 0.06));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 12%, transparent);
+  transform: translateY(-1px);
+}
+
+.emptyAction svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.5;
+}
+
+.drawerFoot {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  padding: 8px 15px 12px;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid rgba(190, 225, 255, 0.09);
+  background: linear-gradient(to bottom, transparent, rgba(3, 10, 20, 0.2));
+}
+
+.footNote {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-faint);
+  font-size: 8px;
+  letter-spacing: 0.13em;
+}
+
+.footDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.volumeDock {
+  position: absolute;
+  top: -27px;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  width: 190px;
+  height: 26px;
+  padding: 0 8px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 16%, rgba(193, 226, 255, 0.16));
+  border-radius: 999px;
+  background:
+    radial-gradient(
+      circle at 36% 16%,
+      rgba(255, 255, 255, 0.09),
+      transparent 48%
+    ),
+    rgba(5, 16, 30, 0.4);
+  box-shadow:
+    0 3px 8px rgba(0, 6, 16, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transform: translateX(-50%);
+  backdrop-filter: blur(10px) saturate(118%);
+}
+
+.volumeMute {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-soft);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.volumeMute:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.volumeMute svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.4;
+}
+
+.volumeTrack {
+  position: relative;
+  width: 112px;
+  height: 18px;
+  flex: 0 0 auto;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.volumeTrack:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent) 58%, white);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+.volumeLine {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(205, 232, 255, 0.14);
+  transform: translateY(-50%);
+}
+
+.volumeFill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--accent) 70%, #ffffff),
+    #ffffff
+  );
+  box-shadow: 0 0 8px var(--accent);
+  transform: translateY(-50%);
+}
+
+.volumeThumb {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  background: #f4fbff;
+  box-shadow: 0 0 8px var(--accent);
+  transform: translate(-50%, -50%);
+}
+
+.volumeValue {
+  min-width: 18px;
+  color: var(--text-faint);
+  font-size: 8px;
+  text-align: center;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 换边光雾（与白噪音 veilWash 同款）────────────────────── */
+
+.switchVeil {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  opacity: 0;
+  transform-origin: center;
+  filter: blur(22px);
+  pointer-events: none;
+}
+
+.switchVeil::before,
+.switchVeil::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  border-radius: 50%;
+  transition: transform 0.45s var(--ease-ether);
+}
+
+/* 主球侧的光团：右停靠时对准距左边缘 287px 的球心；左停靠时用 translate
+   平滑滑到距右边缘 287px 处，避免光团在布局翻转的同一帧硬跳。 */
+.switchVeil::before {
+  left: 287px;
+  width: 540px;
+  height: 430px;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--accent) 24%, rgba(218, 248, 255, 0.22)),
+    transparent 64%
+  );
+  transform: translate(-50%, -50%);
+}
+
+.root[data-dock="left"] .switchVeil::before {
+  transform: translate(calc(-50% + 100vw - 574px), -50%);
+}
+
+/* 曲库侧的第二团光更淡；抽屉收起时只保留主球光团。 */
+.switchVeil::after {
+  right: 197px;
+  width: 360px;
+  height: 380px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(236, 252, 255, 0.13),
+    transparent 66%
+  );
+  transform: translate(50%, -50%);
+  transition:
+    opacity 0.3s ease,
+    transform 0.45s var(--ease-ether);
+}
+
+.root[data-dock="left"] .switchVeil::after {
+  transform: translate(calc(50% - 100vw + 394px), -50%);
+}
+
+.root[data-drawer="closed"] .switchVeil::after {
+  opacity: 0;
+}
+
+.switchVeil[data-active="true"] {
+  animation: veilWash var(--dock-switch-ms) ease-out both;
+}
+
+/* ── 提示、通知与拖放层 ─────────────────────────────────────── */
+
+.hint {
+  position: absolute;
+  bottom: 17px;
+  left: 31px;
+  z-index: 2;
+  margin: 0;
+  color: rgba(207, 232, 255, 0.26);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+  transition: color 0.3s ease;
+}
+
+.root[data-dock="left"] .hint {
+  right: 31px;
+  left: auto;
+  text-align: right;
+}
+
+.root:hover .hint {
+  color: rgba(216, 238, 255, 0.48);
+}
+
+.dropOverlay {
+  position: absolute;
+  inset: 14px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed
+    color-mix(in srgb, var(--accent) 54%, rgba(255, 255, 255, 0.2));
+  border-radius: 24px;
+  background:
+    radial-gradient(
+      circle at 50% 40%,
+      color-mix(in srgb, var(--accent) 13%, transparent),
+      transparent 62%
+    ),
+    rgba(5, 15, 29, 0.58);
+  pointer-events: none;
+  animation: fadeIn 0.18s ease-out both;
+  backdrop-filter: blur(18px);
+}
+
+.dropOverlay > span {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 4px;
+  place-items: center;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 34%, rgba(255, 255, 255, 0.16));
+  border-radius: 50%;
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 0 10px color-mix(in srgb, var(--accent) 18%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.dropOverlay svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.3;
+}
+
+.dropOverlay strong {
+  color: #f8fcff;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.dropOverlay p {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── 动效 ───────────────────────────────────────────────────── */
+
+@keyframes knobBreathe {
+  0%,
+  100% {
+    opacity: 0.14;
+  }
+  50% {
+    opacity: 0.32;
+  }
+}
+
+@keyframes modeHalo {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.62;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes coverBleed {
+  0% {
+    opacity: 0;
+    filter: blur(10px) saturate(1.6);
+    transform: scale(1.18) rotate(1.4deg);
+  }
+  58% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0) saturate(1);
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes coverDrift {
+  0% {
+    transform: scale(1.05) translate3d(-0.6%, -0.4%, 0);
+  }
+  100% {
+    transform: scale(1.09) translate3d(0.8%, 0.6%, 0);
+  }
+}
+
+@keyframes grooveSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes waveRipple {
+  0% {
+    opacity: 0.34;
+    transform: scale(0.82);
+  }
+  65% {
+    opacity: 0.08;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.01);
+  }
+}
+
+@keyframes causticDrift {
+  0% {
+    opacity: 0.38;
+    transform: translate3d(-6%, -3%, 0) scale(0.94) rotate(-5deg);
+  }
+  100% {
+    opacity: 0.62;
+    transform: translate3d(12%, 9%, 0) scale(1.08) rotate(7deg);
+  }
+}
+
+@keyframes orbPulse {
+  0% {
+    opacity: 0.74;
+    transform: scale(0.965);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes dissolveParticle {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--angle, 0deg)) translateY(-26px) scale(0.2);
+    filter: blur(0);
+  }
+  22% {
+    opacity: 0.82;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--angle, 0deg)) translateY(-146px) scale(1.5);
+    filter: blur(4px);
+  }
+}
+
+@keyframes listReveal {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes rowBreathe {
+  0%,
+  100% {
+    opacity: 0.76;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes eqBar {
+  0%,
+  100% {
+    transform: scaleY(0.42);
+  }
+  40% {
+    transform: scaleY(1);
+  }
+  70% {
+    transform: scaleY(0.66);
+  }
+}
+
+@keyframes liveBars {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scaleY(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1.12);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 白噪音 materialize / materializeLeft 的播放器版本：
+   百分比位移只叠加在既有的 translateY(-50%) 居中之上。 */
+@keyframes playerMaterialize {
+  0% {
+    opacity: 0.16;
+    filter: blur(13px);
+    transform: translateY(-50%) translateX(22px) scale(0.975);
+  }
+  54% {
+    opacity: 0.6;
+    filter: blur(5px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(-50%) translateX(0) scale(1);
+  }
+}
+
+@keyframes playerMaterializeLeft {
+  0% {
+    opacity: 0.16;
+    filter: blur(13px);
+    transform: translateY(-50%) translateX(-22px) scale(0.975);
+  }
+  54% {
+    opacity: 0.6;
+    filter: blur(5px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(-50%) translateX(0) scale(1);
+  }
+}
+
+/* 换边时抽屉与主球组同步重组，保留 slot 自身的 translateY(-50%) 居中。 */
+@keyframes drawerMaterialize {
+  0% {
+    opacity: 0.16;
+    filter: blur(13px);
+    transform: translateY(-50%) translateX(22px) scale(0.975);
+  }
+  54% {
+    opacity: 0.6;
+    filter: blur(5px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(-50%) translateX(0) scale(1);
+  }
+}
+
+@keyframes drawerMaterializeLeft {
+  0% {
+    opacity: 0.16;
+    filter: blur(13px);
+    transform: translateY(-50%) translateX(-22px) scale(0.975);
+  }
+  54% {
+    opacity: 0.6;
+    filter: blur(5px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(-50%) translateX(0) scale(1);
+  }
+}
+
+@keyframes veilWash {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.1);
+  }
+}

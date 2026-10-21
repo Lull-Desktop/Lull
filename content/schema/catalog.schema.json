@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lull.app/schemas/content-catalog.schema.json",
+  "title": "Lull Content Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "scenes"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "scenes": {
+      "type": "array",
+      "items": { "$ref": "./scene.schema.json" }
+    }
+  }
+}

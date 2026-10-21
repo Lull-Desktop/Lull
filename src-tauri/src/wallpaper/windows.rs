@@ -1,0 +1,242 @@
+//! 壁纸窗口生命周期：创建、挂载、销毁、重建与热更新。
+//!
+//! 关键约束（踩坑记录，勿随手改动）：
+//! - 运行时创建 WebView2 必须从非主线程调用 `WebviewWindowBuilder`，否则主线程
+//!   分发上下文里的嵌套消息泵会卡死；
+//! - `.shadow(false)` 是视觉硬化终案，避免 tao 阴影帧把客户区内缩出黑边；
+//! - 首次挂载后按延时做尺寸/重绘修复，覆盖 WebView2 controller bounds 与首帧残留。
+#![allow(unsafe_code)]
+
+use std::ffi::c_void;
+use std::time::Duration;
+
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+
+use super::ffi::{self, NativeHost};
+use super::protocol::monitor_url;
+use super::runtime::{
+  config, emit_changed, push_target, remove_target, snapshot_targets, take_targets,
+};
+use super::topology::{enabled_display_targets, monitor_infos, MonitorInfo};
+
+pub(crate) fn create_one(
+  app: &AppHandle,
+  index: usize,
+  device: &str,
+  url: &str,
+  physical: (u32, u32),
+  host: &'static NativeHost,
+  show: bool,
+) -> Result<(), String> {
+  let label = format!("wallpaper-{index}");
+  // 创建路径只从非主线程调用（async 命令 / async 任务 / ensure 线程）；
+  // autostart 虽在主线程，但处于事件循环启动前，等价于 tauri.conf 的建窗时机。
+  ffi::wlog(&format!(
+    "{label}: 开始创建（当前线程 {:?}）",
+    std::thread::current().name()
+  ));
+  let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+    .title("Lull 壁纸")
+    .visible(false)
+    .decorations(false)
+    .shadow(false)
+    .resizable(false)
+    .skip_taskbar(true)
+    .devtools(crate::window_host::devtools_enabled())
+    .build()
+    .map_err(|error| format!("创建 {label} 失败: {error}"))?;
+  ffi::wlog(&format!("{label}: 窗口+WebView 已建 ({url})"));
+  let raw = window.hwnd().map_err(|error| error.to_string())?.0;
+  let drc = unsafe { (host.disable_dwm_frame)(raw) };
+  ffi::wlog(&format!("{label}: disable_dwm_frame rc={drc}"));
+
+  let rc = unsafe { (host.attach)(raw, i32::try_from(index).unwrap_or(i32::MAX)) };
+  ffi::wlog(&format!(
+    "{label}: attach rc={rc} {}",
+    ffi::status_line(host, raw)
+  ));
+  if rc != 0 {
+    let _ = window.destroy();
+    return Err(format!("{label} attach rc={rc}"));
+  }
+  if !show {
+    // 总开关关闭期间创建：attach 内部会 SW_SHOW，立刻藏回去。
+    unsafe {
+      (host.set_visible)(raw, 0);
+    }
+  }
+  push_target(&label, raw as isize, device);
+
+  // 诊断：导航是异步的，加载后延迟读取真实地址，确认参数哈希到达了 WebView。
+  {
+    let diag_app = app.clone();
+    let diag_label = label.clone();
+    std::thread::spawn(move || {
+      std::thread::sleep(Duration::from_millis(3000));
+      if let Some(window) = diag_app.get_webview_window(&diag_label) {
+        match window.url() {
+          Ok(url) => ffi::wlog(&format!("{diag_label}: 加载后 url = {url}")),
+          Err(error) => ffi::wlog(&format!("{diag_label}: 加载后 url 读取失败: {error}")),
+        }
+      }
+    });
+  }
+
+  // 白边修复 + controller 尺寸修复：挂载后按延时多次强制全窗重绘，并用 Physical Rect
+  // 直接写 controller bounds（物理单位不再参与 DPI 换算）。
+  let repaint = host.force_repaint;
+  let raw_isize = raw as isize;
+  std::thread::spawn(move || {
+    let raw = raw_isize as *mut c_void;
+    for delay_ms in [700u64, 1800, 3500] {
+      std::thread::sleep(Duration::from_millis(delay_ms));
+      let _ = window.set_size(tauri::PhysicalSize::new(
+        physical.0.saturating_sub(1),
+        physical.1,
+      ));
+      let _ = window.set_size(tauri::PhysicalSize::new(physical.0, physical.1));
+      let bounds = tauri::Rect {
+        position: tauri::Position::Physical(tauri::PhysicalPosition::new(0, 0)),
+        size: tauri::Size::Physical(tauri::PhysicalSize::new(physical.0, physical.1)),
+      };
+      if let Err(error) = window.as_ref().set_bounds(bounds) {
+        ffi::wlog(&format!("{label}: controller bounds 修复失败: {error}"));
+      }
+      unsafe { repaint(raw) };
+    }
+  });
+  Ok(())
+}
+
+/// 开启 → 无窗口则按需创建（初始显隐跟随总开关）；关闭 → detach+销毁+移出清单。
+/// 在非主线程（async 命令/任务）上执行；tauri 负责把窗口相关操作封送回主线程。
+pub(crate) fn apply_monitor_visibility(
+  app: &AppHandle,
+  device: &str,
+  visible: bool,
+) -> Result<(), String> {
+  let host = ffi::host()?;
+  let existing = snapshot_targets()
+    .into_iter()
+    .find(|(_, _, existing_device)| existing_device == device);
+  ffi::wlog(&format!(
+    "apply: {device} visible={visible} 已有窗口={}",
+    existing.is_some()
+  ));
+  if visible {
+    if existing.is_none() {
+      let config = config()?.data.clone();
+      let infos = monitor_infos(host);
+      let found = infos
+        .iter()
+        .enumerate()
+        .find_map(|(index, result)| match result {
+          Ok(monitor) if monitor.device == device => Some((index, monitor)),
+          _ => None,
+        });
+      let (index, monitor) = found.ok_or_else(|| format!("显示器不在线: {device}"))?;
+      let url = monitor_url(&config, &infos, index)?;
+      let physical = (
+        u32::try_from(monitor.w).unwrap_or(1920),
+        u32::try_from(monitor.h).unwrap_or(1080),
+      );
+      create_one(
+        app,
+        index,
+        device,
+        &url,
+        physical,
+        host,
+        config.master_visible,
+      )?;
+    }
+  } else if let Some((label, raw, _)) = existing {
+    remove_target(&label);
+    unsafe {
+      (host.detach)(raw as *mut c_void);
+    }
+    if let Some(window) = app.get_webview_window(&label) {
+      let _ = window.destroy();
+    }
+  }
+  Ok(())
+}
+
+/// 拓扑变化后的全量重建；由看门狗在 async 运行时调用（非主线程）。
+pub(crate) fn rebuild(app: &AppHandle) -> Result<(), String> {
+  let host = ffi::host()?;
+  let old = take_targets();
+  for target in &old {
+    unsafe {
+      (host.detach)(target.raw as *mut c_void);
+    }
+    if let Some(window) = app.get_webview_window(&target.label) {
+      let _ = window.destroy();
+    }
+  }
+  let config = config()?.data.clone();
+  let infos = monitor_infos(host);
+  let enabled = enabled_display_targets(&config, &infos);
+  ffi::wlog(&format!(
+    "rebuild：销毁 {} 个旧窗口，按配置重建 {} 个",
+    old.len(),
+    enabled.len()
+  ));
+  for (index, device, physical) in &enabled {
+    match monitor_url(&config, &infos, *index) {
+      Ok(url) => {
+        if let Err(error) = create_one(
+          app,
+          *index,
+          device,
+          &url,
+          *physical,
+          host,
+          config.master_visible,
+        ) {
+          ffi::wlog(&error);
+        }
+      }
+      Err(error) => ffi::wlog(&error),
+    }
+  }
+  emit_changed(app);
+  Ok(())
+}
+
+/// 对全部现存壁纸窗热更参数哈希（零重载）。eval 的 JS 字符串用 serde_json 序列化防注入。
+fn hot_update_windows(
+  app: &AppHandle,
+  config: &crate::config::WallpaperConfig,
+  infos: &[Result<MonitorInfo, String>],
+) {
+  for (label, _raw, device) in snapshot_targets() {
+    let index = infos.iter().position(|result| {
+      result
+        .as_ref()
+        .is_ok_and(|monitor| monitor.device == device)
+    });
+    let Some(index) = index else {
+      continue;
+    };
+    let Ok(url) = monitor_url(config, infos, index) else {
+      continue;
+    };
+    let hash = url.trim_start_matches('/');
+    let Ok(quoted) = serde_json::to_string(hash) else {
+      continue;
+    };
+    if let Some(window) = app.get_webview_window(&label) {
+      let _ = window.eval(format!("location.hash = {quoted}"));
+    }
+  }
+}
+
+pub(crate) fn reapply_display(app: &AppHandle) -> Result<(), String> {
+  let host = ffi::host()?;
+  let config = config()?.data.clone();
+  let infos = monitor_infos(host);
+  hot_update_windows(app, &config, &infos);
+  emit_changed(app);
+  Ok(())
+}
