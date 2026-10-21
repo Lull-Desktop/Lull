@@ -16,7 +16,7 @@ export const BUILTIN_WIDGETS: readonly WidgetManifest[] = [
     version: "1.0.0",
     description: "液态黑胶播放器与在线氛围声。",
     author: "Lull",
-    license: "MIT",
+    license: "GPL-3.0-or-later",
     capabilities: [
       "widget.ui",
       "widget.theme",
@@ -45,7 +45,7 @@ export const BUILTIN_WIDGETS: readonly WidgetManifest[] = [
     version: "1.0.0",
     description: "液态时间沙漏，专注与休息的节奏。",
     author: "Lull",
-    license: "MIT",
+    license: "GPL-3.0-or-later",
     capabilities: ["widget.ui", "widget.theme", "widget.state", "widget.audio"],
     builtin: true,
     window: {
@@ -68,7 +68,7 @@ export const BUILTIN_WIDGETS: readonly WidgetManifest[] = [
     version: "1.0.0",
     description: "雨、风、海浪、篝火与远雷，可自由混音的五层声场。",
     author: "Lull",
-    license: "MIT",
+    license: "GPL-3.0-or-later",
     capabilities: ["widget.ui", "widget.theme", "widget.state", "widget.audio"],
     builtin: true,
     window: {

@@ -19,10 +19,18 @@
     "active": true,
     "targets": "all",
     "copyright": "Copyright (c) 2022 Kevin Xiao; Copyright (c) 2026 Lull contributors",
+    "license": "GPL-3.0-or-later",
+    "licenseFile": "../LICENSE",
     "category": "Productivity",
     "shortDescription": "Lull — 助眠与专注桌面应用",
     "longDescription": "开源的助眠与专注桌面应用：动态壁纸、白噪音、番茄钟都在本地运行。",
-    "resources": { "native/lull_native.dll": "lull_native.dll" },
+    "resources": {
+      "native/lull_native.dll": "lull_native.dll",
+      "../LICENSE": "LICENSE",
+      "../NOTICE": "NOTICE",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../LICENSES": "LICENSES"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

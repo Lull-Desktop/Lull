@@ -16,7 +16,7 @@ function validManifest(overrides: Record<string, unknown> = {}) {
     id: "community.example",
     name: "示例",
     version: "1.0.0",
-    license: "MIT",
+    license: "CC-BY-4.0",
     capabilities: ["wallpaper.viewport"],
     entry: "scenes/example/index.html",
     ...overrides,

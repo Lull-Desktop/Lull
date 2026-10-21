@@ -52,7 +52,7 @@ type WidgetManifest = {
   "id": "player",
   "name": "播放器",
   "version": "1.0.0",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "capabilities": ["widget.ui", "widget.theme", "widget.state", "widget.audio", "widget.media"],
   "window": {
     "label": "player",
@@ -133,3 +133,9 @@ Rust `WidgetSpec.capabilities` 与 TS 清单保持同一枚举；`widget_states`
 - 不允许内容包执行任意 Rust 命令；
 - 不允许内容包访问壁纸窗口或原生宿主；
 - 不在首版实现工具市场、安装器或在线更新。
+
+## 8. 许可
+
+- `src/sdk/widget/**`：**Apache-2.0**（见 [SDK License](../SDK-LICENSE.md)）；
+- 内置工具实现与窗口工厂：**GPL-3.0-or-later**；
+- 第三方工具目前不开放；未来开放时需先确定插件许可与权限边界。

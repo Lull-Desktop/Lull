@@ -147,7 +147,7 @@ lib.rs
 
 ## 5. 配置模型
 
-路径：`%APPDATA%\app.lull.desktop\display.json`（旧 `wallpaper.json` 自动读取并迁移）。
+路径：`%APPDATA%\app.lull.desktop\display.json`（只读取 `display.json`；旧版 `wallpaper.json` 不再读取或迁移）。
 
 ```json
 {
@@ -164,12 +164,7 @@ lib.rs
 }
 ```
 
-版本策略：
-
-- `version = 2` 为当前版本；v1 的 `serene` / `aurora` / `dusk` 在读取时映射为 `lull.*`；
-- 未知场景 id 原样保留，避免破坏未来内容包；
-- 高于当前版本的配置**不解释、不覆盖**，回退默认值并记录警告；
-- 字段缺失 / 损坏按字段级回退，尽量保留同文件其它数据。
+版本必须等于 `2`；不兼容版本回退默认值并记录警告，不覆盖原文件。旧版 `wallpaper.json` 不读取、不迁移。
 
 ## 6. 原生 C ABI
 

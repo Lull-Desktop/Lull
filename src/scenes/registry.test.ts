@@ -12,7 +12,7 @@ describe("builtin scene registry", () => {
     expect(new Set(ids).size).toBe(ids.length);
     for (const scene of BUILTIN_SCENES) {
       expect(scene.manifest.id).toMatch(/^[a-z0-9][a-z0-9._-]+$/);
-      expect(scene.manifest.license).toBe("MIT");
+      expect(scene.manifest.license).toBe("GPL-3.0-or-later");
       expect(scene.manifest.capabilities).toContain("wallpaper.canvas");
     }
   });

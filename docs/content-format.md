@@ -32,7 +32,7 @@ public/content/
       "version": "1.0.0",
       "description": "薄雾与远山。",
       "author": "Lull Community",
-      "license": "MIT",
+      "license": "CC-BY-4.0",
       "capabilities": ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
       "entry": "scenes/mist/index.html",
       "theme": { "background": "#0a1416", "accent": "#9fc7c2" }
@@ -106,7 +106,7 @@ type ContentManifest = {
 - 代码、字体、图标、声音、场景素材的授权分别确认；
 - 随包附 `LICENSE` 或 `THIRD_PARTY_NOTICES.md`；
 - 不允许把无授权素材打包进官方内容目录；
-- 官方内置场景以 MIT 发布。
+- 官方内置场景属于应用代码，以 GPL-3.0-or-later 发布；官方内容目录与示例以 CC BY 4.0 发布。
 
 ## 6. 校验
 

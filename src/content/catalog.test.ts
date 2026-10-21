@@ -18,7 +18,7 @@ const PAYLOAD = {
       id: "community.mist",
       name: "雾岚",
       version: "1.0.0",
-      license: "MIT",
+      license: "CC-BY-4.0",
       capabilities: ["wallpaper.viewport"],
       entry: "scenes/mist/index.html",
     },

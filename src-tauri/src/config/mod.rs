@@ -1,32 +1,18 @@
-//! 显示配置持久化：`display.json` 的数据模型、版本迁移与事务式写盘。
+//! 显示配置持久化：`display.json` 的数据模型、版本校验与事务式写盘。
 //!
 //! 设计约束：
-//! - 配置缺失 / 损坏 / 未来版本都不得让应用启动失败；
+//! - 配置缺失 / 损坏 / 不兼容版本都不得让应用启动失败；
 //! - 写盘失败必须回滚调用方的内存状态（由命令层负责）；
-//! - 配置版本只增不减，旧场景 id 在读取时迁移，不要求用户手工改文件。
+//! - 不读取、不迁移旧版 `wallpaper.json`；版本不匹配时回退默认值并记录警告。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// 当前配置 schema 版本。v1 = Serene 时代；v2 = Lull 命名空间 + 场景 id 迁移。
+/// 当前配置 schema 版本。v2 = Lull 命名空间。
 pub const CURRENT_VERSION: u32 = 2;
 
 /// 默认场景 id，与前端 `src/core/wallpaper/params.ts` 的 DEFAULT_SCENE_ID 对齐。
 pub const DEFAULT_SCENE_ID: &str = "lull.bamboo";
-
-/// Serene v1 配置里的短场景 id → Lull 场景 id。
-const LEGACY_SCENES: [(&str, &str); 3] = [
-  ("serene", "lull.bamboo"),
-  ("aurora", "lull.aurora"),
-  ("dusk", "lull.dusk"),
-];
-
-fn migrate_scene_id(scene: &str) -> String {
-  LEGACY_SCENES
-    .iter()
-    .find(|(legacy, _)| *legacy == scene)
-    .map_or_else(|| scene.to_string(), |(_, current)| (*current).to_string())
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MonitorConfig {
@@ -145,9 +131,7 @@ impl Default for WallpaperConfig {
 #[derive(Debug, Clone)]
 pub struct LoadOutcome {
   pub config: WallpaperConfig,
-  /// 发生迁移时的旧版本号。
-  pub migrated_from: Option<u32>,
-  /// 回退 / 迁移提示；正常读取为 None。
+  /// 回退提示；正常读取为 None。
   pub warning: Option<String>,
 }
 
@@ -156,18 +140,16 @@ impl WallpaperConfig {
   pub fn load_outcome(path: &Path) -> LoadOutcome {
     let fallback = |warning: String| LoadOutcome {
       config: Self::default(),
-      migrated_from: None,
       warning: Some(warning),
     };
 
     let Ok(text) = std::fs::read_to_string(path) else {
       return LoadOutcome {
         config: Self::default(),
-        migrated_from: None,
         warning: None,
       };
     };
-    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
       return fallback(format!(
         "配置不是合法 JSON，已回退默认值: {}",
         path.display()
@@ -186,23 +168,15 @@ impl WallpaperConfig {
       .unwrap_or(1);
     let version = u32::try_from(version).unwrap_or(u32::MAX);
 
-    if version > CURRENT_VERSION {
+    if version != CURRENT_VERSION {
       return fallback(format!(
-        "配置版本 {version} 高于当前支持的 {CURRENT_VERSION}，已回退默认值（不覆盖原文件）"
+        "配置版本 {version} 与当前支持的 {CURRENT_VERSION} 不兼容，已回退默认值（不再迁移旧版配置）"
       ));
     }
-
-    let migrated_from = if version < CURRENT_VERSION {
-      migrate_value(&mut value, version);
-      Some(version)
-    } else {
-      None
-    };
 
     match serde_json::from_value::<Self>(value) {
       Ok(config) => LoadOutcome {
         config,
-        migrated_from,
         warning: None,
       },
       Err(error) => fallback(format!("配置字段不合法，已回退默认值: {error}")),
@@ -264,25 +238,6 @@ fn temp_file_path(path: &Path) -> PathBuf {
   let mut name = path.as_os_str().to_os_string();
   name.push(".tmp");
   PathBuf::from(name)
-}
-
-/// 把旧版本 JSON 就地迁移到 CURRENT_VERSION。
-fn migrate_value(value: &mut serde_json::Value, from: u32) {
-  if from < 2 {
-    if let Some(display) = value.get_mut("display") {
-      if let Some(scene) = display.get("scene").and_then(|v| v.as_str()) {
-        display["scene"] = serde_json::Value::String(migrate_scene_id(scene));
-      }
-    }
-    if let Some(monitors) = value.get_mut("monitors").and_then(|v| v.as_object_mut()) {
-      for monitor in monitors.values_mut() {
-        if let Some(scene) = monitor.get("scene").and_then(|v| v.as_str()) {
-          monitor["scene"] = serde_json::Value::String(migrate_scene_id(scene));
-        }
-      }
-    }
-  }
-  value["version"] = serde_json::Value::from(CURRENT_VERSION);
 }
 
 #[cfg(test)]
@@ -368,39 +323,29 @@ mod tests {
     std::fs::write(&path, raw).unwrap();
     let outcome = WallpaperConfig::load_outcome(&path);
     assert_eq!(outcome.config, WallpaperConfig::default());
-    assert!(outcome.warning.unwrap().contains("高于当前支持"));
+    assert!(outcome.warning.unwrap().contains("不兼容"));
     assert_eq!(std::fs::read_to_string(&path).unwrap(), raw);
   }
 
   #[test]
-  fn v1_scene_ids_migrate_to_namespaced_ids() {
-    let path = temp_path("v1_migration");
+  fn old_version_is_rejected_without_migration() {
+    let path = temp_path("old_version");
     std::fs::write(
       &path,
-      r#"{"version":1,"display":{"mode":"independent","scene":"serene"},"monitors":{"\\\\.\\DISPLAY2":{"enabled":false,"scene":"aurora"}}}"#,
+      r#"{"version":1,"display":{"scene":"legacy.scene"},"monitors":{"\\\\.\\DISPLAY2":{"enabled":false}}}"#,
     )
     .unwrap();
     let outcome = WallpaperConfig::load_outcome(&path);
-    assert_eq!(outcome.migrated_from, Some(1));
-    assert_eq!(outcome.config.version, CURRENT_VERSION);
-    assert_eq!(outcome.config.display.scene, "lull.bamboo");
-    assert_eq!(
-      outcome
-        .config
-        .monitors
-        .get(D2)
-        .and_then(|m| m.scene.as_deref()),
-      Some("lull.aurora")
-    );
-    assert!(!outcome.config.monitor_enabled(D2));
+    assert_eq!(outcome.config, WallpaperConfig::default());
+    assert!(outcome.warning.unwrap().contains("不兼容"));
   }
 
   #[test]
-  fn unknown_legacy_scene_id_is_preserved() {
-    let path = temp_path("v1_unknown_scene");
+  fn unknown_scene_id_in_current_config_is_preserved() {
+    let path = temp_path("unknown_scene_current");
     std::fs::write(
       &path,
-      r#"{"version":1,"display":{"scene":"community.custom"}}"#,
+      r#"{"version":2,"display":{"scene":"community.custom"}}"#,
     )
     .unwrap();
     let outcome = WallpaperConfig::load_outcome(&path);

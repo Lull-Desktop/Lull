@@ -6,7 +6,7 @@
 
 竹影、暮色与极光在桌面上缓缓流动，雨声、风声、海浪、篝火与远雷在耳边轻轻起伏。它不推送、不催促、不打扰——只是安静地陪着，直到你睡着，或把手头的事做完。
 
-Lull 由 Serene 的 Windows 动态壁纸工程重构而来：保留 Tauri + Win32 桌面宿主这条最难的技术路径，把代码重新组织为 **桌面运行时核心（Core）＋ 场景/工具 SDK（Extensions）＋ 内容格式（Community）＋ 可选服务（Services）** 四层。详见 [架构说明](docs/architecture.md)。
+Lull 采用 Tauri + Win32 桌面宿主这条最难的技术路径，**桌面运行时核心（Core）＋ 场景/工具 SDK（Extensions）＋ 内容格式（Community）＋ 可选服务（Services）** 四层。详见 [架构说明](docs/architecture.md)。
 
 ---
 
@@ -168,7 +168,7 @@ pnpm content:check
 
 ## 日志与配置
 
-- 配置：`%APPDATA%\app.lull.desktop\display.json`（同目录下的旧 `wallpaper.json` 会在启动时自动迁移）
+- 配置：`%APPDATA%\app.lull.desktop\display.json`（旧版 `wallpaper.json` 不再读取）
 - 应用日志：`%TEMP%\lull\app.log`
 - 原生宿主日志：`%TEMP%\lull_wallpaper.log`
 - 验收截图 / 日志：`%TEMP%\lull\`
@@ -180,7 +180,7 @@ pnpm content:check
 - [Widget SDK](docs/widget-sdk.md)
 - [内容包格式](docs/content-format.md)
 - [原生桌面宿主](docs/native-host.md)
-- [从 Serene 迁移](docs/migration-from-serene.md)
+- [许可说明](docs/licensing.md)
 - [贡献指南](docs/contributing.md)
 
 ## 当前边界
@@ -192,6 +192,22 @@ pnpm content:check
 
 ## 许可证与归属
 
-源代码以 [MIT License](LICENSE) 发布。Lull 是 Serene（Copyright © 2022 Kevin Xiao）的衍生重构项目；原始 MIT 版权声明保留在 `LICENSE` 中。
+Lull 采用**分层许可**，不是单一许可：
 
-字体、图标与依赖的授权清单见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。内置场景与内容示例以 MIT 发布；第三方内容包必须自带许可证字段。
+| 范围 | 许可 |
+| --- | --- |
+| 应用代码（Rust / C++ / Next.js / React / 脚本） | **GPL-3.0-or-later** |
+| Scene / Widget / Content SDK 公开接口（`src/sdk/**`） | **Apache-2.0** |
+| 官方内容目录、Schema、外部示例 | **CC BY 4.0** |
+| 文档 | **CC BY 4.0** |
+| 字体（Noto Sans SC / Source Han Serif SC） | **SIL OFL 1.1** |
+| Lull 名称与 Logo | 商标政策，见 [`TRADEMARK.md`](TRADEMARK.md) |
+
+完整 GPL 文本见 [LICENSE](LICENSE)，许可见解与合规说明见 [docs/licensing.md](docs/licensing.md)、[SDK-LICENSE.md](SDK-LICENSE.md) 与 [CONTENT-LICENSE.md](CONTENT-LICENSE.md)。
+
+> **源码提供**：发布安装包时请同时提供同一 release tag 的源码归档；本仓库即对应源码。
+> 安装包内包含 `LICENSE`、`NOTICE`、`LICENSES/` 与 `THIRD_PARTY_NOTICES.md`。
+
+Lull 是 Serene（Copyright © 2022 Kevin Xiao，MIT）的衍生重构项目。原始 MIT 声明保留在
+[`LICENSES/MIT-Serene.txt`](LICENSES/MIT-Serene.txt)；第三方依赖与字体授权见
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。

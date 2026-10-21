@@ -24,7 +24,7 @@
   "version": "1.0.0",
   "description": "薄雾与远山。",
   "author": "Lull Community",
-  "license": "MIT",
+  "license": "CC-BY-4.0",
   "capabilities": [
     "wallpaper.viewport",
     "wallpaper.canvas",
@@ -100,7 +100,7 @@ const MY_MANIFEST = parseSceneManifest({
   id: "lull.my-scene",
   name: "我的场景",
   version: "1.0.0",
-  license: "MIT",
+  license: "GPL-3.0-or-later",
   capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
 });
 ```
@@ -132,7 +132,7 @@ public/content/
       "id": "community.mist",
       "name": "雾岚",
       "version": "1.0.0",
-      "license": "MIT",
+      "license": "CC-BY-4.0",
       "capabilities": ["wallpaper.viewport", "wallpaper.canvas"],
       "entry": "scenes/mist/index.html"
     }
@@ -211,3 +211,10 @@ Vitest 还会解析随包目录与示例场景，防止文档与实现漂移。
 - 不允许场景修改全局配置；
 - 不允许场景在首版访问麦克风、文件系统或网络；
 - 不把 React 组件直接分发给第三方（首版只支持静态 HTML 包）。
+
+## 9. 许可
+
+- `src/sdk/scene/**`：**Apache-2.0**（见 [SDK License](../SDK-LICENSE.md)）；
+- 内置场景实现 `src/scenes/**`：**GPL-3.0-or-later**；
+- 外部内容示例 `public/content/**`：**CC BY 4.0**（见 [Content License](../CONTENT-LICENSE.md)）；
+- 第三方内容包：作者自选许可，但必须在 manifest 的 `license` 字段声明。

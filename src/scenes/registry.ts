@@ -22,7 +22,7 @@ const BAMBOO_MANIFEST = parseSceneManifest({
   version: "1.0.0",
   description: "深夜竹林、薄雾与远山，Lull 的默认场景。",
   author: "Lull",
-  license: "MIT",
+  license: "GPL-3.0-or-later",
   capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
   theme: { background: "#07110f", accent: "#a9bf9b" },
 });
@@ -35,7 +35,7 @@ const AURORA_MANIFEST = parseSceneManifest({
   version: "1.0.0",
   description: "深蓝夜空与缓慢漂移的极光光带。",
   author: "Lull",
-  license: "MIT",
+  license: "GPL-3.0-or-later",
   capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
   theme: { background: "#07131f", accent: "#8fe4ff" },
 });
@@ -48,7 +48,7 @@ const DUSK_MANIFEST = parseSceneManifest({
   version: "1.0.0",
   description: "落日、云带与层叠远山，适合傍晚的暖调天光。",
   author: "Lull",
-  license: "MIT",
+  license: "GPL-3.0-or-later",
   capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
   theme: { background: "#1b1520", accent: "#e0ad83" },
 });

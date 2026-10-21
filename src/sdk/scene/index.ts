@@ -22,4 +22,5 @@ export type {
   SceneFrame,
   SceneLayout,
   SceneProps,
+  SceneRect,
 } from "./types";

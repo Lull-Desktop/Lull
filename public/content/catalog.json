@@ -9,7 +9,7 @@
       "version": "1.0.0",
       "description": "社区示例：纯静态 HTML/CSS 场景包（不执行 JavaScript），不修改核心代码即可被发现和运行。",
       "author": "Lull Community",
-      "license": "MIT",
+      "license": "CC-BY-4.0",
       "capabilities": [
         "wallpaper.viewport",
         "wallpaper.canvas"

@@ -592,8 +592,8 @@ export default function Settings() {
           </CardHeader>
           <CardContent className="space-y-2 text-xs text-muted-foreground">
             <p>
-              版本 0.1.0 · MIT License · Tauri 2 + Next.js 16 + Win32 Native
-              Host
+              版本 0.1.0 · GPL-3.0-or-later · SDK Apache-2.0 · Tauri 2 + Next.js
+              16 + Win32 Native Host
             </p>
             <p>
               扩展模型：内置场景由 Scene SDK 注册；外部静态场景通过{" "}

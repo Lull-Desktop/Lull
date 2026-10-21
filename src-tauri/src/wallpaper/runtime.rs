@@ -99,35 +99,20 @@ pub fn enabled() -> bool {
   cfg!(not(debug_assertions))
 }
 
-/// 读取配置：优先 `display.json`；旧 `wallpaper.json` 自动迁移并落盘到新文件名。
+/// 读取配置。只认 `display.json`；旧版 `wallpaper.json` 不读取、不迁移。
 fn load_config(app: &tauri::App) -> (PathBuf, WallpaperConfig) {
   let dir = app
     .path()
     .app_config_dir()
     .unwrap_or_else(|_| PathBuf::from("."));
   let path = dir.join("display.json");
-  let legacy = dir.join("wallpaper.json");
-  let source = if path.exists() {
-    path.clone()
-  } else if legacy.exists() {
-    ffi::wlog(&format!(
-      "发现旧配置 {}，迁移到 display.json",
-      legacy.display()
-    ));
-    legacy
-  } else {
+  if !path.exists() {
     return (path, WallpaperConfig::default());
-  };
+  }
 
-  let outcome = WallpaperConfig::load_outcome(&source);
+  let outcome = WallpaperConfig::load_outcome(&path);
   if let Some(warning) = &outcome.warning {
     ffi::wlog(warning);
-  }
-  if let Some(version) = outcome.migrated_from {
-    ffi::wlog(&format!("配置从 v{version} 迁移到当前版本"));
-    if let Err(error) = outcome.config.save(&path) {
-      ffi::wlog(&format!("迁移后的配置写盘失败（继续使用内存值）: {error}"));
-    }
   }
   (path, outcome.config)
 }

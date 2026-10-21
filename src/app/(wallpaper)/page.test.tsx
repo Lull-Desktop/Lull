@@ -85,7 +85,7 @@ test("external catalog scene mounts in a sandboxed iframe", async () => {
                 id: "community.mist",
                 name: "雾岚",
                 version: "1.0.0",
-                license: "MIT",
+                license: "CC-BY-4.0",
                 capabilities: ["wallpaper.viewport", "wallpaper.canvas"],
                 entry: "scenes/mist/index.html",
               },

@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢你愿意参与 Lull。请先读 [架构说明](architecture.md) 与 [迁移记录](migration-from-serene.md)，再开始改代码。
+感谢你愿意参与 Lull。请先读 [架构说明](architecture.md)，再开始改代码。
 
 ## 1. 环境
 
@@ -34,7 +34,24 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | `pnpm test-mode` | Windows 真机壁纸验收（原生改动必须跑） |
 | `pnpm build` | 完整安装包 |
 
-## 3. 代码约定
+## 3. 许可
+
+Lull 采用分层许可，提交前请确认文件归属：
+
+| 改动范围 | 许可 |
+| --- | --- |
+| 应用代码、Rust、C++、Next.js UI、脚本 | GPL-3.0-or-later |
+| `src/sdk/**` 公开接口 | Apache-2.0 |
+| 文档、官方内容、Schema、示例 | CC BY 4.0 |
+| 字体 | SIL OFL 1.1 |
+
+- 贡献按对应目录的许可接收，不需要签署 CLA；
+- 请使用 DCO sign-off：`git commit -s`；
+- 新增第一方文件建议加 SPDX 头，例如 `// SPDX-License-Identifier: GPL-3.0-or-later`；
+- 不要引入与 GPL-3.0 不兼容的依赖、字体或素材。
+
+详见 [许可说明](licensing.md)、[SDK License](../SDK-LICENSE.md) 与 [Content License](../CONTENT-LICENSE.md)。
+## 4. 代码约定
 
 ### 3.1 前端
 
@@ -61,7 +78,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - 修改挂载、Z 序、DPI、看门狗逻辑后必须跑 `pnpm test-mode`，并在 PR 里贴日志/截图。
 - 不提交 `.dll/.obj/.exp/.lib`（已 gitignore）。
 
-## 4. 测试要求
+## 5. 测试要求
 
 | 改动 | 最低验证 |
 | --- | --- |
@@ -80,7 +97,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 新增行为请补测试；修复回归请先写失败用例。不要通过删除测试来“修复”失败。
 
-## 5. 架构检查清单
+## 6. 架构检查清单
 
 提交前问自己：
 
@@ -89,10 +106,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - [ ] 是否把 Tauri 命令直接暴露成“公共插件 API”？
 - [ ] 是否新增了第三方可执行代码路径？首版不允许。
 - [ ] 配置写入失败时是否会回滚？
-- [ ] 是否硬编码了 Serene / 旧包名 / 旧 DLL 名？
 - [ ] 新增文件是否在文档与目录树中体现？
 
-## 6. 新增内容 / 场景 / 工具
+## 7. 新增内容 / 场景 / 工具
 
 - 内置场景：`src/scenes/<id>/index.tsx` + `src/scenes/registry.ts`。
 - 外部场景：`public/content/scenes/<id>/index.html` + `catalog.json` + `pnpm content:check`。
@@ -100,7 +116,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - 新增 IPC：先确定归属模块，再在 `lib.rs` 注册；更新 `docs/architecture.md` 的命令表。
 - 新增配置字段：提升 `CURRENT_VERSION` 并写迁移测试；旧字段保留默认值。
 
-## 7. 提交与 PR
+## 8. 提交与 PR
 
 - 一个 PR 只做一类改动：命名迁移不要和 Win32 逻辑重构混在一起。
 - 提交信息建议：`feat(scene): ...` / `fix(native): ...` / `docs: ...` / `refactor(core): ...`。
@@ -108,7 +124,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - 原生改动附 `%TEMP%\lull\app.log` 关键行与真机截图。
 - 不提交生成物（`dist/`、`.next/`、`target/`、DLL、`node_modules/`）。
 
-## 8. 安全问题
+## 9. 安全问题
 
 桌面挂载、WebView、内容包都涉及安全边界。发现以下问题请不要公开细节，先按 [SECURITY.md](../SECURITY.md) 私密报告：
 

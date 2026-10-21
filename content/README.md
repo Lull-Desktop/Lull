@@ -37,4 +37,11 @@ pnpm test
 - 不访问 Tauri API / `window.parent` / 宿主存储；
 - 素材授权自行确认，并随包附许可证。
 
+## 许可
+
+- 官方内容目录、Schema 与示例：**CC BY 4.0**（见 [CONTENT-LICENSE.md](../CONTENT-LICENSE.md)）；
+- 内置场景实现（`src/scenes/**`）属于应用代码：**GPL-3.0-or-later**；
+- 第三方内容包：作者自选许可，但必须在 manifest 中声明，并自行确认素材授权；
+- 不要在内容包中使用与 GPL 应用分发冲突的非商业/禁止演绎条款。
+
 完整字段与安全边界见 [Scene SDK](../docs/scene-sdk.md) 与 [内容包格式](../docs/content-format.md)。

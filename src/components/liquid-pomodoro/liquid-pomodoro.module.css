@@ -24,7 +24,7 @@
   --mint-c: #1d6b60;
   --ease-ether: cubic-bezier(0.22, 1, 0.36, 1);
   --font-clock:
-    "HarmonyOS Sans SC", "Segoe UI Variable Display", "Segoe UI", system-ui,
+    "Noto Sans SC", "Segoe UI Variable Display", "Segoe UI", system-ui,
     sans-serif;
   position: relative;
   isolation: isolate;

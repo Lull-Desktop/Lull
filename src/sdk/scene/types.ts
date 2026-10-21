@@ -7,8 +7,13 @@
  * - 跨屏场景按 `layout === "canvas"` 在共享画布坐标系内绘制。
  */
 import type { ReactNode } from "react";
-import type { Rect } from "@/core/wallpaper/params";
 import type { SceneManifest } from "./manifest";
+
+/**
+ * SDK 自有的矩形类型，避免 Apache-2.0 的 SDK 依赖 GPL 应用代码。
+ * 与 `src/core/wallpaper/params.ts` 的 Rect 结构一致，宿主可直接传入。
+ */
+export type SceneRect = { x: number; y: number; w: number; h: number };
 
 export type SceneLayout = "viewport" | "canvas";
 
@@ -18,9 +23,9 @@ export type SceneFrame = {
   /** 动画是否按绝对时间对齐相位。 */
   sync: boolean;
   /** 共享画布矩形（物理像素桌面坐标，可为负）；viewport 布局为 null。 */
-  canvas: Rect | null;
+  canvas: SceneRect | null;
   /** 当前窗口对应的桌面矩形（物理像素）。 */
-  view: Rect | null;
+  view: SceneRect | null;
   /** 当前窗口的 devicePixelRatio。 */
   dpr: number;
 };
