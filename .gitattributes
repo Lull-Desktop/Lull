@@ -1,0 +1,10 @@
+# Normalize line endings to LF on every platform so Biome's formatter
+# (which expects LF) passes on Windows checkouts as well.
+* text=auto eol=lf
+
+# Explicitly keep binary assets untouched.
+*.png binary
+*.ico binary
+*.icns binary
+*.woff2 binary
+*.ttf binary
