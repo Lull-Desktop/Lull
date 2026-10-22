@@ -112,7 +112,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 - [ ] 这段逻辑属于 Core、Extensions 还是 App？有没有放错层？
 - [ ] 是否让 `core` 反向依赖 `scenes/widgets/app`？
 - [ ] 是否把 Tauri 命令直接暴露成“公共插件 API”？
-- [ ] 是否新增了第三方可执行代码路径？插件代码只能通过 iframe + 桥访问宿主，不能直接拿 IPC/文件系统。
+- [ ] 是否新增了第三方可执行代码路径？插件代码只能通过 iframe + 白名单桥访问宿主；WebView2 注入的 internals 不是受支持入口（见 [`widget-package.md`](widget-package.md) 6.3）。
 - [ ] 新工具的能力是否写进 manifest，并在 SDK 门面里实际校验？
 - [ ] 新增 IPC 是否同时更新了 `lib.rs` 与 `build.rs` 的 `APP_COMMANDS`，并确认目标窗口 capability 已授权？
 - [ ] 配置写入失败时是否会回滚？

@@ -7,8 +7,7 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::is_managed;
-use crate::widget_package;
+use super::{is_managed, DYNAMIC_WINDOW_PREFIX};
 
 const FILE_NAME: &str = "window-prefs.json";
 
@@ -60,7 +59,7 @@ fn save(app: &AppHandle, prefs: WindowPrefs) -> Result<(), String> {
 fn apply(app: &AppHandle, prefs: WindowPrefs) {
   let on = prefs.taskbar_and_minimize;
   for (label, window) in app.webview_windows() {
-    if !is_managed(&label) && !widget_package::is_plugin_label(&label) {
+    if !is_managed(&label) && !label.starts_with(DYNAMIC_WINDOW_PREFIX) {
       continue;
     }
     let _ = window.set_minimizable(on);

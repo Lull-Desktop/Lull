@@ -49,6 +49,11 @@ function runOnWindow(
   }
 }
 
+/** 隐藏当前窗口但不广播；插件窗口用受限命令通知设置页，避免申请 event.emit。 */
+export function hideWindowSilently(): Promise<void> {
+  return runOnWindow((win) => win.hide());
+}
+
 /** 隐藏当前窗口：所有应用窗口的关闭按钮都走这里，应用与壁纸继续在托盘里运行。 */
 export function hideWindow(): Promise<void> {
   return runOnWindow(async (win) => {

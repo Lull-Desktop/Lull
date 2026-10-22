@@ -85,7 +85,8 @@ describe("generated window capabilities", () => {
     ) as GeneratedCapability;
     expect(capability.windows).toEqual(["widget-*"]);
     expect(capability.permissions).toContain("core:event:allow-listen");
-    expect(capability.permissions).toContain("core:event:allow-emit");
+    expect(capability.permissions).toContain("allow-widget-package-notify");
+    expect(capability.permissions).not.toContain("core:event:allow-emit");
     expect(capability.permissions).toContain("allow-widget-state-get");
     expect(capability.permissions).toContain("allow-widget-set-transparent");
     expect(capability.permissions).toContain("core:window:allow-hide");

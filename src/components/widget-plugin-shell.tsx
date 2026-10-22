@@ -13,7 +13,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  hideWindow,
+  hideWindowSilently,
   isDesktopWindow,
   minimizeWindow,
 } from "@/core/window/controls";
@@ -191,6 +191,11 @@ export function WidgetPluginShell() {
     void window.setFocus().catch(() => {});
   }, []);
 
+  const closePluginWindow = useCallback(async () => {
+    await hideWindowSilently();
+    await invoke("widget_package_notify").catch(() => {});
+  }, []);
+
   const handleFrameLoad = useCallback(() => {
     // 插件可能在上面的监听器注册前就 postMessage("ready")；
     // 这里补一次 init，并把窗口显示出来，避免握手消息丢失时永远隐藏。
@@ -262,7 +267,7 @@ export function WidgetPluginShell() {
           return { transparent };
         }
         case "close":
-          await hideWindow();
+          await closePluginWindow();
           return { closed: true };
         case "resize.request": {
           const viewport = measure(iframeRef.current) ?? {
@@ -289,7 +294,7 @@ export function WidgetPluginShell() {
           throw new Error(`不支持的桥方法：${message.method ?? "unknown"}`);
       }
     },
-    [context],
+    [closePluginWindow, context],
   );
 
   useEffect(() => {
@@ -434,7 +439,7 @@ export function WidgetPluginShell() {
               className={styles.button}
               aria-label="关闭窗口"
               title="关闭（隐藏到托盘）"
-              onClick={() => void hideWindow()}
+              onClick={() => void closePluginWindow()}
             >
               <X aria-hidden="true" />
             </button>

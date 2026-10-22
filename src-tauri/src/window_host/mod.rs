@@ -5,6 +5,9 @@
 
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
+/// 动态第三方窗口 label 前缀。Core 只依赖这个窗口协议，不依赖插件模块。
+pub const DYNAMIC_WINDOW_PREFIX: &str = "widget-";
+
 pub mod prefs;
 mod spec;
 

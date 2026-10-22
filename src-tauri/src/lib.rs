@@ -33,6 +33,7 @@ pub fn run() {
       window_host::widget_close,
       window_host::prefs::window_prefs_get,
       window_host::prefs::window_prefs_set,
+      widget_package::widget_package_notify,
       widget_package::widget_packages,
       widget_package::widget_package_set_enabled,
       widget_package::widget_package_open,

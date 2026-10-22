@@ -109,7 +109,7 @@ type WidgetManifest = {
 | `widget.state` | ✅ | `lull:<id>:<key>` 命名空间读写 | 未授权时只更新内存、不落盘 |
 | `widget.audio` | ✅ | 创建音频上下文前检查 | 未授权时静音运行 |
 | `widget.media` | ✅ | 导入本地媒体前检查 | 在线曲目仍受 CSP / 网络策略约束 |
-| `widget.chrome` | ✅ 官方 | 隐藏 / 最小化 / 拖拽 / 缩放 / 调宽 | 调宽夹在 `[minWidth, width]` |
+| `widget.chrome` | ✅ 官方 / 插件自窗口 | 隐藏 / 最小化 / 拖拽 / 缩放 / 调宽；插件版只允许自己的窗口 | 调宽夹在 `[minWidth, width]` |
 | `widget.window` | ⚠️ 仅设置外壳 | 宿主代建窗口；只有 settings 的 capability 含 `widget_*` 命令 | 第三方不可申请 |
 | `widget.native` | ❌ | 无入口 | Win32 / 原生宿主 |
 
@@ -198,9 +198,9 @@ base-uri 'self'; form-action 'none'
 
 - 系统窗口是宿主能力，涉及 Z 序、焦点、任务栏、DPI 与桌面层；
 - 窗口 label 也是 Tauri capability 的授权键，任意创建会扩大攻击面；
-- 首期没有插件签名、权限声明与崩溃隔离。
+- 插件没有签名、权限声明与崩溃隔离。
 
-未来的开放路径：内容包声明窗口与能力 → 宿主审核并代建受限窗口 → 只暴露白名单 API，而不是把 `WebviewWindowBuilder` 交给第三方。
+v1 的开放路径是：插件清单声明尺寸/透明/chrome → 宿主创建受限窗口 → 只暴露白名单桥 API，而不是把 `WebviewWindowBuilder` 交给第三方。
 
 ## 6. 新增一个内置工具
 
@@ -244,6 +244,6 @@ base-uri 'self'; form-action 'none'
 
 ## 10. 许可
 
-- `src/sdk/widget/**`：**Apache-2.0**（见 [SDK License](../SDK-LICENSE.md)）；
+- `src/sdk/widget/**`、`packages/widget-sdk/**`：**Apache-2.0**（见 [SDK License](../SDK-LICENSE.md)）；
 - 内置工具实现、窗口工厂与构建脚本：**GPL-3.0-or-later**；
-- 第三方工具目前不开放；未来开放时需先确定插件许可与权限边界。
+- 第三方插件自身代码由其作者选择许可；官方样例为 MIT。插件安装器/签名仍未实现。

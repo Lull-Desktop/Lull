@@ -339,10 +339,10 @@ const pluginShellCapability = {
     "core:window:allow-minimize",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
-    "core:event:allow-emit",
     "allow-widget-state-get",
     "allow-widget-state-set",
     "allow-widget-state-remove",
+    "allow-widget-package-notify",
     "allow-widget-set-transparent",
   ],
 };

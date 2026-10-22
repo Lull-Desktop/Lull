@@ -17,7 +17,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Window};
 use crate::window_host;
 use manifest::{PackageManifest, WindowSpec, HOST_API};
 
-pub const LABEL_PREFIX: &str = "widget-";
+pub const LABEL_PREFIX: &str = window_host::DYNAMIC_WINDOW_PREFIX;
 pub const PROTOCOL_VERSION: u32 = 1;
 
 fn label_for(id: &str) -> String {
@@ -148,6 +148,13 @@ pub fn widget_set_transparent(
   webview
     .set_background_color(Some(background))
     .map_err(|error| format!("设置插件窗口背景失败：{error}"))
+}
+
+#[tauri::command]
+pub fn widget_package_notify(window: Window) -> Result<(), String> {
+  package_id_from_window(&window)?;
+  window_host::notify_changed(window.app_handle());
+  Ok(())
 }
 
 #[tauri::command]

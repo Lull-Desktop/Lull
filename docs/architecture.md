@@ -8,7 +8,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 
 - 仍然是一个 Git 仓库、一个桌面应用、一套发布流程；
 - 内部按 A/B/C/D 四层组织：Core / Extensions / Community / Services；
-- 首版只把**静态场景包**开放给外部；工具窗口和原生能力仍由官方代码注册；
+- 扩展边界：静态场景包持续开放；第三方 Widget 插件（静态包 + iframe 桥）作为 v1 Extensions 能力开放；工具窗口与原生能力仍由宿主代码创建/授权；
 - 不提前拆 Rust crate 或多仓库，避免 Win32 宿主、IPC、配置在多个版本间来回同步。
 
 ## 2. 运行模型
@@ -37,7 +37,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
 - 工具窗口 label 固定为 `settings` / `player` / `pomodoro` / `noise`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。
 - 第三方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
-- 壁纸窗口**不在** `capabilities/default.json` 的授权列表里：场景页面无法调用 Tauri IPC。
+- 壁纸窗口**没有任何 capability**：场景页面无法调用 Tauri 命令。
 
 ### 2.2 壁纸画面协议
 
@@ -63,7 +63,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | 层 | 目录 | 允许依赖 | 禁止 |
 | --- | --- | --- | --- |
 | **Core** | `src/core/**`、`src-tauri/src/{config,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
-| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/widget-sdk/**`、`examples/widgets/**` | Core 的只读类型；`sdk/widget/runtime` 可调用 `core/window` 宿主适配 | 直接调用 `app` 路由或宿主命令 |
+| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/widget-sdk/**`、`examples/widgets/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
 | **Community** | `content/**`、`public/content/**`、`scripts/validate-content.mjs` | 清单格式、静态 HTML/CSS | 修改核心 / 创建系统窗口 |
 | **Services** | 设计文档 | — | 成为本地运行前置依赖 |
 | **App** | `src/app/**`、`src/components/**`、`src/hooks/**` | 以上全部 | 把业务规则塞回路由壳 |
@@ -73,6 +73,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 - `src/sdk/**` 不 import `src/app/**` 或 `src/components/**`。
 - `src/scenes/**` 只接收 `SceneProps`，不读配置文件、不调用 Tauri。
 - `src/content/catalog.ts` 是内容加载服务，依赖 `sdk/scene`，不反向被 `core` 依赖。
+- `window_host` 只暴露窗口 label 前缀 `DYNAMIC_WINDOW_PREFIX`；`widget_package` 依赖 Core，Core 不反向 import 插件模块。
 - `src-tauri/src/lib.rs` 只做插件、命令与生命周期接线；新增能力先进对应模块。
 - C++ 不依赖 React / Tauri / 内容包；Rust 不依赖 C++ 内部头文件。
 
@@ -142,6 +143,7 @@ lib.rs
 | `widget_package_open` | `id` | `()` | `widget_package` |
 | `widget_package_close` | `id` | `()` | `widget_package` |
 | `widget_package_revoke` | `id` | `()` | `widget_package` |
+| `widget_package_notify` | — | `()` | `widget_package`（仅插件窗口） |
 | `widget_state_get` | `key` | `Value \| null` | `widget_package` |
 | `widget_state_set` | `key,value` | `()` | `widget_package` |
 | `widget_state_remove` | `key` | `()` | `widget_package` |
@@ -195,7 +197,7 @@ lib.rs
   - `settings`：`core` 窗口权限 + 全部自定义命令（宿主控制面）；
   - `player` / `pomodoro` / `noise`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
   - 壁纸窗口：**没有 capability**，因此无法调用任何 Tauri 命令；
-  - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten/emit（主题跟随、关闭后通知设置页）+ `allow-widget-state-*` + `allow-widget-set-transparent`，**没有 `core:default`**，不能调用包管理、壁纸或偏好命令。
+  - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten（主题跟随）+ `allow-widget-state-*` + `allow-widget-package-notify` + `allow-widget-set-transparent`，**没有 `core:default`**、**没有 event.emit**，不能调用包管理、壁纸或偏好命令。
 - 构建期 `tauri-build` 会校验 capability 引用的权限是否存在；权限名或命令改名漏同步会直接编译失败。
 - 已知限制：WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。但 ACL 只授予上表里的最小命令，且状态命令按窗口 label 推导插件 id；不要把它当成插件 API，宿主桥仍是唯一受支持入口。
 

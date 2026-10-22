@@ -33,6 +33,7 @@ const APP_COMMANDS: &[&str] = &[
   "window_prefs_get",
   "window_prefs_set",
   "widget_packages",
+  "widget_package_notify",
   "widget_package_set_enabled",
   "widget_package_open",
   "widget_package_close",

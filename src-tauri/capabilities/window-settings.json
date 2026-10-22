@@ -30,6 +30,7 @@
     "allow-widget-close",
     "allow-widget-open",
     "allow-widget-package-close",
+    "allow-widget-package-notify",
     "allow-widget-package-open",
     "allow-widget-package-revoke",
     "allow-widget-package-set-enabled",
