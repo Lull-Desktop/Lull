@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { WidgetPluginsCard } from "@/components/widget-plugins-card";
 import { useFlowTheme } from "@/hooks/use-flow-theme";
 import { useSceneCatalog } from "@/hooks/use-scene-catalog";
 import { FLOW_THEMES } from "@/lib/flow-theme";
@@ -649,6 +650,8 @@ export default function Settings() {
             )}
           </CardContent>
         </Card>
+
+        <WidgetPluginsCard />
 
         {/* ── About Lull（开源身份与扩展入口）── */}
         <Card className="w-full">

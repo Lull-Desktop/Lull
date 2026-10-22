@@ -37,6 +37,9 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# 插件样例构建产物（pnpm widgets:samples:build 生成）
+/examples/widgets/*/dist/
 __pycache__/
 
 # native host build artifacts（由 scripts/prebuild.mjs 或 test-mode 重新生成）

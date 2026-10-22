@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "type": "widget",
+  "id": "community-pomodoro-react",
+  "name": "番茄钟（React）",
+  "version": "1.0.0",
+  "description": "同一个番茄钟功能的 React 实现：自绘顶栏、状态、主题、音频、视口都走宿主桥。",
+  "author": "Lull",
+  "license": "MIT",
+  "builtin": false,
+  "hostApi": 1,
+  "entry": "index.html",
+  "capabilities": [
+    "widget.theme",
+    "widget.state",
+    "widget.audio",
+    "widget.chrome"
+  ],
+  "window": {
+    "width": 560,
+    "height": 680,
+    "minWidth": 520,
+    "minHeight": 620,
+    "resizable": false,
+    "transparent": true,
+    "chrome": "custom"
+  }
+}

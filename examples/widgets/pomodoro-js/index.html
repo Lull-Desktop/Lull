@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>番茄钟</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app" data-state="loading">
+      <p class="status" id="status" role="status">正在连接 Lull 宿主…</p>
+
+      <section class="card" id="card" hidden>
+        <header class="titlebar" id="titlebar">
+          <div class="titlebar-title">
+            <span class="eyebrow">FOCUS TIMER</span>
+            <span class="connection" id="connection">已连接</span>
+          </div>
+          <div class="window-actions">
+            <button
+              type="button"
+              class="win-btn"
+              id="win-transparency"
+              aria-label="切换透明度"
+              title="切换窗口透明"
+              aria-pressed="true"
+            >
+              ◐
+            </button>
+            <button
+              type="button"
+              class="win-btn"
+              id="win-minimize"
+              aria-label="最小化"
+              title="最小化"
+            >
+              –
+            </button>
+            <button
+              type="button"
+              class="win-btn win-close"
+              id="win-close"
+              aria-label="关闭"
+              title="关闭"
+            >
+              ×
+            </button>
+          </div>
+        </header>
+
+        <div class="ring">
+          <svg viewBox="0 0 240 240" aria-hidden="true">
+            <circle class="track" cx="120" cy="120" r="104"></circle>
+            <circle
+              class="progress"
+              id="progress"
+              cx="120"
+              cy="120"
+              r="104"
+            ></circle>
+          </svg>
+          <div class="face">
+            <span class="phase" id="phase">专注</span>
+            <span class="clock" id="clock" aria-live="polite">25:00</span>
+            <span class="round" id="round">第 1 轮</span>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button type="button" class="primary" id="toggle">开始专注</button>
+          <button type="button" class="ghost" id="reset">重置</button>
+          <button type="button" class="ghost" id="skip">跳过</button>
+        </div>
+
+        <div class="chips">
+          <button type="button" class="chip" id="focus-chip">专注 25 分</button>
+          <button type="button" class="chip" id="break-chip">休息 5 分</button>
+          <button type="button" class="chip" id="sound-chip" aria-pressed="true">
+            提示音 开
+          </button>
+        </div>
+
+        <footer class="footer">
+          <span id="completed">已完成 0 轮</span>
+          <span id="viewport" class="hint"></span>
+        </footer>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

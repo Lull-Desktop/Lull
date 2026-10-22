@@ -14,6 +14,8 @@
     "content:check": "node scripts/validate-content.mjs",
     "widgets:gen": "node scripts/gen-widgets.mjs",
     "widgets:check": "node scripts/gen-widgets.mjs --check",
+    "widgets:samples:build": "node scripts/build-widget-examples.mjs",
+    "widgets:samples:install": "node scripts/install-widget-examples.mjs",
     "check": "pnpm lint && pnpm test && pnpm content:check && pnpm widgets:check",
     "tauri": "tauri",
     "format": "biome format",
@@ -46,11 +48,13 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
+    "esbuild": "0.27.7",
     "jsdom": "^28.1.0",
     "shadcn": "^4.12.0",
     "tailwindcss": "^4.2.1",
     "typescript": "~5.9.3",
     "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.0",
+    "vue": "^3.5.44"
   }
 }

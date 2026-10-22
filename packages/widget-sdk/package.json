@@ -1,0 +1,21 @@
+{
+  "name": "@lull/widget-sdk",
+  "version": "0.1.0",
+  "description": "Lull Widget 插件侧客户端 SDK：与宿主 iframe 壳通过 postMessage 通信。",
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.js",
+    "./react": "./src/react.js",
+    "./vue": "./src/vue.js"
+  },
+  "files": ["src"],
+  "peerDependencies": {
+    "react": ">=18",
+    "vue": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true },
+    "vue": { "optional": true }
+  }
+}

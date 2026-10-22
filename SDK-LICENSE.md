@@ -10,6 +10,7 @@ The following public SDK sources are licensed under **Apache-2.0**:
 - `src/sdk/scene/**`
 - `src/sdk/widget/**`
 - `src/sdk/content/**`
+- `packages/widget-sdk/**`
 
 This includes the manifest types, catalog parser, capability enums and the
 public `SceneProps` / `WidgetManifest` contracts.

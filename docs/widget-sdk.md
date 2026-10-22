@@ -1,7 +1,8 @@
 # Widget SDK
 
 > 目标：给桌面工具窗口建立稳定的**清单、能力分层、运行时门面与窗口生命周期**契约。
-> 当前状态：清单单源、运行时能力校验与逐窗口命令 ACL 已落地；**首期仍只注册官方工具**，第三方窗口创建与原生调用不开放。
+> 当前状态：**内置工具 Host SDK**（本文）与**第三方插件体系 v1**（[Widget 插件包](widget-package.md)）均已落地。
+> 内置工具仍由编译期清单注册；第三方插件以静态包安装到用户目录，在宿主壳 + iframe 中运行。
 
 ## 1. 当前实现
 
@@ -16,6 +17,8 @@
 | `src-tauri/build.rs` | 构建期校验清单、生成 Rust 静态窗口描述与 app 命令 ACL |
 | `src-tauri/src/window_host/spec.rs` | 生成的 `WidgetSpec` + `find` / `is_managed` |
 | `src-tauri/src/window_host/mod.rs` | 创建、复用、隐藏、兜底显示、注入上下文 |
+| `src-tauri/tauri.conf.json` | 生产 CSP 与 dev CSP（`csp` / `devCsp`） |
+| `packages/widget-sdk` | 第三方插件侧客户端 + React/Vue 适配（见 [Widget 插件包](widget-package.md)） |
 | `scripts/gen-widgets.mjs` | 校验清单 / 命令表，生成逐窗口 capability |
 
 ## 2. 单一事实源
@@ -112,7 +115,7 @@ type WidgetManifest = {
 
 **声明不等于授权**：能力写在清单里，Rust 建窗时把它注入上下文；前端每个入口都先查上下文。
 Tauri 侧还有第二道门：自定义命令由 app ACL manifest 生成 `allow-*` 权限，逐窗口 capability 决定谁能调用（见 4.5）。
-能力校验目前防的是内置工具的误用，不是不可信代码的沙箱——第三方开放前必须补第 8 节的边界。
+能力校验目前防的是内置工具的误用，不是不可信代码的沙箱；第三方插件走独立的 iframe + Rust KV 边界，见 [Widget 插件包](widget-package.md)。
 
 ## 4. 运行时契约
 
@@ -163,6 +166,23 @@ window.__LULL_WIDGET__ = {
   - 壁纸窗口没有 capability，任何 Tauri 命令都会被拒绝。
 - `tauri-build` 在编译期校验 capability 引用的权限存在，命令改名漏同步会直接编译失败。
 
+### 4.6 WebView CSP
+
+`tauri.conf.json` 的生产 `csp`：
+
+```text
+default-src 'self'; connect-src 'self' ipc: http://ipc.localhost;
+img-src 'self' data: blob:; media-src 'self' blob: data:; font-src 'self' data:;
+style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';
+worker-src 'self' blob:; frame-src 'self'; object-src 'none';
+base-uri 'self'; form-action 'none'
+```
+
+- `connect-src` 必须含 `ipc:` 与 `http://ipc.localhost`，否则 Tauri IPC 全部失效。
+- `tauri-build` 会为内联脚本和 JS 资源追加 `sha256`；`'unsafe-inline'` 只作兜底。
+- `devCsp` 额外允许 Next 开发服务器的 `http://localhost:3000`、`ws://localhost:3000` 与 `'unsafe-eval'`。
+- `media-src blob:` 覆盖本地音频的 object URL；`frame-src 'self'` 覆盖内容场景的 iframe。
+
 ## 5. 窗口生命周期
 
 1. 创建时 `visible(false)`、无边框、`shadow(false)`；前端 `useWidgetFit` 贴合内容后再显示。
@@ -198,21 +218,22 @@ window.__LULL_WIDGET__ = {
 ## 7. 状态与存储
 
 - 工具状态统一走 SDK 门面，禁止直接 `localStorage`。
-- 首期仍落在同源 `localStorage`（内置工具可信）；第三方开放前会改为 Rust 侧 per-widget 状态文件，带配额、版本迁移与原子写。
-- 宿主配置（`display.json`、窗口偏好、主题）不对工具开放写接口。
+- 内置工具仍落在同源 `localStorage`（与宿主同信任级）；第三方插件走 Rust 侧 per-widget 状态文件（`.state/<id>.json`），带配额与原子写。
+- 宿主配置（`display.json`、窗口偏好、主题）不对工具/插件开放写接口。
 
-## 8. 第三方开放前还缺什么
+## 8. 第三方插件 v1 的边界
 
-1. **包格式与加载**：`ContentManifest` 尚无 `widget` 类型；需要 `content/widgets/<id>/index.html` + 清单 + 校验器。
-2. **隔离宿主**：第三方 UI 必须跑在独立源的 iframe（`sandbox="allow-scripts"`，不带 `allow-same-origin`）里，通过 postMessage 桥访问受限 API。
-3. **CSP**：`tauri.conf.json` 的 `csp` 仍为 `null`，第三方 JS 进场前必须配置。
-4. **权限模型**：清单 `requested` 与宿主 `granted` 分离，设置页展示授权与撤销，撤销时清理状态。
-5. **宿主代建窗口**：第三方只声明尺寸策略，窗口与 caption 由宿主创建和夹取；capability 按 `widget:<id>` label 单独生成。
-6. **状态 KV**：把第三方状态从同源 `localStorage` 移到 Rust 侧 per-widget 文件，带配额、版本迁移与原子写。
-7. **故障隔离**：ErrorBoundary、per-widget 日志、崩溃后重载。
-8. **签名与安装**：安装器、更新、来源校验。
+插件包格式、宿主壳、iframe 桥、Rust 状态 KV、逐窗口 ACL 与授权 UI 已落地（见 [Widget 插件包](widget-package.md)）。
+仍缺：
 
-> 自定义命令的 ACL 收口已在 4.5 完成；剩余项是第三方代码真正进场前的门槛。
+1. **安装器/签名/更新**：目前手动复制目录；没有来源校验与在线更新。
+2. **网络授权 UI**：`network` 目前随启用一起授予，没有逐源同意与运行时撤销提示。
+3. **硬 IPC 隔离**：WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`；ACL 只授予该窗口的最小命令，状态按窗口 label 隔离，但不能宣称“完全看不到 IPC”。
+4. **故障隔离**：iframe 崩溃/卡死时宿主壳可重载，但没有 ErrorBoundary 指标与 per-plugin 日志面板。
+5. **状态迁移 DSL**：撤销即清空；没有插件自定义迁移。
+6. **插件市场**：不在首期范围。
+
+> 内置工具 Host SDK 的 4.5（ACL）与 4.6（CSP）仍是插件体系的基础设施。
 
 ## 9. 非目标
 

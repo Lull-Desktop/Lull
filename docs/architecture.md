@@ -36,6 +36,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 - 单进程、多窗口；所有窗口关闭都只隐藏，托盘「退出」才结束进程。
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
 - 工具窗口 label 固定为 `settings` / `player` / `pomodoro` / `noise`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。
+- 第三方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
 - 壁纸窗口**不在** `capabilities/default.json` 的授权列表里：场景页面无法调用 Tauri IPC。
 
 ### 2.2 壁纸画面协议
@@ -62,7 +63,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | 层 | 目录 | 允许依赖 | 禁止 |
 | --- | --- | --- | --- |
 | **Core** | `src/core/**`、`src-tauri/src/{config,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
-| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`） | Core 的只读类型；`sdk/widget/runtime` 可调用 `core/window` 宿主适配 | 直接调用 `app` 路由或宿主命令 |
+| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/widget-sdk/**`、`examples/widgets/**` | Core 的只读类型；`sdk/widget/runtime` 可调用 `core/window` 宿主适配 | 直接调用 `app` 路由或宿主命令 |
 | **Community** | `content/**`、`public/content/**`、`scripts/validate-content.mjs` | 清单格式、静态 HTML/CSS | 修改核心 / 创建系统窗口 |
 | **Services** | 设计文档 | — | 成为本地运行前置依赖 |
 | **App** | `src/app/**`、`src/components/**`、`src/hooks/**` | 以上全部 | 把业务规则塞回路由壳 |
@@ -89,6 +90,11 @@ app/(widgets) ──► components/{liquid-player,liquid-pomodoro,ether-bubbles}
                          ├──► sdk/widget/react ──► sdk/widget ──► core/window + hooks
                          │        （theme / fit / state）   （能力 / 状态 / chrome / 音频闸门）
                          └──► components 自身的纯模型（player-model / timer-model / sound-model）
+
+app/(widgets)/embed ──► components/widget-plugin-shell ──► iframe（sandbox）
+                                 └──► postMessage 桥 ──► widget_state_*（Rust）
+packages/widget-sdk ──► 插件侧客户端 + React/Vue 适配
+examples/widgets/* ──► 静态插件包样例（esbuild 构建）
 ```
 
 ### 3.2 Rust 模块图
@@ -100,6 +106,11 @@ lib.rs
  │    ├─ mod.rs（窗口工厂 / 上下文注入 / IPC）
  │    ├─ spec.rs（WidgetSpec 结构 + 查询；静态描述由 build.rs 生成）
  │    └─ prefs.rs（全局窗口偏好）
+ ├─ widget_package
+ │    ├─ mod.rs（插件窗口 / 命令 / 上下文）
+ │    ├─ manifest.rs（widget.json v2 校验）
+ │    ├─ store.rs（包发现 / 授权记录 / 状态 KV）
+ │    └─ protocol.rs（lullwidget:// 资源协议 + 逐插件 CSP）
  ├─ build.rs（校验 widgets/manifests，生成 $OUT_DIR/widget_specs.rs）
  ├─ window_frame.rs（原子 SetWindowPos）
  ├─ config（display.json 模型 / 迁移 / 原子写盘）
@@ -126,6 +137,15 @@ lib.rs
 | `widget_open` | `kind` | `()` | `window_host` |
 | `widget_states` | — | `{kind,visible,version,capabilities}[]` | `window_host` |
 | `widget_close` | `kind` | `()` | `window_host` |
+| `widget_packages` | — | `PackageInfo[]` | `widget_package` |
+| `widget_package_set_enabled` | `id,enabled` | `()` | `widget_package` |
+| `widget_package_open` | `id` | `()` | `widget_package` |
+| `widget_package_close` | `id` | `()` | `widget_package` |
+| `widget_package_revoke` | `id` | `()` | `widget_package` |
+| `widget_state_get` | `key` | `Value \| null` | `widget_package` |
+| `widget_state_set` | `key,value` | `()` | `widget_package` |
+| `widget_state_remove` | `key` | `()` | `widget_package` |
+| `widget_set_transparent` | `transparent,color?` | `()` | `widget_package` |
 | `window_prefs_get` | — | `{taskbarAndMinimize}` | `window_host::prefs` |
 | `window_prefs_set` | `taskbarAndMinimize` | `{taskbarAndMinimize}` | `window_host::prefs` |
 | `wallpaper_status` | — | `string` | `wallpaper::runtime` |
@@ -174,8 +194,34 @@ lib.rs
 - `scripts/gen-widgets.mjs` 为每个窗口生成一份 `src-tauri/capabilities/window-<label>.json`：
   - `settings`：`core` 窗口权限 + 全部自定义命令（宿主控制面）；
   - `player` / `pomodoro` / `noise`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
-  - 壁纸窗口：**没有 capability**，因此无法调用任何 Tauri 命令。
+  - 壁纸窗口：**没有 capability**，因此无法调用任何 Tauri 命令；
+  - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten/emit（主题跟随、关闭后通知设置页）+ `allow-widget-state-*` + `allow-widget-set-transparent`，**没有 `core:default`**，不能调用包管理、壁纸或偏好命令。
 - 构建期 `tauri-build` 会校验 capability 引用的权限是否存在；权限名或命令改名漏同步会直接编译失败。
+- 已知限制：WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。但 ACL 只授予上表里的最小命令，且状态命令按窗口 label 推导插件 id；不要把它当成插件 API，宿主桥仍是唯一受支持入口。
+
+### 4.5 WebView CSP
+
+`tauri.conf.json` 的 `app.security.csp` 已启用（生产），`devCsp` 单独放宽开发服务器：
+
+```text
+default-src 'self';
+connect-src 'self' ipc: http://ipc.localhost;
+img-src 'self' data: blob:;
+media-src 'self' blob: data:;
+font-src 'self' data:;
+style-src 'self' 'unsafe-inline';
+script-src 'self' 'unsafe-inline';
+worker-src 'self' blob:;
+frame-src 'self' http://lullwidget.localhost lullwidget:;
+object-src 'none';
+base-uri 'self';
+form-action 'none'
+```
+
+- `connect-src` 必须包含 `ipc:` 与 `http://ipc.localhost`，否则所有 Tauri IPC 失效；已通过调试端口实测。
+- `tauri-build` 会给 HTML 里的内联脚本与所有 JS 资源追加 `sha256`，运行时补进 `script-src`；`'unsafe-inline'` 只是兜底。
+- `devCsp` 额外允许 `http://localhost:3000`、`ws://localhost:3000` 与 `'unsafe-eval'`，避免破坏 Next HMR / React 开发模式。
+- `frame-src 'self' http://lullwidget.localhost lullwidget:` 覆盖外部场景 iframe 与第三方插件 iframe；`media-src blob:` 覆盖播放器的本地文件 object URL。
 
 ## 5. 配置模型
 
@@ -197,6 +243,17 @@ lib.rs
 ```
 
 版本必须等于 `2`；不兼容版本回退默认值并记录警告，不覆盖原文件。旧版 `wallpaper.json` 不读取、不迁移。
+
+第三方插件相关路径：
+
+```text
+%APPDATA%\app.lull.desktop\widgets\<id>\widget.json     # 插件包
+%APPDATA%\app.lull.desktop\widgets\<id>\...             # 静态资源
+%APPDATA%\app.lull.desktop\widgets\.grants.json         # 启用 / 授权记录
+%APPDATA%\app.lull.desktop\widgets\.state\<id>.json     # 插件状态 KV
+```
+
+`LULL_WIDGETS_DIR` 可覆盖插件根目录（开发/测试）。包格式与协议见 [Widget 插件包](widget-package.md)。
 
 ## 6. 原生 C ABI
 
@@ -223,8 +280,8 @@ lib.rs
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 23 个测试文件（131 项）
-cargo test             Rust 44 项（display 配置 / 拓扑 / 协议 / 场景参数 / Widget 清单与上下文）
+pnpm test              前端 25 个测试文件（139 项）
+cargo test             Rust 62 项（display 配置 / 拓扑 / 协议 / 场景参数 / Widget 清单、上下文与插件包）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + entry 存在性
 pnpm widgets:check     Widget 清单 + 命令表 + 逐窗口 capability 同步
@@ -240,7 +297,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | 阶段 | 目标 | 当前状态 | 退出条件 |
 | --- | --- | --- | --- |
 | **A · Core** | 模块边界、配置/协议版本、命名清理、测试基线 | 已完成第一轮 | 目录与命名重构后功能/测试/安装包不退化 |
-| **B · Extensions** | Scene SDK、Widget SDK、内置工具验证 | Scene SDK 已落地；Widget 完成清单单源、运行时能力门面与命令 ACL 收口，第三方仍未开放 | 外部示例场景无需改核心即可运行 |
+| **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；仍缺安装器与签名 | 外部示例场景无需改核心即可运行 |
 | **C · Community** | 内容包格式、示例、校验、贡献流程 | 格式 + 示例 + 校验已落地 | 外部开发者可独立构建并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
 
@@ -252,4 +309,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 4. **外部内容不等于安全插件系统**：首版 iframe 使用空 `sandbox`，只运行静态 HTML/CSS，不执行 JavaScript；若未来开放宿主 API，必须另做权限、来源校验、IPC 白名单与故障隔离。
 5. **安装包与素材授权**：公开分发前需完成代码签名、字体/图标/声音素材授权复核。
 6. **内部代号**：`ether-bubbles`、`liquid-player`、`liquid-pomodoro` 仍是组件目录名，属于实现代号，不构成对外产品名。
-7. **第三方隔离仍未完成**：自定义命令已通过 app ACL manifest 按窗口授权（壁纸窗口没有 capability），但第三方 JS 进场前还需要 CSP、独立源 iframe、宿主代建窗口与 Rust 侧状态 KV，见 [Widget SDK](widget-sdk.md) 第 8 节。
+7. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。

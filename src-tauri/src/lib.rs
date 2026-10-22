@@ -9,6 +9,7 @@ use tauri::Manager;
 mod config;
 mod tray;
 mod wallpaper;
+mod widget_package;
 mod window_frame;
 mod window_host;
 
@@ -21,6 +22,10 @@ pub fn run() {
       window_host::open_async(app, &window_host::SETTINGS);
     }))
     .plugin(tauri_plugin_opener::init())
+    // 第三方插件资源协议：只读服务用户插件包，并按插件注入 CSP。
+    .register_uri_scheme_protocol("lullwidget", |ctx, request| {
+      widget_package::handle_protocol(ctx, request)
+    })
     .invoke_handler(tauri::generate_handler![
       window_frame::window_set_frame,
       window_host::widget_open,
@@ -28,6 +33,15 @@ pub fn run() {
       window_host::widget_close,
       window_host::prefs::window_prefs_get,
       window_host::prefs::window_prefs_set,
+      widget_package::widget_packages,
+      widget_package::widget_package_set_enabled,
+      widget_package::widget_package_open,
+      widget_package::widget_package_close,
+      widget_package::widget_package_revoke,
+      widget_package::widget_state_get,
+      widget_package::widget_state_set,
+      widget_package::widget_state_remove,
+      widget_package::widget_set_transparent,
       wallpaper::runtime::wallpaper_status,
       wallpaper::runtime::wallpaper_detach,
       wallpaper::runtime::wallpaper_set_visible,
@@ -63,10 +77,12 @@ pub fn run() {
       if let tauri::WindowEvent::CloseRequested { api, .. } = event {
         // 退出模型：所有应用窗口的 X / Alt+F4 都只是隐藏（应用与壁纸继续运行），
         // 只有托盘「退出」才真正结束整个进程（见 tray.rs 的 app.exit(0)）。
-        if window_host::is_managed(window.label()) {
+        if window_host::is_managed(window.label())
+          || widget_package::is_plugin_label(window.label())
+        {
           api.prevent_close();
           let _ = window.hide();
-          // 工具窗被 Alt+F4 隐藏后，通知设置页刷新显示开关。
+          // 工具窗/插件窗被 Alt+F4 隐藏后，通知设置页刷新显示开关。
           window_host::notify_changed(window.app_handle());
         }
       }

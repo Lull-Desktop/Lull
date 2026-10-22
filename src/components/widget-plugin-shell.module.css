@@ -1,0 +1,132 @@
+.shell {
+  position: relative;
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.topbar {
+  display: flex;
+  height: 40px;
+  flex: 0 0 40px;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--paper-deep) 70%, transparent);
+  background: color-mix(in srgb, var(--paper-warm) 85%, transparent);
+  padding: 0 10px 0 12px;
+  backdrop-filter: blur(14px);
+  user-select: none;
+}
+
+.brand {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dot {
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 999px;
+  background: linear-gradient(
+    135deg,
+    var(--flow-a, #ffe0a0),
+    var(--flow-b, #8fe4ff) 55%,
+    var(--flow-c, #b8a4ff)
+  );
+  box-shadow: 0 0 10px
+    color-mix(in srgb, var(--flow-b, #8fe4ff) 55%, transparent);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-serif), serif;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+.version {
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+.actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.button:hover {
+  background: color-mix(in srgb, var(--paper-deep) 45%, transparent);
+  color: var(--ink-soft);
+}
+
+.button:last-child:hover {
+  background: color-mix(in srgb, #b4553f 12%, transparent);
+  color: #b4553f;
+}
+
+.button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.frame {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: color-mix(in srgb, var(--paper-warm) 92%, transparent);
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.reload {
+  border: 1px solid color-mix(in srgb, var(--paper-deep) 80%, transparent);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 6px 14px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  cursor: pointer;
+}
