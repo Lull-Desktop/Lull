@@ -7,6 +7,30 @@
 > 首期不官方支持 Next.js / Nuxt（产物依赖内联脚本与绝对路径），
 > 播放器继续作为内置工具，不做插件化。
 
+## 0. 与官方内置 Widget Host SDK 的关系
+
+这是**两套并行的契约**，不是“第三方插件自动满足内置 Host SDK”或反过来：
+
+| 维度 | 官方内置工具（Host SDK） | 第三方插件（本文件） |
+| --- | --- | --- |
+| 信任级 | 与宿主同信任 | 不可信静态代码 |
+| 注册 | 编译期 `src/widgets/manifests/*.json`（schema 1） | 用户目录静态包（schema 2） |
+| UI 运行时 | 同源 `(widgets)` 路由 | 不透明源 iframe |
+| SDK | `src/sdk/widget` | `packages/widget-sdk` |
+| 状态 | `localStorage` | Rust KV（`.state/<id>.json`） |
+| 窗口 | 宿主创建，`core:default` | 宿主创建，无 `core:default` |
+| Chrome | 自绘 + `widget.chrome` 可调宽/换边 | 自绘（`chrome:custom`）或宿主顶栏（`host`）；不能调宽/换边 |
+| 原生能力 | 受 capability 门禁的宿主命令 | 只能走 iframe 白名单桥 |
+
+共享的只有**能力词汇、主题令牌、宿主建窗、关闭即隐藏**这些概念；清单格式、SDK API、状态后端和信任模型都不同。
+
+结论：
+
+- **官方已有的内置 Widget 仍按 Host SDK 运行**；本次修复 `__LULL_WIDGET__` 注入后，关闭、音频、媒体能力恢复正常。
+- **第三方插件标准不是 Host SDK 的子集**，而是一个受限的并行契约；不能把内置组件原样丢进插件包，也不能用插件 SDK 替代 `src/sdk/widget`。
+- 同名能力 `widget.chrome` 在两套契约里操作范围不同：内置可调宽/换边，插件只允许自己的拖拽/最小化/关闭/透明。
+- 如果要求“所有 Widget 必须符合同一套开发标准”，当前实现**尚未统一**；需要先定义共享的 Widget Contract profile，再把两套实现都映射进去。
+
 ## 1. 包结构
 
 ```text
