@@ -30,6 +30,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | `cargo test` | Rust 单元测试 |
 | `pnpm lint` / `pnpm fix` | Biome 检查 / 自动修复 |
 | `pnpm content:check` | 内容目录校验 |
+| `pnpm widgets:check` | Widget 清单校验 + capability 同步检查 |
+| `pnpm widgets:gen` | 生成 `src-tauri/capabilities/desktop.json` |
 | `pnpm build:next` | 静态导出 |
 | `pnpm test-mode` | Windows 真机壁纸验收（原生改动必须跑） |
 | `pnpm build` | 完整安装包 |
@@ -58,7 +60,8 @@ Lull 采用分层许可，提交前请确认文件归属：
 - 使用 Biome 格式化；提交前 `pnpm fix`。
 - 纯函数优先：几何、协议、清单校验放在 `src/core` / `src/sdk`，React 组件只做渲染。
 - 场景组件只接收 `SceneProps`，不读全局配置、不调用 Tauri。
-- 新增工具窗必须同时更新 `src/widgets/registry.ts` 与 `src-tauri/src/window_host/spec.rs`。
+- 新增工具窗只改 `src/widgets/manifests/<id>.json`，然后跑 `pnpm widgets:gen`；Rust 描述由 `build.rs` 生成，不要手写 `spec.rs` 或 `capabilities/desktop.json`。
+- 工具组件只通过 `@/sdk/widget` / `@/sdk/widget/react` 使用宿主能力（状态、窗口、音频、媒体），不要直接 import `core/window/controls` 或读 `localStorage`。
 - 外部内容包只放 `public/content/`，不要 import 到 `src/`。
 - 中文注释用于解释“为什么”，不要复述代码。
 
@@ -87,12 +90,13 @@ Lull 采用分层许可，提交前请确认文件归属：
 | Rust 逻辑 | `cargo test` |
 | 原生宿主 | `cargo test` + `pnpm test-mode` |
 | 内容格式 | `pnpm content:check` + `pnpm test` |
+| Widget 清单 / 能力 | `pnpm widgets:gen` + `pnpm widgets:check` + `pnpm test` + `cargo test` |
 | 构建链 | `pnpm build:next`，必要时 `pnpm build` |
 
 当前基线（会随测试增加）：
 
-- 前端：16 个测试文件 / 91 项；
-- Rust：37 项；
+- 前端：22 个测试文件 / 128 项；
+- Rust：44 项；
 - 内容：1 个外部场景示例。
 
 新增行为请补测试；修复回归请先写失败用例。不要通过删除测试来“修复”失败。
@@ -105,6 +109,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 - [ ] 是否让 `core` 反向依赖 `scenes/widgets/app`？
 - [ ] 是否把 Tauri 命令直接暴露成“公共插件 API”？
 - [ ] 是否新增了第三方可执行代码路径？首版不允许。
+- [ ] 新工具的能力是否写进 manifest，并在 SDK 门面里实际校验？
 - [ ] 配置写入失败时是否会回滚？
 - [ ] 新增文件是否在文档与目录树中体现？
 
@@ -112,7 +117,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 
 - 内置场景：`src/scenes/<id>/index.tsx` + `src/scenes/registry.ts`。
 - 外部场景：`public/content/scenes/<id>/index.html` + `catalog.json` + `pnpm content:check`。
-- 内置工具：路由 + `src/widgets/registry.ts` + `window_host/spec.rs` + capability + 托盘/测试。
+- 内置工具：`src/widgets/manifests/<id>.json` + 路由 + `src/sdk/widget` + `pnpm widgets:gen`；托盘与设置页从清单自动生成。
 - 新增 IPC：先确定归属模块，再在 `lib.rs` 注册；更新 `docs/architecture.md` 的命令表。
 - 新增配置字段：提升 `CURRENT_VERSION` 并写迁移测试；旧字段保留默认值。
 

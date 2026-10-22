@@ -17,6 +17,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# 构建期解析 src/widgets/manifests/*.json，生成 window_host::spec 的静态描述。
+serde_json = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "unstable"] }

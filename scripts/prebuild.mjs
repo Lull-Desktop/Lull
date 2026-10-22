@@ -28,6 +28,9 @@ function run(command, args, options = {}) {
 // ① 内容目录校验（场景包清单 / entry 存在性 / id 唯一）
 run(process.execPath, [join(root, "scripts", "validate-content.mjs")]);
 
+// ① Widget 清单与 Tauri capability 必须同步（生成文件过期时提前失败）
+run(process.execPath, [join(root, "scripts", "gen-widgets.mjs"), "--check"]);
+
 // ② 定位 git-bash（git --exec-path → <Git>/mingw64/libexec/git-core → <Git>/bin/bash.exe）
 function findGitBash() {
   try {

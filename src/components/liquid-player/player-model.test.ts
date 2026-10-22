@@ -11,6 +11,7 @@ import {
   nextIndexForMode,
   nextPlayMode,
   ONLINE_TRACKS,
+  PLAYER_PREFS_KEY,
   parseTrackName,
   persistPlayerPrefs,
   playModeLabel,
@@ -86,7 +87,7 @@ test("音量夹取与偏好持久化", () => {
   expect(readPlayerPrefs()).toEqual({ mode: "repeat-one", volume: 42 });
 
   window.localStorage.setItem(
-    "lull:player:v1",
+    PLAYER_PREFS_KEY,
     JSON.stringify({ mode: "nope", volume: 999 }),
   );
   expect(readPlayerPrefs()).toEqual({ volume: 100 });

@@ -30,13 +30,15 @@ import type {
 } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  hideWindow,
-  isWindowMinimizable,
-  minimizeWindow,
-  onWindowPrefsChanged,
-} from "@/core/window/controls";
-import { useFlowTheme } from "@/hooks/use-flow-theme";
-import { useWindowFit } from "@/hooks/use-window-fit";
+  isWidgetAudioAvailable,
+  onWidgetPrefsChanged,
+  readWidgetStorage,
+  widgetHideWindow,
+  widgetIsMinimizable,
+  widgetMinimizeWindow,
+  writeWidgetStorage,
+} from "@/sdk/widget";
+import { useWidgetFit, useWidgetTheme } from "@/sdk/widget/react";
 import styles from "./liquid-pomodoro.module.css";
 import {
   advancePhase,
@@ -90,7 +92,8 @@ const CRYSTALS = [
 ] as const;
 const BEAD_SLOTS = [1, 2, 3, 4] as const;
 
-const STORAGE_KEY = "lull:pomodoro:v1";
+const WIDGET_ID = "pomodoro";
+const STORAGE_VERSION = "v1";
 
 function clampInteger(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)));
@@ -98,7 +101,7 @@ function clampInteger(value: number, min: number, max: number): number {
 
 function readStoredPrefs(): Partial<StoredPrefs> {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readWidgetStorage(WIDGET_ID, STORAGE_VERSION);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
@@ -128,7 +131,7 @@ function readStoredPrefs(): Partial<StoredPrefs> {
 
 function persistPrefs(prefs: StoredPrefs): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    writeWidgetStorage(WIDGET_ID, STORAGE_VERSION, JSON.stringify(prefs));
   } catch {
     // 存储不可用时只影响下次启动的默认值，不影响本次计时。
   }
@@ -434,8 +437,8 @@ export function LiquidPomodoro() {
   const [hint, setHint] = useState<string | null>(null);
 
   // 面板外观跟随全局「主题流光」；球内液体仍由专注 / 休息的 accent 驱动。
-  const { themeId: flowThemeId } = useFlowTheme();
-  useWindowFit(rootRef);
+  const { themeId: flowThemeId } = useWidgetTheme();
+  useWidgetFit(rootRef);
 
   const prefs = useMemo<TimerPrefs>(
     () => ({ focusMinutes, shortBreakMinutes, longBreakMinutes }),
@@ -494,6 +497,7 @@ export function LiquidPomodoro() {
   // 首次手势里准备音频上下文；关闭提示音时不创建，避免占用输出设备。
   const ensureAudio = useCallback((): AudioContext | null => {
     if (!sound) return null;
+    if (!isWidgetAudioAvailable()) return null;
     if (!audioRef.current) {
       try {
         audioRef.current = new AudioContext();
@@ -510,6 +514,7 @@ export function LiquidPomodoro() {
   // 在用户手势里打开提示音时顺手预热 AudioContext，避免之后才开声音的一轮没有提示音。
   const toggleSound = useCallback((): void => {
     const next = !sound;
+    if (next && !isWidgetAudioAvailable()) return;
     setSound(next);
     if (!next) return;
     try {
@@ -561,12 +566,12 @@ export function LiquidPomodoro() {
   useEffect(() => {
     let alive = true;
     const sync = (): void => {
-      void isWindowMinimizable().then((value) => {
+      void widgetIsMinimizable().then((value) => {
         if (alive) setCanMinimize(value);
       });
     };
     sync();
-    const stop = onWindowPrefsChanged(sync);
+    const stop = onWidgetPrefsChanged(sync);
     return () => {
       alive = false;
       stop();
@@ -923,7 +928,7 @@ export function LiquidPomodoro() {
                   type="button"
                   aria-label="最小化"
                   title="最小化"
-                  onClick={() => void minimizeWindow()}
+                  onClick={() => void widgetMinimizeWindow()}
                 >
                   <Minus />
                 </button>
@@ -932,7 +937,7 @@ export function LiquidPomodoro() {
                 type="button"
                 aria-label="关闭窗口"
                 title="关闭（隐藏到托盘）"
-                onClick={() => void hideWindow()}
+                onClick={() => void widgetHideWindow()}
               >
                 <X />
               </button>

@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { isWidgetAudioAvailable } from "@/sdk/widget";
 import type { ChannelMap, MixState, SoundId } from "./sound-model";
 
 /** 单层最大增益：五层同时拉满也留出余量。 */
@@ -319,6 +320,7 @@ export function useAmbientMixer(
   }, [pulseTarget]);
 
   const start = useCallback(async (): Promise<void> => {
+    if (!isWidgetAudioAvailable()) return;
     const existing = engineRef.current;
     if (existing) {
       try {

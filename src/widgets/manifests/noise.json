@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "type": "widget",
+  "role": "tool",
+  "id": "noise",
+  "name": "白噪音",
+  "version": "1.0.0",
+  "description": "雨、风、海浪、篝火与远雷，可自由混音的五层声场。",
+  "author": "Lull",
+  "license": "GPL-3.0-or-later",
+  "builtin": true,
+  "order": 30,
+  "capabilities": [
+    "widget.ui",
+    "widget.theme",
+    "widget.state",
+    "widget.audio",
+    "widget.chrome"
+  ],
+  "window": {
+    "label": "noise",
+    "route": "noise",
+    "title": "Lull 白噪音",
+    "width": 600,
+    "height": 420,
+    "minWidth": 560,
+    "minHeight": 320,
+    "resizable": false,
+    "transparent": true
+  }
+}

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Lull app windows (settings, player, pomodoro, noise). Wallpaper windows are intentionally excluded: scenes must not call Tauri IPC.",
+  "identifier": "desktop",
+  "description": "Lull desktop windows: settings, player, pomodoro, noise. Generated from src/widgets/manifests by scripts/gen-widgets.mjs — do not edit by hand.",
   "windows": [
     "settings",
     "player",

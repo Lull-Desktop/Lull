@@ -31,13 +31,14 @@ import type {
 } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  hideWindow,
-  isWindowMinimizable,
-  minimizeWindow,
-  onWindowPrefsChanged,
-} from "@/core/window/controls";
-import { useFlowTheme } from "@/hooks/use-flow-theme";
-import { useWindowFit } from "@/hooks/use-window-fit";
+  onWidgetPrefsChanged,
+  readWidgetStorage,
+  widgetHideWindow,
+  widgetIsMinimizable,
+  widgetMinimizeWindow,
+  writeWidgetStorage,
+} from "@/sdk/widget";
+import { useWidgetFit, useWidgetTheme } from "@/sdk/widget/react";
 import styles from "./ether-bubbles.module.css";
 import {
   type ChannelMap,
@@ -66,7 +67,8 @@ const SLEEP_OPTIONS = [0, 15, 30, 60] as const;
 type SleepMinutes = (typeof SLEEP_OPTIONS)[number];
 
 type StartupMode = "resume" | "silent";
-const STARTUP_STORAGE_KEY = "lull:noise:startup";
+const NOISE_WIDGET_ID = "noise";
+const STARTUP_STORAGE_VERSION = "startup";
 
 type BubbleStyle = CSSProperties & {
   "--tone": string;
@@ -433,7 +435,7 @@ export function EtherBubbles() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dockSide, setDockSide] = useState<"left" | "right">("right");
   const [autoFade, setAutoFade] = useState(true);
-  const { theme: currentTheme } = useFlowTheme();
+  const { theme: currentTheme } = useWidgetTheme();
   const [sleepMinutes, setSleepMinutes] = useState<SleepMinutes>(0);
   const [startupMode, setStartupMode] = useState<StartupMode>("resume");
   const [dormant, setDormant] = useState(false);
@@ -446,7 +448,7 @@ export function EtherBubbles() {
   const sleepLabel = sleepMinutes === 0 ? "关闭" : `${sleepMinutes} 分钟`;
   const startupLabel = startupMode === "resume" ? "继续上次" : "静默启动";
 
-  useWindowFit(rootRef);
+  useWidgetFit(rootRef);
 
   const activeCount = SOUNDS.reduce(
     (count, sound) => count + (channels[sound.id].enabled ? 1 : 0),
@@ -464,16 +466,18 @@ export function EtherBubbles() {
   // 启动行为：挂载后读取偏好，选择「静默启动」时先保持主泡静音。
   useEffect(() => {
     try {
-      if (window.localStorage.getItem(STARTUP_STORAGE_KEY) === "silent") {
+      if (
+        readWidgetStorage(NOISE_WIDGET_ID, STARTUP_STORAGE_VERSION) === "silent"
+      ) {
         setStartupMode("silent");
         setMuted(true);
       }
     } catch {
-      // localStorage 不可用时维持默认「继续上次」。
+      // 存储不可用时维持默认「继续上次」。
     }
   }, []);
 
-  // 让 WebView 页面本身也透明：窗口是隐藏创建的，等这里和 useWindowFit 完成后才显示。
+  // 让 WebView 页面本身也透明：窗口是隐藏创建的，等这里和 useWidgetFit 完成后才显示。
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("lull-transparent-window");
@@ -520,12 +524,12 @@ export function EtherBubbles() {
   useEffect(() => {
     let alive = true;
     const sync = (): void => {
-      void isWindowMinimizable().then((value) => {
+      void widgetIsMinimizable().then((value) => {
         if (alive) setCanMinimize(value);
       });
     };
     sync();
-    const stop = onWindowPrefsChanged(sync);
+    const stop = onWidgetPrefsChanged(sync);
     return () => {
       alive = false;
       stop();
@@ -647,7 +651,7 @@ export function EtherBubbles() {
     setStartupMode(next);
     setMuted(next === "silent");
     try {
-      window.localStorage.setItem(STARTUP_STORAGE_KEY, next);
+      writeWidgetStorage(NOISE_WIDGET_ID, STARTUP_STORAGE_VERSION, next);
     } catch {
       // 存储不可用时只在当前会话生效。
     }
@@ -725,7 +729,7 @@ export function EtherBubbles() {
                     className={styles.dockButton}
                     aria-label="最小化"
                     title="最小化"
-                    onClick={() => void minimizeWindow()}
+                    onClick={() => void widgetMinimizeWindow()}
                   >
                     <Minus />
                   </button>
@@ -735,7 +739,7 @@ export function EtherBubbles() {
                   className={styles.dockButton}
                   aria-label="关闭窗口"
                   title="关闭（隐藏到托盘）"
-                  onClick={() => void hideWindow()}
+                  onClick={() => void widgetHideWindow()}
                 >
                   <X />
                 </button>

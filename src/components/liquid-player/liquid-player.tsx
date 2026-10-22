@@ -44,15 +44,16 @@ import {
   useState,
 } from "react";
 import {
-  alignPlayerWindow,
-  hideWindow,
-  isWindowMinimizable,
-  minimizeWindow,
-  onWindowPrefsChanged,
-  setWindowWidth,
-} from "@/core/window/controls";
-import { useFlowTheme } from "@/hooks/use-flow-theme";
-import { useWindowFit } from "@/hooks/use-window-fit";
+  isWidgetAudioAvailable,
+  isWidgetMediaAvailable,
+  onWidgetPrefsChanged,
+  widgetAlignPlayer,
+  widgetHideWindow,
+  widgetIsMinimizable,
+  widgetMinimizeWindow,
+  widgetResizeWidth,
+} from "@/sdk/widget";
+import { useWidgetFit, useWidgetTheme } from "@/sdk/widget/react";
 import { AmbientStream } from "./ambient-stream";
 import { CoverArt } from "./cover-art";
 import styles from "./liquid-player.module.css";
@@ -231,7 +232,7 @@ export function LiquidPlayer(): React.ReactElement {
   const [canMinimize, setCanMinimize] = useState(false);
   const [themeReady, setThemeReady] = useState(false);
 
-  const { themeId } = useFlowTheme();
+  const { themeId } = useWidgetTheme();
   const panelId = useId().replace(/[^a-zA-Z0-9_-]/g, "") || "tracklist";
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -278,7 +279,7 @@ export function LiquidPlayer(): React.ReactElement {
 
   // 播放器是固定画布的透明浮窗：只需要等字体就绪后显示窗口，
   // 不能再按内容高度贴合（100vh 内容叠加顶栏高度会让窗口反复长高）。
-  useWindowFit(rootRef, { fit: false });
+  useWidgetFit(rootRef, { fit: false });
 
   const allTracks = useMemo(() => [...ONLINE_TRACKS, ...tracks], [tracks]);
   const current = findTrackById(allTracks, currentId) ?? DEFAULT_TRACK ?? null;
@@ -361,12 +362,12 @@ export function LiquidPlayer(): React.ReactElement {
   useEffect(() => {
     let alive = true;
     const sync = (): void => {
-      void isWindowMinimizable().then((value) => {
+      void widgetIsMinimizable().then((value) => {
         if (alive) setCanMinimize(value);
       });
     };
     sync();
-    const stop = onWindowPrefsChanged(sync);
+    const stop = onWidgetPrefsChanged(sync);
     return () => {
       alive = false;
       stop();
@@ -379,7 +380,7 @@ export function LiquidPlayer(): React.ReactElement {
       dockSideRef.current === "left" || drawerOpenRef.current
         ? PLAYER_OPEN_WIDTH
         : PLAYER_COMPACT_WIDTH;
-    void setWindowWidth(
+    void widgetResizeWidth(
       width,
       dockSideRef.current === "left" ? "right" : "left",
     );
@@ -411,7 +412,7 @@ export function LiquidPlayer(): React.ReactElement {
     }
     if (open) {
       if (dockSideRef.current === "right") {
-        void setWindowWidth(PLAYER_OPEN_WIDTH, "left");
+        void widgetResizeWidth(PLAYER_OPEN_WIDTH, "left");
       }
       return;
     }
@@ -419,7 +420,7 @@ export function LiquidPlayer(): React.ReactElement {
     drawerWidthTimerRef.current = window.setTimeout(() => {
       drawerWidthTimerRef.current = null;
       if (!drawerOpenRef.current) {
-        void setWindowWidth(PLAYER_COMPACT_WIDTH, "left");
+        void widgetResizeWidth(PLAYER_COMPACT_WIDTH, "left");
       }
     }, DRAWER_CLOSE_MS);
   }, []);
@@ -465,7 +466,7 @@ export function LiquidPlayer(): React.ReactElement {
       await Promise.all([playerExit, drawerExit]);
 
       // 此时播放器 opacity 已为 0、抽屉不可见；先在「空场」里原子移动原生窗口。
-      await alignPlayerWindow(
+      await widgetAlignPlayer(
         currentSide,
         next,
         targetWidth,
@@ -506,6 +507,7 @@ export function LiquidPlayer(): React.ReactElement {
   );
 
   const ensureUiContext = useCallback((): AudioContext | null => {
+    if (!isWidgetAudioAvailable()) return null;
     if (uiContextRef.current) {
       if (uiContextRef.current.state === "suspended") {
         void uiContextRef.current.resume().catch(() => {});
@@ -579,6 +581,7 @@ export function LiquidPlayer(): React.ReactElement {
   const startAmbient = useCallback(
     (track: PlayerTrack, offset: number): boolean => {
       if (track.source !== "online" || !track.ambient) return false;
+      if (!isWidgetAudioAvailable()) return false;
       try {
         ambientRef.current ??= new AmbientStream();
         ambientRef.current.setVolume(volumeRef.current);
@@ -904,6 +907,7 @@ export function LiquidPlayer(): React.ReactElement {
   const addFiles = useCallback(
     (files: FileList | File[] | null): void => {
       if (!files) return;
+      if (!isWidgetMediaAvailable()) return;
       const incoming = Array.from(files).filter(isAudioFile);
       if (incoming.length === 0) {
         showNotice("这些文件不是可播放的音频");
@@ -1285,7 +1289,7 @@ export function LiquidPlayer(): React.ReactElement {
                     aria-label="最小化"
                     title="最小化"
                     onClick={() => {
-                      void minimizeWindow();
+                      void widgetMinimizeWindow();
                     }}
                   >
                     <Minus />
@@ -1297,7 +1301,7 @@ export function LiquidPlayer(): React.ReactElement {
                   aria-label="关闭窗口"
                   title="关闭（隐藏到托盘）"
                   onClick={() => {
-                    void hideWindow();
+                    void widgetHideWindow();
                   }}
                 >
                   <X />

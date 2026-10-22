@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 pub mod prefs;
 mod spec;
 
-pub use spec::{find, is_managed, WidgetSpec, ALL_WIDGETS, NOISE, PLAYER, POMODORO, SETTINGS};
+pub use spec::{find, is_managed, WidgetSpec, ALL_WIDGETS, SETTINGS, WIDGET_HOST_API};
 
 /// 工具窗显示/隐藏后广播；设置页据此刷新「显示/关闭」开关。
 pub const WIDGETS_CHANGED_EVENT: &str = "widgets-changed";
@@ -23,6 +23,32 @@ pub(crate) fn notify_changed(app: &AppHandle) {
 /// release 构建（`debug_assertions` 为 false）下无论如何都返回 false。
 pub(crate) fn devtools_enabled() -> bool {
   cfg!(debug_assertions) && std::env::var_os("LULL_DEVTOOLS").is_some()
+}
+
+/// 注入到工具窗的上下文：前端 SDK 据此做能力校验与状态命名空间约束。
+///
+/// 放在初始化脚本里（先于页面 JS 执行）；内置页面与宿主同信任级，
+/// 第三方页面必须走独立源 iframe，不能依赖这个全局变量。
+/// 能力清单直接来自 manifest 生成的 `WidgetSpec`，是“声明”而非“授权”的唯一来源。
+fn widget_context_json(spec: &WidgetSpec) -> String {
+  serde_json::json!({
+    "schemaVersion": 1,
+    "hostApi": WIDGET_HOST_API,
+    "id": spec.kind,
+    "capabilities": spec.capabilities,
+    "window": {
+      "label": spec.label,
+      "route": spec.url,
+      "title": spec.title,
+      "width": spec.width,
+      "height": spec.height,
+      "minWidth": spec.min_width,
+      "minHeight": spec.min_height,
+      "resizable": spec.resizable,
+      "transparent": spec.transparent,
+    },
+  })
+  .to_string()
 }
 
 /// 打开窗口；已存在则只做唤醒（显示 / 还原 / 聚焦），不会重建 WebView。
@@ -54,6 +80,8 @@ pub fn open(app: &AppHandle, spec: &WidgetSpec) {
     // 设置窗保持可缩放（顶栏的锁定按钮会再动态关闭）。
     .resizable(spec.resizable)
     .maximizable(spec.resizable)
+    // Widget SDK 上下文：先于页面脚本注入 window.__LULL_WIDGET__。
+    .initialization_script(widget_context_json(spec))
     .devtools(devtools_enabled());
 
   if spec.transparent {
@@ -149,4 +177,45 @@ pub fn widget_close(app: AppHandle, kind: String) -> Result<(), String> {
   }
   notify_changed(&app);
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::spec::{NOISE, PLAYER, POMODORO};
+  use super::*;
+  use serde_json::Value;
+
+  fn context_of(spec: &WidgetSpec) -> Value {
+    serde_json::from_str(&widget_context_json(spec)).unwrap_or(Value::Null)
+  }
+
+  #[test]
+  fn context_carries_capabilities_and_window_limits() {
+    let context = context_of(&PLAYER);
+    assert_eq!(context["id"], "player");
+    assert_eq!(context["hostApi"], 1);
+    assert_eq!(context["schemaVersion"], 1);
+    assert!(
+      context["capabilities"].as_array().is_some_and(|items| items
+        .iter()
+        .any(|item| item.as_str() == Some("widget.chrome"))),
+      "播放器需要 chrome 能力"
+    );
+    assert_eq!(context["window"]["label"], "player");
+    let min_width = context["window"]["minWidth"].as_f64().unwrap_or_default();
+    assert!((min_width - 500.0).abs() < f64::EPSILON);
+  }
+
+  #[test]
+  fn tools_do_not_get_window_creation_capability() {
+    for spec in [&PLAYER, &POMODORO, &NOISE] {
+      let context = context_of(spec);
+      let grants_window = context["capabilities"].as_array().is_some_and(|items| {
+        items
+          .iter()
+          .any(|item| item.as_str() == Some("widget.window"))
+      });
+      assert!(!grants_window, "{} 不应获得 widget.window", spec.kind);
+    }
+  }
 }

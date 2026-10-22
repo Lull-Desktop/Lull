@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "type": "widget",
+  "role": "tool",
+  "id": "pomodoro",
+  "name": "番茄钟",
+  "version": "1.0.0",
+  "description": "液态时间沙漏，专注与休息的节奏。",
+  "author": "Lull",
+  "license": "GPL-3.0-or-later",
+  "builtin": true,
+  "order": 20,
+  "capabilities": [
+    "widget.ui",
+    "widget.theme",
+    "widget.state",
+    "widget.audio",
+    "widget.chrome"
+  ],
+  "window": {
+    "label": "pomodoro",
+    "route": "pomodoro",
+    "title": "Lull 番茄钟",
+    "width": 600,
+    "height": 690,
+    "minWidth": 560,
+    "minHeight": 640,
+    "resizable": false,
+    "transparent": true
+  }
+}

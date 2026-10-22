@@ -1,8 +1,21 @@
 import { describe, expect, test } from "vitest";
 import { WIDGET_CAPABILITIES } from "@/sdk/widget";
-import { BUILTIN_WIDGETS, widgetById } from "./registry";
+import { BUILTIN_WIDGETS, WINDOW_MANIFESTS, widgetById } from "./registry";
 
 describe("builtin widget registry", () => {
+  test("工具清单按 order 从 manifest 派生，设置外壳单独归类", () => {
+    expect(BUILTIN_WIDGETS.map((widget) => widget.id)).toEqual([
+      "player",
+      "pomodoro",
+      "noise",
+    ]);
+    for (const widget of BUILTIN_WIDGETS) {
+      expect(widget.role).toBe("tool");
+    }
+    expect(WINDOW_MANIFESTS).toHaveLength(4);
+    expect(WINDOW_MANIFESTS[0]?.role).toBe("shell");
+  });
+
   test("ids, labels and routes are unique", () => {
     const ids = BUILTIN_WIDGETS.map((widget) => widget.id);
     const labels = BUILTIN_WIDGETS.map((widget) => widget.window.label);

@@ -42,3 +42,6 @@ jobs:
 
       - name: Validate content catalog
         run: pnpm content:check
+
+      - name: Validate widget manifests
+        run: pnpm widgets:check

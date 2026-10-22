@@ -671,7 +671,7 @@ export default function Settings() {
               <code className="font-mono text-ink-soft">
                 content/catalog.json
               </code>{" "}
-              发现；工具窗口由 Widget Registry 声明。
+              发现；工具窗口由 Widget 清单声明。
             </p>
             <p className="font-mono text-[11px] text-ink-faint">
               logs: %TEMP%\lull · config: app_config_dir\display.json

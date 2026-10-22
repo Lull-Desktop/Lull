@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "type": "widget",
+  "role": "shell",
+  "id": "settings",
+  "name": "设置",
+  "version": "1.0.0",
+  "description": "壁纸、工具窗与全局偏好。",
+  "author": "Lull",
+  "license": "GPL-3.0-or-later",
+  "builtin": true,
+  "order": 0,
+  "capabilities": ["widget.ui", "widget.chrome", "widget.window"],
+  "window": {
+    "label": "settings",
+    "route": "setting",
+    "title": "Lull 设置",
+    "width": 768,
+    "height": 600,
+    "minWidth": 640,
+    "minHeight": 320,
+    "resizable": true,
+    "transparent": false
+  }
+}

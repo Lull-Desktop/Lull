@@ -62,7 +62,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | 层 | 目录 | 允许依赖 | 禁止 |
 | --- | --- | --- | --- |
 | **Core** | `src/core/**`、`src-tauri/src/{config,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
-| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**` | Core 的只读类型 | 直接调用 `app` 路由或宿主命令 |
+| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`） | Core 的只读类型；`sdk/widget/runtime` 可调用 `core/window` 宿主适配 | 直接调用 `app` 路由或宿主命令 |
 | **Community** | `content/**`、`public/content/**`、`scripts/validate-content.mjs` | 清单格式、静态 HTML/CSS | 修改核心 / 创建系统窗口 |
 | **Services** | 设计文档 | — | 成为本地运行前置依赖 |
 | **App** | `src/app/**`、`src/components/**`、`src/hooks/**` | 以上全部 | 把业务规则塞回路由壳 |
@@ -82,22 +82,25 @@ app/(wallpaper) ──► scenes/host ──► hooks/use-scene-catalog ──�
        │                │                    │
        │                └──► scenes/registry ─┴──► sdk/scene ──► core/wallpaper
        │
-app/(control) ──► components/settings ──► widgets/registry ──► sdk/widget
+app/(control) ──► components/settings ──► widgets/registry ──► widgets/manifests/*.json
        │
 app/(widgets) ──► components/{liquid-player,liquid-pomodoro,ether-bubbles}
                          │
-                         └──► core/window + hooks
+                         ├──► sdk/widget/react ──► sdk/widget ──► core/window + hooks
+                         │        （theme / fit / state）   （能力 / 状态 / chrome / 音频闸门）
+                         └──► components 自身的纯模型（player-model / timer-model / sound-model）
 ```
 
 ### 3.2 Rust 模块图
 
 ```text
 lib.rs
- ├─ tray.rs ───────────────► window_host
+ ├─ tray.rs ───────────────► window_host（菜单项由 ALL_WIDGETS 生成）
  ├─ window_host
- │    ├─ mod.rs（窗口工厂 / IPC）
- │    ├─ spec.rs（WidgetSpec + 内置清单）
+ │    ├─ mod.rs（窗口工厂 / 上下文注入 / IPC）
+ │    ├─ spec.rs（WidgetSpec 结构 + 查询；静态描述由 build.rs 生成）
  │    └─ prefs.rs（全局窗口偏好）
+ ├─ build.rs（校验 widgets/manifests，生成 $OUT_DIR/widget_specs.rs）
  ├─ window_frame.rs（原子 SetWindowPos）
  ├─ config（display.json 模型 / 迁移 / 原子写盘）
  └─ wallpaper
@@ -146,6 +149,23 @@ lib.rs
 | `window-prefs-changed` | Rust | 所有顶栏重新读取 `isMinimizable` |
 | `flow-theme-changed` | 前端（跨窗口） | 设置 / 播放器 / 番茄钟 / 白噪音 |
 
+### 4.3 Widget 上下文注入
+
+窗口创建时 Rust 通过 `initialization_script` 注入 `window.__LULL_WIDGET__`：
+
+```json
+{
+  "schemaVersion": 1,
+  "hostApi": 1,
+  "id": "player",
+  "capabilities": ["widget.ui", "widget.theme", "widget.state", "widget.audio", "widget.media", "widget.chrome"],
+  "window": { "label": "player", "width": 880, "minWidth": 500, "minHeight": 520 }
+}
+```
+
+能力清单直接来自 `widget_specs.rs`（manifest 生成），前端 SDK 的每个入口都先校验；
+浏览器预览没有注入时按开发环境放行，Tauri 里缺上下文则失败关闭。见 [Widget SDK](widget-sdk.md)。
+
 ## 5. 配置模型
 
 路径：`%APPDATA%\app.lull.desktop\display.json`（只读取 `display.json`；旧版 `wallpaper.json` 不再读取或迁移）。
@@ -192,10 +212,11 @@ lib.rs
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 19 个测试文件（113 项）
-cargo test             Rust 40 项（display 配置 / 拓扑 / 协议 / 场景参数 / WidgetSpec）
+pnpm test              前端 22 个测试文件（128 项）
+cargo test             Rust 44 项（display 配置 / 拓扑 / 协议 / 场景参数 / Widget 清单与上下文）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + entry 存在性
+pnpm widgets:check     Widget 清单校验 + capability 生成文件同步
 pnpm build:next        Next 静态导出（离线字体）
 pnpm test-mode         Windows 真机：层序 + 命中 + 动画差分 + 桌面还原
 pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
@@ -208,7 +229,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | 阶段 | 目标 | 当前状态 | 退出条件 |
 | --- | --- | --- | --- |
 | **A · Core** | 模块边界、配置/协议版本、命名清理、测试基线 | 已完成第一轮 | 目录与命名重构后功能/测试/安装包不退化 |
-| **B · Extensions** | Scene SDK、Widget SDK、内置工具验证 | Scene SDK 已落地；Widget 只到内置注册表 | 外部示例场景无需改核心即可运行 |
+| **B · Extensions** | Scene SDK、Widget SDK、内置工具验证 | Scene SDK 已落地；Widget 完成清单单源 + 运行时能力门面，第三方仍未开放 | 外部示例场景无需改核心即可运行 |
 | **C · Community** | 内容包格式、示例、校验、贡献流程 | 格式 + 示例 + 校验已落地 | 外部开发者可独立构建并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
 
@@ -220,3 +241,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 4. **外部内容不等于安全插件系统**：首版 iframe 使用空 `sandbox`，只运行静态 HTML/CSS，不执行 JavaScript；若未来开放宿主 API，必须另做权限、来源校验、IPC 白名单与故障隔离。
 5. **安装包与素材授权**：公开分发前需完成代码签名、字体/图标/声音素材授权复核。
 6. **内部代号**：`ether-bubbles`、`liquid-player`、`liquid-pomodoro` 仍是组件目录名，属于实现代号，不构成对外产品名。
+7. **自定义命令尚未纳入 ACL**：Tauri 2 对本地 webview 的自定义命令默认不做 capability 校验。壁纸窗口不加载 JS，所以当前没有可利用路径；第三方 JS 进场前必须用 app ACL manifest 收口，见 [Widget SDK](widget-sdk.md) 第 8 节。

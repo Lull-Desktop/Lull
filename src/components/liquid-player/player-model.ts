@@ -3,6 +3,11 @@
  * 曲目、封面色板、播放模式、本地曲名解析、偏好持久化都在这里，
  * 组件只负责把它们映射成玻璃 UI；这样模型可以在 Vitest 里脱离 DOM 单测。
  */
+import {
+  readWidgetStorage,
+  widgetStorageKey,
+  writeWidgetStorage,
+} from "@/sdk/widget";
 
 export type PlayerSource = "local" | "online";
 
@@ -440,7 +445,7 @@ export function findTrackById(
   return tracks.find((track) => track.id === id) ?? null;
 }
 
-export const PLAYER_PREFS_KEY = "lull:player:v1";
+export const PLAYER_PREFS_KEY = widgetStorageKey("player", "v1");
 
 export type PlayerPrefs = {
   mode: PlayMode;
@@ -450,7 +455,7 @@ export type PlayerPrefs = {
 export function readPlayerPrefs(): Partial<PlayerPrefs> {
   if (typeof window === "undefined") return {};
   try {
-    const raw = window.localStorage.getItem(PLAYER_PREFS_KEY);
+    const raw = readWidgetStorage("player", "v1");
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
@@ -468,7 +473,7 @@ export function readPlayerPrefs(): Partial<PlayerPrefs> {
 export function persistPlayerPrefs(prefs: PlayerPrefs): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(PLAYER_PREFS_KEY, JSON.stringify(prefs));
+    writeWidgetStorage("player", "v1", JSON.stringify(prefs));
   } catch {
     // 存储不可用只影响下次启动的默认值，不影响本次播放。
   }
