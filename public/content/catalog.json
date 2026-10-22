@@ -28,6 +28,11 @@
         "platforms": [
           "windows"
         ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "f6b86e63434d810099e293bfa74c556542a02fbe96fc7ce97390e0938a608ecb"
       }
     }
   ]

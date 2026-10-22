@@ -47,3 +47,6 @@ __pycache__/
 /src-tauri/native/*.obj
 /src-tauri/native/*.exp
 /src-tauri/native/*.lib
+
+# 内容目录签名私钥（pnpm content:keygen 生成；只在 CI secret 或本机保存）
+/.keys/

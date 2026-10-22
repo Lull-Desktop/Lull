@@ -93,7 +93,11 @@ export default function Settings() {
   const syncSwitchId = useId();
   const windowPrefsSwitchId = useId();
   const { themeId: flowThemeId, theme: flowTheme, setTheme } = useFlowTheme();
-  const { entries: sceneEntries, error: sceneCatalogError } = useSceneCatalog();
+  const {
+    entries: sceneEntries,
+    error: sceneCatalogError,
+    issues: sceneCatalogIssues,
+  } = useSceneCatalog();
   const [wallpaperVisible, setWallpaperVisible] = useState<boolean | null>(
     null,
   );
@@ -424,6 +428,16 @@ export default function Settings() {
               <p className="text-xs text-muted-foreground">
                 外部内容目录未加载：{sceneCatalogError}
               </p>
+            )}
+            {sceneCatalogIssues.length > 0 && (
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {sceneCatalogIssues.slice(0, 5).map((issue) => (
+                  <li key={issue}>· {issue}</li>
+                ))}
+                {sceneCatalogIssues.length > 5 && (
+                  <li>· 另有 {sceneCatalogIssues.length - 5} 条内容包提示</li>
+                )}
+              </ul>
             )}
             {sortedMonitors && sortedMonitors.length > 0 && (
               <div className="space-y-3 border-t border-border/50 pt-4">

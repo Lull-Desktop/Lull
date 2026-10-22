@@ -41,6 +41,11 @@
   "compatibility": {
     "hostApi": 1,
     "platforms": ["windows"]
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "scope": "package",
+    "digest": "f6b86e63434d810099e293bfa74c556542a02fbe96fc7ce97390e0938a608ecb"
   }
 }
 ```
@@ -62,6 +67,7 @@
 | `params` | — | 可选参数声明；每项含 `key/type/label/default`，number 可带 `min/max/step`，enum 必须带 `options`。参数通过 `SceneProps` 传给内置场景；外部静态包无法读取，应省略 |
 | `performance` | — | 性能提示：`tier` 为 `low/medium/high`，可选 `targetFps`（1-240） |
 | `compatibility` | — | 宿主兼容范围：`hostApi` 必填，可选 `maxHostApi` 与 `platforms` |
+| `integrity` | 官方目录必填 | 整个包目录的 sha256 摘要；由 `pnpm content:hash` 维护，格式 `{algorithm:"sha256", scope:"package", digest}` |
 
 未知字段会被拒绝。JSON Schema：[`content/schema/scene.schema.json`](../content/schema/scene.schema.json)。
 
@@ -200,6 +206,7 @@ public/content/
 - 壁纸窗口不在 Tauri capability 列表内；
 - 场景资源必须随包本地分发，不加载远程脚本、字体或音频；
 - 不允许 `entry` 逃逸内容根目录（校验器与运行时双重检查）；
+- 每个包有 `integrity` 摘要，目录有签名；安装器未来必须先验摘要再接受包。
 - 首版没有安装器、签名或在线更新；内容包由用户/发行版手动放入 `public/content/`。
 
 > 能加载一个 HTML 包，不等于建立了安全插件系统。未来若开放宿主 API，必须新增权限模型、来源校验、IPC 白名单与故障隔离；在此之前不开放外部 JavaScript。
@@ -209,7 +216,7 @@ public/content/
 `src/hooks/use-scene-catalog.ts` 合并：
 
 1. 内置场景（同步可用）；
-2. `public/content/catalog.json` 中的外部场景（异步加载，失败只降级为空列表）。
+2. `public/content/catalog.json` 中的外部场景（异步加载并验签，失败只降级为空列表）。
 
 设置页显示场景名、版本、许可证与来源（内置 / 内容包），并按 Manifest 的 `params` 渲染参数编辑器；参数按场景 id 持久化到配置，修改后热更新壁纸窗。
 
@@ -217,12 +224,15 @@ public/content/
 
 - 不兼容当前 hostApi / 平台的场景会被过滤；
 - 同 id 时内置场景优先，外部包不能覆盖官方 id；
+- **单个内容包非法只跳过该条**，其余外部场景照常加载，问题列在设置页；
 - 目录加载失败不会影响壁纸运行。
 
 ## 6. 校验
 
 ```powershell
-pnpm content:check
+pnpm content:hash    # 重算并写回包摘要
+pnpm content:sign    # 给 catalog.json 原始字节签名
+pnpm content:check   # 清单 + 摘要 + 签名一次性校验
 ```
 
 校验内容：
@@ -233,7 +243,9 @@ pnpm content:check
 - `performance` 档位与 `targetFps`；
 - `compatibility` 的 hostApi 范围与平台；
 - entry 相对路径安全性与文件存在性；
-- 场景 id 不重复。
+- 场景 id 不重复；
+- `integrity.digest` 与包目录实际摘要一致；
+- `catalog.sig.json` 对目录原始字节的签名有效。
 
 Vitest 还会解析随包目录与示例场景，防止文档与实现漂移。
 

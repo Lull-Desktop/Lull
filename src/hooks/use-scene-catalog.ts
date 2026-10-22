@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * 场景目录 hook：内置场景同步可用，外部内容包在目录加载完成后追加。
- * 目录加载失败不会影响内置场景——这是“内容可选”的底线。
+ * 场景目录 hook：内置场景同步可用，外部内容包在目录加载并验签后追加。
+ * 目录加载失败不会影响内置场景——这是“内容可选”的底线；
+ * 单个内容包的错误只记入 `issues`，不会连坐其它包。
  */
 import { useEffect, useMemo, useState } from "react";
 import { loadContentSceneEntries } from "@/content/catalog";
@@ -16,19 +17,38 @@ import {
 
 export type SceneCatalogState = {
   entries: SceneCatalogEntry[];
-  /** 外部目录加载失败时的原因；内置场景仍可正常使用。 */
+  /** 外部目录整体不可用时的原因；内置场景仍可正常使用。 */
   error: string | null;
+  /** 单个内容包被跳过 / 目录未签名等可恢复问题，逐条展示。 */
+  issues: string[];
 };
 
 export function useSceneCatalog(): SceneCatalogState {
   const [external, setExternal] = useState<SceneCatalogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [issues, setIssues] = useState<string[]>([]);
 
   useEffect(() => {
     let alive = true;
     void loadContentSceneEntries()
-      .then((entries) => {
-        if (alive) setExternal(entries);
+      .then((result) => {
+        if (!alive) return;
+        const builtinIds = new Set(
+          builtinCatalogEntries().map((entry) => entry.manifest.id),
+        );
+        const messages = result.issues.map((issue) => issue.message);
+        for (const entry of result.entries) {
+          if (builtinIds.has(entry.manifest.id)) {
+            messages.push(
+              `内容包 ${entry.manifest.id} 与内置场景同 id，已按内置优先跳过`,
+            );
+          }
+        }
+        if (result.signature === "missing") {
+          messages.push("内容目录未签名：无法校验内容包来源");
+        }
+        setExternal(result.entries);
+        setIssues([...new Set(messages)]);
       })
       .catch((reason: unknown) => {
         if (alive) {
@@ -53,5 +73,5 @@ export function useSceneCatalog(): SceneCatalogState {
     });
   }, [external]);
 
-  return { entries, error };
+  return { entries, error, issues };
 }

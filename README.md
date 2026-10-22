@@ -120,7 +120,7 @@ scripts/                   # 构建、内容校验、预览、验收编排
 | --- | --- | --- |
 | **A · Core** | `src-tauri/src/{wallpaper,window_host,config}` + `src/core` | 桌面宿主、显示器拓扑、窗口生命周期、配置、IPC、原生桥 |
 | **B · Extensions** | `src/sdk/{scene,widget,content}` + `src/scenes` + `src/widgets` | 场景清单/目录协议、工具窗口能力分层；首版只开放静态场景包 |
-| **C · Community** | `content/schema` + `public/content` + `scripts/validate-content.mjs` | 内容包格式、示例、校验工具；尚未提供在线市场 |
+| **C · Community** | `content/schema` + `public/content` + `scripts/{hash,sign,validate}-content.mjs` | 内容包格式、包摘要、目录签名、校验工具；仍未提供在线市场与安装器 |
 | **D · Services** | 设计文档 | 内容索引、同步、发布服务；不影响本地核心运行 |
 
 壁纸运行协议：Rust 把 `mode / sync / scene / canvas / view / params` 编码进窗口 URL 哈希，前端 `SceneHost` 按 Manifest 解析默认值、能力与兼容性后选择内置组件或外部静态包。该协议是前后端唯一画面契约。
@@ -162,7 +162,10 @@ pnpm content:check
 | `pnpm test` | Vitest 前端测试（jsdom） |
 | `cargo test` | Rust 单元测试（在 `src-tauri/` 下） |
 | `pnpm lint` / `pnpm fix` | Biome 检查 / 自动修复 |
-| `pnpm content:check` | 校验内容目录与 entry 文件 |
+| `pnpm content:check` | 校验内容目录、包摘要与目录签名 |
+| `pnpm content:hash` | 重算并写回内容包的 `integrity` 摘要 |
+| `pnpm content:sign` | 用本机私钥给 `catalog.json` 原始字节签名 |
+| `pnpm content:keygen` | 生成内容签名密钥（私钥在 `.keys/`，不进仓库） |
 | `pnpm build:next` | 仅导出 Next 静态前端 |
 | `pnpm test-mode` | Windows 真机壁纸验收（构建 DLL、层序/命中/动画） |
 | `pnpm build` | 完整 Tauri 安装包构建 |

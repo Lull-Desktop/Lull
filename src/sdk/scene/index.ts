@@ -2,6 +2,8 @@ export {
   CONTENT_CATALOG_SCHEMA_VERSION,
   parseSceneCatalog,
   type SceneCatalogDocument,
+  type SceneCatalogIssue,
+  type SceneCatalogIssueCode,
   sceneEntryUrl,
 } from "./catalog";
 export { isSceneCompatible } from "./compatibility";
@@ -16,6 +18,7 @@ export {
   SCENE_SCHEMA_VERSION,
   type SceneCapability,
   type SceneCompatibility,
+  type SceneIntegrity,
   type SceneManifest,
   SceneManifestError,
   type SceneParamDefinition,

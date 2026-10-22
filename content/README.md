@@ -21,11 +21,16 @@ public/content/
 3. 运行：
 
 ```powershell
-pnpm content:check
+pnpm content:hash     # 计算整个包目录的 integrity 摘要
+pnpm content:sign     # 给 catalog.json 原始字节签名（首次先 pnpm content:keygen）
+pnpm content:check    # 清单 + 摘要 + 签名
 pnpm test
 ```
 
 4. 重启应用或重新加载壁纸，设置页会出现新场景。
+
+> 改了包内任何文件（包括图片、CSS）都要重跑 `content:hash`，否则 `content:check` 会报摘要不匹配；
+> 每次改完 `catalog.json` 都要重新 `content:sign`，否则运行时会拒绝该目录。
 
 ## 规则
 

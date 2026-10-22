@@ -10,6 +10,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { computePackageDigest, packageDirFor } from "./content-digest.mjs";
+import { verifyCatalogSignature } from "./sign-content.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = join(root, "public", "content", "catalog.json");
@@ -43,6 +45,7 @@ const MANIFEST_KEYS = new Set([
   "params",
   "performance",
   "compatibility",
+  "integrity",
 ]);
 
 const isObject = (value) =>
@@ -204,6 +207,46 @@ function checkMetadata(scene, where) {
   }
 }
 
+function checkIntegrity(scene, where) {
+  const integrity = scene.integrity;
+  if (!isObject(integrity)) {
+    fail(`${where}.integrity 必填：官方内容目录必须固定包摘要`);
+    return;
+  }
+  for (const key of Object.keys(integrity)) {
+    if (!["algorithm", "scope", "digest"].includes(key)) {
+      fail(`${where}.integrity 含未知字段: ${key}`);
+    }
+  }
+  if (integrity.algorithm !== "sha256") {
+    fail(`${where}.integrity.algorithm 只支持 sha256`);
+  }
+  if (integrity.scope !== "package") {
+    fail(`${where}.integrity.scope 只支持 package`);
+  }
+  if (
+    typeof integrity.digest !== "string" ||
+    !/^[0-9a-f]{64}$/.test(integrity.digest)
+  ) {
+    fail(`${where}.integrity.digest 必须是 64 位小写十六进制`);
+    return;
+  }
+  try {
+    const digest = computePackageDigest({
+      id: scene.id,
+      version: scene.version,
+      dir: packageDirFor(scene.entry, contentRoot),
+    });
+    if (digest !== integrity.digest) {
+      fail(
+        `${where}.integrity 不匹配（应为 ${digest}；重跑 pnpm content:hash && pnpm content:sign）`,
+      );
+    }
+  } catch (error) {
+    fail(`${where}.integrity 计算失败：${error.message}`);
+  }
+}
+
 const errors = [];
 const fail = (message) => errors.push(message);
 
@@ -269,6 +312,47 @@ for (const [index, scene] of (catalog.scenes ?? []).entries()) {
   if (!existsSync(file)) {
     fail(`${where}.entry 指向的文件不存在: ${scene.entry}`);
   }
+  checkIntegrity(scene, where);
+}
+
+const signaturePath = join(contentRoot, "catalog.sig.json");
+if (!existsSync(signaturePath)) {
+  fail("缺少 catalog.sig.json：官方内容目录必须签名");
+} else {
+  try {
+    const signature = JSON.parse(readFileSync(signaturePath, "utf8"));
+    if (signature.schemaVersion !== 1) {
+      fail("catalog.sig.json.schemaVersion 必须是 1");
+    }
+    if (signature.algorithm !== "ECDSA-P256-SHA256") {
+      fail(`catalog.sig.json.algorithm 不支持：${String(signature.algorithm)}`);
+    }
+    if (
+      typeof signature.keyId !== "string" ||
+      !/^[a-z0-9][a-z0-9.-]{2,63}$/.test(signature.keyId)
+    ) {
+      fail("catalog.sig.json.keyId 非法");
+    }
+    if (
+      typeof signature.signature !== "string" ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(signature.signature)
+    ) {
+      fail("catalog.sig.json.signature 必须是 base64");
+    } else {
+      const result = verifyCatalogSignature({
+        keyId: signature.keyId,
+        signature: signature.signature,
+        payload: readFileSync(catalogPath),
+      });
+      if (!result.ok) {
+        fail(
+          `目录签名无效：${result.reason}（改过 catalog.json 后需重跑 pnpm content:sign）`,
+        );
+      }
+    }
+  } catch (error) {
+    fail(`catalog.sig.json 解析失败：${error.message}`);
+  }
 }
 
 if (errors.length > 0) {
@@ -278,5 +362,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `[content] OK：${catalog.scenes.length} 个外部场景（${[...ids].join(", ")}）`,
+  `[content] OK：${catalog.scenes.length} 个外部场景（${[...ids].join(", ")}），摘要与目录签名均有效`,
 );

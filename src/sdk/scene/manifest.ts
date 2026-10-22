@@ -55,6 +55,22 @@ export type ScenePerformanceHints = {
   targetFps?: number;
 };
 
+/**
+ * 内容包完整性声明：对**整个包目录**做的确定性摘要。
+ *
+ * 摘要由 `pnpm content:hash` 计算并写入，`pnpm content:check` 与构建前置校验会重算比对；
+ * 目录签名（`catalog.sig.json`）覆盖这份清单，因此摘要一旦被改动，签名立即失效。
+ * 运行时不重算（浏览器无法枚举包目录），它信任的是"签名覆盖了摘要"这一事实。
+ */
+export type SceneIntegrity = {
+  algorithm: "sha256";
+  scope: "package";
+  /** 64 位小写十六进制。 */
+  digest: string;
+};
+
+const INTEGRITY_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
+
 /** 内容包声明的宿主兼容范围；缺失时按“兼容当前宿主”处理。 */
 export type SceneCompatibility = {
   hostApi: number;
@@ -92,6 +108,8 @@ export type SceneManifest = {
   params?: SceneParamDefinition[];
   performance?: ScenePerformanceHints;
   compatibility?: SceneCompatibility;
+  /** 内容包必填（官方目录由 `pnpm content:hash` 维护）；内置场景不使用。 */
+  integrity?: SceneIntegrity;
 };
 
 export type ParseSceneManifestOptions = {
@@ -129,6 +147,7 @@ const MANIFEST_KEYS = new Set([
   "params",
   "performance",
   "compatibility",
+  "integrity",
 ]);
 const PERFORMANCE_TIERS = ["low", "medium", "high"] as const;
 
@@ -387,8 +406,33 @@ function parseCompatibility(
   return { hostApi, maxHostApi, platforms };
 }
 
-/** 校验静态内容入口：必须是相对路径、不得逃逸内容根目录、必须是 .html。 */
-export function isSafeContentEntry(entry: string): boolean {
+function parseIntegrity(
+  value: unknown,
+  where: string,
+): SceneIntegrity | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) fail(where, "integrity 必须是对象或省略");
+  for (const field of Object.keys(value)) {
+    if (!["algorithm", "scope", "digest"].includes(field)) {
+      fail(where, `integrity 含未知字段: ${field}`);
+    }
+  }
+  if (value.algorithm !== "sha256") {
+    fail(where, "integrity.algorithm 只支持 sha256");
+  }
+  if (value.scope !== "package") {
+    fail(where, "integrity.scope 只支持 package");
+  }
+  const digest = requireString(value, "digest", where);
+  if (!INTEGRITY_DIGEST_PATTERN.test(digest)) {
+    fail(where, "integrity.digest 必须是 64 位小写十六进制");
+  }
+  return { algorithm: "sha256", scope: "package", digest };
+}
+
+/** 校验静态内容入口：必须是相对路径、不得逃逸内容根目录、必须是 .html。 */ export function isSafeContentEntry(
+  entry: string,
+): boolean {
   return (
     SAFE_ENTRY_PATTERN.test(entry) &&
     !entry.includes("\\") &&
@@ -482,5 +526,6 @@ export function parseSceneManifest(
     params: parseSceneParams(input.params, where),
     performance: parsePerformance(input.performance, where),
     compatibility: parseCompatibility(input.compatibility, where),
+    integrity: parseIntegrity(input.integrity, where),
   };
 }

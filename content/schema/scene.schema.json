@@ -81,6 +81,20 @@
           "items": { "enum": ["windows", "macos", "linux"] }
         }
       }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "scope", "digest"],
+      "properties": {
+        "algorithm": { "const": "sha256" },
+        "scope": { "const": "package" },
+        "digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "整个内容包目录的 sha256；由 pnpm content:hash 维护。"
+        }
+      }
     }
   },
   "$defs": {

@@ -37,7 +37,12 @@ public/content/
       "entry": "scenes/mist/index.html",
       "theme": { "background": "#0a1416", "accent": "#9fc7c2" },
       "performance": { "tier": "low", "targetFps": 30 },
-      "compatibility": { "hostApi": 1, "platforms": ["windows"] }
+      "compatibility": { "hostApi": 1, "platforms": ["windows"] },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "f6b86e63434d810099e293bfa74c556542a02fbe96fc7ce97390e0938a608ecb"
+      }
     }
   ]
 }
@@ -99,9 +104,10 @@ type ContentManifest = {
 
 宿主读取目录时：
 
-- 目录缺失 / 损坏 → 只保留内置场景，不崩溃；
-- 单条 manifest 非法 → 整个目录拒绝（当前实现），并在设置页显示错误；
-- 重复 id → 整个目录拒绝，避免设置页出现歧义选项。
+- 目录缺失 / 损坏 / schemaVersion 不支持 → 只保留内置场景，不崩溃；
+- 单条 manifest 非法 → **只跳过该条**，其余场景照常加载，设置页列出问题；
+- 重复 id → 保留第一条，后续条目跳过并提示；`pnpm content:check` 仍把重复 id 视为发布错误；
+- 缺 `integrity` → 仍然加载，但标记为不可校验（官方目录要求必须填写）。
 
 ## 5. 许可证与素材
 
@@ -114,28 +120,55 @@ type ContentManifest = {
 ## 6. 校验
 
 ```powershell
-pnpm content:check
+pnpm content:hash     # 重算并写回每个包的 integrity 摘要（改了内容包之后）
+pnpm content:sign     # 用本机私钥给 catalog.json 的原始字节签名
+pnpm content:check    # 校验清单 + 摘要 + 目录签名（CI 与构建前置都跑这个）
 ```
 
-实现：[`scripts/validate-content.mjs`](../scripts/validate-content.mjs)。它会检查：
+实现：[`scripts/validate-content.mjs`](../scripts/validate-content.mjs)、[`scripts/hash-content.mjs`](../scripts/hash-content.mjs)、[`scripts/sign-content.mjs`](../scripts/sign-content.mjs)。检查范围：
 
 1. `catalog.json` 可解析、schemaVersion 正确；
 2. 每个 manifest 的必填字段与格式；
 3. capability 白名单与唯一 id；
-4. `entry` 路径安全且文件存在。
+4. `entry` 路径安全且文件存在；
+5. `integrity.digest` 与**整个包目录**的实际摘要一致（算法见下）；
+6. `catalog.sig.json` 对 `catalog.json` 原始字节的签名有效（公钥在 `public/content/keys/`）。
 
-CI 在 `frontend-test.yml` 中执行同一命令；Vitest 还会解析随包目录，防止示例与实现漂移。
+### 6.1 包摘要
+
+摘要覆盖包目录内的全部文件，而不是只覆盖 entry：
+
+```text
+sha256(
+  "lull-content-package\0" +
+  id + "\0" + version + "\0" +
+  Σ(相对路径 + "\0" + 字节数 + "\0" + 文件字节 + "\0")   # 相对路径按 UTF-8 字节序排序
+)
+```
+
+把 id/version 拌进摘要，防止把 A 包的摘要抄到 B 包；排序保证可复现；包内不允许符号链接，避免"摘要覆盖的字节"与"运行时读到的字节"不一致。
+
+### 6.2 目录签名
+
+- 签名对象是 `catalog.json` 的**原始字节**，不做 JSON 规范化；
+- 算法 ECDSA P-256 / SHA-256，签名文件 `public/content/catalog.sig.json`；
+- 公钥随包分发（`public/content/keys/<keyId>.jwk.json`），运行时用 WebCrypto 验签；
+- 私钥只在本机 `.keys/`（已 gitignore）或 CI secret（`LULL_CONTENT_SIGNING_KEY`）；
+- 运行时会拒绝签名不匹配的目录；未签名目录仍可加载，但会在设置页标注"未签名"。
+
+CI 在 `frontend-test.yml` 中执行同一 `pnpm content:check`；Vitest 还会解析随包目录，防止示例与实现漂移。
 
 ## 7. 分发（C 阶段）
 
-首版不提供在线市场或安装器。建议路径：
+现在有了"可信清单"，但还没有"安装渠道"：
 
-1. 内容包放在独立 Git 仓库 / Release；
-2. 用户手动解压到 `public/content/`（开发）或未来的用户内容目录（规划）；
-3. 通过目录文件登记；
-4. 校验通过后重启应用即可看到场景。
+1. 内容包放在独立 Git 仓库 / Release，发布时附上 catalog 片段与 `integrity` 摘要；
+2. 用户（或未来的安装器）解压到 `public/content/`（开发）或用户内容目录（规划）；
+3. 安装器**必须**先按 §6.1 重算摘要，再接受该包；
+4. 目录文件由发布者签名；应用只用**内置公钥**核对来源，未签名目录可加载但标记为"不可校验"。
 
-未来若做在线索引，只索引 manifest 与下载地址，不把在线服务变成运行前置依赖。
+仍缺：安装器、在线索引、下载与撤回、签名信任链（第三方作者密钥如何被用户信任）。
+目前官方目录随包分发并已签名；第三方目录可以加载，但会被标记为"未签名"。
 
 ## 8. 安全边界
 

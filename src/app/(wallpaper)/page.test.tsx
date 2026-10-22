@@ -69,30 +69,44 @@ test("bamboo carries its moon glow and stalk layer", () => {
 });
 
 test("external catalog scene mounts in a sandboxed iframe", async () => {
+  const payload = JSON.stringify({
+    schemaVersion: 1,
+    scenes: [
+      {
+        schemaVersion: 1,
+        type: "scene",
+        id: "community.mist",
+        name: "雾岚",
+        version: "1.0.0",
+        license: "CC-BY-4.0",
+        capabilities: ["wallpaper.viewport", "wallpaper.canvas"],
+        entry: "scenes/mist/index.html",
+        integrity: {
+          algorithm: "sha256",
+          scope: "package",
+          digest: "c".repeat(64),
+        },
+      },
+    ],
+  });
+  // 未签名目录（缺少 catalog.sig.json）也要能加载，只是标记来源不可校验。
   vi.stubGlobal(
     "fetch",
-    vi.fn(() =>
-      Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            schemaVersion: 1,
-            scenes: [
-              {
-                schemaVersion: 1,
-                type: "scene",
-                id: "community.mist",
-                name: "雾岚",
-                version: "1.0.0",
-                license: "CC-BY-4.0",
-                capabilities: ["wallpaper.viewport", "wallpaper.canvas"],
-                entry: "scenes/mist/index.html",
-              },
-            ],
-          }),
-      }),
-    ),
+    vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/content/catalog.json") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve(payload),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve(""),
+      });
+    }),
   );
   window.location.hash = "#scene=community.mist";
   render(<Page />);

@@ -19,6 +19,11 @@ function validManifest(overrides: Record<string, unknown> = {}) {
     license: "CC-BY-4.0",
     capabilities: ["wallpaper.viewport"],
     entry: "scenes/example/index.html",
+    integrity: {
+      algorithm: "sha256",
+      scope: "package",
+      digest: "b".repeat(64),
+    },
     ...overrides,
   };
 }
@@ -64,12 +69,78 @@ describe("scene manifest", () => {
     ).toThrow(/entry/);
   });
 
-  test("rejects duplicate ids inside one catalog", () => {
+  test("skips duplicate ids instead of rejecting the whole catalog", () => {
     const duplicate = {
       schemaVersion: 1,
       scenes: [validManifest(), validManifest({ name: "另一个" })],
     };
-    expect(() => parseSceneCatalog(duplicate)).toThrow(/重复/);
+    const catalog = parseSceneCatalog(duplicate);
+    expect(catalog.scenes).toHaveLength(1);
+    expect(catalog.issues.map((issue) => issue.code)).toContain("duplicate-id");
+    expect(catalog.issues[0]?.message).toMatch(/重复/);
+  });
+
+  test("keeps the rest of the catalog when one package is invalid", () => {
+    const catalog = parseSceneCatalog({
+      schemaVersion: 1,
+      scenes: [
+        validManifest(),
+        validManifest({ id: "community.broken", entry: "../escape.html" }),
+      ],
+    });
+    expect(catalog.scenes.map((manifest) => manifest.id)).toEqual([
+      "community.example",
+    ]);
+    expect(catalog.issues).toHaveLength(1);
+    expect(catalog.issues[0]?.code).toBe("invalid-manifest");
+    expect(catalog.issues[0]?.id).toBe("community.broken");
+  });
+
+  test("still rejects a catalog that is unusable as a whole", () => {
+    expect(() => parseSceneCatalog({ schemaVersion: 2, scenes: [] })).toThrow(
+      /schemaVersion/,
+    );
+    expect(() => parseSceneCatalog({ schemaVersion: 1, scenes: {} })).toThrow(
+      /scenes 必须是数组/,
+    );
+  });
+
+  test("parses package integrity and rejects malformed digests", () => {
+    const digest = "a".repeat(64);
+    const manifest = parseSceneManifest(
+      validManifest({
+        integrity: { algorithm: "sha256", scope: "package", digest },
+      }),
+    );
+    expect(manifest.integrity).toEqual({
+      algorithm: "sha256",
+      scope: "package",
+      digest,
+    });
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          integrity: { algorithm: "sha256", scope: "package", digest: "XYZ" },
+        }),
+      ),
+    ).toThrow(/integrity/);
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          integrity: { algorithm: "sha512", scope: "package", digest },
+        }),
+      ),
+    ).toThrow(/sha256/);
+  });
+
+  test("flags a package without integrity but still loads it", () => {
+    const catalog = parseSceneCatalog({
+      schemaVersion: 1,
+      scenes: [validManifest({ integrity: undefined })],
+    });
+    expect(catalog.scenes).toHaveLength(1);
+    expect(catalog.issues).toHaveLength(1);
+    expect(catalog.issues[0]?.code).toBe("missing-integrity");
   });
 
   test("rejects unknown manifest fields", () => {
@@ -176,9 +247,11 @@ describe("shipped content catalog", () => {
     const catalog = parseSceneCatalog(catalogJson, {
       where: "test catalog",
     });
+    expect(catalog.issues).toEqual([]);
     expect(catalog.scenes).toHaveLength(1);
     const [mist] = catalog.scenes;
     expect(mist.id).toBe("community.mist");
+    expect(mist.integrity?.digest).toMatch(/^[0-9a-f]{64}$/);
     expect(sceneEntryUrl(mist)).toBe("/content/scenes/mist/index.html");
   });
 });

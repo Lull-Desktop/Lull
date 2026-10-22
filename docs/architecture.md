@@ -282,10 +282,11 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 25 个测试文件（139 项）
+pnpm test              前端 26 个测试文件（153 项）
 cargo test             Rust 63 项（display 配置 / 拓扑 / 协议 / 场景参数 / Widget 清单、上下文与插件包）
 pnpm lint              Biome（含 import 排序）
-pnpm content:check     内容目录 + entry 存在性
+pnpm content:check     内容目录 + 包摘要 + 目录签名
+pnpm content:hash      重算包摘要 / content:sign 重新签名
 pnpm widgets:check     Widget 清单 + 命令表 + 逐窗口 capability 同步
 pnpm build:next        Next 静态导出（离线字体）
 pnpm test-mode         Windows 真机：层序 + 命中 + 动画差分 + 桌面还原
@@ -300,7 +301,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | --- | --- | --- | --- |
 | **A · Core** | 模块边界、配置/协议版本、命名清理、测试基线 | 已完成第一轮 | 目录与命名重构后功能/测试/安装包不退化 |
 | **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；仍缺安装器与签名 | 外部示例场景无需改核心即可运行 |
-| **C · Community** | 内容包格式、示例、校验、贡献流程 | 格式 + 示例 + 校验已落地 | 外部开发者可独立构建并分享内容包 |
+| **C · Community** | 内容包格式、示例、包摘要、目录签名、贡献流程 | 格式 + 示例 + 摘要 + 签名已落地 | 外部开发者可独立构建并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
 
 ## 9. 已知边界与风险
