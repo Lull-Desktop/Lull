@@ -95,7 +95,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 
 当前基线（会随测试增加）：
 
-- 前端：22 个测试文件 / 128 项；
+- 前端：23 个测试文件 / 131 项；
 - Rust：44 项；
 - 内容：1 个外部场景示例。
 
@@ -110,6 +110,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 - [ ] 是否把 Tauri 命令直接暴露成“公共插件 API”？
 - [ ] 是否新增了第三方可执行代码路径？首版不允许。
 - [ ] 新工具的能力是否写进 manifest，并在 SDK 门面里实际校验？
+- [ ] 新增 IPC 是否同时更新了 `lib.rs` 与 `build.rs` 的 `APP_COMMANDS`，并确认目标窗口 capability 已授权？
 - [ ] 配置写入失败时是否会回滚？
 - [ ] 新增文件是否在文档与目录树中体现？
 
@@ -118,7 +119,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 - 内置场景：`src/scenes/<id>/index.tsx` + `src/scenes/registry.ts`。
 - 外部场景：`public/content/scenes/<id>/index.html` + `catalog.json` + `pnpm content:check`。
 - 内置工具：`src/widgets/manifests/<id>.json` + 路由 + `src/sdk/widget` + `pnpm widgets:gen`；托盘与设置页从清单自动生成。
-- 新增 IPC：先确定归属模块，再在 `lib.rs` 注册；更新 `docs/architecture.md` 的命令表。
+- 新增 IPC：先确定归属模块，再在 `lib.rs` 注册，并把命令名加入 `build.rs` 的 `APP_COMMANDS`；更新 `docs/architecture.md` 的命令表与目标窗口的 capability（`pnpm widgets:gen`）。
 - 新增配置字段：提升 `CURRENT_VERSION` 并写迁移测试；旧字段保留默认值。
 
 ## 8. 提交与 PR

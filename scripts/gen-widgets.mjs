@@ -1,33 +1,37 @@
 #!/usr/bin/env node
 /**
- * Widget 清单校验 + Tauri capability 生成。
+ * Widget 清单校验 + 逐窗口 Tauri capability 生成。
  *
  * 校验范围：
  * - `src/widgets/manifests/*.json` 的 schemaVersion / type / role / id / 版本；
  * - capability 白名单（直接读取 `src/sdk/widget/types.ts` 的枚举，避免两份白名单漂移）；
- * - 窗口尺寸、缩放/透明策略与 id / label / route 唯一性；
- * - 生成 `src-tauri/capabilities/desktop.json` 的窗口授权列表。
+ * - `lib.rs` 注册的自定义命令与 `build.rs` 的 app ACL manifest 必须完全一致；
+ * - 前端 `invoke("...")` 的字面命令名必须在注册表里；
+ * - 每个窗口一份 capability：设置窗拿宿主管理命令，工具窗只拿自己的窗口帧命令。
  *
  * 用法：
  *   node scripts/gen-widgets.mjs          # 写入 capability 文件
  *   node scripts/gen-widgets.mjs --check  # 只校验，capability 过期则退出 1（CI 用）
  */
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifestDir = join(root, "src", "widgets", "manifests");
 const typesPath = join(root, "src", "sdk", "widget", "types.ts");
-const capabilityPath = join(root, "src-tauri", "capabilities", "desktop.json");
+const capabilityDir = join(root, "src-tauri", "capabilities");
+const libRsPath = join(root, "src-tauri", "src", "lib.rs");
+const buildRsPath = join(root, "src-tauri", "build.rs");
 const checkOnly = process.argv.includes("--check");
+const srcDir = join(root, "src");
 
 const ID = /^[a-z][a-z0-9-]{1,31}$/;
 const WINDOW_KEY = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
-/** 与手写时代保持一致的窗口权限集合；按能力细分留给第三方阶段。 */
-const WINDOW_PERMISSIONS = [
+/** 所有窗口共享的 Tauri core 权限；按窗口拆分的是下面的 app 命令权限。 */
+const CORE_PERMISSIONS = [
   "core:default",
   "opener:default",
   "core:window:allow-start-dragging",
@@ -40,6 +44,9 @@ const WINDOW_PERMISSIONS = [
   "core:window:allow-outer-position",
   "core:window:allow-set-position",
 ];
+
+/** 工具窗只需要调整自己的窗口帧；创建/管理其他窗口是宿主能力。 */
+const TOOL_APP_PERMISSIONS = ["allow-window-set-frame"];
 
 const errors = [];
 const fail = (message) => errors.push(message);
@@ -64,6 +71,79 @@ function readEnum(name) {
 const capabilities = readEnum("WIDGET_CAPABILITIES");
 const roles = readEnum("WIDGET_ROLES");
 
+/** 读取 `lib.rs` 里 `generate_handler!` 注册的自定义命令（snake_case）。 */
+function readRegisteredCommands() {
+  const source = readFileSync(libRsPath, "utf8");
+  const block = source.match(/tauri::generate_handler!\[([\s\S]*?)\]/)?.[1] ?? "";
+  return block
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((path) => path.split("::").pop());
+}
+
+/** 读取 `build.rs` 里 app ACL manifest 声明的命令。 */
+function readAppManifestCommands() {
+  const source = readFileSync(buildRsPath, "utf8");
+  const block =
+    source.match(/const APP_COMMANDS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ??
+    "";
+  return [...block.matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+}
+
+/** 校验两份命令表一致：漏一个命令会在运行期被 ACL 拒绝，提前在 CI 暴露。 */
+function checkCommandParity() {
+  const registered = readRegisteredCommands();
+  const manifest = readAppManifestCommands();
+  if (registered.length === 0) {
+    fail("无法从 src-tauri/src/lib.rs 读取 generate_handler! 命令列表");
+  }
+  if (manifest.length === 0) {
+    fail("无法从 src-tauri/build.rs 读取 APP_COMMANDS");
+  }
+  const registeredSet = new Set(registered);
+  const manifestSet = new Set(manifest);
+  for (const command of registeredSet) {
+    if (!manifestSet.has(command)) {
+      fail(`命令 ${command} 已注册但未加入 build.rs 的 APP_COMMANDS`);
+    }
+  }
+  for (const command of manifestSet) {
+    if (!registeredSet.has(command)) {
+      fail(`build.rs 的 APP_COMMANDS 含未注册命令: ${command}`);
+    }
+  }
+  return [...registeredSet].sort();
+}
+
+/** 递归遍历 src，检查前端字面 invoke 的命令名都在注册表里。 */
+function* sourceFiles(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      yield* sourceFiles(full);
+      continue;
+    }
+    if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+    if (entry.name.includes(".test.") || entry.name.endsWith(".d.ts")) continue;
+    yield full;
+  }
+}
+
+function checkFrontendInvokes(commands) {
+  const known = new Set(commands);
+  for (const file of sourceFiles(srcDir)) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(/\binvoke(?:<[^>]*>)?\(\s*"([^"]+)"/g)) {
+      if (!known.has(match[1])) {
+        fail(
+          `${relative(root, file).replaceAll("\\", "/")} 调用了未注册命令 ${match[1]}`,
+        );
+      }
+    }
+  }
+}
+
 function checkWindow(window, where) {
   if (!isObject(window)) {
     fail(`${where}.window 必须是对象`);
@@ -79,8 +159,7 @@ function checkWindow(window, where) {
       fail(`${where}.window.${key} 格式非法: ${window[key]}`);
     }
   }
-  const numbers = ["width", "height", "minWidth", "minHeight"];
-  for (const key of numbers) {
+  for (const key of ["width", "height", "minWidth", "minHeight"]) {
     if (
       typeof window[key] !== "number" ||
       !Number.isFinite(window[key]) ||
@@ -193,12 +272,15 @@ for (const file of readdirSync(manifestDir).filter((name) =>
     }
   }
   checkWindow(manifest.window, where);
-  manifests.push(manifest);
+  manifests.push({ ...manifest, file });
 }
 
 if (manifests.length === 0) {
   fail("src/widgets/manifests 下没有可用的 widget 清单");
 }
+
+const appCommands = checkCommandParity();
+if (errors.length === 0) checkFrontendInvokes(appCommands);
 
 if (errors.length > 0) {
   console.error("[widgets] 校验失败：");
@@ -212,26 +294,67 @@ manifests.sort(
     left.id.localeCompare(right.id),
 );
 
-const capability = {
-  $schema: "../gen/schemas/desktop-schema.json",
-  identifier: "desktop",
-  description:
-    "Lull desktop windows: settings, player, pomodoro, noise. Generated from src/widgets/manifests by scripts/gen-widgets.mjs — do not edit by hand.",
-  windows: manifests.map((manifest) => manifest.window.label),
-  permissions: WINDOW_PERMISSIONS,
-};
+/** 设置窗是宿主控制面，拿全部自定义命令；工具窗只拿自己的窗口帧权限。 */
+function permissionsFor(manifest) {
+  const permissions = new Set(CORE_PERMISSIONS);
+  if (manifest.role === "shell") {
+    for (const command of appCommands) {
+      permissions.add(`allow-${command.replaceAll("_", "-")}`);
+    }
+  } else if (manifest.capabilities.includes("widget.chrome")) {
+    for (const permission of TOOL_APP_PERMISSIONS) permissions.add(permission);
+  }
+  return [...permissions];
+}
 
-const expected = `${JSON.stringify(capability, null, 2)}\n`;
+const generated = manifests.map((manifest) => {
+  const fileName = `window-${manifest.window.label}.json`;
+  const capability = {
+    $schema: "../gen/schemas/desktop-schema.json",
+    identifier: `window-${manifest.window.label}`,
+    description: `Lull ${manifest.window.label} window (generated from src/widgets/manifests/${manifest.file}).`,
+    windows: [manifest.window.label],
+    permissions: permissionsFor(manifest),
+  };
+  return {
+    path: join(capabilityDir, fileName),
+    fileName,
+    text: `${JSON.stringify(capability, null, 2)}\n`,
+  };
+});
+
+const expectedNames = new Set(generated.map((file) => file.fileName));
 
 if (checkOnly) {
-  let current = "";
+  let existing = [];
   try {
-    current = readFileSync(capabilityPath, "utf8");
+    existing = readdirSync(capabilityDir);
   } catch {
-    fail(`缺少 ${capabilityPath}，请先运行 pnpm widgets:gen`);
+    fail(`缺少 ${capabilityDir}，请先运行 pnpm widgets:gen`);
   }
-  if (current !== expected) {
-    fail("src-tauri/capabilities/desktop.json 与清单不一致，请运行 pnpm widgets:gen");
+  for (const file of generated) {
+    let current = "";
+    try {
+      current = readFileSync(file.path, "utf8");
+    } catch {
+      fail(`缺少 ${file.fileName}，请先运行 pnpm widgets:gen`);
+      continue;
+    }
+    if (current !== file.text) {
+      fail(`${file.fileName} 与清单不一致，请运行 pnpm widgets:gen`);
+    }
+  }
+  for (const name of existing) {
+    if (
+      name.endsWith(".json") &&
+      name.startsWith("window-") &&
+      !expectedNames.has(name)
+    ) {
+      fail(`发现过期 capability: ${name}，请运行 pnpm widgets:gen`);
+    }
+    if (name === "desktop.json") {
+      fail("desktop.json 是旧版单文件 capability，请运行 pnpm widgets:gen");
+    }
   }
   if (errors.length > 0) {
     console.error("[widgets] 校验失败：");
@@ -239,14 +362,29 @@ if (checkOnly) {
     process.exit(1);
   }
   console.log(
-    `[widgets] OK：${manifests.length} 个窗口清单，capability 已同步`,
+    `[widgets] OK：${manifests.length} 个窗口清单，逐窗口 capability 已同步`,
   );
   process.exit(0);
 }
 
-writeFileSync(capabilityPath, expected);
+for (const file of generated) {
+  writeFileSync(file.path, file.text);
+  console.log(`[widgets] 写入 ${file.fileName}`);
+}
+for (const name of readdirSync(capabilityDir)) {
+  if (name.endsWith(".json") && name.startsWith("window-")) {
+    if (!expectedNames.has(name)) {
+      rmSync(join(capabilityDir, name));
+      console.log(`[widgets] 删除过期 ${name}`);
+    }
+  }
+  if (name === "desktop.json") {
+    rmSync(join(capabilityDir, name));
+    console.log("[widgets] 删除旧版 desktop.json");
+  }
+}
 console.log(
-  `[widgets] 已生成 ${capabilityPath}（${manifests.length} 个窗口：${manifests
+  `[widgets] 已生成 ${generated.length} 份 capability（${manifests
     .map((manifest) => manifest.window.label)
     .join(", ")}）`,
 );

@@ -1,7 +1,7 @@
 # Widget SDK
 
 > 目标：给桌面工具窗口建立稳定的**清单、能力分层、运行时门面与窗口生命周期**契约。
-> 当前状态：清单单源与运行时能力校验已落地；**首期仍只注册官方工具**，第三方窗口创建与原生调用不开放。
+> 当前状态：清单单源、运行时能力校验与逐窗口命令 ACL 已落地；**首期仍只注册官方工具**，第三方窗口创建与原生调用不开放。
 
 ## 1. 当前实现
 
@@ -13,22 +13,23 @@
 | `src/sdk/widget/runtime.ts` | 能力校验、命名空间状态、窗口 chrome、音频/媒体闸门 |
 | `src/sdk/widget/react.ts` | `useWidgetTheme` / `useWidgetFit` / `useWidgetState` |
 | `src/widgets/registry.ts` | 解析清单，供设置页与工具列表使用 |
-| `src-tauri/build.rs` | 构建期校验清单，生成 Rust 静态窗口描述 |
+| `src-tauri/build.rs` | 构建期校验清单、生成 Rust 静态窗口描述与 app 命令 ACL |
 | `src-tauri/src/window_host/spec.rs` | 生成的 `WidgetSpec` + `find` / `is_managed` |
 | `src-tauri/src/window_host/mod.rs` | 创建、复用、隐藏、兜底显示、注入上下文 |
-| `scripts/gen-widgets.mjs` | 校验清单并生成 Tauri capability |
+| `scripts/gen-widgets.mjs` | 校验清单 / 命令表，生成逐窗口 capability |
 
 ## 2. 单一事实源
 
 ```text
 src/widgets/manifests/<id>.json
    ├─ src-tauri/build.rs ──────► $OUT_DIR/widget_specs.rs ──► WidgetSpec / ALL_WIDGETS
-   ├─ scripts/gen-widgets.mjs ─► src-tauri/capabilities/desktop.json
+   │                       └───► app ACL manifest（allow-* 权限）
+   ├─ scripts/gen-widgets.mjs ─► src-tauri/capabilities/window-<label>.json
    └─ src/widgets/registry.ts ─► 设置页 / 工具列表
 ```
 
 - 新增或修改工具只改 JSON；Rust 描述在 `cargo build` 时重新生成，校验失败会中断编译。
-- `pnpm widgets:check` 校验清单并检查 capability 是否过期，已接入 CI 与 `pnpm build` 前置。
+- `pnpm widgets:check` 校验清单、命令表与逐窗口 capability，已接入 CI 与 `pnpm build` 前置。
 - 不再维护第二份手写的 `spec.rs` 或第二份窗口授权表。
 
 `WidgetManifest`：
@@ -106,10 +107,11 @@ type WidgetManifest = {
 | `widget.audio` | ✅ | 创建音频上下文前检查 | 未授权时静音运行 |
 | `widget.media` | ✅ | 导入本地媒体前检查 | 在线曲目仍受 CSP / 网络策略约束 |
 | `widget.chrome` | ✅ 官方 | 隐藏 / 最小化 / 拖拽 / 缩放 / 调宽 | 调宽夹在 `[minWidth, width]` |
-| `widget.window` | ⚠️ 仅设置外壳 | 宿主代建窗口 | 第三方不可申请 |
+| `widget.window` | ⚠️ 仅设置外壳 | 宿主代建窗口；只有 settings 的 capability 含 `widget_*` 命令 | 第三方不可申请 |
 | `widget.native` | ❌ | 无入口 | Win32 / 原生宿主 |
 
 **声明不等于授权**：能力写在清单里，Rust 建窗时把它注入上下文；前端每个入口都先查上下文。
+Tauri 侧还有第二道门：自定义命令由 app ACL manifest 生成 `allow-*` 权限，逐窗口 capability 决定谁能调用（见 4.5）。
 能力校验目前防的是内置工具的误用，不是不可信代码的沙箱——第三方开放前必须补第 8 节的边界。
 
 ## 4. 运行时契约
@@ -151,6 +153,16 @@ window.__LULL_WIDGET__ = {
 - 透明浮窗固定尺寸；只有声明 `widget.chrome` 的工具才能调宽或换边。
 - 调宽请求按清单夹取，工具无法把自己撑出设计画布。
 
+### 4.5 命令 ACL（逐窗口 capability）
+
+- `build.rs` 的 `AppManifest::new().commands(APP_COMMANDS)` 为全部自定义命令生成 `allow-<command>` 权限。
+- `lib.rs` 的 `generate_handler!` 与 `APP_COMMANDS` 必须一致；`pnpm widgets:check` 在 CI 里比对两份清单。
+- 每个窗口一份 `src-tauri/capabilities/window-<label>.json`：
+  - `settings`：全部自定义命令（宿主控制面）；
+  - `player` / `pomodoro` / `noise`：只有 `allow-window-set-frame`，不能开关其他窗口或改壁纸；
+  - 壁纸窗口没有 capability，任何 Tauri 命令都会被拒绝。
+- `tauri-build` 在编译期校验 capability 引用的权限存在，命令改名漏同步会直接编译失败。
+
 ## 5. 窗口生命周期
 
 1. 创建时 `visible(false)`、无边框、`shadow(false)`；前端 `useWidgetFit` 贴合内容后再显示。
@@ -175,12 +187,13 @@ window.__LULL_WIDGET__ = {
 1. 新增 `src/widgets/manifests/<id>.json`（role = tool，写清能力与窗口尺寸）。
 2. 新增 `src/app/(widgets)/<route>/page.tsx`，只负责挂载组件。
 3. 组件只通过 `@/sdk/widget` 与 `@/sdk/widget/react` 使用宿主能力。
-4. 运行 `pnpm widgets:gen` 生成 capability；`cargo build` 会重新生成 Rust 描述。
+4. 运行 `pnpm widgets:gen` 生成逐窗口 capability；`cargo build` 会重新生成 Rust 描述。
 5. 补测试：清单校验、能力使用、窗口尺寸与透明策略。
 6. 跑 `pnpm test`、`pnpm lint`、`pnpm widgets:check`、`cargo test`。
 7. 真机检查：打开 / 关闭 / 托盘唤醒 / 锁定 / 任务栏偏好 / 多屏。
 
-> 不要改 `spec.rs` 或 `capabilities/desktop.json`：前者由构建脚本生成，后者由 `pnpm widgets:gen` 生成。
+> 不要改 `spec.rs` 或 `capabilities/window-*.json`：前者由构建脚本生成，后者由 `pnpm widgets:gen` 生成。
+> 新增或改名自定义命令时，`lib.rs` 与 `build.rs` 的 `APP_COMMANDS` 必须同时更新，`pnpm widgets:check` 会拦截漏项。
 
 ## 7. 状态与存储
 
@@ -192,12 +205,14 @@ window.__LULL_WIDGET__ = {
 
 1. **包格式与加载**：`ContentManifest` 尚无 `widget` 类型；需要 `content/widgets/<id>/index.html` + 清单 + 校验器。
 2. **隔离宿主**：第三方 UI 必须跑在独立源的 iframe（`sandbox="allow-scripts"`，不带 `allow-same-origin`）里，通过 postMessage 桥访问受限 API。
-3. **ACL 收口**：当前自定义命令未纳入 Tauri ACL，本地页面仍可直接 `invoke`；需要 `tauri_build::AppManifest` 把命令纳入权限，并按窗口 label 分发 capability。
-4. **CSP**：`tauri.conf.json` 的 `csp` 仍为 `null`，第三方 JS 进场前必须配置。
-5. **权限模型**：清单 `requested` 与宿主 `granted` 分离，设置页展示授权与撤销，撤销时清理状态。
-6. **宿主代建窗口**：第三方只声明尺寸策略，窗口与 caption 由宿主创建和夹取。
+3. **CSP**：`tauri.conf.json` 的 `csp` 仍为 `null`，第三方 JS 进场前必须配置。
+4. **权限模型**：清单 `requested` 与宿主 `granted` 分离，设置页展示授权与撤销，撤销时清理状态。
+5. **宿主代建窗口**：第三方只声明尺寸策略，窗口与 caption 由宿主创建和夹取；capability 按 `widget:<id>` label 单独生成。
+6. **状态 KV**：把第三方状态从同源 `localStorage` 移到 Rust 侧 per-widget 文件，带配额、版本迁移与原子写。
 7. **故障隔离**：ErrorBoundary、per-widget 日志、崩溃后重载。
 8. **签名与安装**：安装器、更新、来源校验。
+
+> 自定义命令的 ACL 收口已在 4.5 完成；剩余项是第三方代码真正进场前的门槛。
 
 ## 9. 非目标
 

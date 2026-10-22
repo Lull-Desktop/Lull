@@ -1,12 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "desktop",
-  "description": "Lull desktop windows: settings, player, pomodoro, noise. Generated from src/widgets/manifests by scripts/gen-widgets.mjs — do not edit by hand.",
+  "identifier": "window-pomodoro",
+  "description": "Lull pomodoro window (generated from src/widgets/manifests/pomodoro.json).",
   "windows": [
-    "settings",
-    "player",
-    "pomodoro",
-    "noise"
+    "pomodoro"
   ],
   "permissions": [
     "core:default",
@@ -19,6 +16,7 @@
     "core:window:allow-set-resizable",
     "core:window:allow-set-size",
     "core:window:allow-outer-position",
-    "core:window:allow-set-position"
+    "core:window:allow-set-position",
+    "allow-window-set-frame"
   ]
 }

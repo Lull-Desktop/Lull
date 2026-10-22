@@ -23,6 +23,27 @@ const CAPABILITIES: &[&str] = &[
 
 const ROLES: &[&str] = &["shell", "tool"];
 
+/// `lib.rs` 的 `generate_handler!` 必须与这里完全一致：
+/// 生成 `allow-*` / `deny-*` 权限，供逐窗口 capability 引用。
+const APP_COMMANDS: &[&str] = &[
+  "window_set_frame",
+  "widget_open",
+  "widget_states",
+  "widget_close",
+  "window_prefs_get",
+  "window_prefs_set",
+  "wallpaper_status",
+  "wallpaper_detach",
+  "wallpaper_set_visible",
+  "wallpaper_get_visible",
+  "wallpaper_monitors",
+  "wallpaper_set_monitor_visible",
+  "wallpaper_display_get",
+  "wallpaper_set_display",
+  "wallpaper_set_scene_params",
+  "wallpaper_set_monitor_scene",
+];
+
 fn fail(message: &str) -> ! {
   eprintln!("[build] {message}");
   std::process::exit(1);
@@ -257,7 +278,9 @@ fn main() {
     fail(&format!("写入 {} 失败: {error}", out_path.display()));
   }
 
-  let attrs = tauri_build::Attributes::new().windows_attributes(
+  let attrs = tauri_build::Attributes::new()
+    .app_manifest(tauri_build::AppManifest::new().commands(APP_COMMANDS))
+    .windows_attributes(
     tauri_build::WindowsAttributes::new().app_manifest(
       r#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <dependency>

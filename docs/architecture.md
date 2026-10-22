@@ -35,7 +35,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 
 - 单进程、多窗口；所有窗口关闭都只隐藏，托盘「退出」才结束进程。
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
-- 工具窗口 label 固定为 `settings` / `player` / `pomodoro` / `noise`。
+- 工具窗口 label 固定为 `settings` / `player` / `pomodoro` / `noise`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。
 - 壁纸窗口**不在** `capabilities/default.json` 的授权列表里：场景页面无法调用 Tauri IPC。
 
 ### 2.2 壁纸画面协议
@@ -140,6 +140,8 @@ lib.rs
 
 所有会写配置的命令遵循同一事务模型：**先改内存 → 写盘 → 失败回滚内存 → 返回错误**。写盘使用临时文件 + 原子替换。
 
+自定义命令同时受 Tauri ACL 约束：`build.rs` 的 app manifest 为每个命令生成 `allow-*` 权限，逐窗口 capability 决定谁能调用（见 4.4）。
+
 ### 4.2 事件
 
 | 事件 | 发送方 | 消费方 |
@@ -165,6 +167,15 @@ lib.rs
 
 能力清单直接来自 `widget_specs.rs`（manifest 生成），前端 SDK 的每个入口都先校验；
 浏览器预览没有注入时按开发环境放行，Tauri 里缺上下文则失败关闭。见 [Widget SDK](widget-sdk.md)。
+
+### 4.4 命令 ACL 与逐窗口 capability
+
+- `build.rs` 用 `tauri_build::AppManifest::new().commands(APP_COMMANDS)` 为全部自定义命令生成 `allow-<command>` 权限；`lib.rs` 的 `generate_handler!` 与 `APP_COMMANDS` 必须完全一致（`pnpm widgets:check` 会比对）。
+- `scripts/gen-widgets.mjs` 为每个窗口生成一份 `src-tauri/capabilities/window-<label>.json`：
+  - `settings`：`core` 窗口权限 + 全部自定义命令（宿主控制面）；
+  - `player` / `pomodoro` / `noise`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
+  - 壁纸窗口：**没有 capability**，因此无法调用任何 Tauri 命令。
+- 构建期 `tauri-build` 会校验 capability 引用的权限是否存在；权限名或命令改名漏同步会直接编译失败。
 
 ## 5. 配置模型
 
@@ -212,11 +223,11 @@ lib.rs
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 22 个测试文件（128 项）
+pnpm test              前端 23 个测试文件（131 项）
 cargo test             Rust 44 项（display 配置 / 拓扑 / 协议 / 场景参数 / Widget 清单与上下文）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + entry 存在性
-pnpm widgets:check     Widget 清单校验 + capability 生成文件同步
+pnpm widgets:check     Widget 清单 + 命令表 + 逐窗口 capability 同步
 pnpm build:next        Next 静态导出（离线字体）
 pnpm test-mode         Windows 真机：层序 + 命中 + 动画差分 + 桌面还原
 pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
@@ -229,7 +240,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | 阶段 | 目标 | 当前状态 | 退出条件 |
 | --- | --- | --- | --- |
 | **A · Core** | 模块边界、配置/协议版本、命名清理、测试基线 | 已完成第一轮 | 目录与命名重构后功能/测试/安装包不退化 |
-| **B · Extensions** | Scene SDK、Widget SDK、内置工具验证 | Scene SDK 已落地；Widget 完成清单单源 + 运行时能力门面，第三方仍未开放 | 外部示例场景无需改核心即可运行 |
+| **B · Extensions** | Scene SDK、Widget SDK、内置工具验证 | Scene SDK 已落地；Widget 完成清单单源、运行时能力门面与命令 ACL 收口，第三方仍未开放 | 外部示例场景无需改核心即可运行 |
 | **C · Community** | 内容包格式、示例、校验、贡献流程 | 格式 + 示例 + 校验已落地 | 外部开发者可独立构建并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
 
@@ -241,4 +252,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 4. **外部内容不等于安全插件系统**：首版 iframe 使用空 `sandbox`，只运行静态 HTML/CSS，不执行 JavaScript；若未来开放宿主 API，必须另做权限、来源校验、IPC 白名单与故障隔离。
 5. **安装包与素材授权**：公开分发前需完成代码签名、字体/图标/声音素材授权复核。
 6. **内部代号**：`ether-bubbles`、`liquid-player`、`liquid-pomodoro` 仍是组件目录名，属于实现代号，不构成对外产品名。
-7. **自定义命令尚未纳入 ACL**：Tauri 2 对本地 webview 的自定义命令默认不做 capability 校验。壁纸窗口不加载 JS，所以当前没有可利用路径；第三方 JS 进场前必须用 app ACL manifest 收口，见 [Widget SDK](widget-sdk.md) 第 8 节。
+7. **第三方隔离仍未完成**：自定义命令已通过 app ACL manifest 按窗口授权（壁纸窗口没有 capability），但第三方 JS 进场前还需要 CSP、独立源 iframe、宿主代建窗口与 Rust 侧状态 KV，见 [Widget SDK](widget-sdk.md) 第 8 节。
