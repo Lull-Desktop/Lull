@@ -95,7 +95,7 @@ app/(widgets) ──► components/{liquid-player,liquid-pomodoro,ether-bubbles}
 app/(widgets)/embed ──► components/widget-plugin-shell ──► iframe（sandbox）
                                  └──► postMessage 桥 ──► widget_state_*（Rust）
 packages/widget-sdk ──► 插件侧客户端 + React/Vue 适配
-examples/widgets/* ──► 静态插件包样例（esbuild 构建）
+examples/widgets/* ──► 静态插件包样例（TypeScript 源码，esbuild 构建）
 ```
 
 ### 3.2 Rust 模块图
@@ -282,12 +282,14 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 26 个测试文件（153 项）
+pnpm test              前端 29 个测试文件（172 项，含 packages/widget-sdk 契约测试）
 cargo test             Rust 63 项（display 配置 / 拓扑 / 协议 / 场景参数 / Widget 清单、上下文与插件包）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要 / content:sign 重新签名
 pnpm widgets:check     Widget 清单 + 命令表 + 逐窗口 capability 同步
+pnpm widgets:sdk       Widget 插件侧 SDK 构建（TS → dist + .d.ts）
+pnpm widgets:sdk:check SDK 类型检查
 pnpm build:next        Next 静态导出（离线字体）
 pnpm test-mode         Windows 真机：层序 + 命中 + 动画差分 + 桌面还原
 pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
@@ -300,7 +302,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | 阶段 | 目标 | 当前状态 | 退出条件 |
 | --- | --- | --- | --- |
 | **A · Core** | 模块边界、配置/协议版本、命名清理、测试基线 | 已完成第一轮 | 目录与命名重构后功能/测试/安装包不退化 |
-| **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；仍缺安装器与签名 | 外部示例场景无需改核心即可运行 |
+| **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件侧 SDK 已 TypeScript 化（`dist` + `.d.ts` + 契约测试）；仍缺 npm 发布、安装器与签名 | 外部示例场景无需改核心即可运行 |
 | **C · Community** | 内容包格式、示例、包摘要、目录签名、贡献流程 | 格式 + 示例 + 摘要 + 签名已落地 | 外部开发者可独立构建并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
 

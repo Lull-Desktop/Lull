@@ -1,17 +1,10 @@
 /**
  * Vue 3 版番茄钟示例：与 vanilla / React 版功能一致。
  * 使用 render 函数而不是运行时模板，避免 Vue 运行时编译器依赖 eval（CSP 禁止）。
+ * 全程 TypeScript：Prefs 形状、ref 泛型与 SDK 返回值都有类型。
  */
-import {
-  computed,
-  createApp,
-  h,
-  onMounted,
-  onUnmounted,
-  ref,
-  watch,
-} from "vue";
-import { connectLullWidget } from "../../../../packages/widget-sdk/src/index.js";
+
+import { connectLullWidget, type WidgetTheme } from "@lull/widget-sdk";
 import {
   createLullPlugin,
   useLull,
@@ -19,54 +12,87 @@ import {
   useLullTheme,
   useLullViewport,
   useLullVisibility,
-} from "../../../../packages/widget-sdk/src/vue.js";
+} from "@lull/widget-sdk/vue";
+import {
+  computed,
+  createApp,
+  defineComponent,
+  h,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from "vue";
 
-const DEFAULT_PREFS = {
+type Phase = "focus" | "break";
+
+interface Prefs {
+  focusMinutes: number;
+  breakMinutes: number;
+  sound: boolean;
+  completed: number;
+}
+
+const DEFAULT_PREFS: Prefs = {
   focusMinutes: 25,
   breakMinutes: 5,
   sound: true,
   completed: 0,
 };
-const FOCUS_OPTIONS = [15, 25, 50];
-const BREAK_OPTIONS = [5, 10, 15];
+const FOCUS_OPTIONS: readonly number[] = [15, 25, 50];
+const BREAK_OPTIONS: readonly number[] = [5, 10, 15];
 const RING_CIRCUMFERENCE = 2 * Math.PI * 104;
 
-function normalizePrefs(value) {
-  const next = { ...DEFAULT_PREFS };
-  if (!value || typeof value !== "object") return next;
-  if (FOCUS_OPTIONS.includes(value.focusMinutes)) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function normalizePrefs(value: unknown): Prefs {
+  const next: Prefs = { ...DEFAULT_PREFS };
+  if (!isRecord(value)) return next;
+  if (
+    typeof value.focusMinutes === "number" &&
+    FOCUS_OPTIONS.includes(value.focusMinutes)
+  ) {
     next.focusMinutes = value.focusMinutes;
   }
-  if (BREAK_OPTIONS.includes(value.breakMinutes)) {
+  if (
+    typeof value.breakMinutes === "number" &&
+    BREAK_OPTIONS.includes(value.breakMinutes)
+  ) {
     next.breakMinutes = value.breakMinutes;
   }
   if (typeof value.sound === "boolean") next.sound = value.sound;
-  if (Number.isFinite(value.completed) && value.completed >= 0) {
+  if (
+    typeof value.completed === "number" &&
+    Number.isFinite(value.completed) &&
+    value.completed >= 0
+  ) {
     next.completed = Math.floor(value.completed);
   }
   return next;
 }
 
-function durationFor(phase, prefs) {
+function durationFor(phase: Phase, prefs: Prefs): number {
   return (phase === "focus" ? prefs.focusMinutes : prefs.breakMinutes) * 60;
 }
 
-function formatClock(totalSeconds) {
+function formatClock(totalSeconds: number): string {
   const safe = Math.max(0, Math.floor(totalSeconds));
   return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(
     safe % 60,
   ).padStart(2, "0")}`;
 }
 
-function hexToRgba(hex, alpha) {
-  const match = /^#([0-9a-f]{6})$/i.exec(hex || "");
-  if (!match) return `rgba(143, 228, 255, ${alpha})`;
+function hexToRgba(hex: string | undefined, alpha: number): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex ?? "");
+  if (!match?.[1]) return `rgba(143, 228, 255, ${alpha})`;
   const value = Number.parseInt(match[1], 16);
   return `rgba(${(value >> 16) & 0xff}, ${(value >> 8) & 0xff}, ${value & 0xff}, ${alpha})`;
 }
 
-function applyTheme(theme) {
-  if (!theme || !theme.colors) return;
+function applyTheme(theme: WidgetTheme | null): void {
+  if (!theme) return;
   const colors = theme.colors;
   const root = document.documentElement;
   root.dataset.theme = theme.id || "custom";
@@ -75,23 +101,23 @@ function applyTheme(theme) {
   root.style.setProperty("--glow", hexToRgba(colors.a, 0.35));
 }
 
-const Timer = {
+const Timer = defineComponent({
   name: "Timer",
   setup() {
     const lull = useLull();
     const theme = useLullTheme();
     const viewport = useLullViewport();
     const visible = useLullVisibility();
-    const [rawPrefs, savePrefs] = useLullState("prefs", DEFAULT_PREFS);
+    const [rawPrefs, savePrefs] = useLullState<Prefs>("prefs", DEFAULT_PREFS);
     const prefs = computed(() => normalizePrefs(rawPrefs.value));
-    const phase = ref("focus");
+    const phase = ref<Phase>("focus");
     const running = ref(false);
     const endAt = ref(0);
     const remaining = ref(DEFAULT_PREFS.focusMinutes * 60);
     const transparent = ref(Boolean(lull.transparent));
-    const audioGranted = ref(null);
-    const audioContext = ref(null);
-    let timer = null;
+    const audioGranted = ref<boolean | null>(null);
+    const audioContext = ref<AudioContext | null>(null);
+    let timer: number | null = null;
 
     const duration = computed(() => durationFor(phase.value, prefs.value));
     const ratio = computed(() =>
@@ -116,7 +142,7 @@ const Timer = {
       if (!running.value) remaining.value = duration.value;
     });
 
-    function playChime() {
+    function playChime(): void {
       if (!audioGranted.value) return;
       try {
         audioContext.value ??= new AudioContext();
@@ -142,7 +168,7 @@ const Timer = {
       }
     }
 
-    function finish(count = true) {
+    function finish(count = true): void {
       running.value = false;
       endAt.value = 0;
       if (phase.value === "focus") {
@@ -161,22 +187,21 @@ const Timer = {
       if (prefs.value.sound) playChime();
     }
 
-    async function ensureAudio() {
+    async function ensureAudio(): Promise<boolean> {
       if (audioGranted.value !== null) return audioGranted.value;
       audioGranted.value = await lull.requestAudio().catch(() => false);
       return audioGranted.value;
     }
 
-    async function start() {
+    async function start(): Promise<void> {
       await ensureAudio();
-      const seconds =
-        remaining.value > 0 ? remaining.value : duration.value;
+      const seconds = remaining.value > 0 ? remaining.value : duration.value;
       remaining.value = seconds;
       endAt.value = Date.now() + seconds * 1000;
       running.value = true;
     }
 
-    function pause() {
+    function pause(): void {
       remaining.value = Math.max(
         0,
         Math.ceil((endAt.value - Date.now()) / 1000),
@@ -185,37 +210,36 @@ const Timer = {
       endAt.value = 0;
     }
 
-    function reset() {
+    function reset(): void {
       running.value = false;
       endAt.value = 0;
       remaining.value = duration.value;
     }
 
-    function cycleFocus() {
+    function cycleFocus(): void {
       const index = FOCUS_OPTIONS.indexOf(prefs.value.focusMinutes);
       const next = FOCUS_OPTIONS[(index + 1) % FOCUS_OPTIONS.length];
       savePrefs({ ...prefs.value, focusMinutes: next });
-      if (!running.value && phase.value === "focus") remaining.value = next * 60;
+      if (!running.value && phase.value === "focus")
+        remaining.value = next * 60;
     }
 
-    function cycleBreak() {
+    function cycleBreak(): void {
       const index = BREAK_OPTIONS.indexOf(prefs.value.breakMinutes);
       const next = BREAK_OPTIONS[(index + 1) % BREAK_OPTIONS.length];
       savePrefs({ ...prefs.value, breakMinutes: next });
-      if (!running.value && phase.value === "break") remaining.value = next * 60;
+      if (!running.value && phase.value === "break")
+        remaining.value = next * 60;
     }
 
-    function toggleSound() {
+    function toggleSound(): void {
       savePrefs({ ...prefs.value, sound: !prefs.value.sound });
     }
 
     onMounted(() => {
       timer = window.setInterval(() => {
         if (!running.value) return;
-        const left = Math.max(
-          0,
-          Math.ceil((endAt.value - Date.now()) / 1000),
-        );
+        const left = Math.max(0, Math.ceil((endAt.value - Date.now()) / 1000));
         remaining.value = left;
         if (left <= 0) finish(true);
       }, 250);
@@ -224,18 +248,17 @@ const Timer = {
       if (timer !== null) window.clearInterval(timer);
     });
 
-    const startDrag = (event) => {
+    const startDrag = (event: PointerEvent): void => {
       if (event.button !== 0) return;
-      if (event.target.closest("button")) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("button")) return;
       event.preventDefault();
       void lull.startDrag().catch(() => {});
     };
 
-    const toggleTransparent = () => {
+    const toggleTransparent = (): void => {
       transparent.value = !transparent.value;
-      void lull
-        .setTransparent(transparent.value, "#0b1014")
-        .catch(() => {});
+      void lull.setTransparent(transparent.value, "#0b1014").catch(() => {});
     };
 
     return () =>
@@ -286,35 +309,26 @@ const Timer = {
             ]),
           ]),
           h("div", { class: "ring" }, [
-            h(
-              "svg",
-              { viewBox: "0 0 240 240", "aria-hidden": "true" },
-              [
-                h("circle", { class: "track", cx: 120, cy: 120, r: 104 }),
-                h("circle", {
-                  class: "progress",
-                  cx: 120,
-                  cy: 120,
-                  r: 104,
-                  style: {
-                    strokeDasharray: RING_CIRCUMFERENCE,
-                    strokeDashoffset:
-                      RING_CIRCUMFERENCE * (1 - ratio.value),
-                  },
-                }),
-              ],
-            ),
+            h("svg", { viewBox: "0 0 240 240", "aria-hidden": "true" }, [
+              h("circle", { class: "track", cx: 120, cy: 120, r: 104 }),
+              h("circle", {
+                class: "progress",
+                cx: 120,
+                cy: 120,
+                r: 104,
+                style: {
+                  strokeDasharray: RING_CIRCUMFERENCE,
+                  strokeDashoffset: RING_CIRCUMFERENCE * (1 - ratio.value),
+                },
+              }),
+            ]),
             h("div", { class: "face" }, [
               h(
                 "span",
                 { class: "phase" },
                 phase.value === "focus" ? "专注" : "休息",
               ),
-              h(
-                "span",
-                { class: "clock", "aria-live": "polite" },
-                clock.value,
-              ),
+              h("span", { class: "clock", "aria-live": "polite" }, clock.value),
               h("span", { class: "round" }, roundLabel.value),
             ]),
           ]),
@@ -381,9 +395,9 @@ const Timer = {
         ]),
       ]);
   },
-};
+});
 
-const container = document.querySelector("#root");
+const container = document.querySelector<HTMLElement>("#root");
 if (!container) {
   throw new Error("缺少 #root");
 }
@@ -394,6 +408,6 @@ connectLullWidget({ timeoutMs: 8000 })
     app.use(createLullPlugin(client));
     app.mount(container);
   })
-  .catch((error) => {
+  .catch((error: unknown) => {
     container.textContent = `无法连接 Lull 宿主：${String(error)}`;
   });

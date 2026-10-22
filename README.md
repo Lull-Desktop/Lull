@@ -93,6 +93,8 @@ src/
   widgets/registry.ts      # 内置工具窗口元数据（设置页唯一来源）
   components/              # 窗口外壳、共享 UI、播放器/番茄钟/白噪音实现
   styles/                  # Tailwind 主题与壁纸动效
+packages/widget-sdk/       # 第三方插件侧 SDK：TypeScript 源码 → dist + .d.ts
+examples/widgets/          # 原生 / React / Vue 三个 TypeScript 插件包示例
 src-tauri/
   src/
     lib.rs                 # 只做插件/命令/生命周期接线
@@ -119,7 +121,7 @@ scripts/                   # 构建、内容校验、预览、验收编排
 | 层 | 当前落地 | 说明 |
 | --- | --- | --- |
 | **A · Core** | `src-tauri/src/{wallpaper,window_host,config}` + `src/core` | 桌面宿主、显示器拓扑、窗口生命周期、配置、IPC、原生桥 |
-| **B · Extensions** | `src/sdk/{scene,widget,content}` + `src/scenes` + `src/widgets` | 场景清单/目录协议、工具窗口能力分层；首版只开放静态场景包 |
+| **B · Extensions** | `src/sdk/{scene,widget,content}` + `src/scenes` + `src/widgets` + `packages/widget-sdk` | 场景清单/目录协议、工具窗口能力分层；第三方插件侧 SDK 为 TypeScript（`dist` + `.d.ts`）；首版只开放静态场景包 |
 | **C · Community** | `content/schema` + `public/content` + `scripts/{hash,sign,validate}-content.mjs` | 内容包格式、包摘要、目录签名、校验工具；仍未提供在线市场与安装器 |
 | **D · Services** | 设计文档 | 内容索引、同步、发布服务；不影响本地核心运行 |
 
@@ -166,6 +168,9 @@ pnpm content:check
 | `pnpm content:hash` | 重算并写回内容包的 `integrity` 摘要 |
 | `pnpm content:sign` | 用本机私钥给 `catalog.json` 原始字节签名 |
 | `pnpm content:keygen` | 生成内容签名密钥（私钥在 `.keys/`，不进仓库） |
+| `pnpm widgets:sdk` | 构建第三方插件 SDK（TypeScript → `dist` + `.d.ts`） |
+| `pnpm widgets:sdk:check` | 只做 SDK 类型检查（CI 用） |
+| `pnpm widgets:samples:build` | 构建 `examples/widgets/*` 三个示例插件包 |
 | `pnpm build:next` | 仅导出 Next 静态前端 |
 | `pnpm test-mode` | Windows 真机壁纸验收（构建 DLL、层序/命中/动画） |
 | `pnpm build` | 完整 Tauri 安装包构建 |
@@ -182,6 +187,7 @@ pnpm content:check
 - [架构与模块边界](docs/architecture.md)
 - [Scene SDK](docs/scene-sdk.md)
 - [Widget SDK](docs/widget-sdk.md)
+- [Widget 插件 SDK（`@lull/widget-sdk`）](packages/widget-sdk/README.md)
 - [内容包格式](docs/content-format.md)
 - [原生桌面宿主](docs/native-host.md)
 - [许可说明](docs/licensing.md)

@@ -50,3 +50,6 @@ __pycache__/
 
 # 内容目录签名私钥（pnpm content:keygen 生成；只在 CI secret 或本机保存）
 /.keys/
+
+# sdk build output
+/packages/*/dist/

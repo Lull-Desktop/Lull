@@ -9,12 +9,16 @@
     "ignoreUnknown": false,
     "includes": [
       "src/**",
+      "packages/**",
+      "examples/**/*.ts",
+      "examples/**/*.tsx",
       "./*.json",
       "./*.js",
       "./*.ts",
       "./*.mts",
       "./*.mjs",
       "!!dist",
+      "!!packages/*/dist",
       "!!src-tauri",
       "!!node_modules"
     ]
@@ -67,6 +71,33 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["examples/**/*.ts", "examples/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/widget-sdk/src/vue.ts",
+        "packages/widget-sdk/src/vue.test.ts",
+        "examples/widgets/pomodoro-vue/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useHookAtTopLevel": "off",
+            "useExhaustiveDependencies": "off"
+          }
+        }
+      }
+    }
+  ],
   "css": {
     "parser": {
       "tailwindDirectives": true

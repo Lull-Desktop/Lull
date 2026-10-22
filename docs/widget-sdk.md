@@ -19,7 +19,7 @@
 | `src-tauri/src/window_host/spec.rs` | 生成的 `WidgetSpec` + `find` / `is_managed` |
 | `src-tauri/src/window_host/mod.rs` | 创建、复用、隐藏、兜底显示、注入上下文 |
 | `src-tauri/tauri.conf.json` | 生产 CSP 与 dev CSP（`csp` / `devCsp`） |
-| `packages/widget-sdk` | 第三方插件侧客户端 + React/Vue 适配（见 [Widget 插件包](widget-package.md)） |
+| `packages/widget-sdk` | 第三方插件侧 SDK：TypeScript 源码 + `tsc` 产物（`dist` + `.d.ts`），见 4.7 与 [包 README](../packages/widget-sdk/README.md) |
 | `scripts/gen-widgets.mjs` | 校验清单 / 命令表，生成逐窗口 capability |
 
 ## 2. 单一事实源
@@ -184,6 +184,32 @@ base-uri 'self'; form-action 'none'
 - `devCsp` 额外允许 Next 开发服务器的 `http://localhost:3000`、`ws://localhost:3000` 与 `'unsafe-eval'`。
 - `media-src blob:` 覆盖本地音频的 object URL；`frame-src 'self'` 覆盖内容场景的 iframe。
 
+### 4.7 插件侧 SDK 包（`@lull/widget-sdk`）
+
+内置工具用 `@/sdk/widget`；**第三方插件只能用 `packages/widget-sdk`**（编译进插件产物，运行在 iframe 里）。
+这一层过去是手写 JS、没有类型声明，现已按“可交付 SDK”重做：
+
+| 项 | 当前状态 |
+| --- | --- |
+| 源码 | TypeScript（`src/protocol.ts` / `client.ts` / `transport.ts` / `react.ts` / `vue.ts` / `testing.ts`） |
+| 产物 | `pnpm widgets:sdk` → `dist/*.js` + `dist/*.d.ts` + sourcemap（`dist` 不进仓库） |
+| 入口 | `.` / `./react` / `./vue` / `./testing`，`exports` 带 `types`，`sideEffects: false` |
+| 类型 | `WidgetBridgeMethods` 一张表驱动 `request()` 的参数与返回值推导；`LullWidgetError.code` 为字面量联合 |
+| 契约锁定 | `client.test.ts` 断言 `WIDGET_PROTOCOL === 1` 与 request 字段集合；改线上格式必须同时改这条测试 |
+| 兼容矩阵 | SDK / 桥协议 / 宿主 API / Lull 版本的对照表写在包 README |
+| 测试 | 握手、typed request、状态回退、订阅回放、超时、销毁、React/Vue 适配；`pnpm test` 一起跑 |
+| 传输 | `WidgetBridgeTransport` 可替换；`createMemoryTransport()` 让插件作者不启动宿主就能写单测 |
+
+给创作者的最小闭环：
+
+```powershell
+pnpm widgets:sdk            # 构建包
+pnpm test                   # 跑 SDK 契约测试
+pnpm widgets:samples:build  # 三个示例按包名导入并打包
+```
+
+仍未做：SDK 发布到 npm、CLI 脚手架、插件包签名（见 8）。
+
 ## 5. 窗口生命周期
 
 1. 创建时 `visible(false)`、无边框、`shadow(false)`；前端 `useWidgetFit` 贴合内容后再显示。
@@ -217,7 +243,6 @@ v1 的开放路径是：插件清单声明尺寸/透明/chrome → 宿主创建�
 > 新增或改名自定义命令时，`lib.rs` 与 `build.rs` 的 `APP_COMMANDS` 必须同时更新，`pnpm widgets:check` 会拦截漏项。
 
 ## 7. 状态与存储
-
 - 工具状态统一走 SDK 门面，禁止直接 `localStorage`。
 - 内置工具仍落在同源 `localStorage`（与宿主同信任级）；第三方插件走 Rust 侧 per-widget 状态文件（`.state/<id>.json`），带配额与原子写。
 - 宿主配置（`display.json`、窗口偏好、主题）不对工具/插件开放写接口。
@@ -225,6 +250,7 @@ v1 的开放路径是：插件清单声明尺寸/透明/chrome → 宿主创建�
 ## 8. 第三方插件 v1 的边界
 
 插件包格式、宿主壳、iframe 桥、Rust 状态 KV、逐窗口 ACL 与授权 UI 已落地（见 [Widget 插件包](widget-package.md)）。
+插件侧 SDK 已 TypeScript 化并产出类型声明与契约测试（见 4.7）。
 仍缺：
 
 1. **安装器/签名/更新**：目前手动复制目录；没有来源校验与在线更新。

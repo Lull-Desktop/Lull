@@ -29,10 +29,13 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | `pnpm test` | Vitest 单元测试 |
 | `cargo test` | Rust 单元测试 |
 | `pnpm lint` / `pnpm fix` | Biome 检查 / 自动修复 |
+| `pnpm typecheck` | 全仓 TypeScript 检查（含 `packages/widget-sdk` 与 `examples/widgets`） |
+| `pnpm widgets:sdk` | 构建插件侧 SDK（TS → `dist` + `.d.ts`） |
+| `pnpm check` | 一次性跑 lint + typecheck + test + 内容/清单/SDK 校验 |
 | `pnpm content:check` | 内容目录校验 |
 | `pnpm widgets:check` | Widget 清单校验 + capability 同步检查 |
 | `pnpm widgets:gen` | 生成 `src-tauri/capabilities/window-*.json` |
-| `pnpm widgets:samples:build` | 构建 `examples/widgets/*` 插件样例 |
+| `pnpm widgets:samples:build` | 构建 `examples/widgets/*` 插件样例（TypeScript → 单文件 ESM） |
 | `pnpm widgets:samples:install` | 把样例安装到用户插件目录 |
 | `pnpm build:next` | 静态导出 |
 | `pnpm test-mode` | Windows 真机壁纸验收（原生改动必须跑） |

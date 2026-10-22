@@ -11,11 +11,37 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const sdkRoot = join(root, "packages", "widget-sdk");
+
+/**
+ * 把 `@lull/widget-sdk` 及其子路径解析到包产物（dist），未构建时回落到 TS 源码。
+ * 示例统一按包名导入，保证示例写法与第三方真实消费方式一致。
+ */
+const resolveWidgetSdk = {
+  name: "resolve-widget-sdk",
+  setup(pluginBuild) {
+    pluginBuild.onResolve({ filter: /^@lull\/widget-sdk(\/.*)?$/ }, (args) => {
+      const sub = args.path
+        .slice("@lull/widget-sdk".length)
+        .replace(/^\//, "");
+      const name = sub === "" ? "index" : sub;
+      const dist = join(sdkRoot, "dist", `${name}.js`);
+      if (existsSync(dist)) return { path: dist };
+      const src = join(sdkRoot, "src", `${name}.ts`);
+      if (existsSync(src)) return { path: src };
+      return {
+        errors: [
+          { text: `找不到 @lull/widget-sdk/${name}：先执行 pnpm widgets:sdk` },
+        ],
+      };
+    });
+  },
+};
 
 const SAMPLES = [
-  { dir: "pomodoro-js", entry: "src/main.js", jsx: false },
-  { dir: "pomodoro-react", entry: "src/main.jsx", jsx: true },
-  { dir: "pomodoro-vue", entry: "src/main.js", jsx: false },
+  { dir: "pomodoro-js", entry: "src/main.ts", jsx: false },
+  { dir: "pomodoro-react", entry: "src/main.tsx", jsx: true },
+  { dir: "pomodoro-vue", entry: "src/main.ts", jsx: false },
 ];
 
 async function buildSample(sample) {
@@ -42,6 +68,7 @@ async function buildSample(sample) {
     minify: true,
     legalComments: "none",
     logLevel: "silent",
+    plugins: [resolveWidgetSdk],
     define: { "process.env.NODE_ENV": '"production"' },
   });
 

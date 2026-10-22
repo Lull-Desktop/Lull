@@ -1,9 +1,9 @@
 /**
  * React 版番茄钟示例：与 vanilla 版功能一致，证明插件不依赖具体框架。
+ * 全程 TypeScript：状态形状、事件与 SDK 返回值都有类型。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createRoot } from "react-dom/client";
-import { connectLullWidget } from "../../../../packages/widget-sdk/src/index.js";
+
+import { connectLullWidget, type WidgetTheme } from "@lull/widget-sdk";
 import {
   LullProvider,
   useLull,
@@ -11,54 +11,85 @@ import {
   useLullTheme,
   useLullViewport,
   useLullVisibility,
-} from "../../../../packages/widget-sdk/src/react.js";
+} from "@lull/widget-sdk/react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { createRoot } from "react-dom/client";
 
-const DEFAULT_PREFS = {
+type Phase = "focus" | "break";
+
+interface Prefs {
+  focusMinutes: number;
+  breakMinutes: number;
+  sound: boolean;
+  completed: number;
+}
+
+const DEFAULT_PREFS: Prefs = {
   focusMinutes: 25,
   breakMinutes: 5,
   sound: true,
   completed: 0,
 };
-const FOCUS_OPTIONS = [15, 25, 50];
-const BREAK_OPTIONS = [5, 10, 15];
+const FOCUS_OPTIONS: readonly number[] = [15, 25, 50];
+const BREAK_OPTIONS: readonly number[] = [5, 10, 15];
 const RING_CIRCUMFERENCE = 2 * Math.PI * 104;
 
-function normalizePrefs(value) {
-  const next = { ...DEFAULT_PREFS };
-  if (!value || typeof value !== "object") return next;
-  if (FOCUS_OPTIONS.includes(value.focusMinutes)) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function normalizePrefs(value: unknown): Prefs {
+  const next: Prefs = { ...DEFAULT_PREFS };
+  if (!isRecord(value)) return next;
+  if (
+    typeof value.focusMinutes === "number" &&
+    FOCUS_OPTIONS.includes(value.focusMinutes)
+  ) {
     next.focusMinutes = value.focusMinutes;
   }
-  if (BREAK_OPTIONS.includes(value.breakMinutes)) {
+  if (
+    typeof value.breakMinutes === "number" &&
+    BREAK_OPTIONS.includes(value.breakMinutes)
+  ) {
     next.breakMinutes = value.breakMinutes;
   }
   if (typeof value.sound === "boolean") next.sound = value.sound;
-  if (Number.isFinite(value.completed) && value.completed >= 0) {
+  if (
+    typeof value.completed === "number" &&
+    Number.isFinite(value.completed) &&
+    value.completed >= 0
+  ) {
     next.completed = Math.floor(value.completed);
   }
   return next;
 }
 
-function durationFor(phase, prefs) {
+function durationFor(phase: Phase, prefs: Prefs): number {
   return (phase === "focus" ? prefs.focusMinutes : prefs.breakMinutes) * 60;
 }
 
-function formatClock(totalSeconds) {
+function formatClock(totalSeconds: number): string {
   const safe = Math.max(0, Math.floor(totalSeconds));
   return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(
     safe % 60,
   ).padStart(2, "0")}`;
 }
 
-function hexToRgba(hex, alpha) {
-  const match = /^#([0-9a-f]{6})$/i.exec(hex || "");
-  if (!match) return `rgba(143, 228, 255, ${alpha})`;
+function hexToRgba(hex: string | undefined, alpha: number): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex ?? "");
+  if (!match?.[1]) return `rgba(143, 228, 255, ${alpha})`;
   const value = Number.parseInt(match[1], 16);
   return `rgba(${(value >> 16) & 0xff}, ${(value >> 8) & 0xff}, ${value & 0xff}, ${alpha})`;
 }
 
-function applyTheme(theme) {
-  if (!theme || !theme.colors) return;
+function applyTheme(theme: WidgetTheme | null): void {
+  if (!theme) return;
   const colors = theme.colors;
   const root = document.documentElement;
   root.dataset.theme = theme.id || "custom";
@@ -72,15 +103,15 @@ function Timer() {
   const theme = useLullTheme();
   const viewport = useLullViewport();
   const visible = useLullVisibility();
-  const [rawPrefs, setPrefs] = useLullState("prefs", DEFAULT_PREFS);
+  const [rawPrefs, setPrefs] = useLullState<Prefs>("prefs", DEFAULT_PREFS);
   const prefs = normalizePrefs(rawPrefs);
-  const [phase, setPhase] = useState("focus");
+  const [phase, setPhase] = useState<Phase>("focus");
   const [running, setRunning] = useState(false);
   const [endAt, setEndAt] = useState(0);
   const [remaining, setRemaining] = useState(DEFAULT_PREFS.focusMinutes * 60);
   const [transparent, setTransparent] = useState(Boolean(lull.transparent));
-  const audioGrantedRef = useRef(null);
-  const audioContextRef = useRef(null);
+  const audioGrantedRef = useRef<boolean | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const duration = durationFor(phase, prefs);
   const ratio = Math.min(1, Math.max(0, remaining / Math.max(1, duration)));
@@ -150,14 +181,14 @@ function Timer() {
     return () => window.clearInterval(timer);
   }, [running, endAt, finish]);
 
-  const ensureAudio = useCallback(async () => {
+  const ensureAudio = useCallback(async (): Promise<boolean> => {
     if (audioGrantedRef.current !== null) return audioGrantedRef.current;
     const granted = await lull.requestAudio().catch(() => false);
     audioGrantedRef.current = granted;
     return granted;
   }, [lull]);
 
-  const start = async () => {
+  const start = async (): Promise<void> => {
     await ensureAudio();
     const seconds = remaining > 0 ? remaining : duration;
     setRemaining(seconds);
@@ -165,40 +196,41 @@ function Timer() {
     setRunning(true);
   };
 
-  const pause = () => {
+  const pause = (): void => {
     setRemaining(Math.max(0, Math.ceil((endAt - Date.now()) / 1000)));
     setRunning(false);
     setEndAt(0);
   };
 
-  const reset = () => {
+  const reset = (): void => {
     setRunning(false);
     setEndAt(0);
     setRemaining(duration);
   };
 
-  const cycleFocus = () => {
+  const cycleFocus = (): void => {
     const index = FOCUS_OPTIONS.indexOf(prefs.focusMinutes);
     const next = FOCUS_OPTIONS[(index + 1) % FOCUS_OPTIONS.length];
     setPrefs({ ...prefs, focusMinutes: next });
     if (!running && phase === "focus") setRemaining(next * 60);
   };
 
-  const cycleBreak = () => {
+  const cycleBreak = (): void => {
     const index = BREAK_OPTIONS.indexOf(prefs.breakMinutes);
     const next = BREAK_OPTIONS[(index + 1) % BREAK_OPTIONS.length];
     setPrefs({ ...prefs, breakMinutes: next });
     if (!running && phase === "break") setRemaining(next * 60);
   };
 
-  const startDrag = (event) => {
+  const startDrag = (event: ReactPointerEvent<HTMLElement>): void => {
     if (event.button !== 0) return;
-    if (event.target.closest("button")) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest("button")) return;
     event.preventDefault();
     void lull.startDrag().catch(() => {});
   };
 
-  const toggleTransparent = () => {
+  const toggleTransparent = (): void => {
     const next = !transparent;
     setTransparent(next);
     void lull.setTransparent(next, "#0b1014").catch(() => {});
@@ -287,11 +319,7 @@ function Timer() {
           <button type="button" className="ghost" onClick={reset}>
             重置
           </button>
-          <button
-            type="button"
-            className="ghost"
-            onClick={() => finish(false)}
-          >
+          <button type="button" className="ghost" onClick={() => finish(false)}>
             跳过
           </button>
         </div>
@@ -316,7 +344,8 @@ function Timer() {
         <footer className="footer">
           <span>已完成 {prefs.completed} 轮</span>
           <span className="hint">
-            视口 {viewport.width}×{viewport.height} · {visible ? "可见" : "后台"}
+            视口 {viewport.width}×{viewport.height} ·{" "}
+            {visible ? "可见" : "后台"}
           </span>
         </footer>
       </section>
@@ -339,6 +368,6 @@ connectLullWidget({ timeoutMs: 8000 })
       </LullProvider>,
     );
   })
-  .catch((error) => {
+  .catch((error: unknown) => {
     root.render(<p className="status">无法连接 Lull 宿主：{String(error)}</p>);
   });

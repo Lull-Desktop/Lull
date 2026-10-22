@@ -20,7 +20,11 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@lull/widget-sdk": ["./packages/widget-sdk/src/index.ts"],
+      "@lull/widget-sdk/react": ["./packages/widget-sdk/src/react.ts"],
+      "@lull/widget-sdk/vue": ["./packages/widget-sdk/src/vue.ts"],
+      "@lull/widget-sdk/testing": ["./packages/widget-sdk/src/testing.ts"]
     }
   },
   "include": [

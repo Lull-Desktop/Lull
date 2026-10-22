@@ -1,95 +1,147 @@
 /**
- * Lull 自定义插件示例：番茄钟。
+ * Lull 自定义插件示例：番茄钟（原生 TypeScript，无框架）。
  *
- * 只依赖 @lull/widget-sdk（这里用相对源码路径，构建时打包）：
+ * 只依赖 @lull/widget-sdk（构建时由 esbuild 解析到包产物，再打进单文件）：
  * - 状态：宿主 Rust KV（停止运行/关闭窗口后仍在）
  * - 主题：宿主下发的主题令牌
  * - 音频：宿主授权后播放提示音
  * - 视口/可见性：随宿主窗口变化
+ *
+ * 这个文件刻意保留「查 DOM + 手动重绘」的写法，作为最小依赖的对照示例；
+ * React / Vue 版在相同逻辑上换成声明式渲染。
  */
-import { connectLullWidget } from "../../../../packages/widget-sdk/src/index.js";
+import {
+  connectLullWidget,
+  type LullWidgetClient,
+  type WidgetTheme,
+} from "@lull/widget-sdk";
 
-const DEFAULT_PREFS = {
+type Phase = "focus" | "break";
+
+interface Prefs {
+  focusMinutes: number;
+  breakMinutes: number;
+  sound: boolean;
+  completed: number;
+}
+
+interface Session {
+  phase: Phase;
+  running: boolean;
+  endAt: number;
+  remaining: number;
+}
+
+const DEFAULT_PREFS: Prefs = {
   focusMinutes: 25,
   breakMinutes: 5,
   sound: true,
   completed: 0,
 };
-const FOCUS_OPTIONS = [15, 25, 50];
-const BREAK_OPTIONS = [5, 10, 15];
+const FOCUS_OPTIONS: readonly number[] = [15, 25, 50];
+const BREAK_OPTIONS: readonly number[] = [5, 10, 15];
 const RING_RADIUS = 104;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const TICK_MS = 250;
 
+/** 查元素：缺失直接抛错，避免后续一堆 `?.` 掩盖真实的模板问题。 */
+function must<T extends Element>(selector: string): T {
+  const node = document.querySelector<T>(selector);
+  if (!node) throw new Error(`缺少元素 ${selector}`);
+  return node;
+}
+
 const els = {
-  app: document.querySelector(".app"),
-  status: document.getElementById("status"),
-  card: document.getElementById("card"),
-  phase: document.getElementById("phase"),
-  clock: document.getElementById("clock"),
-  round: document.getElementById("round"),
-  progress: document.getElementById("progress"),
-  toggle: document.getElementById("toggle"),
-  reset: document.getElementById("reset"),
-  skip: document.getElementById("skip"),
-  focusChip: document.getElementById("focus-chip"),
-  breakChip: document.getElementById("break-chip"),
-  soundChip: document.getElementById("sound-chip"),
-  completed: document.getElementById("completed"),
-  viewport: document.getElementById("viewport"),
-  connection: document.getElementById("connection"),
-  titlebar: document.getElementById("titlebar"),
-  winTransparency: document.getElementById("win-transparency"),
-  winMinimize: document.getElementById("win-minimize"),
-  winClose: document.getElementById("win-close"),
+  app: must<HTMLElement>(".app"),
+  status: must<HTMLElement>("#status"),
+  card: must<HTMLElement>("#card"),
+  phase: must<HTMLElement>("#phase"),
+  clock: must<HTMLElement>("#clock"),
+  round: must<HTMLElement>("#round"),
+  progress: must<SVGCircleElement>("#progress"),
+  toggle: must<HTMLButtonElement>("#toggle"),
+  reset: must<HTMLButtonElement>("#reset"),
+  skip: must<HTMLButtonElement>("#skip"),
+  focusChip: must<HTMLButtonElement>("#focus-chip"),
+  breakChip: must<HTMLButtonElement>("#break-chip"),
+  soundChip: must<HTMLButtonElement>("#sound-chip"),
+  completed: must<HTMLElement>("#completed"),
+  viewport: must<HTMLElement>("#viewport"),
+  connection: must<HTMLElement>("#connection"),
+  titlebar: must<HTMLElement>("#titlebar"),
+  winTransparency: must<HTMLButtonElement>("#win-transparency"),
+  winMinimize: must<HTMLButtonElement>("#win-minimize"),
+  winClose: must<HTMLButtonElement>("#win-close"),
 };
 
-let client = null;
+let client: LullWidgetClient | null = null;
 let transparent = true;
-let prefs = { ...DEFAULT_PREFS };
-let session = {
+let prefs: Prefs = { ...DEFAULT_PREFS };
+let session: Session = {
   phase: "focus",
   running: false,
   endAt: 0,
   remaining: DEFAULT_PREFS.focusMinutes * 60,
 };
-let audioGranted = null;
-let audioContext = null;
+let audioGranted: boolean | null = null;
+let audioContext: AudioContext | null = null;
 
-function durationFor(phase) {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function durationFor(phase: Phase): number {
   return (phase === "focus" ? prefs.focusMinutes : prefs.breakMinutes) * 60;
 }
 
-function normalizePrefs(value) {
-  const next = { ...DEFAULT_PREFS };
-  if (!value || typeof value !== "object") return next;
-  if (FOCUS_OPTIONS.includes(value.focusMinutes)) {
+function normalizePrefs(value: unknown): Prefs {
+  const next: Prefs = { ...DEFAULT_PREFS };
+  if (!isRecord(value)) return next;
+  if (
+    typeof value.focusMinutes === "number" &&
+    FOCUS_OPTIONS.includes(value.focusMinutes)
+  ) {
     next.focusMinutes = value.focusMinutes;
   }
-  if (BREAK_OPTIONS.includes(value.breakMinutes)) {
+  if (
+    typeof value.breakMinutes === "number" &&
+    BREAK_OPTIONS.includes(value.breakMinutes)
+  ) {
     next.breakMinutes = value.breakMinutes;
   }
   if (typeof value.sound === "boolean") next.sound = value.sound;
-  if (Number.isFinite(value.completed) && value.completed >= 0) {
+  if (
+    typeof value.completed === "number" &&
+    Number.isFinite(value.completed) &&
+    value.completed >= 0
+  ) {
     next.completed = Math.floor(value.completed);
   }
   return next;
 }
 
-function normalizeSession(value) {
-  const next = {
+function normalizeSession(value: unknown): Session {
+  const next: Session = {
     phase: "focus",
     running: false,
     endAt: 0,
     remaining: durationFor("focus"),
   };
-  if (!value || typeof value !== "object") return next;
+  if (!isRecord(value)) return next;
   if (value.phase === "break") next.phase = "break";
   if (typeof value.running === "boolean") next.running = value.running;
-  if (Number.isFinite(value.endAt) && value.endAt > 0) {
+  if (
+    typeof value.endAt === "number" &&
+    Number.isFinite(value.endAt) &&
+    value.endAt > 0
+  ) {
     next.endAt = value.endAt;
   }
-  if (Number.isFinite(value.remaining) && value.remaining >= 0) {
+  if (
+    typeof value.remaining === "number" &&
+    Number.isFinite(value.remaining) &&
+    value.remaining >= 0
+  ) {
     next.remaining = Math.floor(value.remaining);
   }
   next.remaining = Math.min(next.remaining, durationFor(next.phase));
@@ -105,16 +157,16 @@ function normalizeSession(value) {
   return next;
 }
 
-function formatClock(totalSeconds) {
+function formatClock(totalSeconds: number): string {
   const safe = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(safe / 60);
   const seconds = safe % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function hexToRgba(hex, alpha) {
-  const match = /^#([0-9a-f]{6})$/i.exec(hex || "");
-  if (!match) return `rgba(143, 228, 255, ${alpha})`;
+function hexToRgba(hex: string | undefined, alpha: number): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex ?? "");
+  if (!match?.[1]) return `rgba(143, 228, 255, ${alpha})`;
   const value = Number.parseInt(match[1], 16);
   const red = (value >> 16) & 0xff;
   const green = (value >> 8) & 0xff;
@@ -122,8 +174,8 @@ function hexToRgba(hex, alpha) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
-function applyTheme(theme) {
-  if (!theme || !theme.colors) return;
+function applyTheme(theme: WidgetTheme | null): void {
+  if (!theme) return;
   const colors = theme.colors;
   const root = document.documentElement;
   root.dataset.theme = theme.id || "custom";
@@ -132,7 +184,7 @@ function applyTheme(theme) {
   root.style.setProperty("--glow", hexToRgba(colors.a, 0.35));
 }
 
-function render() {
+function render(): void {
   const total = Math.max(1, durationFor(session.phase));
   const ratio = Math.min(1, Math.max(0, session.remaining / total));
   els.phase.textContent = session.phase === "focus" ? "专注" : "休息";
@@ -157,18 +209,19 @@ function render() {
   els.completed.textContent = `已完成 ${prefs.completed} 轮`;
 }
 
-function persistPrefs() {
+function persistPrefs(): void {
   if (!client) return;
   void client.setState("prefs", prefs).catch(() => {});
 }
 
-function persistSession() {
+function persistSession(): void {
   if (!client) return;
   void client.setState("session", session).catch(() => {});
 }
 
-async function ensureAudio() {
+async function ensureAudio(): Promise<boolean> {
   if (audioGranted !== null) return audioGranted;
+  if (!client) return false;
   try {
     audioGranted = await client.requestAudio();
   } catch {
@@ -177,7 +230,7 @@ async function ensureAudio() {
   return audioGranted;
 }
 
-function playChime() {
+function playChime(): void {
   if (!audioGranted) return;
   try {
     audioContext ??= new AudioContext();
@@ -203,7 +256,7 @@ function playChime() {
   }
 }
 
-function completePhase(withChime, count = true) {
+function completePhase(withChime: boolean, count = true): void {
   const wasFocus = session.phase === "focus";
   if (wasFocus) {
     if (count) prefs.completed += 1;
@@ -220,7 +273,7 @@ function completePhase(withChime, count = true) {
   if (withChime && prefs.sound) playChime();
 }
 
-function tick() {
+function tick(): void {
   if (!session.running) return;
   const left = Math.ceil((session.endAt - Date.now()) / 1000);
   session.remaining = Math.max(0, left);
@@ -231,7 +284,7 @@ function tick() {
   render();
 }
 
-async function startTimer() {
+async function startTimer(): Promise<void> {
   if (session.running) return;
   if (session.remaining <= 0) session.remaining = durationFor(session.phase);
   await ensureAudio();
@@ -241,7 +294,7 @@ async function startTimer() {
   render();
 }
 
-function pauseTimer() {
+function pauseTimer(): void {
   if (!session.running) return;
   session.remaining = Math.max(
     0,
@@ -253,7 +306,7 @@ function pauseTimer() {
   render();
 }
 
-function resetTimer() {
+function resetTimer(): void {
   session.running = false;
   session.endAt = 0;
   session.remaining = durationFor(session.phase);
@@ -261,7 +314,7 @@ function resetTimer() {
   render();
 }
 
-function cycleFocus() {
+function cycleFocus(): void {
   const index = FOCUS_OPTIONS.indexOf(prefs.focusMinutes);
   prefs.focusMinutes = FOCUS_OPTIONS[(index + 1) % FOCUS_OPTIONS.length];
   if (!session.running && session.phase === "focus") {
@@ -272,7 +325,7 @@ function cycleFocus() {
   render();
 }
 
-function cycleBreak() {
+function cycleBreak(): void {
   const index = BREAK_OPTIONS.indexOf(prefs.breakMinutes);
   prefs.breakMinutes = BREAK_OPTIONS[(index + 1) % BREAK_OPTIONS.length];
   if (!session.running && session.phase === "break") {
@@ -283,31 +336,31 @@ function cycleBreak() {
   render();
 }
 
-function toggleSound() {
+function toggleSound(): void {
   prefs.sound = !prefs.sound;
   persistPrefs();
   render();
 }
 
-function bindEvents() {
-  els.titlebar.addEventListener("pointerdown", (event) => {
+function bindEvents(lull: LullWidgetClient): void {
+  els.titlebar.addEventListener("pointerdown", (event: PointerEvent) => {
     if (event.button !== 0) return;
     if (event.target instanceof Element && event.target.closest("button")) {
       return;
     }
     event.preventDefault();
-    void client.startDrag().catch(() => {});
+    void lull.startDrag().catch(() => {});
   });
   els.winMinimize.addEventListener("click", () => {
-    void client.minimize().catch(() => {});
+    void lull.minimize().catch(() => {});
   });
   els.winTransparency.addEventListener("click", () => {
     transparent = !transparent;
     els.winTransparency.setAttribute("aria-pressed", String(transparent));
-    void client.setTransparent(transparent, "#0b1014").catch(() => {});
+    void lull.setTransparent(transparent, "#0b1014").catch(() => {});
   });
   els.winClose.addEventListener("click", () => {
-    void client.close().catch(() => {});
+    void lull.close().catch(() => {});
   });
   els.toggle.addEventListener("click", () => {
     if (session.running) pauseTimer();
@@ -318,7 +371,7 @@ function bindEvents() {
   els.focusChip.addEventListener("click", cycleFocus);
   els.breakChip.addEventListener("click", cycleBreak);
   els.soundChip.addEventListener("click", toggleSound);
-  window.addEventListener("keydown", (event) => {
+  window.addEventListener("keydown", (event: KeyboardEvent) => {
     if (event.code === "Space") {
       event.preventDefault();
       if (session.running) pauseTimer();
@@ -327,8 +380,9 @@ function bindEvents() {
   });
 }
 
-async function main() {
-  client = await connectLullWidget({ timeoutMs: 8000 });
+async function main(): Promise<void> {
+  const lull = await connectLullWidget({ timeoutMs: 8000 });
+  client = lull;
   client.onTheme(applyTheme);
   client.onViewport((viewport) => {
     els.viewport.textContent = `视口 ${viewport.width}×${viewport.height}`;
@@ -338,11 +392,11 @@ async function main() {
   });
   applyTheme(client.theme);
 
-  prefs = normalizePrefs(await client.getState("prefs", DEFAULT_PREFS));
-  const storedSession = await client.getState("session", null);
+  prefs = normalizePrefs(await client.getState<Prefs>("prefs", DEFAULT_PREFS));
+  const storedSession = await client.getState<Session | null>("session", null);
   session = normalizeSession(storedSession);
   const expired =
-    Boolean(storedSession && storedSession.running) &&
+    storedSession?.running === true &&
     !session.running &&
     session.remaining === 0;
   if (expired) {
@@ -351,7 +405,7 @@ async function main() {
     session.remaining = durationFor(session.phase);
   }
 
-  bindEvents();
+  bindEvents(lull);
   transparent = Boolean(client.transparent);
   els.winTransparency.setAttribute("aria-pressed", String(transparent));
   if (!client.minimizable) {
@@ -367,9 +421,9 @@ async function main() {
   if (session.running) tick();
 }
 
-main().catch((error) => {
+main().catch((error: unknown) => {
   els.status.hidden = false;
   els.card.hidden = true;
   els.status.textContent = `无法连接 Lull 宿主：${String(error)}`;
-  if (els.app) els.app.dataset.state = "error";
+  els.app.dataset.state = "error";
 });

@@ -1,21 +1,71 @@
 {
   "name": "@lull/widget-sdk",
-  "version": "0.1.0",
-  "description": "Lull Widget 插件侧客户端 SDK：与宿主 iframe 壳通过 postMessage 通信。",
+  "version": "0.2.0",
+  "description": "Lull Widget 插件侧 SDK（TypeScript）：与宿主 iframe 壳通过 postMessage 通信，提供类型化客户端与 React / Vue 适配。",
+  "keywords": [
+    "lull",
+    "widget",
+    "plugin",
+    "sdk",
+    "typescript",
+    "tauri"
+  ],
   "type": "module",
   "license": "Apache-2.0",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.js",
-    "./react": "./src/react.js",
-    "./vue": "./src/vue.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "default": "./dist/react.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "default": "./dist/vue.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./package.json": "./package.json"
   },
-  "files": ["src"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.check.json"
+  },
   "peerDependencies": {
     "react": ">=18",
     "vue": ">=3"
   },
   "peerDependenciesMeta": {
-    "react": { "optional": true },
-    "vue": { "optional": true }
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.14",
+    "react": "^19.2.4",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.0",
+    "vue": "^3.5.44"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

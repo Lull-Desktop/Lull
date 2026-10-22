@@ -314,6 +314,10 @@ WebView2 会把 Tauri 的初始化脚本应用到子帧，因此插件 iframe �
 
 包名：`@lull/widget-sdk`（本仓库 `packages/widget-sdk`）。
 
+TypeScript 源码 + `tsc` 产物：`dist/*.js` 与 `dist/*.d.ts`（类型声明随包发布，不手写）。
+四个入口：`.`（客户端）、`./react`、`./vue`、`./testing`（内存传输，只给测试用）。
+安装、完整 API 表与兼容矩阵见 [`packages/widget-sdk/README.md`](../packages/widget-sdk/README.md)。
+
 ```js
 import { connectLullWidget } from "@lull/widget-sdk";
 
@@ -358,12 +362,19 @@ SDK 只做协议封装，不做权限判断；权限永远由宿主桥校验。
 
 ## 9. 构建与校验
 
-示例使用 esbuild 打包为单文件 ESM：
+示例源码为 TypeScript（`src/main.ts` / `src/main.tsx`），由 esbuild 打包为单文件 ESM：
 
 ```powershell
-pnpm widgets:samples:build     # 构建 examples/widgets/*/dist
+pnpm widgets:sdk               # 先构建 SDK（dist + 类型声明）
+pnpm widgets:samples:build     # 构建 examples/widgets/*/dist（内部会先跑 widgets:sdk）
 pnpm widgets:samples:install   # 复制到 %APPDATA%\app.lull.desktop\widgets
+pnpm widgets:sdk:check         # 只做类型检查（CI）
 ```
+
+示例按包名 `@lull/widget-sdk[/react|/vue]` 导入；`scripts/build-widget-examples.mjs` 的解析插件
+优先取 `dist/`，未构建时回落到 TS 源码，保证示例写法与第三方消费方式一致。
+示例源码同时在根 `pnpm typecheck` 的覆盖范围内（`tsconfig.json` 为 SDK 配了 paths 映射），
+所以示例与 SDK 的类型契约漂移会在 CI 直接暴露。
 
 插件作者侧建议（后续提供 CLI）：
 
