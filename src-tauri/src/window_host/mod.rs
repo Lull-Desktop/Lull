@@ -51,6 +51,11 @@ fn widget_context_json(spec: &WidgetSpec) -> String {
   .to_string()
 }
 
+/// 页面脚本执行前注入 `window.__LULL_WIDGET__`；不能只返回裸 JSON。
+fn widget_context_script(spec: &WidgetSpec) -> String {
+  format!("window.__LULL_WIDGET__ = {};", widget_context_json(spec))
+}
+
 /// 打开窗口；已存在则只做唤醒（显示 / 还原 / 聚焦），不会重建 WebView。
 pub fn open(app: &AppHandle, spec: &WidgetSpec) {
   if let Some(window) = app.get_webview_window(spec.label) {
@@ -81,7 +86,7 @@ pub fn open(app: &AppHandle, spec: &WidgetSpec) {
     .resizable(spec.resizable)
     .maximizable(spec.resizable)
     // Widget SDK 上下文：先于页面脚本注入 window.__LULL_WIDGET__。
-    .initialization_script(widget_context_json(spec))
+    .initialization_script(widget_context_script(spec))
     .devtools(devtools_enabled());
 
   if spec.transparent {
@@ -187,6 +192,14 @@ mod tests {
 
   fn context_of(spec: &WidgetSpec) -> Value {
     serde_json::from_str(&widget_context_json(spec)).unwrap_or(Value::Null)
+  }
+
+  #[test]
+  fn context_script_assigns_the_global() {
+    let script = widget_context_script(&PLAYER);
+    assert!(script.starts_with("window.__LULL_WIDGET__ = {"));
+    assert!(script.ends_with("};"));
+    assert!(script.contains("\"capabilities\""));
   }
 
   #[test]

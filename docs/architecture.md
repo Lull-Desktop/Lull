@@ -281,7 +281,7 @@ form-action 'none'
 
 ```text
 pnpm test              前端 25 个测试文件（139 项）
-cargo test             Rust 62 项（display 配置 / 拓扑 / 协议 / 场景参数 / Widget 清单、上下文与插件包）
+cargo test             Rust 63 项（display 配置 / 拓扑 / 协议 / 场景参数 / Widget 清单、上下文与插件包）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + entry 存在性
 pnpm widgets:check     Widget 清单 + 命令表 + 逐窗口 capability 同步
