@@ -2,6 +2,7 @@
  * 顶栏测试：验证锁定只切换拖拽区/窗口缩放、关闭隐藏窗口、锁定状态持久化，
  * 以及最小化按钮随窗口的 minimizable 能力出现。
  */
+import { renderToString } from "react-dom/server";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { WindowTopbar } from "./window-topbar";
@@ -100,4 +101,13 @@ test("不允许最小化的窗口（工具窗默认）没有最小化按钮", as
     expect(tauriWindow.isMinimizable).toHaveBeenCalled();
   });
   expect(screen.queryByTestId("topbar-minimize")).toBeNull();
+});
+
+test("服务端渲染只出空壳，文案留到客户端（避免水合不匹配）", () => {
+  // 静态导出的 HTML 是基准语言，客户端首帧已是注入语言；
+  // 顶栏若在服务端就渲染文字，会重现「服务端 设置 / 客户端 Settings」的水合报错。
+  const html = renderToString(<WindowTopbar section={() => "设置"} />);
+  expect(html).toContain("window-topbar");
+  expect(html).not.toContain("设置");
+  expect(html).not.toContain("已锁定");
 });
