@@ -108,7 +108,7 @@ test("enable asks for permission confirmation before invoking", async () => {
   mockCommands();
   render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
 
-  fireEvent.click(await screen.findByRole("button", { name: "启用 番茄钟" }));
+  fireEvent.click(await screen.findByRole("button", { name: "启用：番茄钟" }));
   expect(await screen.findByText("启用 番茄钟")).toBeDefined();
 
   fireEvent.click(screen.getByRole("button", { name: "确认启用" }));
@@ -165,7 +165,7 @@ test("uninstall requires a second click", async () => {
   mockCommands();
   render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
 
-  const remove = await screen.findByRole("button", { name: "卸载 番茄钟" });
+  const remove = await screen.findByRole("button", { name: "卸载：番茄钟" });
   fireEvent.click(remove);
   expect(invoke).not.toHaveBeenCalledWith(
     "extensions_remove",

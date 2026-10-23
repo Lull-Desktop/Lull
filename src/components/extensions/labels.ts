@@ -1,47 +1,61 @@
-/** 扩展中心共用的文案映射：能力、状态、类型。 */
+/** 扩展中心共用的文案映射：能力、状态、类型。全部走消息表，随界面语言变化。 */
+import { m } from "@/paraglide/messages";
 
-export type CapabilityLevel = "强制" | "提示" | "基础";
+/** 能力等级：由宿主强制拦截 / 仅提示 / 基础能力。 */
+export type CapabilityLevel = "required" | "hint" | "basic";
 
-export const CAPABILITY_META: Record<
+const CAPABILITY_META: Record<
   string,
-  { label: string; level: CapabilityLevel }
+  { label: () => string; level: CapabilityLevel }
 > = {
-  "widget.ui": { label: "界面", level: "基础" },
-  "widget.theme": { label: "主题", level: "提示" },
-  "widget.state": { label: "状态存储", level: "强制" },
-  "widget.audio": { label: "音频", level: "提示" },
-  "widget.media": { label: "媒体选择", level: "提示" },
-  "widget.network": { label: "网络", level: "强制" },
-  "widget.chrome": { label: "窗口控制", level: "强制" },
-  "wallpaper.viewport": { label: "壁纸视口", level: "基础" },
-  "wallpaper.canvas": { label: "共享画布", level: "基础" },
-  "wallpaper.sync": { label: "跨屏同步", level: "基础" },
+  "widget.ui": { label: m.ext_cap_ui, level: "basic" },
+  "widget.theme": { label: m.ext_cap_theme, level: "hint" },
+  "widget.state": { label: m.ext_cap_state, level: "required" },
+  "widget.audio": { label: m.ext_cap_audio, level: "hint" },
+  "widget.media": { label: m.ext_cap_media, level: "hint" },
+  "widget.network": { label: m.ext_cap_network, level: "required" },
+  "widget.chrome": { label: m.ext_cap_chrome, level: "required" },
+  "wallpaper.viewport": { label: m.ext_cap_viewport, level: "basic" },
+  "wallpaper.canvas": { label: m.ext_cap_canvas, level: "basic" },
+  "wallpaper.sync": { label: m.ext_cap_sync, level: "basic" },
 };
 
 export function capabilityLabel(capability: string): string {
-  return CAPABILITY_META[capability]?.label ?? capability;
+  return CAPABILITY_META[capability]?.label() ?? capability;
 }
 
-export function capabilityLevel(capability: string): CapabilityLevel {
-  return CAPABILITY_META[capability]?.level ?? "基础";
+export function capabilityLevelName(capability: string): CapabilityLevel {
+  return CAPABILITY_META[capability]?.level ?? "basic";
+}
+
+/** 等级的展示文案。等级本身是机器值，翻译在渲染时做。 */
+export function capabilityLevel(capability: string): string {
+  switch (capabilityLevelName(capability)) {
+    case "required":
+      return m.ext_level_required();
+    case "hint":
+      return m.ext_level_hint();
+    default:
+      return m.ext_level_basic();
+  }
 }
 
 export function kindLabel(kind: string): string {
-  return kind === "widget" ? "工具" : "壁纸";
+  return kind === "widget" ? m.ext_kind_widget() : m.ext_kind_scene();
 }
 
 export function statusLabel(status: string): string {
   switch (status) {
     case "ready":
-      return "已校验";
+      return m.ext_status_ready();
     case "unverified":
-      return "未校验";
+      return m.ext_status_unverified();
     case "tampered":
-      return "摘要不符";
+      return m.ext_status_tampered();
     case "invalid":
-      return "清单无效";
+      return m.ext_status_invalid();
     case "needs-review":
-      return "待复核";
+      return m.ext_status_needs_review();
     default:
       return status;
   }

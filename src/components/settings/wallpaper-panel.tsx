@@ -27,6 +27,9 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSceneCatalog } from "@/hooks/use-scene-catalog";
+import { localizeError } from "@/i18n/errors";
+import { useLocale } from "@/i18n/locale";
+import { m } from "@/paraglide/messages";
 import { type SceneCatalogEntry, sceneSupportsParams } from "@/sdk/scene";
 
 /** 与 Rust 侧 `wallpaper::MonitorView` 对应。 */
@@ -45,9 +48,25 @@ type MonitorView = {
 };
 
 function sceneSourceLabel(source: SceneCatalogEntry["source"]): string {
-  if (source === "builtin") return "内置";
-  if (source === "content") return "随包内容包";
-  return "已安装内容包";
+  if (source === "builtin") return m.wallpaper_source_builtin();
+  if (source === "content") return m.wallpaper_source_content();
+  return m.wallpaper_source_user();
+}
+
+/** 壁纸运行状态。存状态而不是成品文案，语言切换时提示才会跟着变。 */
+type WallpaperStatus = "querying" | "visible" | "hidden" | "not-running";
+
+function statusText(status: WallpaperStatus): string {
+  switch (status) {
+    case "visible":
+      return m.wallpaper_status_visible();
+    case "hidden":
+      return m.wallpaper_status_hidden();
+    case "not-running":
+      return m.wallpaper_status_not_running();
+    default:
+      return m.wallpaper_status_querying();
+  }
 }
 
 /** 与 Rust 侧 `config::DisplayConfig` 对应。 */
@@ -72,7 +91,11 @@ export function WallpaperPanel() {
   );
   const [monitors, setMonitors] = useState<MonitorView[] | null>(null);
   const [display, setDisplay] = useState<DisplayConfig | null>(null);
-  const [wallpaperMsg, setWallpaperMsg] = useState("查询中…");
+  // 订阅语言：整块面板的文案都跟着界面语言走。
+  useLocale();
+  const [wallpaperStatus, setWallpaperStatus] =
+    useState<WallpaperStatus>("querying");
+  const [wallpaperError, setWallpaperError] = useState("");
   // 单台显示器的开关是"重建窗口"级操作，可能耗时几百毫秒；期间锁住开关，
   // 避免用户连点造成 create/destroy 竞态与画面抖动。
   const [pendingDevice, setPendingDevice] = useState<string | null>(null);
@@ -87,17 +110,14 @@ export function WallpaperPanel() {
         setWallpaperVisible(visible);
         setMonitors(list);
         setDisplay(disp);
-        setWallpaperMsg(
-          visible ? "当前：壁纸可见" : "当前：壁纸已隐藏（总开关）",
-        );
+        setWallpaperError("");
+        setWallpaperStatus(visible ? "visible" : "hidden");
       })
       .catch(() => {
         setWallpaperVisible(null);
         setMonitors(null);
         setDisplay(null);
-        setWallpaperMsg(
-          "壁纸窗口未运行（dev 下用 pnpm test-mode 或 LULL_WALLPAPER=1 启动）",
-        );
+        setWallpaperStatus("not-running");
       });
   }, []);
 
@@ -106,7 +126,7 @@ export function WallpaperPanel() {
       return invoke(command, args)
         .then(() => refreshWallpaper())
         .catch((err: unknown) => {
-          setWallpaperMsg(String(err));
+          setWallpaperError(localizeError(err));
         });
     },
     [refreshWallpaper],
@@ -136,10 +156,11 @@ export function WallpaperPanel() {
     invoke<boolean>("wallpaper_set_visible", { visible: on })
       .then((v) => {
         setWallpaperVisible(v);
-        setWallpaperMsg(v ? "当前：壁纸可见" : "当前：壁纸已隐藏（总开关）");
+        setWallpaperError("");
+        setWallpaperStatus(v ? "visible" : "hidden");
       })
       .catch((err: unknown) => {
-        setWallpaperMsg(String(err));
+        setWallpaperError(localizeError(err));
       });
   }, []);
 
@@ -191,8 +212,8 @@ export function WallpaperPanel() {
           void refreshWallpaper();
         })
         .catch((err: unknown) => {
-          setWallpaperMsg(String(err));
-          void refreshWallpaper();
+          setWallpaperError(localizeError(err));
+          refreshWallpaper();
         });
     },
     [refreshWallpaper],
@@ -217,17 +238,14 @@ export function WallpaperPanel() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Monitor className="h-5 w-5 text-bamboo" />
-          壁纸层
+          {m.wallpaper_title()}
         </CardTitle>
-        <CardDescription>
-          每台显示器一个壁纸窗口。关闭某屏即销毁该窗口（省内存），重新开启时重建；
-          重建会在页面首帧完成后才显示，避免黑闪；总开关为临时显隐（窗口保持挂载）
-        </CardDescription>
+        <CardDescription>{m.wallpaper_description()}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between">
           <Label htmlFor={wallpaperSwitchId} className="text-ink-soft">
-            显示壁纸
+            {m.wallpaper_show()}
           </Label>
           <Switch
             id={wallpaperSwitchId}
@@ -237,7 +255,7 @@ export function WallpaperPanel() {
           />
         </div>
         <div className="flex items-center justify-between">
-          <Label className="text-ink-soft">显示模式</Label>
+          <Label className="text-ink-soft">{m.wallpaper_mode_label()}</Label>
           <ToggleGroup
             type="single"
             variant="outline"
@@ -247,24 +265,28 @@ export function WallpaperPanel() {
               v && updateDisplay({ mode: v as DisplayConfig["mode"] })
             }
           >
-            <ToggleGroupItem value="mirror">复制</ToggleGroupItem>
-            <ToggleGroupItem value="independent">独立</ToggleGroupItem>
-            <ToggleGroupItem value="span">跨屏</ToggleGroupItem>
+            <ToggleGroupItem value="mirror">
+              {m.wallpaper_mode_mirror()}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="independent">
+              {m.wallpaper_mode_independent()}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="span">{m.wallpaper_mode_span()}</ToggleGroupItem>
           </ToggleGroup>
         </div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Label htmlFor={syncSwitchId} className="text-ink-soft">
-              动画同步
+              {m.wallpaper_sync()}
             </Label>
             {display?.mode === "span" && (
               <span className="text-xs text-muted-foreground">
-                跨屏强制同步（防接缝撕裂）
+                {m.wallpaper_sync_span_hint()}
               </span>
             )}
             {display?.mode === "independent" && (
               <span className="text-xs text-muted-foreground">
-                独立模式各自播放
+                {m.wallpaper_sync_independent_hint()}
               </span>
             )}
           </div>
@@ -278,12 +300,18 @@ export function WallpaperPanel() {
         {display && (display.mode === "mirror" || display.mode === "span") && (
           <>
             <div className="flex items-center justify-between">
-              <Label className="text-ink-soft">全局场景</Label>
+              <Label className="text-ink-soft">
+                {m.wallpaper_scene_global()}
+              </Label>
               <Select
                 value={display.scene}
                 onValueChange={(v) => updateDisplay({ scene: v })}
               >
-                <SelectTrigger size="sm" aria-label="全局场景" className="w-32">
+                <SelectTrigger
+                  size="sm"
+                  aria-label={m.wallpaper_scene_global()}
+                  className="w-32"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -307,11 +335,12 @@ export function WallpaperPanel() {
               sceneSupportsParams(activeScene.manifest) && (
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground">
-                    {`参数由 Setting 实时下发到${
-                      activeScene.source === "builtin"
-                        ? "内置场景"
-                        : "场景桥（@lull/scene-sdk）"
-                    }`}
+                    {m.wallpaper_params_hint({
+                      target:
+                        activeScene.source === "builtin"
+                          ? m.wallpaper_params_target_builtin()
+                          : m.wallpaper_params_target_bridge(),
+                    })}
                   </p>
                   <SceneParamFields
                     definitions={activeScene.manifest.params}
@@ -327,15 +356,14 @@ export function WallpaperPanel() {
               activeScene.manifest.params.length > 0 &&
               !sceneSupportsParams(activeScene.manifest) && (
                 <p className="text-xs text-destructive">
-                  该场景声明了参数，但没有声明 wallpaper.params，Setting
-                  不会下发这些值。
+                  {m.wallpaper_params_unsupported()}
                 </p>
               )}
           </>
         )}
         {sceneCatalogError && (
           <p className="text-xs text-muted-foreground">
-            外部内容目录未加载：{sceneCatalogError}
+            {m.wallpaper_catalog_error({ reason: sceneCatalogError })}
           </p>
         )}
         {sceneCatalogIssues.length > 0 && (
@@ -344,46 +372,55 @@ export function WallpaperPanel() {
               <li key={issue}>· {issue}</li>
             ))}
             {sceneCatalogIssues.length > 5 && (
-              <li>· 另有 {sceneCatalogIssues.length - 5} 条内容包提示</li>
+              <li>
+                ·{" "}
+                {m.wallpaper_catalog_more_issues({
+                  count: String(sceneCatalogIssues.length - 5),
+                })}
+              </li>
             )}
           </ul>
         )}
         {sortedMonitors && sortedMonitors.length > 0 && (
           <div className="space-y-3 border-t border-border/50 pt-4">
-            {sortedMonitors.map((m, i) => {
+            {sortedMonitors.map((monitor, i) => {
               const monitorScene = sceneEntries.find(
-                (entry) => entry.manifest.id === m.scene,
+                (entry) => entry.manifest.id === monitor.scene,
               );
               return (
-                <div key={m.device} className="space-y-2">
+                <div key={monitor.device} className="space-y-2">
                   <div
                     className="flex items-center justify-between"
-                    title={m.device}
+                    title={monitor.device}
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-ink-soft">
-                        显示器 {i + 1}
+                        {m.wallpaper_monitor_label({ index: String(i + 1) })}
                       </span>
                       <span className="text-xs font-mono tabular-nums text-muted-foreground">
-                        {m.w}×{m.h}
+                        {monitor.w}×{monitor.h}
                       </span>
-                      {m.primary && (
+                      {monitor.primary && (
                         <Badge
                           variant="outline"
                           className="border-bamboo/40 px-1.5 py-0 text-[10px] text-bamboo"
                         >
-                          主屏
+                          {m.wallpaper_monitor_primary()}
                         </Badge>
                       )}
                     </div>
                     {display?.mode === "independent" && (
                       <Select
-                        value={m.scene}
-                        onValueChange={(v) => updateMonitorScene(m.device, v)}
+                        value={monitor.scene}
+                        onValueChange={(v) =>
+                          updateMonitorScene(monitor.device, v)
+                        }
                       >
                         <SelectTrigger
                           size="sm"
-                          aria-label={`显示器 ${i + 1} 场景`}
+                          aria-label={m.wallpaper_monitor_scene_aria({
+                            index: String(i + 1),
+                          })}
                           className="w-28"
                         >
                           <SelectValue />
@@ -398,12 +435,14 @@ export function WallpaperPanel() {
                       </Select>
                     )}
                     <Switch
-                      aria-label={`显示器 ${i + 1}`}
-                      checked={m.enabled}
-                      disabled={
-                        wallpaperVisible !== true || pendingDevice === m.device
+                      aria-label={m.wallpaper_monitor_label({
+                        index: String(i + 1),
+                      })}
+                      checked={monitor.enabled}
+                      disabled={wallpaperVisible !== true}
+                      onCheckedChange={(on) =>
+                        toggleMonitor(monitor.device, on)
                       }
-                      onCheckedChange={(on) => toggleMonitor(m.device, on)}
                     />
                   </div>
                   {display?.mode === "independent" &&
@@ -412,11 +451,11 @@ export function WallpaperPanel() {
                     sceneSupportsParams(monitorScene.manifest) && (
                       <SceneParamFields
                         definitions={monitorScene.manifest.params}
-                        values={display?.sceneParams?.[m.scene] ?? {}}
+                        values={display?.sceneParams?.[monitor.scene] ?? {}}
                         onChange={(key, value) =>
-                          updateSceneParam(m.scene, key, value)
+                          updateSceneParam(monitor.scene, key, value)
                         }
-                        onReset={() => commitSceneParams(m.scene, {})}
+                        onReset={() => commitSceneParams(monitor.scene, {})}
                       />
                     )}
                 </div>
@@ -424,7 +463,9 @@ export function WallpaperPanel() {
             })}
           </div>
         )}
-        <p className="text-xs text-muted-foreground">{wallpaperMsg}</p>
+        <p className="text-xs text-muted-foreground">
+          {wallpaperError || statusText(wallpaperStatus)}
+        </p>
       </CardContent>
     </Card>
   );

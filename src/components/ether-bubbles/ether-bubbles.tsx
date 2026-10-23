@@ -30,6 +30,7 @@ import type {
   WheelEvent as ReactWheelEvent,
 } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { m } from "@/paraglide/messages";
 import {
   onWidgetPrefsChanged,
   readWidgetStorage,
@@ -858,7 +859,7 @@ export function EtherBubbles() {
                   className={styles.themeBadge}
                   title="在设置窗口的「主题流光」中统一调整"
                 >
-                  {currentTheme.label} · 全局
+                  {currentTheme.label()} · {m.common_global()}
                 </span>
               </div>
 

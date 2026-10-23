@@ -11,6 +11,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { m } from "@/paraglide/messages";
 import type { SceneParamDefinition } from "@/sdk/scene";
 
 type SceneParamFieldsProps = {
@@ -108,7 +109,9 @@ export function SceneParamFields({
   return (
     <div className="space-y-3 rounded-xl border border-border/50 bg-black/5 p-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-ink-soft">场景参数</span>
+        <span className="text-xs font-medium text-ink-soft">
+          {m.scene_params_title()}
+        </span>
         <button
           type="button"
           className="text-xs text-muted-foreground transition-colors hover:text-ink"
@@ -117,7 +120,7 @@ export function SceneParamFields({
             onReset();
           }}
         >
-          恢复默认
+          {m.scene_params_reset()}
         </button>
       </div>
       {definitions.map((definition) => {

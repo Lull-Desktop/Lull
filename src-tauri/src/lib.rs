@@ -9,6 +9,7 @@ use tauri::Manager;
 mod config;
 mod content_package;
 mod extension;
+mod i18n;
 mod package_hash;
 mod resource;
 pub(crate) mod tray;
@@ -57,6 +58,8 @@ pub fn run() {
       extension::extensions_dev_reload,
       window_host::prefs::window_prefs_get,
       window_host::prefs::window_prefs_set,
+      i18n::i18n_boot,
+      i18n::i18n_set_locale,
       widget_package::widget_package_notify,
       widget_package::widget_state_get,
       widget_package::widget_state_set,
@@ -75,6 +78,8 @@ pub fn run() {
       content_package::content_packages
     ])
     .setup(|app| {
+      // 语言必须在建窗与建托盘之前定下来，否则系统托盘会先出基准语言再跳变。
+      i18n::init(app.handle());
       tray::init(app)?;
       if wallpaper::enabled() {
         // 产品主路径：壁纸窗常驻（release 默认；dev 需要 LULL_WALLPAPER=1 / pnpm test-mode）。

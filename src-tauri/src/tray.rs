@@ -36,8 +36,20 @@ pub fn refresh(app: &AppHandle) {
 }
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
-  let toggle = MenuItem::with_id(app, "toggle-settings", "显示/隐藏设置", true, None::<&str>)?;
-  let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+  let toggle = MenuItem::with_id(
+    app,
+    "toggle-settings",
+    crate::i18n::t("tray_toggle_settings"),
+    true,
+    None::<&str>,
+  )?;
+  let quit = MenuItem::with_id(
+    app,
+    "quit",
+    crate::i18n::t("tray_quit"),
+    true,
+    None::<&str>,
+  )?;
 
   // 工具菜单项由 widget 清单生成：新增内置工具只需加 manifest，不再改托盘代码。
   let mut tool_items: Vec<MenuItem<Wry>> = Vec::new();
@@ -60,7 +72,12 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
   let submenu = if enabled.is_empty() {
     None
   } else {
-    let menu = Submenu::with_id(app, "extensions", "扩展", true)?;
+    let menu = Submenu::with_id(
+      app,
+      "extensions",
+      crate::i18n::t("tray_extensions"),
+      true,
+    )?;
     for package in &enabled {
       let item = MenuItem::with_id(
         app,
@@ -89,7 +106,7 @@ pub fn init(app: &tauri::App) -> tauri::Result<()> {
   let menu = build_menu(app.handle())?;
 
   let mut builder = TrayIconBuilder::with_id("main-tray")
-    .tooltip("Lull（左键显示/隐藏设置 / 右键菜单）")
+    .tooltip(crate::i18n::t("tray_tooltip"))
     .menu(&menu)
     .show_menu_on_left_click(false)
     .on_menu_event(|app, event| match event.id.as_ref() {

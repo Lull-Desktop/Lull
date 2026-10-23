@@ -20,6 +20,7 @@
       "!!dist",
       "!!packages/*/dist",
       "!!src-tauri",
+      "!!src/paraglide",
       "!!node_modules"
     ]
   },

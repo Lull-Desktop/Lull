@@ -64,6 +64,8 @@ const APP_COMMANDS: &[&str] = &[
   "wallpaper_set_scene_params",
   "wallpaper_set_monitor_scene",
   "content_packages",
+  "i18n_boot",
+  "i18n_set_locale",
 ];
 
 fn fail(message: &str) -> ! {
@@ -287,6 +289,9 @@ fn main() {
   println!("cargo:rerun-if-changed={}", widgets_dir.display());
   // 结构体字段变化时也要重新生成静态描述。
   println!("cargo:rerun-if-changed=src/window_host/spec.rs");
+  // Rust 侧 i18n 用 include_str! 嵌入同一批消息文件，改了要重新编译。
+  println!("cargo:rerun-if-changed=../i18n/messages");
+  println!("cargo:rerun-if-changed=src/i18n/mod.rs");
 
   let manifests = read_manifests(&widgets_dir);
   let generated = generate(&manifests);

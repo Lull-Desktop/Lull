@@ -6,7 +6,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AppWindow, MoonStar, Sparkles } from "lucide-react";
+import { AppWindow, Languages, MoonStar, Sparkles } from "lucide-react";
 import {
   type CSSProperties,
   useCallback,
@@ -26,9 +26,24 @@ import {
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useFlowTheme } from "@/hooks/use-flow-theme";
+import { localizeError } from "@/i18n/errors";
+import {
+  LOCALE_OPTIONS,
+  type LocalePreference,
+  localeLabel,
+  setLocalePreference,
+  syncLocaleFromHost,
+  useLocale,
+} from "@/i18n/locale";
+import { useLocaleReady } from "@/i18n/provider";
 import { FLOW_THEMES } from "@/lib/flow-theme";
 import { cn } from "@/lib/utils";
-import { BUILTIN_WIDGETS } from "@/widgets/registry";
+import { m } from "@/paraglide/messages";
+import {
+  BUILTIN_WIDGETS,
+  widgetDisplayDescription,
+  widgetDisplayName,
+} from "@/widgets/registry";
 
 /** 与 Rust 侧 `window_prefs::WindowPrefs` 对应。 */
 type WindowPrefs = {
@@ -41,21 +56,16 @@ type WidgetState = {
   visible: boolean;
 };
 
-/** 设置页可开关的内置工具窗（元数据来自 Widget SDK 注册表）。 */
-const TOOL_WINDOWS = BUILTIN_WIDGETS.map((widget) => ({
-  kind: widget.id,
-  name: widget.name,
-  description: widget.description ?? "",
-}));
+/** 设置页签，顺序即展示顺序：偏好 → 壁纸 → 扩展。文案在渲染时按当前语言取。 */
+const SETTINGS_TABS = ["preferences", "wallpaper", "extensions"] as const;
 
-/** 设置页签，顺序即展示顺序：偏好 → 壁纸 → 扩展。 */
-const SETTINGS_TABS = [
-  { value: "preferences", label: "偏好" },
-  { value: "wallpaper", label: "壁纸" },
-  { value: "extensions", label: "扩展" },
-] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number];
 
-type SettingsTab = (typeof SETTINGS_TABS)[number]["value"];
+const TAB_LABELS: Record<SettingsTab, () => string> = {
+  preferences: m.settings_tab_preferences,
+  wallpaper: m.settings_tab_wallpaper,
+  extensions: m.settings_tab_extensions,
+};
 
 /** 色板玻璃珠的自定义属性。 */
 type FlowSwatchStyle = CSSProperties & {
@@ -65,6 +75,8 @@ type FlowSwatchStyle = CSSProperties & {
 
 export default function Settings() {
   const windowPrefsSwitchId = useId();
+  const locale = useLocale();
+  const localeReady = useLocaleReady();
   const { themeId: flowThemeId, theme: flowTheme, setTheme } = useFlowTheme();
   const [windowPrefs, setWindowPrefs] = useState<WindowPrefs | null>(null);
   const [windowPrefsMsg, setWindowPrefsMsg] = useState("");
@@ -74,6 +86,50 @@ export default function Settings() {
   > | null>(null);
   const [widgetMsg, setWidgetMsg] = useState("");
   const [tab, setTab] = useState<SettingsTab>("preferences");
+  // 工具窗列表在渲染期取文案：语言切换后名称与描述要跟着变。
+  const toolWindows = BUILTIN_WIDGETS.map((widget) => ({
+    kind: widget.id,
+    name: widgetDisplayName(widget),
+    description: widgetDisplayDescription(widget),
+  }));
+  /** null = 还没读到偏好（首帧），此时不高亮任何一项，避免选错又跳回去。 */
+  const [languagePref, setLanguagePref] = useState<LocalePreference | null>(
+    null,
+  );
+  const [languageMsg, setLanguageMsg] = useState("");
+
+  // 语言偏好以 Rust 的 preferences.json 为准：注入的语言只说明「生效值」，
+  // 是「跟随系统」还是手动选的语言，得问一次后端。
+  useEffect(() => {
+    let alive = true;
+    void syncLocaleFromHost().then((state) => {
+      if (!alive || !state) return;
+      setLanguagePref(state.explicit ? state.locale : "system");
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const changeLanguage = useCallback(
+    (next: LocalePreference): void => {
+      setLanguageMsg("");
+      const previous = languagePref;
+      // 先乐观选中，失败回滚并提示（后端的值才是最终态）。
+      setLanguagePref(next);
+      void setLocalePreference(next)
+        .then((state) => {
+          setLanguagePref(state.explicit ? state.locale : "system");
+        })
+        .catch((error: unknown) => {
+          setLanguageMsg(
+            m.settings_language_save_failed({ reason: localizeError(error) }),
+          );
+          setLanguagePref(previous);
+        });
+    },
+    [languagePref],
+  );
 
   // 全局窗口偏好：所有窗口的任务栏 / 最小化开关，写入后 Rust 广播给各窗口顶栏。
   useEffect(() => {
@@ -95,7 +151,9 @@ export default function Settings() {
         setWindowPrefs(prefs);
       })
       .catch((err: unknown) => {
-        setWindowPrefsMsg(`保存失败：${String(err)}`);
+        setWindowPrefsMsg(
+          m.settings_save_failed({ reason: localizeError(err) }),
+        );
         void invoke<WindowPrefs>("window_prefs_get")
           .then((prefs) => {
             setWindowPrefs(prefs);
@@ -134,7 +192,9 @@ export default function Settings() {
       setWidgetStates((prev) => (prev ? { ...prev, [kind]: on } : prev));
       invoke(on ? "widget_open" : "widget_close", { kind }).catch(
         (err: unknown) => {
-          setWidgetMsg(`操作失败：${String(err)}`);
+          setWidgetMsg(
+            m.settings_action_failed({ reason: localizeError(err) }),
+          );
           refreshWidgets();
         },
       );
@@ -142,14 +202,20 @@ export default function Settings() {
     [refreshWidgets],
   );
 
+  // 静态导出的预渲染 HTML 是基准语言，客户端首帧已是注入语言；
+  // 挂载前不渲染文案，避免水合不匹配与错误语言闪烁。
+  if (!localeReady) {
+    return <div className="mx-auto w-full max-w-4xl px-4 py-4" />;
+  }
+
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-4">
       <div
         className="mb-4 flex gap-1 rounded-full border border-border/60 bg-paper-warm/60 p-1 text-xs"
         role="tablist"
-        aria-label="设置分区"
+        aria-label={m.settings_tabs_label()}
       >
-        {SETTINGS_TABS.map(({ value, label }) => (
+        {SETTINGS_TABS.map((value) => (
           <button
             key={value}
             type="button"
@@ -162,34 +228,92 @@ export default function Settings() {
                 : "text-muted-foreground hover:text-ink-soft"
             }`}
           >
-            {label}
+            {TAB_LABELS[value]()}
           </button>
         ))}
       </div>
 
       {tab === "preferences" && (
         <main className="space-y-6">
+          {/* ── Language（界面语言，偏好以 Rust 的 preferences.json 为准）── */}
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Languages className="h-5 w-5 text-bamboo" />
+                {m.settings_language_title()}
+              </CardTitle>
+              <CardDescription>
+                {m.settings_language_description()}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div
+                role="radiogroup"
+                aria-label={m.settings_language_title()}
+                className="flex flex-wrap gap-2"
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={languagePref === "system"}
+                  onClick={() => changeLanguage("system")}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs transition",
+                    languagePref === "system"
+                      ? "border-bamboo/60 bg-bamboo-mist text-bamboo shadow-sm"
+                      : "border-border/70 text-muted-foreground hover:border-bamboo/40 hover:text-ink-soft",
+                  )}
+                >
+                  {m.settings_language_follow_system()}
+                </button>
+                {LOCALE_OPTIONS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={languagePref === option}
+                    onClick={() => changeLanguage(option)}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs transition",
+                      languagePref === option
+                        ? "border-bamboo/60 bg-bamboo-mist text-bamboo shadow-sm"
+                        : "border-border/70 text-muted-foreground hover:border-bamboo/40 hover:text-ink-soft",
+                    )}
+                  >
+                    {localeLabel(option)}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {m.settings_language_effective({ locale: localeLabel(locale) })}
+              </p>
+              {languageMsg && (
+                <p className="text-xs text-destructive">{languageMsg}</p>
+              )}
+            </CardContent>
+          </Card>
+
           {/* ── Flow Theme（从白噪音迁移过来的全局主题流光）── */}
           <Card className="w-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-bamboo" />
-                主题流光
+                {m.settings_theme_title()}
               </CardTitle>
-              <CardDescription>
-                白噪音的五套流光配色现在在这里统一管理；选择后立即驱动设置、播放器、番茄钟面板与白噪音
-              </CardDescription>
+              <CardDescription>{m.settings_theme_description()}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-2.5 border-0 p-0">
-                <legend className="sr-only">主题流光</legend>
+                <legend className="sr-only">{m.settings_theme_title()}</legend>
                 {FLOW_THEMES.map((theme) => {
                   const active = theme.id === flowThemeId;
                   return (
                     <button
                       key={theme.id}
                       type="button"
-                      aria-label={`主题流光：${theme.label}`}
+                      aria-label={m.settings_theme_pick_aria({
+                        name: theme.label(),
+                      })}
                       aria-pressed={active}
                       onClick={() => setTheme(theme.id)}
                       className={cn(
@@ -210,7 +334,7 @@ export default function Settings() {
                           }
                         />
                       </span>
-                      {theme.label}
+                      {theme.label()}
                     </button>
                   );
                 })}
@@ -224,8 +348,8 @@ export default function Settings() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-ink-soft">
-                    当前：
-                    <strong className="font-medium">{flowTheme.label}</strong>
+                    {m.settings_theme_current_prefix()}
+                    <strong className="font-medium">{flowTheme.label()}</strong>
                   </span>
                   <span className="font-mono text-[10px] tracking-wide text-ink-faint">
                     {flowTheme.a} · {flowTheme.b}
@@ -239,13 +363,13 @@ export default function Settings() {
                 />
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-bamboo px-2.5 py-1 text-[10px] text-cloud">
-                    主按钮
+                    {m.settings_theme_primary()}
                   </span>
                   <span className="rounded-full border border-bamboo/40 bg-bamboo-mist px-2.5 py-1 text-[10px] text-bamboo">
-                    强调标签
+                    {m.settings_theme_accent()}
                   </span>
                   <span className="ml-auto text-[10px] text-muted-foreground">
-                    全局生效
+                    {m.settings_theme_applies_globally()}
                   </span>
                 </div>
               </div>
@@ -257,10 +381,10 @@ export default function Settings() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <AppWindow className="h-5 w-5 text-bamboo" />
-                窗口
+                {m.settings_window_title()}
               </CardTitle>
               <CardDescription>
-                所有 Lull 窗口共用的显示策略，修改后立即生效
+                {m.settings_window_description()}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -270,10 +394,10 @@ export default function Settings() {
                     htmlFor={windowPrefsSwitchId}
                     className="text-ink-soft"
                   >
-                    显示在任务栏并允许最小化
+                    {m.settings_window_taskbar()}
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    关闭后所有窗口都不进任务栏，顶栏也不显示最小化按钮（仍可从托盘打开）
+                    {m.settings_window_taskbar_hint()}
                   </p>
                 </div>
                 <Switch
@@ -286,9 +410,9 @@ export default function Settings() {
 
               <div className="space-y-3 border-t border-border/50 pt-3">
                 <p className="text-xs text-muted-foreground">
-                  工具窗口（开启即显示，关闭即隐藏）
+                  {m.settings_window_tools()}
                 </p>
-                {TOOL_WINDOWS.map(({ kind, name, description }) => (
+                {toolWindows.map(({ kind, name, description }) => (
                   <div key={kind} className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <span className="text-sm text-ink-soft">{name}</span>
@@ -299,7 +423,7 @@ export default function Settings() {
                       )}
                     </div>
                     <Switch
-                      aria-label={`${name}窗口`}
+                      aria-label={m.settings_window_toggle_aria({ name })}
                       checked={widgetStates?.[kind] === true}
                       disabled={widgetStates === null}
                       onCheckedChange={(on) => toggleWidget(kind, on)}
@@ -322,25 +446,15 @@ export default function Settings() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <MoonStar className="h-5 w-5 text-bamboo" />
-                关于 Lull
+                {m.settings_about_title()}
               </CardTitle>
               <CardDescription>
-                开源的助眠与专注桌面应用：壁纸、声场、番茄钟都在本地运行，不推送、不催促
+                {m.settings_about_description()}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-xs text-muted-foreground">
-              <p>
-                版本 0.1.0 · GPL-3.0-or-later · SDK Apache-2.0 · Tauri 2 +
-                Next.js 16 + Win32 Native Host
-              </p>
-              <p>
-                扩展模型：壁纸内容与工具扩展在「扩展」页统一安装、启用与卸载；
-                外部场景通过{" "}
-                <code className="font-mono text-ink-soft">
-                  content/catalog.json
-                </code>{" "}
-                发现，工具窗口由 Widget 清单声明。
-              </p>
+              <p>{m.settings_about_version({ version: "0.1.0" })}</p>
+              <p>{m.settings_about_extensions()}</p>
               <p className="font-mono text-[11px] text-ink-faint">
                 logs: %TEMP%\lull · config: app_config_dir\display.json
               </p>

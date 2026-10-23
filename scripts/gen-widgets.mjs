@@ -88,7 +88,8 @@ function readAppManifestCommands() {
   const block =
     source.match(/const APP_COMMANDS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ??
     "";
-  return [...block.matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+  // 命令名允许数字（如 i18n_boot），不能只匹配 [a-z_]。
+  return [...block.matchAll(/"([a-z0-9_]+)"/g)].map((match) => match[1]);
 }
 
 /** 校验两份命令表一致：漏一个命令会在运行期被 ACL 拒绝，提前在 CI 暴露。 */

@@ -7,7 +7,9 @@
 import { Moon, Sun } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { isTheme, useTheme } from "@/hooks/use-theme";
+import { useLocale } from "@/i18n/locale";
 import { cn } from "@/lib/utils";
+import { m } from "@/paraglide/messages";
 
 type ThemeSwitcherProps = {
   /** 额外的容器类名（控制面用来和顶栏背景融合）。 */
@@ -15,6 +17,8 @@ type ThemeSwitcherProps = {
 };
 
 export function ThemeSwitcher({ className }: ThemeSwitcherProps) {
+  // 订阅语言：明暗主题名随界面语言变化。
+  useLocale();
   const { theme, setTheme } = useTheme();
 
   return (
@@ -28,13 +32,21 @@ export function ThemeSwitcher({ className }: ThemeSwitcherProps) {
       size="sm"
       className={cn("shrink-0 rounded-md", className)}
     >
-      <ToggleGroupItem value="light" aria-label="浅色模式" className="gap-1">
+      <ToggleGroupItem
+        value="light"
+        aria-label={m.theme_light_aria()}
+        className="gap-1"
+      >
         <Sun className="h-3.5 w-3.5" />
-        <span className="text-xs hidden sm:inline">浅色</span>
+        <span className="text-xs hidden sm:inline">{m.theme_light()}</span>
       </ToggleGroupItem>
-      <ToggleGroupItem value="dark" aria-label="深色模式" className="gap-1">
+      <ToggleGroupItem
+        value="dark"
+        aria-label={m.theme_dark_aria()}
+        className="gap-1"
+      >
         <Moon className="h-3.5 w-3.5" />
-        <span className="text-xs hidden sm:inline">深色</span>
+        <span className="text-xs hidden sm:inline">{m.theme_dark()}</span>
       </ToggleGroupItem>
     </ToggleGroup>
   );

@@ -56,3 +56,11 @@ __pycache__/
 
 # 本地测试/打包产物（内容包 zip 等）
 /artifacts/
+
+# Paraglide 编译产物（pnpm i18n:compile 生成，不入库）
+/src/paraglide/
+
+# inlang 工程运行时状态（只有 settings.json 需要入库）
+/project.inlang/.lix/
+/project.inlang/cache/
+/project.inlang/.meta.json
