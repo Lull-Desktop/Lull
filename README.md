@@ -17,7 +17,8 @@ Lull 采用 Tauri + Win32 桌面宿主这条最难的技术路径，**桌面运�
 - **番茄钟**：液态时间沙漏，专注 / 短休 / 长休节奏，可保存偏好。
 - **播放器**：液态黑胶浮窗，在线氛围声与本地曲目。
 - **托盘常驻**：关闭窗口只隐藏；只有托盘「退出」才结束进程。
-- **可扩展内容**：外部静态场景包通过 `public/content/catalog.json` 被发现；第三方内容包可从设置页「选择 zip」/ 拖入 `.zip` / 文件夹安装，安装时复核清单与整包摘要。
+- **可扩展内容**：外部静态场景包通过 `public/content/catalog.json` 被发现；第三方内容包可在「扩展」页「从文件安装」选择 zip / 拖入安装，安装时复核清单与整包摘要。
+- **扩展中心**：设置页「扩展」页签统一管理壁纸内容与工具扩展；导入前预览清单、能力与体积，安装不执行代码，启用时才授权。
 - **自定义 Widget 插件**：静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV；支持自绘窗口顶栏/透明背景，提供原生 / React / Vue 示例，见 [插件包格式](docs/widget-package.md)。
 
 ## 界面预览
@@ -190,6 +191,8 @@ pnpm content:check
 - [Widget SDK](docs/widget-sdk.md)
 - [Widget 插件 SDK（`@lull/widget-sdk`）](packages/widget-sdk/README.md)
 - [内容包格式](docs/content-format.md)
+- [扩展中心设计](docs/extension-center.md)（v1 进行中：后端与基础 UI 已落地）
+- [扩展中心实施计划](docs/extension-center-plan.md)
 - [原生桌面宿主](docs/native-host.md)
 - [许可说明](docs/licensing.md)
 - [贡献指南](docs/contributing.md)

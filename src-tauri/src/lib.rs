@@ -8,9 +8,11 @@ use tauri::Manager;
 
 mod config;
 mod content_package;
+mod extension;
+mod package_hash;
 mod resource;
 mod tray;
-mod wallpaper;
+pub(crate) mod wallpaper;
 mod widget_package;
 mod window_frame;
 mod window_host;
@@ -37,6 +39,17 @@ pub fn run() {
       window_host::widget_open,
       window_host::widget_states,
       window_host::widget_close,
+      extension::extensions_list,
+      extension::extensions_inspect,
+      extension::extensions_pick,
+      extension::extensions_install,
+      extension::extensions_remove,
+      extension::extensions_set_enabled,
+      extension::extensions_set_capability,
+      extension::extensions_open,
+      extension::extensions_close,
+      extension::extensions_stop,
+      extension::extensions_open_dir,
       window_host::prefs::window_prefs_get,
       window_host::prefs::window_prefs_set,
       widget_package::widget_package_notify,

@@ -7,8 +7,7 @@
 //! 任何一侧改了算法都会让「官方工具打包的包装不进客户端」，所以
 //! `content_package::tests` 里用官方示例包的已知摘要做交叉校验。
 
-use sha2::{Digest, Sha256};
-use std::fmt::Write;
+use crate::package_hash;
 use std::path::Path;
 
 const SCHEME: &[u8] = b"lull-content-package\0";
@@ -18,72 +17,7 @@ pub fn compute(id: &str, version: &str, dir: &Path) -> Result<String, String> {
   if id.is_empty() || version.is_empty() {
     return Err("计算摘要需要 id 与 version".to_string());
   }
-  let mut files: Vec<String> = Vec::new();
-  collect(dir, dir, &mut files)?;
-  if files.is_empty() {
-    return Err(format!("内容包目录为空：{}", dir.display()));
-  }
-  files.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
-
-  let mut hash = Sha256::new();
-  hash.update(SCHEME);
-  for part in [id, version] {
-    hash.update(part.as_bytes());
-    hash.update([0_u8]);
-  }
-  for relative in &files {
-    let bytes = std::fs::read(dir.join(relative))
-      .map_err(|error| format!("读取 {relative} 失败：{error}"))?;
-    hash.update(relative.as_bytes());
-    hash.update([0_u8]);
-    hash.update(bytes.len().to_string().as_bytes());
-    hash.update([0_u8]);
-    hash.update(&bytes);
-    hash.update([0_u8]);
-  }
-  Ok(hex(&hash.finalize()))
-}
-
-/// 收集包内所有文件的相对路径（统一 `/` 分隔）；遇到符号链接直接失败。
-fn collect(dir: &Path, base: &Path, out: &mut Vec<String>) -> Result<(), String> {
-  let entries = std::fs::read_dir(dir)
-    .map_err(|error| format!("读取目录 {} 失败：{error}", dir.display()))?;
-  for entry in entries {
-    let entry = entry.map_err(|error| format!("读取目录项失败：{error}"))?;
-    let path = entry.path();
-    let file_type = entry
-      .file_type()
-      .map_err(|error| format!("读取文件类型失败：{error}"))?;
-    if file_type.is_symlink() {
-      return Err(format!("内容包不允许符号链接：{}", path.display()));
-    }
-    if file_type.is_dir() {
-      collect(&path, base, out)?;
-    } else if file_type.is_file() {
-      let relative = path
-        .strip_prefix(base)
-        .map_err(|error| format!("解析相对路径失败：{error}"))?;
-      let mut segments: Vec<String> = Vec::new();
-      for component in relative.components() {
-        let segment = component
-          .as_os_str()
-          .to_str()
-          .ok_or_else(|| format!("内容包文件名必须是 UTF-8：{}", path.display()))?;
-        segments.push(segment.to_string());
-      }
-      out.push(segments.join("/"));
-    }
-  }
-  Ok(())
-}
-
-fn hex(bytes: &[u8]) -> String {
-  let mut out = String::with_capacity(bytes.len() * 2);
-  for byte in bytes {
-    // 写 String 不会失败；用 `let _` 避免 unwrap_used 禁令。
-    let _ = write!(out, "{byte:02x}");
-  }
-  out
+  package_hash::compute(SCHEME, &[id, version], dir, |_| false)
 }
 
 #[cfg(test)]

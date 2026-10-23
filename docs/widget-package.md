@@ -4,6 +4,9 @@
 > `%APPDATA%\app.lull.desktop\widgets\<id>\`，由宿主创建独立窗口，
 > 在 `sandbox="allow-scripts"` 的不透明源 iframe 中运行。
 >
+> 安装器、扩展中心与包完整性已落地基础版本：见 [扩展中心设计](./extension-center.md)。
+> 包完整性使用旁路 `.lull-integrity.json`；本文的包结构、清单与权限模型保持不变。
+>
 > 首期不官方支持 Next.js / Nuxt（产物依赖内联脚本与绝对路径），
 > 播放器继续作为内置工具，不做插件化。
 
@@ -35,11 +38,12 @@
 
 ```text
 widgets/<id>/
-  widget.json        # 清单，必需
-  index.html         # entry 指向的入口，必需
-  main.js            # 构建产物（文件名任意，相对引用）
-  style.css          # 可选
-  assets/            # 可选；全部相对路径
+  widget.json            # 清单，必需
+  .lull-integrity.json   # 可选：本地摘要锁（安装/首次启用时生成）
+  index.html             # entry 指向的入口，必需
+  main.js                # 构建产物（文件名任意，相对引用）
+  style.css              # 可选
+  assets/                # 可选；全部相对路径
 ```
 
 约束：
@@ -50,7 +54,8 @@ widgets/<id>/
 - 不加载远程脚本/字体/样式；需要外部 API 时在清单里声明 `network`；
 - 单包建议 < 5 MB；状态总量上限 256 KiB。
 
-安装：把构建后的目录整体复制到上述路径，回到设置页点「刷新」。
+安装：在设置 → 扩展里点「从文件安装」选择 `.zip`（或拖入设置窗），
+安装器校验清单、包结构、摘要与许可后写入上述路径；也可以手动复制目录后点「刷新」。
 示例安装命令：
 
 ```powershell
@@ -73,6 +78,8 @@ pnpm widgets:samples:install
   "builtin": false,
   "hostApi": 1,
   "entry": "index.html",
+  "icon": "assets/icon.png",
+  "lifecycle": "background",
   "capabilities": [
     "widget.theme",
     "widget.state",
@@ -101,6 +108,8 @@ pnpm widgets:samples:install
 | `builtin` | 用户包必须为 `false`；`true` 只允许官方编译期清单 |
 | `hostApi` | `1`–`1`（当前宿主）；超出范围拒绝 |
 | `entry` | 包内相对 `.html` |
+| `icon` | 可选；包内 `.png` / `.jpg` / `.jpeg` / `.webp`，≤ 128 字符路径 |
+| `lifecycle` | `background`（默认，关闭只隐藏）或 `suspend`（关闭即销毁窗口） |
 | `capabilities` | 只能申请 `widget.ui` / `theme` / `state` / `audio` / `media` / `network` / `chrome` |
 | `window.width/height` | 320×240 – 1600×1200；`minWidth/minHeight` 不得大于初始值 |
 | `window.resizable` | 首期固定 `false`（窗口尺寸由宿主决定） |
@@ -120,11 +129,12 @@ pnpm widgets:samples:install
 | `widget.state` | 硬隔离 | Rust KV；按窗口 label 推导 id，消息里的 id 不被信任 |
 | `widget.audio` | 软约束 | 宿主只返回同意结果；iframe 仍可自行创建 AudioContext |
 | `widget.media` | 软约束 | 文件选择由浏览器处理；需要持久化时用状态 KV 或后续 `media.pick` |
-| `widget.network` | 硬约束 | 插件文档 CSP 的 `connect-src` 只包含清单声明的源 |
-| `widget.chrome` | 硬约束（宿主壳） | 允许 iframe 请求拖动/最小化/关闭/切换透明**自己的**窗口；不能创建或控制其他窗口 |
+| `widget.network` | 硬约束 | 只有实际授予时才把清单声明的源放进 `connect-src` |
+| `widget.chrome` | 硬约束（宿主壳） | 允许 iframe 请求拖动/最小化/关闭/切换透明**自己的**窗口；撤销后回退宿主顶栏；不能创建或控制其他窗口 |
 
-启用 = 授予清单声明的全部能力；撤销 = 关闭窗口、清空状态、删除授权记录。
-音频/媒体是**产品策略**，不是安全沙箱：CSP 与 sandbox 都无法阻止 iframe 自己发声或选择文件。
+启用 = 按清单声明授权，之后可逐项撤销；停用 = 销毁窗口、保留文件与状态；
+卸载 = 删除文件、授权和状态。音频/媒体是**产品策略**，不是安全沙箱：
+CSP 与 sandbox 都无法阻止 iframe 自己发声或选择文件。
 
 ## 4. 运行时模型
 
@@ -381,14 +391,15 @@ pnpm widgets:sdk:check         # 只做类型检查（CI）
 1. 任意静态构建工具产出 `dist/`；
 2. 生成/校验 `widget.json`；
 3. 检查产物：entry 存在、无绝对路径、无远程 URL、无 `localStorage`/`@tauri-apps/api`；
-4. 打包 zip（后续支持签名与安装器）。
+4. 打包 zip（安装器已支持；签名与自动更新待做）。
 
 ## 10. 已知边界
 
-- 没有安装器/签名/在线更新；手动复制目录；
-- 没有网络授权 UI；`network` 目前随启用一起授权；
+- 本地安装器已落地（扩展中心：选择 zip / 拖拽 / 预览确认）；没有签名、在线目录与自动更新；
+  手动复制目录仍可用，但只会标记为“未校验”，首次启用时生成本地摘要锁；
+- 网络授权是整体开关，不支持按源逐个授权；撤销后需停止并重开，当前页面才会收紧 CSP；
 - 音频/媒体不是硬权限；
-- 状态没有迁移 DSL；撤销即清空；
+- 状态没有迁移 DSL；卸载即清空，停用保留；
 - 插件窗口固定尺寸，不能创建其他窗口；`chrome: "custom"` 允许自绘拖拽区与窗口按钮；
 - 透明是 WebView 背景色，不改变窗口尺寸/阴影；Windows 下透明窗口无原生阴影；
 - 最多 256 KiB 状态与单值 32 KiB 上限；

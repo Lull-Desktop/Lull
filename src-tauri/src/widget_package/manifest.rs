@@ -100,6 +100,16 @@ pub struct PackageManifest {
   pub window: WindowSpec,
   #[serde(default)]
   pub network: Vec<String>,
+  /// 可选的包内图标；只接受 png / jpg / jpeg / webp。
+  #[serde(default)]
+  pub icon: Option<String>,
+  /// `background`（默认，关闭只隐藏）或 `suspend`（关闭即销毁窗口）。
+  #[serde(default = "default_lifecycle")]
+  pub lifecycle: String,
+}
+
+fn default_lifecycle() -> String {
+  "background".to_string()
 }
 
 fn default_host_api() -> u32 {
@@ -109,16 +119,27 @@ fn default_host_api() -> u32 {
 impl PackageManifest {
   /// 读取并校验 `<dir>/widget.json`；`dir_name` 必须与清单 id 一致。
   pub fn load(dir: &Path, dir_name: &str) -> Result<Self, String> {
-    let path = dir.join("widget.json");
-    let text = std::fs::read_to_string(&path)
-      .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
-    let manifest: Self = serde_json::from_str(&text)
-      .map_err(|error| format!("解析 {} 失败：{error}", path.display()))?;
-    manifest.validate(dir_name)?;
+    let manifest = Self::parse(dir)?;
+    manifest.validate(Some(dir_name))?;
     Ok(manifest)
   }
 
-  fn validate(&self, dir_name: &str) -> Result<(), String> {
+  /// 安装/预览时读取清单：此时目录名还没确定为 id，不校验目录名。
+  pub fn from_dir(dir: &Path) -> Result<Self, String> {
+    let manifest = Self::parse(dir)?;
+    manifest.validate(None)?;
+    Ok(manifest)
+  }
+
+  fn parse(dir: &Path) -> Result<Self, String> {
+    let path = dir.join("widget.json");
+    let text = std::fs::read_to_string(&path)
+      .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
+    serde_json::from_str(&text)
+      .map_err(|error| format!("解析 {} 失败：{error}", path.display()))
+  }
+
+  fn validate(&self, dir_name: Option<&str>) -> Result<(), String> {
     if self.schema_version != SCHEMA_VERSION {
       return Err(format!(
         "schemaVersion 必须是 {SCHEMA_VERSION}，当前为 {}",
@@ -131,11 +152,13 @@ impl PackageManifest {
     if !valid_id(&self.id) {
       return Err(format!("id 非法：{}", self.id));
     }
-    if self.id != dir_name {
-      return Err(format!(
-        "id 必须与目录名一致：目录 {dir_name}，清单 {}",
-        self.id
-      ));
+    if let Some(dir_name) = dir_name {
+      if self.id != dir_name {
+        return Err(format!(
+          "id 必须与目录名一致：目录 {dir_name}，清单 {}",
+          self.id
+        ));
+      }
     }
     if self.name.trim().is_empty() || self.name.chars().count() > 64 {
       return Err("name 必须是 1-64 字符".to_string());
@@ -205,6 +228,19 @@ impl PackageManifest {
     for source in &self.network {
       validate_network_source(source)?;
     }
+    if let Some(icon) = &self.icon {
+      if !safe_icon(icon) {
+        return Err(format!(
+          "icon 必须是包内的 .png/.jpg/.jpeg/.webp 相对路径：{icon}"
+        ));
+      }
+    }
+    if self.lifecycle != "background" && self.lifecycle != "suspend" {
+      return Err(format!(
+        "lifecycle 只能是 background 或 suspend，当前为 {}",
+        self.lifecycle
+      ));
+    }
     Ok(())
   }
 }
@@ -251,6 +287,26 @@ fn safe_entry(entry: &str) -> bool {
       .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
+fn safe_icon(icon: &str) -> bool {
+  if icon.is_empty() || icon.len() > 128 {
+    return false;
+  }
+  let lower = icon.to_ascii_lowercase();
+  let extension = lower.rsplit('.').next().unwrap_or_default();
+  if !matches!(extension, "png" | "jpg" | "jpeg" | "webp") {
+    return false;
+  }
+  !icon.starts_with('/')
+    && !icon.contains('\\')
+    && !icon.contains('%')
+    && icon.split('/').all(|segment| {
+      !segment.is_empty()
+        && segment != "."
+        && segment != ".."
+        && !segment.starts_with('.')
+    })
+}
+
 fn validate_network_source(source: &str) -> Result<(), String> {
   let allowed = source.starts_with("https://") || source.starts_with("http://localhost:");
   if !allowed || source.contains([' ', ';', '\n', '\r', '\t', '"', '\'']) || source.len() > 256 {
@@ -289,12 +345,14 @@ mod tests {
         chrome: "host".to_string(),
       },
       network: Vec::new(),
+      icon: None,
+      lifecycle: "background".to_string(),
     }
   }
 
   #[test]
   fn valid_manifest_passes() {
-    assert!(base().validate("community-pomodoro").is_ok());
+    assert!(base().validate(Some("community-pomodoro")).is_ok());
   }
 
   #[test]
@@ -303,7 +361,7 @@ mod tests {
       let mut manifest = base();
       manifest.capabilities.push(capability.to_string());
       assert!(
-        manifest.validate("community-pomodoro").is_err(),
+        manifest.validate(Some("community-pomodoro")).is_err(),
         "{capability}"
       );
     }
@@ -314,7 +372,7 @@ mod tests {
     for entry in ["../index.html", "/index.html", "a\\b.html", "index.js"] {
       let mut manifest = base();
       manifest.entry = entry.to_string();
-      assert!(manifest.validate("community-pomodoro").is_err(), "{entry}");
+      assert!(manifest.validate(Some("community-pomodoro")).is_err(), "{entry}");
     }
   }
 
@@ -322,7 +380,7 @@ mod tests {
   fn rejects_network_without_capability() {
     let mut manifest = base();
     manifest.network.push("https://api.example.com".to_string());
-    assert!(manifest.validate("community-pomodoro").is_err());
+    assert!(manifest.validate(Some("community-pomodoro")).is_err());
   }
 
   #[test]
@@ -330,34 +388,34 @@ mod tests {
     let mut manifest = base();
     manifest.capabilities.push("widget.network".to_string());
     manifest.network.push("https://api.example.com".to_string());
-    assert!(manifest.validate("community-pomodoro").is_ok());
+    assert!(manifest.validate(Some("community-pomodoro")).is_ok());
   }
 
   #[test]
   fn custom_chrome_requires_capability() {
     let mut manifest = base();
     manifest.window.chrome = "custom".to_string();
-    assert!(manifest.validate("community-pomodoro").is_err());
+    assert!(manifest.validate(Some("community-pomodoro")).is_err());
     manifest.capabilities.push("widget.chrome".to_string());
-    assert!(manifest.validate("community-pomodoro").is_ok());
+    assert!(manifest.validate(Some("community-pomodoro")).is_ok());
   }
 
   #[test]
   fn rejects_unknown_chrome_mode() {
     let mut manifest = base();
     manifest.window.chrome = "frameless".to_string();
-    assert!(manifest.validate("community-pomodoro").is_err());
+    assert!(manifest.validate(Some("community-pomodoro")).is_err());
   }
 
   #[test]
   fn rejects_resizable_and_bad_ids() {
     let mut manifest = base();
     manifest.window.resizable = true;
-    assert!(manifest.validate("community-pomodoro").is_err());
+    assert!(manifest.validate(Some("community-pomodoro")).is_err());
     for id in ["Community", "a", "a_b", "a.b"] {
       let mut manifest = base();
       manifest.id = id.to_string();
-      assert!(manifest.validate("community-pomodoro").is_err(), "{id}");
+      assert!(manifest.validate(Some("community-pomodoro")).is_err(), "{id}");
     }
   }
 }

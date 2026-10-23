@@ -353,6 +353,7 @@ export function WidgetPluginShell() {
 
   useEffect(() => {
     if (!context || !readyRef.current) return;
+    if (!context.granted.includes("widget.theme")) return;
     send({
       v: PROTOCOL_VERSION,
       type: "theme",
@@ -407,7 +408,9 @@ export function WidgetPluginShell() {
     () => (context ? `${context.name} ${context.version}` : "自定义插件"),
     [context],
   );
-  const customChrome = context?.window.chrome === "custom";
+  const customChrome =
+    context?.window.chrome === "custom" &&
+    (context.granted.includes("widget.chrome") ?? false);
 
   return (
     <div

@@ -8,7 +8,7 @@
 pub mod digest;
 pub mod manifest;
 mod protocol;
-mod store;
+pub(crate) mod store;
 
 pub use protocol::handle as handle_protocol;
 pub use store::ContentPackageInfo;

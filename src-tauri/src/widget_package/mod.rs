@@ -4,8 +4,9 @@
 //! 只获得 `core` 窗口权限与状态命令；包管理命令只有设置窗能调用。
 
 pub mod manifest;
+pub(crate) mod digest;
 mod protocol;
-mod store;
+pub(crate) mod store;
 
 pub use protocol::handle as handle_protocol;
 pub use store::PackageInfo;
@@ -179,15 +180,19 @@ pub fn widget_package_revoke(app: AppHandle, id: String) -> Result<(), String> {
 /// 打开插件窗口；固定尺寸、透明、无边框，窗口内容由 `/embed` 壳页承载。
 ///
 /// 必须是 async 命令：同步命令跑在主线程，运行中创建 WebView2 会卡死消息泵。
-#[tauri::command]
-pub async fn widget_package_open(app: AppHandle, id: String) -> Result<(), String> {
+pub async fn open(app: AppHandle, id: String) -> Result<(), String> {
   tauri::async_runtime::spawn_blocking(move || open_window(&app, &id))
     .await
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+pub async fn widget_package_open(app: AppHandle, id: String) -> Result<(), String> {
+  open(app, id).await
+}
+
 fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
-  let manifest = store::find(app, id)?;
+  let manifest = store::ensure_intact(app, id)?;
   if !store::is_enabled(app, id) {
     return Err("插件未启用，请先在设置中授权".to_string());
   }
@@ -251,16 +256,32 @@ fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
   Ok(())
 }
 
-#[tauri::command]
-pub fn widget_package_close(app: AppHandle, id: String) -> Result<(), String> {
-  if !manifest::valid_id(&id) {
+pub fn close(app: &AppHandle, id: &str) -> Result<(), String> {
+  if !manifest::valid_id(id) {
     return Err("插件 id 非法".to_string());
   }
-  if let Some(window) = app.get_webview_window(&label_for(&id)) {
+  if let Some(window) = app.get_webview_window(&label_for(id)) {
     window.hide().map_err(|error| error.to_string())?;
   }
-  notify(&app);
+  notify(app);
   Ok(())
+}
+
+/// 结束运行：销毁窗口，状态 KV 保留，下次打开冷启动。
+pub fn stop(app: &AppHandle, id: &str) -> Result<(), String> {
+  if !manifest::valid_id(id) {
+    return Err("插件 id 非法".to_string());
+  }
+  if let Some(window) = app.get_webview_window(&label_for(id)) {
+    window.destroy().map_err(|error| error.to_string())?;
+  }
+  notify(app);
+  Ok(())
+}
+
+#[tauri::command]
+pub fn widget_package_close(app: AppHandle, id: String) -> Result<(), String> {
+  close(&app, &id)
 }
 
 #[tauri::command]
@@ -322,6 +343,8 @@ mod tests {
       capabilities: vec!["widget.state".to_string()],
       window: WindowSpec::default(),
       network: Vec::new(),
+      icon: None,
+      lifecycle: "background".to_string(),
     };
     let json = serde_json::to_value(PluginContext {
       v: PROTOCOL_VERSION,

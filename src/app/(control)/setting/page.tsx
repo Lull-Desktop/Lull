@@ -14,7 +14,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { ContentPackagesCard } from "@/components/content-packages-card";
+import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
 import { SceneParamFields } from "@/components/scene-params";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -34,7 +34,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { WidgetPluginsCard } from "@/components/widget-plugins-card";
 import { useFlowTheme } from "@/hooks/use-flow-theme";
 import { useSceneCatalog } from "@/hooks/use-scene-catalog";
 import { FLOW_THEMES } from "@/lib/flow-theme";
@@ -112,6 +111,7 @@ export default function Settings() {
     boolean
   > | null>(null);
   const [widgetMsg, setWidgetMsg] = useState("");
+  const [tab, setTab] = useState<"preferences" | "extensions">("preferences");
 
   // 全局窗口偏好：所有窗口的任务栏 / 最小化开关，写入后 Rust 广播给各窗口顶栏。
   useEffect(() => {
@@ -314,393 +314,424 @@ export default function Settings() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-4">
-      <main className="space-y-6">
-        {/* ── Wallpaper Layer Control（真实接线）── */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Monitor className="h-5 w-5 text-bamboo" />
-              壁纸层
-            </CardTitle>
-            <CardDescription>
-              每台显示器一个壁纸窗口。关闭某屏即销毁该窗口（省内存），重新开启时重建；
-              总开关为临时显隐（窗口保持挂载）
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <Label htmlFor={wallpaperSwitchId} className="text-ink-soft">
-                显示壁纸
-              </Label>
-              <Switch
-                id={wallpaperSwitchId}
-                checked={wallpaperVisible === true}
-                disabled={wallpaperVisible === null}
-                onCheckedChange={toggleWallpaper}
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label className="text-ink-soft">显示模式</Label>
-              <ToggleGroup
-                type="single"
-                variant="outline"
-                size="sm"
-                value={display?.mode}
-                onValueChange={(v) =>
-                  v && updateDisplay({ mode: v as DisplayConfig["mode"] })
-                }
-              >
-                <ToggleGroupItem value="mirror">复制</ToggleGroupItem>
-                <ToggleGroupItem value="independent">独立</ToggleGroupItem>
-                <ToggleGroupItem value="span">跨屏</ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Label htmlFor={syncSwitchId} className="text-ink-soft">
-                  动画同步
-                </Label>
-                {display?.mode === "span" && (
-                  <span className="text-xs text-muted-foreground">
-                    跨屏强制同步（防接缝撕裂）
-                  </span>
-                )}
-                {display?.mode === "independent" && (
-                  <span className="text-xs text-muted-foreground">
-                    独立模式各自播放
-                  </span>
-                )}
-              </div>
-              <Switch
-                id={syncSwitchId}
-                checked={
-                  display?.mode === "span" ? true : display?.sync === true
-                }
-                disabled={display === null || display.mode !== "mirror"}
-                onCheckedChange={(on) => updateDisplay({ sync: on })}
-              />
-            </div>
-            {display &&
-              (display.mode === "mirror" || display.mode === "span") && (
-                <>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-ink-soft">全局场景</Label>
-                    <Select
-                      value={display.scene}
-                      onValueChange={(v) => updateDisplay({ scene: v })}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        aria-label="全局场景"
-                        className="w-32"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sceneEntries.map(({ manifest }) => (
-                          <SelectItem key={manifest.id} value={manifest.id}>
-                            {manifest.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {activeScene && (
-                    <p className="text-xs text-muted-foreground">
-                      {activeScene.manifest.description} · v
-                      {activeScene.manifest.version} ·{" "}
-                      {activeScene.manifest.license} ·{" "}
-                      {activeScene.source === "content" ? "内容包" : "内置"}
-                    </p>
-                  )}
-                  {activeScene?.manifest.params && (
-                    <SceneParamFields
-                      definitions={activeScene.manifest.params}
-                      values={display.sceneParams?.[display.scene] ?? {}}
-                      onChange={(key, value) =>
-                        updateSceneParam(display.scene, key, value)
-                      }
-                      onReset={() => commitSceneParams(display.scene, {})}
-                    />
-                  )}
-                </>
-              )}
-            {sceneCatalogError && (
-              <p className="text-xs text-muted-foreground">
-                外部内容目录未加载：{sceneCatalogError}
-              </p>
-            )}
-            {sceneCatalogIssues.length > 0 && (
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                {sceneCatalogIssues.slice(0, 5).map((issue) => (
-                  <li key={issue}>· {issue}</li>
-                ))}
-                {sceneCatalogIssues.length > 5 && (
-                  <li>· 另有 {sceneCatalogIssues.length - 5} 条内容包提示</li>
-                )}
-              </ul>
-            )}
-            {sortedMonitors && sortedMonitors.length > 0 && (
-              <div className="space-y-3 border-t border-border/50 pt-4">
-                {sortedMonitors.map((m, i) => {
-                  const monitorScene = sceneEntries.find(
-                    (entry) => entry.manifest.id === m.scene,
-                  );
-                  return (
-                    <div key={m.device} className="space-y-2">
-                      <div
-                        className="flex items-center justify-between"
-                        title={m.device}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-ink-soft">
-                            显示器 {i + 1}
-                          </span>
-                          <span className="text-xs font-mono tabular-nums text-muted-foreground">
-                            {m.w}×{m.h}
-                          </span>
-                          {m.primary && (
-                            <Badge
-                              variant="outline"
-                              className="border-bamboo/40 px-1.5 py-0 text-[10px] text-bamboo"
-                            >
-                              主屏
-                            </Badge>
-                          )}
-                        </div>
-                        {display?.mode === "independent" && (
-                          <Select
-                            value={m.scene}
-                            onValueChange={(v) =>
-                              updateMonitorScene(m.device, v)
-                            }
-                          >
-                            <SelectTrigger
-                              size="sm"
-                              aria-label={`显示器 ${i + 1} 场景`}
-                              className="w-28"
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {sceneEntries.map(({ manifest }) => (
-                                <SelectItem
-                                  key={manifest.id}
-                                  value={manifest.id}
-                                >
-                                  {manifest.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                        <Switch
-                          aria-label={`显示器 ${i + 1}`}
-                          checked={m.enabled}
-                          disabled={wallpaperVisible !== true}
-                          onCheckedChange={(on) => toggleMonitor(m.device, on)}
-                        />
-                      </div>
-                      {display?.mode === "independent" &&
-                        monitorScene?.manifest.params && (
-                          <SceneParamFields
-                            definitions={monitorScene.manifest.params}
-                            values={display?.sceneParams?.[m.scene] ?? {}}
-                            onChange={(key, value) =>
-                              updateSceneParam(m.scene, key, value)
-                            }
-                            onReset={() => commitSceneParams(m.scene, {})}
-                          />
-                        )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">{wallpaperMsg}</p>
-          </CardContent>
-        </Card>
+      <div
+        className="mb-4 flex gap-1 rounded-full border border-border/60 bg-paper-warm/60 p-1 text-xs"
+        role="tablist"
+        aria-label="设置分区"
+      >
+        {(
+          [
+            ["preferences", "偏好"],
+            ["extensions", "扩展"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={tab === value}
+            onClick={() => setTab(value)}
+            className={`flex-1 rounded-full px-3 py-1.5 transition-colors ${
+              tab === value
+                ? "bg-paper text-ink shadow-sm"
+                : "text-muted-foreground hover:text-ink-soft"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-        {/* ── Flow Theme（从白噪音迁移过来的全局主题流光）── */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-bamboo" />
-              主题流光
-            </CardTitle>
-            <CardDescription>
-              白噪音的五套流光配色现在在这里统一管理；选择后立即驱动设置、播放器、番茄钟面板与白噪音
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-2.5 border-0 p-0">
-              <legend className="sr-only">主题流光</legend>
-              {FLOW_THEMES.map((theme) => {
-                const active = theme.id === flowThemeId;
-                return (
-                  <button
-                    key={theme.id}
-                    type="button"
-                    aria-label={`主题流光：${theme.label}`}
-                    aria-pressed={active}
-                    onClick={() => setTheme(theme.id)}
-                    className={cn(
-                      "flex items-center gap-2 rounded-full border px-2 py-1 text-xs transition",
-                      active
-                        ? "border-bamboo/60 bg-bamboo-mist text-bamboo shadow-sm"
-                        : "border-border/70 text-muted-foreground hover:border-bamboo/40 hover:text-ink-soft",
-                    )}
-                  >
-                    <span className="grid h-4 w-4 shrink-0 place-items-center">
-                      <span
-                        className="flow-theme-swatch h-4 w-4"
-                        style={
-                          {
-                            "--dot-a": theme.a,
-                            "--dot-b": theme.b,
-                          } as FlowSwatchStyle
-                        }
-                      />
+      {tab === "preferences" ? (
+        <main className="space-y-6">
+          {/* ── Wallpaper Layer Control（真实接线）── */}
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Monitor className="h-5 w-5 text-bamboo" />
+                壁纸层
+              </CardTitle>
+              <CardDescription>
+                每台显示器一个壁纸窗口。关闭某屏即销毁该窗口（省内存），重新开启时重建；
+                总开关为临时显隐（窗口保持挂载）
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label htmlFor={wallpaperSwitchId} className="text-ink-soft">
+                  显示壁纸
+                </Label>
+                <Switch
+                  id={wallpaperSwitchId}
+                  checked={wallpaperVisible === true}
+                  disabled={wallpaperVisible === null}
+                  onCheckedChange={toggleWallpaper}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-ink-soft">显示模式</Label>
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  size="sm"
+                  value={display?.mode}
+                  onValueChange={(v) =>
+                    v && updateDisplay({ mode: v as DisplayConfig["mode"] })
+                  }
+                >
+                  <ToggleGroupItem value="mirror">复制</ToggleGroupItem>
+                  <ToggleGroupItem value="independent">独立</ToggleGroupItem>
+                  <ToggleGroupItem value="span">跨屏</ToggleGroupItem>
+                </ToggleGroup>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor={syncSwitchId} className="text-ink-soft">
+                    动画同步
+                  </Label>
+                  {display?.mode === "span" && (
+                    <span className="text-xs text-muted-foreground">
+                      跨屏强制同步（防接缝撕裂）
                     </span>
-                    {theme.label}
-                  </button>
-                );
-              })}
-            </fieldset>
-
-            <div
-              className="overflow-hidden rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-3"
-              style={{
-                backgroundImage: `radial-gradient(ellipse 70% 100% at 100% 0%, ${flowTheme.b}24, transparent 70%), radial-gradient(ellipse 60% 100% at 0% 100%, ${flowTheme.a}1f, transparent 72%)`,
-              }}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm text-ink-soft">
-                  当前：
-                  <strong className="font-medium">{flowTheme.label}</strong>
-                </span>
-                <span className="font-mono text-[10px] tracking-wide text-ink-faint">
-                  {flowTheme.a} · {flowTheme.b}
-                </span>
+                  )}
+                  {display?.mode === "independent" && (
+                    <span className="text-xs text-muted-foreground">
+                      独立模式各自播放
+                    </span>
+                  )}
+                </div>
+                <Switch
+                  id={syncSwitchId}
+                  checked={
+                    display?.mode === "span" ? true : display?.sync === true
+                  }
+                  disabled={display === null || display.mode !== "mirror"}
+                  onCheckedChange={(on) => updateDisplay({ sync: on })}
+                />
               </div>
-              <div
-                className="mt-2.5 h-1.5 rounded-full"
-                style={{
-                  backgroundImage: `linear-gradient(90deg, ${flowTheme.a}, ${flowTheme.b}, ${flowTheme.c})`,
-                }}
-              />
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-bamboo px-2.5 py-1 text-[10px] text-cloud">
-                  主按钮
-                </span>
-                <span className="rounded-full border border-bamboo/40 bg-bamboo-mist px-2.5 py-1 text-[10px] text-bamboo">
-                  强调标签
-                </span>
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  全局生效
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* ── Window Behavior（全局窗口偏好）── */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AppWindow className="h-5 w-5 text-bamboo" />
-              窗口
-            </CardTitle>
-            <CardDescription>
-              所有 Lull 窗口共用的显示策略，修改后立即生效
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <div className="space-y-1">
-                <Label htmlFor={windowPrefsSwitchId} className="text-ink-soft">
-                  显示在任务栏并允许最小化
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  关闭后所有窗口都不进任务栏，顶栏也不显示最小化按钮（仍可从托盘打开）
-                </p>
-              </div>
-              <Switch
-                id={windowPrefsSwitchId}
-                checked={windowPrefs?.taskbarAndMinimize === true}
-                disabled={windowPrefs === null}
-                onCheckedChange={updateWindowPrefs}
-              />
-            </div>
-
-            <div className="space-y-3 border-t border-border/50 pt-3">
-              <p className="text-xs text-muted-foreground">
-                工具窗口（开启即显示，关闭即隐藏）
-              </p>
-              {TOOL_WINDOWS.map(({ kind, name, description }) => (
-                <div key={kind} className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="text-sm text-ink-soft">{name}</span>
-                    {description && (
+              {display &&
+                (display.mode === "mirror" || display.mode === "span") && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <Label className="text-ink-soft">全局场景</Label>
+                      <Select
+                        value={display.scene}
+                        onValueChange={(v) => updateDisplay({ scene: v })}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          aria-label="全局场景"
+                          className="w-32"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sceneEntries.map(({ manifest }) => (
+                            <SelectItem key={manifest.id} value={manifest.id}>
+                              {manifest.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {activeScene && (
                       <p className="text-xs text-muted-foreground">
-                        {description}
+                        {activeScene.manifest.description} · v
+                        {activeScene.manifest.version} ·{" "}
+                        {activeScene.manifest.license} ·{" "}
+                        {activeScene.source === "content" ? "内容包" : "内置"}
                       </p>
                     )}
-                  </div>
-                  <Switch
-                    aria-label={`${name}窗口`}
-                    checked={widgetStates?.[kind] === true}
-                    disabled={widgetStates === null}
-                    onCheckedChange={(on) => toggleWidget(kind, on)}
-                  />
+                    {activeScene?.manifest.params && (
+                      <SceneParamFields
+                        definitions={activeScene.manifest.params}
+                        values={display.sceneParams?.[display.scene] ?? {}}
+                        onChange={(key, value) =>
+                          updateSceneParam(display.scene, key, value)
+                        }
+                        onReset={() => commitSceneParams(display.scene, {})}
+                      />
+                    )}
+                  </>
+                )}
+              {sceneCatalogError && (
+                <p className="text-xs text-muted-foreground">
+                  外部内容目录未加载：{sceneCatalogError}
+                </p>
+              )}
+              {sceneCatalogIssues.length > 0 && (
+                <ul className="space-y-1 text-xs text-muted-foreground">
+                  {sceneCatalogIssues.slice(0, 5).map((issue) => (
+                    <li key={issue}>· {issue}</li>
+                  ))}
+                  {sceneCatalogIssues.length > 5 && (
+                    <li>· 另有 {sceneCatalogIssues.length - 5} 条内容包提示</li>
+                  )}
+                </ul>
+              )}
+              {sortedMonitors && sortedMonitors.length > 0 && (
+                <div className="space-y-3 border-t border-border/50 pt-4">
+                  {sortedMonitors.map((m, i) => {
+                    const monitorScene = sceneEntries.find(
+                      (entry) => entry.manifest.id === m.scene,
+                    );
+                    return (
+                      <div key={m.device} className="space-y-2">
+                        <div
+                          className="flex items-center justify-between"
+                          title={m.device}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-ink-soft">
+                              显示器 {i + 1}
+                            </span>
+                            <span className="text-xs font-mono tabular-nums text-muted-foreground">
+                              {m.w}×{m.h}
+                            </span>
+                            {m.primary && (
+                              <Badge
+                                variant="outline"
+                                className="border-bamboo/40 px-1.5 py-0 text-[10px] text-bamboo"
+                              >
+                                主屏
+                              </Badge>
+                            )}
+                          </div>
+                          {display?.mode === "independent" && (
+                            <Select
+                              value={m.scene}
+                              onValueChange={(v) =>
+                                updateMonitorScene(m.device, v)
+                              }
+                            >
+                              <SelectTrigger
+                                size="sm"
+                                aria-label={`显示器 ${i + 1} 场景`}
+                                className="w-28"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {sceneEntries.map(({ manifest }) => (
+                                  <SelectItem
+                                    key={manifest.id}
+                                    value={manifest.id}
+                                  >
+                                    {manifest.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                          <Switch
+                            aria-label={`显示器 ${i + 1}`}
+                            checked={m.enabled}
+                            disabled={wallpaperVisible !== true}
+                            onCheckedChange={(on) =>
+                              toggleMonitor(m.device, on)
+                            }
+                          />
+                        </div>
+                        {display?.mode === "independent" &&
+                          monitorScene?.manifest.params && (
+                            <SceneParamFields
+                              definitions={monitorScene.manifest.params}
+                              values={display?.sceneParams?.[m.scene] ?? {}}
+                              onChange={(key, value) =>
+                                updateSceneParam(m.scene, key, value)
+                              }
+                              onReset={() => commitSceneParams(m.scene, {})}
+                            />
+                          )}
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
+              )}
+              <p className="text-xs text-muted-foreground">{wallpaperMsg}</p>
+            </CardContent>
+          </Card>
 
-            {windowPrefsMsg && (
-              <p className="text-xs text-destructive">{windowPrefsMsg}</p>
-            )}
-            {widgetMsg && (
-              <p className="text-xs text-destructive">{widgetMsg}</p>
-            )}
-          </CardContent>
-        </Card>
+          {/* ── Flow Theme（从白噪音迁移过来的全局主题流光）── */}
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-bamboo" />
+                主题流光
+              </CardTitle>
+              <CardDescription>
+                白噪音的五套流光配色现在在这里统一管理；选择后立即驱动设置、播放器、番茄钟面板与白噪音
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-2.5 border-0 p-0">
+                <legend className="sr-only">主题流光</legend>
+                {FLOW_THEMES.map((theme) => {
+                  const active = theme.id === flowThemeId;
+                  return (
+                    <button
+                      key={theme.id}
+                      type="button"
+                      aria-label={`主题流光：${theme.label}`}
+                      aria-pressed={active}
+                      onClick={() => setTheme(theme.id)}
+                      className={cn(
+                        "flex items-center gap-2 rounded-full border px-2 py-1 text-xs transition",
+                        active
+                          ? "border-bamboo/60 bg-bamboo-mist text-bamboo shadow-sm"
+                          : "border-border/70 text-muted-foreground hover:border-bamboo/40 hover:text-ink-soft",
+                      )}
+                    >
+                      <span className="grid h-4 w-4 shrink-0 place-items-center">
+                        <span
+                          className="flow-theme-swatch h-4 w-4"
+                          style={
+                            {
+                              "--dot-a": theme.a,
+                              "--dot-b": theme.b,
+                            } as FlowSwatchStyle
+                          }
+                        />
+                      </span>
+                      {theme.label}
+                    </button>
+                  );
+                })}
+              </fieldset>
 
-        <WidgetPluginsCard />
+              <div
+                className="overflow-hidden rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-3"
+                style={{
+                  backgroundImage: `radial-gradient(ellipse 70% 100% at 100% 0%, ${flowTheme.b}24, transparent 70%), radial-gradient(ellipse 60% 100% at 0% 100%, ${flowTheme.a}1f, transparent 72%)`,
+                }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm text-ink-soft">
+                    当前：
+                    <strong className="font-medium">{flowTheme.label}</strong>
+                  </span>
+                  <span className="font-mono text-[10px] tracking-wide text-ink-faint">
+                    {flowTheme.a} · {flowTheme.b}
+                  </span>
+                </div>
+                <div
+                  className="mt-2.5 h-1.5 rounded-full"
+                  style={{
+                    backgroundImage: `linear-gradient(90deg, ${flowTheme.a}, ${flowTheme.b}, ${flowTheme.c})`,
+                  }}
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-bamboo px-2.5 py-1 text-[10px] text-cloud">
+                    主按钮
+                  </span>
+                  <span className="rounded-full border border-bamboo/40 bg-bamboo-mist px-2.5 py-1 text-[10px] text-bamboo">
+                    强调标签
+                  </span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    全局生效
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-        <ContentPackagesCard />
+          {/* ── Window Behavior（全局窗口偏好）── */}
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AppWindow className="h-5 w-5 text-bamboo" />
+                窗口
+              </CardTitle>
+              <CardDescription>
+                所有 Lull 窗口共用的显示策略，修改后立即生效
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor={windowPrefsSwitchId}
+                    className="text-ink-soft"
+                  >
+                    显示在任务栏并允许最小化
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    关闭后所有窗口都不进任务栏，顶栏也不显示最小化按钮（仍可从托盘打开）
+                  </p>
+                </div>
+                <Switch
+                  id={windowPrefsSwitchId}
+                  checked={windowPrefs?.taskbarAndMinimize === true}
+                  disabled={windowPrefs === null}
+                  onCheckedChange={updateWindowPrefs}
+                />
+              </div>
 
-        {/* ── About Lull（开源身份与扩展入口）── */}
-        <Card className="w-full">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MoonStar className="h-5 w-5 text-bamboo" />
-              关于 Lull
-            </CardTitle>
-            <CardDescription>
-              开源的助眠与专注桌面应用：壁纸、声场、番茄钟都在本地运行，不推送、不催促
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-xs text-muted-foreground">
-            <p>
-              版本 0.1.0 · GPL-3.0-or-later · SDK Apache-2.0 · Tauri 2 + Next.js
-              16 + Win32 Native Host
-            </p>
-            <p>
-              扩展模型：内置场景由 Scene SDK 注册；外部静态场景通过{" "}
-              <code className="font-mono text-ink-soft">
-                content/catalog.json
-              </code>{" "}
-              发现；工具窗口由 Widget 清单声明。
-            </p>
-            <p className="font-mono text-[11px] text-ink-faint">
-              logs: %TEMP%\lull · config: app_config_dir\display.json
-            </p>
-          </CardContent>
-        </Card>
+              <div className="space-y-3 border-t border-border/50 pt-3">
+                <p className="text-xs text-muted-foreground">
+                  工具窗口（开启即显示，关闭即隐藏）
+                </p>
+                {TOOL_WINDOWS.map(({ kind, name, description }) => (
+                  <div key={kind} className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <span className="text-sm text-ink-soft">{name}</span>
+                      {description && (
+                        <p className="text-xs text-muted-foreground">
+                          {description}
+                        </p>
+                      )}
+                    </div>
+                    <Switch
+                      aria-label={`${name}窗口`}
+                      checked={widgetStates?.[kind] === true}
+                      disabled={widgetStates === null}
+                      onCheckedChange={(on) => toggleWidget(kind, on)}
+                    />
+                  </div>
+                ))}
+              </div>
 
-        {/* ── Button Showcase ── */}
-        {/* <Card className="w-full">
+              {windowPrefsMsg && (
+                <p className="text-xs text-destructive">{windowPrefsMsg}</p>
+              )}
+              {widgetMsg && (
+                <p className="text-xs text-destructive">{widgetMsg}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── About Lull（开源身份与扩展入口）── */}
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MoonStar className="h-5 w-5 text-bamboo" />
+                关于 Lull
+              </CardTitle>
+              <CardDescription>
+                开源的助眠与专注桌面应用：壁纸、声场、番茄钟都在本地运行，不推送、不催促
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2 text-xs text-muted-foreground">
+              <p>
+                版本 0.1.0 · GPL-3.0-or-later · SDK Apache-2.0 · Tauri 2 +
+                Next.js 16 + Win32 Native Host
+              </p>
+              <p>
+                扩展模型：壁纸内容与工具扩展在「扩展」页统一安装、启用与卸载；
+                外部场景通过{" "}
+                <code className="font-mono text-ink-soft">
+                  content/catalog.json
+                </code>{" "}
+                发现，工具窗口由 Widget 清单声明。
+              </p>
+              <p className="font-mono text-[11px] text-ink-faint">
+                logs: %TEMP%\lull · config: app_config_dir\display.json
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* ── Button Showcase ── */}
+          {/* <Card className="w-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Palette className="h-5 w-5 text-bamboo" />
@@ -721,8 +752,8 @@ export default function Settings() {
             </CardContent>
           </Card> */}
 
-        {/* ── Floral Controls ── */}
-        {/* <div className="grid gap-6 md:grid-cols-2">
+          {/* ── Floral Controls ── */}
+          {/* <div className="grid gap-6 md:grid-cols-2">
             <Card className="w-full">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
@@ -803,8 +834,8 @@ export default function Settings() {
             </Card>
           </div> */}
 
-        {/* ── Tauri Integration ── */}
-        {/* <Card className="w-full">
+          {/* ── Tauri Integration ── */}
+          {/* <Card className="w-full">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Zap className="h-5 w-5 text-bamboo" />
@@ -828,8 +859,8 @@ export default function Settings() {
             </CardFooter>
           </Card> */}
 
-        {/* ── Noise Texture Demo ── */}
-        {/* <Card className="w-full noise-bg overflow-hidden">
+          {/* ── Noise Texture Demo ── */}
+          {/* <Card className="w-full noise-bg overflow-hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Feather className="h-5 w-5 text-bamboo" />
@@ -860,7 +891,14 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card> */}
-      </main>
+        </main>
+      ) : (
+        <main className="space-y-6">
+          <ExtensionsPanel
+            onOpenWallpaperSettings={() => setTab("preferences")}
+          />
+        </main>
+      )}
     </div>
   );
 }

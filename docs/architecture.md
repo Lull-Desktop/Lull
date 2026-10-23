@@ -67,6 +67,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | **Core** | `src/core/**`、`src-tauri/src/{config,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
 | **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/widget-sdk/**`、`examples/widgets/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
 | **Community** | `content/**`、`public/content/**`、`scripts/*-content.mjs`、`src-tauri/src/content_package/**` | 清单格式、静态 HTML/CSS、用户内容目录读写 | 修改核心 / 创建系统窗口 / 执行内容包里的代码 |
+| **Extension Center** | `src-tauri/src/extension/**`、`src-tauri/src/package_hash.rs`、`src/components/extensions/**`、`src/lib/extensions.ts`、`src/hooks/use-extensions.ts` | `content_package` / `widget_package` 的校验与运行时；共享安装管线 | 拥有包格式 / 直接执行包内代码 |
 | **Services** | 设计文档 | — | 成为本地运行前置依赖 |
 | **App** | `src/app/**`、`src/components/**`、`src/hooks/**` | 以上全部 | 把业务规则塞回路由壳 |
 
@@ -116,10 +117,16 @@ lib.rs
  │    ├─ store.rs（扫描 / zip 安装 / 卸载 / 打开目录）
  │    └─ protocol.rs（lullcontent:// 资源协议）
  ├─ resource.rs（safe_join + MIME，插件与内容包共用）
+ ├─ package_hash.rs（两类包共用的文件遍历 + 摘要拼装）
+ ├─ extension
+ │    ├─ mod.rs（门面：列表 / 预览 / 安装 / 卸载 / 启停 / 权限）
+ │    ├─ install.rs（共享 staging / zip / 预算 / 原子落地）
+ │    └─ error.rs（稳定错误码）
  ├─ widget_package
  │    ├─ mod.rs（插件窗口 / 命令 / 上下文）
  │    ├─ manifest.rs（widget.json v2 校验）
- │    ├─ store.rs（包发现 / 授权记录 / 状态 KV）
+ │    ├─ digest.rs（旁路 .lull-integrity.json + 整包摘要）
+ │    ├─ store.rs（包发现 / 授权记录 / 状态 KV / 安装卸载）
  │    └─ protocol.rs（lullwidget:// 资源协议 + 逐插件 CSP）
  ├─ build.rs（校验 widgets/manifests，生成 $OUT_DIR/widget_specs.rs）
  ├─ window_frame.rs（原子 SetWindowPos）
@@ -137,7 +144,8 @@ lib.rs
 
 ## 4. IPC 合约
 
-类型以 Rust `serde` 输出为准；前端 TypeScript 类型在设置页内声明，字段变更必须同时改两侧与测试。
+类型以 Rust `serde` 输出为准；扩展类型集中在 `src/lib/extensions.ts`，场景/内容类型在
+`src/content/user-content.ts` 与 SDK 中声明；字段变更必须同时改两侧与测试。
 
 ### 4.1 命令
 
@@ -147,6 +155,17 @@ lib.rs
 | `widget_open` | `kind` | `()` | `window_host` |
 | `widget_states` | — | `{kind,visible,version,capabilities}[]` | `window_host` |
 | `widget_close` | `kind` | `()` | `window_host` |
+| `extensions_list` | — | `ExtensionInfo[]` | `extension` |
+| `extensions_inspect` | `path` | `ExtensionPreview` | `extension` |
+| `extensions_pick` | — | `{path,preview} \| null` | `extension`（系统文件对话框） |
+| `extensions_install` | `path,sourceDigest?` | `ExtensionInfo` | `extension` |
+| `extensions_remove` | `kind,id` | `()` | `extension` |
+| `extensions_set_enabled` | `id,enabled` | `ExtensionInfo` | `extension` |
+| `extensions_set_capability` | `id,capability,granted` | `ExtensionInfo` | `extension` |
+| `extensions_open` | `kind,id` | `()` | `extension` |
+| `extensions_close` | `id` | `()` | `extension` |
+| `extensions_stop` | `id` | `()` | `extension` |
+| `extensions_open_dir` | `kind` | `string` | `extension` |
 | `widget_packages` | — | `PackageInfo[]` | `widget_package` |
 | `widget_package_set_enabled` | `id,enabled` | `()` | `widget_package` |
 | `widget_package_open` | `id` | `()` | `widget_package` |
@@ -187,6 +206,7 @@ lib.rs
 | `window-prefs-changed` | Rust | 所有顶栏重新读取 `isMinimizable` |
 | `flow-theme-changed` | 前端（跨窗口） | 设置 / 播放器 / 番茄钟 / 白噪音 |
 | `content-changed` | Rust（内容包安装 / 卸载） | 设置页与壁纸窗的场景目录 |
+| `extensions-changed` | Rust（安装 / 卸载 / 启用 / 改权限） | 扩展中心、托盘；兼容期同时发 `content-changed` |
 
 ### 4.3 Widget 上下文注入
 
@@ -318,8 +338,8 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | 阶段 | 目标 | 当前状态 | 退出条件 |
 | --- | --- | --- | --- |
 | **A · Core** | 模块边界、配置/协议版本、命名清理、测试基线 | 已完成第一轮 | 目录与命名重构后功能/测试/安装包不退化 |
-| **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件侧 SDK 已 TypeScript 化（`dist` + `.d.ts` + 契约测试）；仍缺 npm 发布、安装器与签名 | 外部示例场景无需改核心即可运行 |
-| **C · Community** | 内容包格式、示例、包摘要、目录签名、用户内容目录与安装器 | 格式 + 示例 + 摘要 + 签名 + 本地安装器（拖入 zip/文件夹）已落地；仍缺在线索引与第三方签名信任链 | 外部开发者可独立构建、安装并分享内容包 |
+| **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件侧 SDK 已 TypeScript 化（`dist` + `.d.ts` + 契约测试）；插件 ZIP 安装、旁路摘要锁、扩展中心与逐能力授权已落地；仍缺开发模式、托盘入口、npm 发布与签名 | 外部示例场景无需改核心即可运行 |
+| **C · Community** | 内容包格式、示例、包摘要、目录签名、用户内容目录与安装器 | 格式 + 示例 + 摘要 + 签名 + 统一安装入口（scene/widget 共用 staging）已落地；仍缺在线索引、第三方签名信任链与 scene 卸载自动回退 | 外部开发者可独立构建、安装并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
 
 ## 9. 已知边界与风险

@@ -1,6 +1,9 @@
 //! 插件包发现、授权记录与按插件隔离的状态 KV。
 
+use super::digest;
 use super::manifest::{PackageManifest, WindowSpec, HOST_API};
+use crate::extension::install;
+use crate::extension::ExtensionError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -53,13 +56,20 @@ pub struct PackageInfo {
   pub description: Option<String>,
   pub author: Option<String>,
   pub license: Option<String>,
-  /// `ready` / `invalid`
+  /// `ready` / `invalid` / `tampered`
   pub status: String,
   pub error: Option<String>,
   pub requested: Vec<String>,
   pub granted: Vec<String>,
   pub enabled: bool,
+  pub running: bool,
+  pub verified: bool,
+  /// `declared` / `computed` / `none`
+  pub integrity: String,
+  pub tampered: bool,
   pub window: PackageWindow,
+  pub lifecycle: String,
+  pub network: Vec<String>,
   pub entry_url: String,
   pub host_api: u32,
 }
@@ -138,9 +148,23 @@ pub fn entry_url(id: &str, entry: &str) -> String {
   format!("{origin}/{id}/{entry}")
 }
 
+pub fn resolve_dir(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+  package_dir(app, id)
+}
+
 pub fn find(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
-  let dir = package_dir(app, id)?;
+  let dir = resolve_dir(app, id)?;
   PackageManifest::load(&dir, id)
+}
+
+/// 打开/启用前复核摘要：有锁且不匹配就阻止加载。
+pub fn ensure_intact(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
+  let dir = resolve_dir(app, id)?;
+  let manifest = PackageManifest::load(&dir, id)?;
+  if let Err(error) = digest::check(&dir, &manifest.id, &manifest.version) {
+    return Err(format!("内容包摘要不匹配，已阻止加载：{error}"));
+  }
+  Ok(manifest)
 }
 
 pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
@@ -163,8 +187,14 @@ pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
     if dir_name.starts_with('.') || !path.join("widget.json").is_file() {
       continue;
     }
+    let running = is_running(app, dir_name);
     match PackageManifest::load(&path, dir_name) {
-      Ok(manifest) => packages.push(info_from(&manifest, grants.widgets.get(dir_name))),
+      Ok(manifest) => packages.push(info_from(
+        &path,
+        &manifest,
+        grants.widgets.get(dir_name),
+        running,
+      )),
       Err(error) => packages.push(invalid_info(dir_name, &error)),
     }
   }
@@ -172,7 +202,12 @@ pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
   packages
 }
 
-fn info_from(manifest: &PackageManifest, grant: Option<&GrantRecord>) -> PackageInfo {
+fn info_from(
+  dir: &Path,
+  manifest: &PackageManifest,
+  grant: Option<&GrantRecord>,
+  running: bool,
+) -> PackageInfo {
   let enabled = grant.is_some_and(|record| record.enabled);
   let granted = if enabled {
     grant
@@ -181,6 +216,12 @@ fn info_from(manifest: &PackageManifest, grant: Option<&GrantRecord>) -> Package
   } else {
     Vec::new()
   };
+  let (verified, integrity, tampered, integrity_error) =
+    match digest::check(dir, &manifest.id, &manifest.version) {
+      Ok(Some(record)) => (true, record.source, false, None),
+      Ok(None) => (false, "none".to_string(), false, None),
+      Err(error) => (false, "none".to_string(), true, Some(error)),
+    };
   PackageInfo {
     id: manifest.id.clone(),
     name: manifest.name.clone(),
@@ -188,12 +229,22 @@ fn info_from(manifest: &PackageManifest, grant: Option<&GrantRecord>) -> Package
     description: manifest.description.clone(),
     author: manifest.author.clone(),
     license: manifest.license.clone(),
-    status: "ready".to_string(),
-    error: None,
+    status: if tampered {
+      "tampered".to_string()
+    } else {
+      "ready".to_string()
+    },
+    error: integrity_error,
     requested: manifest.capabilities.clone(),
     granted,
     enabled,
+    running,
+    verified,
+    integrity,
+    tampered,
     window: PackageWindow::from(&manifest.window),
+    lifecycle: manifest.lifecycle.clone(),
+    network: manifest.network.clone(),
     entry_url: entry_url(&manifest.id, &manifest.entry),
     host_api: manifest.host_api,
   }
@@ -212,10 +263,22 @@ fn invalid_info(id: &str, error: &str) -> PackageInfo {
     requested: Vec::new(),
     granted: Vec::new(),
     enabled: false,
+    running: false,
+    verified: false,
+    integrity: "none".to_string(),
+    tampered: false,
     window: PackageWindow::from(&WindowSpec::default()),
+    lifecycle: "background".to_string(),
+    network: Vec::new(),
     entry_url: String::new(),
     host_api: HOST_API,
   }
+}
+
+fn is_running(app: &AppHandle, id: &str) -> bool {
+  app
+    .get_webview_window(&format!("{}{}", super::LABEL_PREFIX, id))
+    .is_some()
 }
 
 fn grants_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -240,7 +303,18 @@ fn save_grants(app: &AppHandle, grants: &GrantsFile) -> Result<(), String> {
 }
 
 pub fn set_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(), String> {
-  let manifest = find(app, id)?;
+  let manifest = if enabled {
+    ensure_intact(app, id)?
+  } else {
+    find(app, id)?
+  };
+  if enabled {
+    // 手动放置的包在首次启用时补一把本地锁；目录只读则保持“未校验”，不阻断启用。
+    let dir = resolve_dir(app, id)?;
+    if digest::read(&dir)?.is_none() {
+      let _ = digest::seal(&dir, &manifest.id, &manifest.version, "computed");
+    }
+  }
   let mut grants = load_grants(app)?;
   if enabled {
     grants.widgets.insert(
@@ -261,9 +335,45 @@ pub fn set_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(), Strin
   }
   save_grants(app, &grants)?;
   if !enabled {
-    hide_window(app, id);
+    destroy_window(app, id);
   }
   Ok(())
+}
+
+/// 逐能力授权；运行中拒绝修改，避免撤销 `widget.chrome` 后窗口无法关闭。
+pub fn set_capability(
+  app: &AppHandle,
+  id: &str,
+  capability: &str,
+  granted: bool,
+) -> Result<(), String> {
+  let manifest = find(app, id)?;
+  if !manifest
+    .capabilities
+    .iter()
+    .any(|item| item == capability)
+  {
+    return Err(format!("插件没有声明能力：{capability}"));
+  }
+  if is_running(app, id) {
+    return Err("运行中不能修改权限，请先结束运行".to_string());
+  }
+  let mut grants = load_grants(app)?;
+  let record = grants
+    .widgets
+    .get_mut(id)
+    .ok_or_else(|| "插件未启用".to_string())?;
+  if !record.enabled {
+    return Err("插件未启用".to_string());
+  }
+  if granted {
+    if !record.granted.iter().any(|item| item == capability) {
+      record.granted.push(capability.to_string());
+    }
+  } else {
+    record.granted.retain(|item| item != capability);
+  }
+  save_grants(app, &grants)
 }
 
 pub fn revoke(app: &AppHandle, id: &str) -> Result<(), String> {
@@ -271,8 +381,74 @@ pub fn revoke(app: &AppHandle, id: &str) -> Result<(), String> {
   grants.widgets.remove(id);
   save_grants(app, &grants)?;
   clear_state(app, id)?;
-  hide_window(app, id);
+  destroy_window(app, id);
   Ok(())
+}
+
+/// 卸载：销毁窗口、删授权、删状态、删目录。
+pub fn remove(app: &AppHandle, id: &str) -> Result<(), String> {
+  if !super::manifest::valid_id(id) {
+    return Err("插件 id 非法".to_string());
+  }
+  let dir = resolve_dir(app, id)?;
+  if !dir.is_dir() {
+    return Err(format!("没有安装 id={id} 的插件"));
+  }
+  revoke(app, id)?;
+
+  let root = root(app)?;
+  let canonical_root =
+    std::fs::canonicalize(&root).map_err(|error| format!("插件目录不可用：{error}"))?;
+  let canonical_dir =
+    std::fs::canonicalize(&dir).map_err(|error| format!("插件目录不可用：{error}"))?;
+  if canonical_dir.parent() != Some(canonical_root.as_path()) {
+    return Err("拒绝删除插件目录之外的路径".to_string());
+  }
+  std::fs::remove_dir_all(&canonical_dir).map_err(|error| format!("卸载失败：{error}"))
+}
+
+/// 安装：共享 staging + widget 清单/摘要校验 + 原子落地。
+pub fn install_from_staged(
+  root: &Path,
+  staged: &install::Staged,
+) -> Result<PackageInfo, ExtensionError> {
+  let manifest = PackageManifest::from_dir(staged.bundle())
+    .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
+  if manifest
+    .license
+    .as_deref()
+    .unwrap_or_default()
+    .trim()
+    .is_empty()
+  {
+    return Err(ExtensionError::new(
+      "manifest.license-missing",
+      "widget.json 必须声明 license",
+    ));
+  }
+  if !staged.bundle().join(&manifest.entry).is_file() {
+    return Err(ExtensionError::new(
+      "manifest.entry-missing",
+      format!("entry 指向的文件不存在：{}", manifest.entry),
+    ));
+  }
+  crate::resource::safe_join(staged.bundle(), &manifest.entry).map_err(|error| {
+    ExtensionError::new("manifest.entry-unsafe", error)
+  })?;
+
+  match digest::check(staged.bundle(), &manifest.id, &manifest.version) {
+    Ok(Some(_)) => {}
+    Ok(None) => {
+      digest::seal(staged.bundle(), &manifest.id, &manifest.version, "computed")
+        .map_err(|error| ExtensionError::new("io.error", error))?;
+    }
+    Err(error) => {
+      return Err(ExtensionError::new("integrity.mismatch", error));
+    }
+  }
+
+  let target = staged.commit(root, &manifest.id)?;
+  Ok(info_from(&target, &manifest, None, false))
 }
 
 pub fn is_enabled(app: &AppHandle, id: &str) -> bool {
@@ -310,9 +486,9 @@ pub fn require_grant(app: &AppHandle, id: &str, capability: &str) -> Result<(), 
   Ok(())
 }
 
-fn hide_window(app: &AppHandle, id: &str) {
-  if let Some(window) = app.get_webview_window(&format!("widget-{id}")) {
-    let _ = window.hide();
+fn destroy_window(app: &AppHandle, id: &str) {
+  if let Some(window) = app.get_webview_window(&format!("{}{}", super::LABEL_PREFIX, id)) {
+    let _ = window.destroy();
   }
 }
 
@@ -431,5 +607,94 @@ mod tests {
     assert_eq!(info.status, "invalid");
     assert!(!info.enabled);
     assert!(info.window.width >= 320.0);
+  }
+
+  fn temp_root(tag: &str) -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join(format!(
+      "lull-widget-store-{tag}-{}-{}",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.subsec_nanos())
+        .unwrap_or_default()
+    ));
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+  }
+
+  fn write_widget_package(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir.join("assets"))?;
+    std::fs::write(
+      dir.join("widget.json"),
+      r#"{
+        "schemaVersion": 2,
+        "type": "widget",
+        "id": "community-test",
+        "name": "测试插件",
+        "version": "1.0.0",
+        "license": "MIT",
+        "builtin": false,
+        "hostApi": 1,
+        "entry": "index.html",
+        "capabilities": ["widget.state"],
+        "window": {
+          "width": 560,
+          "height": 640,
+          "resizable": false,
+          "transparent": true,
+          "chrome": "host"
+        }
+      }"#,
+    )?;
+    std::fs::write(dir.join("index.html"), b"<html></html>")?;
+    std::fs::write(dir.join("assets/app.css"), b"body{}")?;
+    Ok(())
+  }
+
+  #[test]
+  fn installs_widget_and_seals_integrity() {
+    let Some(root) = temp_root("install") else {
+      return;
+    };
+    let source = root.join("source");
+    if write_widget_package(&source).is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let packages = root.join("packages");
+    let Ok(staged) = install::stage(&packages, &source) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let installed = install_from_staged(&packages, &staged);
+    assert!(
+      installed.is_ok(),
+      "安装失败：{}",
+      installed
+        .as_ref()
+        .err()
+        .map(|error| error.code.clone())
+        .unwrap_or_default()
+    );
+    if let Ok(info) = &installed {
+      assert_eq!(info.id, "community-test");
+      assert!(info.verified);
+      assert_eq!(info.integrity, "computed");
+      assert_eq!(info.status, "ready");
+    }
+    let target = packages.join("community-test");
+    assert!(target.join("widget.json").is_file());
+    assert!(target.join(super::digest::INTEGRITY_FILE).is_file());
+
+    // 改动包内文件后，运行时扫描必须判 tampered。
+    let _ = std::fs::write(target.join("index.html"), b"<html>changed</html>");
+    let Ok(manifest) = PackageManifest::load(&target, "community-test") else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let info = info_from(&target, &manifest, None, false);
+    assert_eq!(info.status, "tampered");
+    assert!(info.error.is_some());
+    let _ = std::fs::remove_dir_all(&root);
   }
 }

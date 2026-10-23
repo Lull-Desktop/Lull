@@ -30,6 +30,20 @@ pub(crate) fn config() -> Result<MutexGuard<'static, ConfigState>, String> {
     .map_err(|error| error.to_string())
 }
 
+/// 某个场景是否正被壁纸引用（全局或任一显示器覆盖）。
+/// 卸载内容包前用它兜底，避免配置指向不存在的目录。
+pub(crate) fn scene_in_use(scene: &str) -> bool {
+  let Ok(state) = config() else {
+    return false;
+  };
+  state.data.display.scene == scene
+    || state
+      .data
+      .monitors
+      .values()
+      .any(|monitor| monitor.scene.as_deref() == Some(scene))
+}
+
 pub(crate) struct Target {
   pub(crate) label: String,
   pub(crate) raw: isize,

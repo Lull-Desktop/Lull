@@ -11,20 +11,12 @@
 
 use super::digest;
 use super::manifest::{self, MANIFEST_FILE};
+use crate::extension::install;
 use serde::Serialize;
 use serde_json::Value;
-use std::io::Read;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
-
-/// 单包文件数上限。
-const MAX_FILES: usize = 512;
-/// 单文件上限。
-const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
-/// 整个 bundle 解压后上限（含清单与资源）。
-const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
-const STAGING_PREFIX: &str = ".staging-";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -161,196 +153,32 @@ fn invalid_info(id: &str, error: &str) -> ContentPackageInfo {
 
 /// 从文件夹或 zip 安装；成功后返回新包状态。
 pub fn install(app: &AppHandle, source: &Path) -> Result<ContentPackageInfo, String> {
-  let root = root(app)?;
-  std::fs::create_dir_all(&root).map_err(|error| format!("创建内容目录失败：{error}"))?;
-  let staging = root.join(format!("{STAGING_PREFIX}{}", unique_suffix()));
-  std::fs::create_dir_all(&staging).map_err(|error| format!("创建安装暂存目录失败：{error}"))?;
-
-  let result = install_staged(&root, &staging, source);
-  // 无论成功失败都清掉暂存区：失败时不能留下半成品，成功时也已 rename 走。
-  let _ = std::fs::remove_dir_all(&staging);
-  result
+  install_into(&root(app)?, source)
 }
 
-fn install_staged(root: &Path, staging: &Path, source: &Path) -> Result<ContentPackageInfo, String> {
-  let metadata = std::fs::metadata(source)
-    .map_err(|error| format!("找不到内容包 {}：{error}", source.display()))?;
+fn install_into(root: &Path, source: &Path) -> Result<ContentPackageInfo, String> {
+  let staged = install::stage(root, source).map_err(|error| error.to_string())?;
+  install_staged(root, &staged)
+}
 
-  if metadata.is_dir() {
-    copy_tree(source, &staging.join("bundle"))?;
-  } else if is_zip(source) {
-    extract_zip(source, staging)?;
-  } else {
-    return Err("只支持文件夹或 .zip 内容包".to_string());
-  }
-
-  let bundle_dir = locate_bundle(staging)?;
-  let registration = manifest::parse(&bundle_dir)?;
+/// 复用共享 staging：调用方负责 `Staged` 的生命周期。
+pub fn install_staged(
+  root: &Path,
+  staged: &install::Staged,
+) -> Result<ContentPackageInfo, String> {
+  let registration = manifest::parse(staged.bundle())?;
   let expected = registration.integrity.clone().ok_or_else(|| {
     "catalog.json 缺少 integrity 摘要：安装器只接受声明了整包摘要的内容包".to_string()
   })?;
-  let package = bundle_dir.join(&registration.package_rel);
+  let package = staged.bundle().join(&registration.package_rel);
   let actual = digest::compute(&registration.id, &registration.version, &package)?;
   if actual != expected {
     return Err(format!("内容包摘要不匹配：声明 {expected}，实际 {actual}"));
   }
-
-  let target = root.join(&registration.id);
-  if target.exists() {
-    return Err(format!(
-      "已安装 id={} 的内容包，请先卸载再安装",
-      registration.id
-    ));
-  }
-  std::fs::rename(&bundle_dir, &target).map_err(|error| format!("安装失败：{error}"))?;
+  let target = staged
+    .commit(root, &registration.id)
+    .map_err(|error| error.to_string())?;
   Ok(inspect(&target, &registration.id))
-}
-
-fn is_zip(path: &Path) -> bool {
-  path
-    .extension()
-    .and_then(|extension| extension.to_str())
-    .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
-}
-
-/// zip 里可能套一层目录；找到真正含 `catalog.json` 的那一层。
-fn locate_bundle(staging: &Path) -> Result<PathBuf, String> {
-  if staging.join(MANIFEST_FILE).is_file() {
-    return Ok(staging.to_path_buf());
-  }
-  let mut dirs: Vec<PathBuf> = Vec::new();
-  if let Ok(entries) = std::fs::read_dir(staging) {
-    for entry in entries.filter_map(Result::ok) {
-      let name = entry.file_name();
-      let name = name.to_string_lossy();
-      if name.starts_with('.') {
-        continue;
-      }
-      if entry.path().is_dir() {
-        dirs.push(entry.path());
-      }
-    }
-  }
-  if dirs.len() == 1 {
-    if let Some(candidate) = dirs.pop() {
-      if candidate.join(MANIFEST_FILE).is_file() {
-        return Ok(candidate);
-      }
-    }
-  }
-  Err("内容包里没有找到 catalog.json".to_string())
-}
-
-/// 复制目录（拒绝符号链接，带体积与数量上限）。
-fn copy_tree(source: &Path, target: &Path) -> Result<(), String> {
-  let mut budget = Budget::default();
-  copy_dir(source, target, &mut budget)
-}
-
-fn copy_dir(source: &Path, target: &Path, budget: &mut Budget) -> Result<(), String> {
-  std::fs::create_dir_all(target).map_err(|error| format!("创建目录失败：{error}"))?;
-  let entries = std::fs::read_dir(source)
-    .map_err(|error| format!("读取 {} 失败：{error}", source.display()))?;
-  for entry in entries {
-    let entry = entry.map_err(|error| format!("读取目录项失败：{error}"))?;
-    let path = entry.path();
-    let file_type = entry
-      .file_type()
-      .map_err(|error| format!("读取文件类型失败：{error}"))?;
-    if file_type.is_symlink() {
-      return Err(format!("内容包不允许符号链接：{}", path.display()));
-    }
-    let Some(name) = path.file_name() else {
-      continue;
-    };
-    let destination = target.join(name);
-    if file_type.is_dir() {
-      copy_dir(&path, &destination, budget)?;
-      continue;
-    }
-    if !file_type.is_file() {
-      continue;
-    }
-    let size = entry
-      .metadata()
-      .map_err(|error| format!("读取文件大小失败：{error}"))?
-      .len();
-    if size > MAX_FILE_BYTES {
-      return Err(format!(
-        "单个文件超过 {} MiB：{}",
-        MAX_FILE_BYTES / (1024 * 1024),
-        path.display()
-      ));
-    }
-    budget.take(size)?;
-    std::fs::copy(&path, &destination)
-      .map_err(|error| format!("复制 {} 失败：{error}", path.display()))?;
-  }
-  Ok(())
-}
-
-/// 解压 zip 到暂存目录（拒绝 `..`、反斜杠、符号链接，带体积上限）。
-fn extract_zip(source: &Path, staging: &Path) -> Result<(), String> {
-  let file = std::fs::File::open(source)
-    .map_err(|error| format!("打开 {} 失败：{error}", source.display()))?;
-  let mut archive = zip::ZipArchive::new(file).map_err(|error| format!("解析 zip 失败：{error}"))?;
-  let mut budget = Budget::default();
-
-  for index in 0..archive.len() {
-    let mut entry = archive
-      .by_index(index)
-      .map_err(|error| format!("读取 zip 条目失败：{error}"))?;
-    if entry.name().contains('\\') {
-      return Err("zip 内含反斜杠路径，已拒绝".to_string());
-    }
-    if entry
-      .unix_mode()
-      .is_some_and(|mode| mode & 0o170_000 == 0o120_000)
-    {
-      return Err("zip 内含符号链接，已拒绝".to_string());
-    }
-    let Some(relative) = entry.enclosed_name() else {
-      return Err(format!("zip 内含不安全路径：{}", entry.name()));
-    };
-    if relative
-      .components()
-      .any(|component| !matches!(component, Component::Normal(_)))
-    {
-      return Err(format!("zip 内含不安全路径：{}", entry.name()));
-    }
-
-    let destination = staging.join(&relative);
-    if entry.is_dir() {
-      std::fs::create_dir_all(&destination).map_err(|error| format!("创建目录失败：{error}"))?;
-      continue;
-    }
-    if let Some(parent) = destination.parent() {
-      std::fs::create_dir_all(parent).map_err(|error| format!("创建目录失败：{error}"))?;
-    }
-    let size = entry.size();
-    if size > MAX_FILE_BYTES {
-      return Err(format!(
-        "zip 内单个文件超过 {} MiB：{}",
-        MAX_FILE_BYTES / (1024 * 1024),
-        entry.name()
-      ));
-    }
-    budget.take(size)?;
-
-    let mut output = std::fs::File::create(&destination)
-      .map_err(|error| format!("写入 {} 失败：{error}", destination.display()))?;
-    // 再兜一层：按上限截断读取，避免 zip 头谎报大小。
-    let copied = std::io::copy(&mut (&mut entry).take(MAX_FILE_BYTES + 1), &mut output)
-      .map_err(|error| format!("解压 {} 失败：{error}", entry.name()))?;
-    if copied > MAX_FILE_BYTES {
-      return Err(format!(
-        "zip 内单个文件超过 {} MiB：{}",
-        MAX_FILE_BYTES / (1024 * 1024),
-        entry.name()
-      ));
-    }
-  }
-  Ok(())
 }
 
 /// 卸载：只删除内容根目录下的直接子目录。
@@ -383,38 +211,6 @@ pub fn open_dir(app: &AppHandle) -> Result<String, String> {
     .open_path(display.clone(), None::<&str>)
     .map_err(|error| format!("打开内容目录失败：{error}"))?;
   Ok(display)
-}
-
-/// 安装预算：文件数 + 累计字节。
-#[derive(Default)]
-struct Budget {
-  files: usize,
-  bytes: u64,
-}
-
-impl Budget {
-  fn take(&mut self, size: u64) -> Result<(), String> {
-    self.files = self.files.saturating_add(1);
-    self.bytes = self.bytes.saturating_add(size);
-    if self.files > MAX_FILES {
-      return Err(format!("内容包文件数超过上限 {MAX_FILES}"));
-    }
-    if self.bytes > MAX_TOTAL_BYTES {
-      return Err(format!(
-        "内容包解压后超过 {} MiB",
-        MAX_TOTAL_BYTES / (1024 * 1024)
-      ));
-    }
-    Ok(())
-  }
-}
-
-fn unique_suffix() -> String {
-  let nanos = std::time::SystemTime::now()
-    .duration_since(std::time::UNIX_EPOCH)
-    .map(|value| value.as_nanos())
-    .unwrap_or_default();
-  format!("{nanos:x}-{}", std::process::id())
 }
 
 #[cfg(test)]
@@ -461,22 +257,33 @@ mod tests {
     std::fs::write(dir.join(MANIFEST_FILE), manifest).map_err(|error| error.to_string())
   }
 
+  fn copy_dir_all(source: &Path, target: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(target)?;
+    for entry in std::fs::read_dir(source)? {
+      let entry = entry?;
+      let path = entry.path();
+      let destination = target.join(entry.file_name());
+      if entry.file_type()?.is_dir() {
+        copy_dir_all(&path, &destination)?;
+      } else {
+        std::fs::copy(&path, &destination)?;
+      }
+    }
+    Ok(())
+  }
+
   #[test]
   fn installs_bundle_and_detects_tampering() {
     let Some(root) = temp_root("install") else {
       return;
     };
-    let source = root.join("source-bundle");    if write_bundle(&source, "community.test", "<html>ok</html>").is_err() {
+    let source = root.join("source-bundle");
+    if write_bundle(&source, "community.test", "<html>ok</html>").is_err() {
       let _ = std::fs::remove_dir_all(&root);
       return;
     }
 
-    let staging = root.join(".staging-test");
-    if std::fs::create_dir_all(&staging).is_err() {
-      let _ = std::fs::remove_dir_all(&root);
-      return;
-    }
-    let installed = install_staged(&root, &staging, &source);
+    let installed = install_into(&root, &source);
     assert!(installed.is_ok(), "安装失败：{installed:?}");
     if let Ok(info) = &installed {
       assert_eq!(info.id, "community.test");
@@ -518,22 +325,8 @@ mod tests {
       .join("\n");
     let _ = std::fs::write(&manifest_path, stripped);
 
-    let staging = root.join(".staging-test");
-    let _ = std::fs::create_dir_all(&staging);
-    assert!(install_staged(&root, &staging, &source).is_err());
+    assert!(install_into(&root, &source).is_err());
     let _ = std::fs::remove_dir_all(&root);
-  }
-
-  #[test]
-  fn locate_bundle_digs_into_single_wrapped_directory() {
-    let Some(staging) = temp_root("locate") else {
-      return;
-    };
-    let inner = staging.join("community.test");
-    let _ = std::fs::create_dir_all(&inner);
-    let _ = std::fs::write(inner.join(MANIFEST_FILE), "{}");
-    assert_eq!(locate_bundle(&staging).ok(), Some(inner));
-    let _ = std::fs::remove_dir_all(&staging);
   }
 
   /// 端到端：用官方 `scenes/mist` 真实资源 + 官方摘要装一遍，
@@ -546,7 +339,7 @@ mod tests {
     let source = root.join("mist-bundle");
     let scene_dir = source.join("scenes/mist");
     let official = Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/content/scenes/mist");
-    if copy_tree(&official, &scene_dir).is_err() {
+    if copy_dir_all(&official, &scene_dir).is_err() {
       let _ = std::fs::remove_dir_all(&root);
       return;
     }
@@ -575,9 +368,7 @@ mod tests {
       return;
     }
 
-    let staging = root.join(".staging-mist");
-    let _ = std::fs::create_dir_all(&staging);
-    let installed = install_staged(&root, &staging, &source);
+    let installed = install_into(&root, &source);
     assert!(installed.is_ok(), "官方示例包安装失败：{installed:?}");
     if let Ok(info) = installed {
       assert_eq!(info.id, "community.mist");
@@ -631,9 +422,7 @@ mod tests {
       return;
     }
 
-    let staging = root.join(".staging-zip");
-    let _ = std::fs::create_dir_all(&staging);
-    let installed = install_staged(&root, &staging, &archive_path);
+    let installed = install_into(&root, &archive_path);
     assert!(installed.is_ok(), "zip 安装失败：{installed:?}");
     if let Ok(info) = installed {
       assert_eq!(info.id, "community.zipped");
@@ -669,9 +458,11 @@ mod tests {
       return;
     }
 
-    let staging = root.join(".staging-slip");
-    let _ = std::fs::create_dir_all(&staging);
-    assert!(extract_zip(&archive_path, &staging).is_err());
+    let staged = install::stage(&root, &archive_path);
+    assert_eq!(
+      staged.err().map(|error| error.code).as_deref(),
+      Some("package.unsafe-entry")
+    );
     assert!(!root.join("escaped.txt").exists());
     let _ = std::fs::remove_dir_all(&root);
   }

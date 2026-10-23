@@ -35,8 +35,13 @@ fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Result<Response<Vec<u8>
     return Err((StatusCode::BAD_REQUEST, "invalid widget id".to_string()));
   }
   let dir =
-    store::package_dir(app, id).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    store::resolve_dir(app, id).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
   let manifest = PackageManifest::load(&dir, id).map_err(|error| (StatusCode::NOT_FOUND, error))?;
+  let granted = store::granted(app, id);
+  // 点号路径（含旁路摘要锁、.git 等）不提供服务，避免摘要范围与可服务范围不一致。
+  if rest.split('/').any(|segment| segment.starts_with('.')) {
+    return Err((StatusCode::NOT_FOUND, "resource not found".to_string()));
+  }
   let relative = if rest.is_empty() || rest.ends_with('/') {
     manifest.entry.clone()
   } else {
@@ -54,7 +59,7 @@ fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Result<Response<Vec<u8>
     .map_err(|error| (StatusCode::NOT_FOUND, format!("读取插件资源失败：{error}")))?;
   let content_type = mime_for(&path);
   if content_type.starts_with("text/html") {
-    return Ok(html_response(&manifest, bytes, content_type));
+    return Ok(html_response(&manifest, bytes, content_type, &granted));
   }
   Ok(binary_response(bytes, content_type))
 }
@@ -63,26 +68,30 @@ fn html_response(
   manifest: &PackageManifest,
   bytes: Vec<u8>,
   content_type: &'static str,
+  granted: &[String],
 ) -> Response<Vec<u8>> {
   let nonce = nonce();
   let html = String::from_utf8_lossy(&bytes);
   // 只给 HTML 中已有的 <script> 打 nonce；插件不应自带 nonce。
   let html = html.replace("<script", &format!("<script nonce=\"{nonce}\""));
-  let csp = plugin_csp(manifest, &nonce);
+  let csp = plugin_csp(manifest, &nonce, granted);
   let mut response = binary_response(html.into_bytes(), content_type);
   set_header(&mut response, "Content-Security-Policy", &csp);
   response
 }
 
-fn plugin_csp(manifest: &PackageManifest, nonce: &str) -> String {
+fn plugin_csp(manifest: &PackageManifest, nonce: &str, granted: &[String]) -> String {
   #[cfg(windows)]
   let origin = "http://lullwidget.localhost";
   #[cfg(not(windows))]
   let origin = "lullwidget://localhost";
   let mut connect = origin.to_string();
-  for source in &manifest.network {
-    connect.push(' ');
-    connect.push_str(source);
+  // 只有实际授予 widget.network 才放开清单声明的源；撤销后下一次响应即收紧。
+  if granted.iter().any(|capability| capability == "widget.network") {
+    for source in &manifest.network {
+      connect.push(' ');
+      connect.push_str(source);
+    }
   }
   format!(
     "default-src {origin}; script-src {origin} 'nonce-{nonce}'; style-src {origin} 'unsafe-inline'; \
@@ -166,16 +175,24 @@ mod tests {
       capabilities: vec!["widget.network".to_string()],
       window: Default::default(),
       network: vec!["https://api.example.com".to_string()],
+      icon: None,
+      lifecycle: "background".to_string(),
     }
   }
 
   #[test]
   fn csp_contains_origin_nonce_and_network() {
-    let csp = plugin_csp(&manifest(), "abc");
+    let csp = plugin_csp(&manifest(), "abc", &["widget.network".to_string()]);
     assert!(csp.contains("script-src"));
     assert!(csp.contains("'nonce-abc'"));
     assert!(csp.contains("https://api.example.com"));
     assert!(csp.contains("frame-src 'none'"));
+  }
+
+  #[test]
+  fn csp_drops_network_when_capability_revoked() {
+    let csp = plugin_csp(&manifest(), "abc", &[]);
+    assert!(!csp.contains("https://api.example.com"));
   }
 
   #[test]
