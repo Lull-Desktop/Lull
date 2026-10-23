@@ -117,9 +117,15 @@ function mockWallpaperWithDisplay(display: {
   });
 }
 
+/** 渲染设置页并切到「壁纸」页签（壁纸层设置不在默认的「偏好」页签里）。 */
+function renderWallpaperTab(): void {
+  render(<Page />);
+  fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
+}
+
 test("editing a scene param persists via wallpaper_set_scene_params", async () => {
   mockWallpaper(MONITORS, true);
-  render(<Page />);
+  renderWallpaperTab();
 
   const input = await screen.findByLabelText("薄雾浓度");
   fireEvent.change(input, { target: { value: "0.8" } });
@@ -138,9 +144,27 @@ test("Page renders in browser mode (no tauri)", () => {
   expect(screen.getByRole("main")).toBeDefined();
 });
 
+test("设置页签按 偏好 / 壁纸 / 扩展 排列，壁纸层只在壁纸页签", () => {
+  render(<Page />);
+
+  expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+    "偏好",
+    "壁纸",
+    "扩展",
+  ]);
+  expect(
+    screen.getByRole("tab", { name: "偏好" }).getAttribute("aria-selected"),
+  ).toBe("true");
+  expect(screen.queryByText("壁纸层")).toBeNull();
+
+  fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
+  expect(screen.getByText("壁纸层")).toBeDefined();
+  expect(screen.queryByText("主题流光")).toBeNull();
+});
+
 test("renders monitors sorted by geometry, primary badge, per-monitor switches", async () => {
   mockWallpaper(MONITORS, true);
-  render(<Page />);
+  renderWallpaperTab();
 
   await waitFor(() => {
     expect(screen.getByText("显示器 1")).toBeDefined();
@@ -163,7 +187,7 @@ test("renders monitors sorted by geometry, primary badge, per-monitor switches",
 
 test("toggling a monitor switch invokes wallpaper_set_monitor_visible with device", async () => {
   mockWallpaper(MONITORS, true);
-  render(<Page />);
+  renderWallpaperTab();
 
   await waitFor(() => {
     expect(screen.getByText("显示器 2")).toBeDefined();
@@ -180,7 +204,7 @@ test("toggling a monitor switch invokes wallpaper_set_monitor_visible with devic
 
 test("monitor switches are disabled while master switch is off", async () => {
   mockWallpaper(MONITORS, false);
-  render(<Page />);
+  renderWallpaperTab();
 
   await waitFor(() => {
     expect(screen.getByText("显示器 1")).toBeDefined();
@@ -203,7 +227,7 @@ test("wallpaper-changed event refreshes the monitor list", async () => {
   };
 
   mockWallpaper(MONITORS, true);
-  render(<Page />);
+  renderWallpaperTab();
   await waitFor(() => {
     expect(screen.getByText("显示器 1")).toBeDefined();
   });
@@ -241,7 +265,7 @@ test("listen 被拒（权限缺失）时不产生未处理 rejection，页面降
     listenState.impl = () =>
       Promise.reject(new Error("event.listen not allowed"));
     mockWallpaper(MONITORS, true);
-    render(<Page />);
+    renderWallpaperTab();
     await waitFor(() => {
       expect(screen.getByText("显示器 1")).toBeDefined();
     });
@@ -255,7 +279,7 @@ test("listen 被拒（权限缺失）时不产生未处理 rejection，页面降
 
 test("renders display mode selector reflecting config", async () => {
   mockWallpaperWithDisplay({ mode: "span", sync: true, scene: "lull.bamboo" });
-  render(<Page />);
+  renderWallpaperTab();
   await waitFor(() => expect(screen.getByText("显示模式")).toBeDefined());
   const span = screen.getByRole("radio", { name: "跨屏" });
   expect(span.getAttribute("aria-checked")).toBe("true");
@@ -267,7 +291,7 @@ test("switching mode invokes wallpaper_set_display", async () => {
     sync: true,
     scene: "lull.bamboo",
   });
-  render(<Page />);
+  renderWallpaperTab();
   await waitFor(() => expect(screen.getByText("显示模式")).toBeDefined());
   fireEvent.click(screen.getByRole("radio", { name: "跨屏" }));
   await waitFor(() => {
@@ -284,6 +308,7 @@ test("sync switch availability matrix", async () => {
     scene: "lull.bamboo",
   });
   const { unmount } = render(<Page />);
+  fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
   await waitFor(() => expect(screen.getByText("动画同步")).toBeDefined());
   expect(
     (screen.getByRole("switch", { name: "动画同步" }) as HTMLButtonElement)
@@ -292,7 +317,7 @@ test("sync switch availability matrix", async () => {
   unmount();
 
   mockWallpaperWithDisplay({ mode: "span", sync: false, scene: "lull.bamboo" });
-  render(<Page />);
+  renderWallpaperTab();
   await waitFor(() =>
     expect(screen.getByText("跨屏强制同步（防接缝撕裂）")).toBeDefined(),
   );
@@ -309,7 +334,7 @@ test("global scene dropdown shows current value and invokes on select", async ()
     sync: true,
     scene: "lull.bamboo",
   });
-  render(<Page />);
+  renderWallpaperTab();
   const trigger = await screen.findByRole("combobox", { name: "全局场景" });
   expect(trigger.textContent).toContain("竹影");
   fireEvent.keyDown(trigger, { key: "Enter" });
@@ -329,7 +354,7 @@ test("independent shows per-row scene dropdowns; selecting invokes command", asy
     sync: true,
     scene: "lull.bamboo",
   });
-  render(<Page />);
+  renderWallpaperTab();
   const trigger = await screen.findByRole("combobox", {
     name: "显示器 2 场景",
   });
@@ -351,7 +376,7 @@ test("global scene group hidden in independent mode", async () => {
     sync: true,
     scene: "lull.bamboo",
   });
-  render(<Page />);
+  renderWallpaperTab();
   await waitFor(() => expect(screen.getByText("显示模式")).toBeDefined());
   expect(screen.queryByText("全局场景")).toBeNull();
 });
@@ -428,6 +453,34 @@ test("工具窗开关按当前显示状态渲染，并能打开/关闭窗口", a
   await waitFor(() => {
     expect(invoke).toHaveBeenCalledWith("widget_close", { kind: "pomodoro" });
   });
+});
+
+test("扩展页的「壁纸设置」切到壁纸页签", async () => {
+  mockInvoke({
+    extensions_list: () => [
+      {
+        kind: "scene",
+        id: "community.mist",
+        name: "雾岚",
+        version: "1.0.0",
+        status: "ready",
+        verified: "declared",
+        dev: false,
+        capabilities: ["wallpaper.viewport"],
+        entryUrl: "/content/scenes/mist/index.html",
+      },
+    ],
+    extensions_dev_state: () => ({ devMode: false, packages: [] }),
+  });
+  render(<Page />);
+
+  fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
+  fireEvent.click(await screen.findByRole("button", { name: "壁纸设置" }));
+
+  expect(
+    screen.getByRole("tab", { name: "壁纸" }).getAttribute("aria-selected"),
+  ).toBe("true");
+  expect(screen.getByText("壁纸层")).toBeDefined();
 });
 
 test("主题流光卡片切换全局主题并立即写入存储", () => {
