@@ -30,7 +30,7 @@ const BAMBOO_MANIFEST = parseSceneManifest({
       key: "mist",
       type: "number",
       label: "薄雾浓度",
-      description: "0 为几乎无雾，1 为最浓。",
+      description: "0 为无雾（清爽），1 为最浓（整屏雾幔 + 三层带雾）。",
       default: 0.5,
       min: 0,
       max: 1,

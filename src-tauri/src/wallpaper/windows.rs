@@ -227,7 +227,11 @@ fn hot_update_windows(
       continue;
     };
     if let Some(window) = app.get_webview_window(&label) {
-      let _ = window.eval(format!("location.hash = {quoted}"));
+      // 参数热更只有这一条通道；成败都留日志，便于排查「设置面板改了没反应」。
+      match window.eval(format!("location.hash = {quoted}")) {
+        Ok(()) => ffi::wlog(&format!("{label}: 热更哈希 {hash}")),
+        Err(error) => ffi::wlog(&format!("{label}: 热更哈希失败 {error}")),
+      }
     }
   }
 }

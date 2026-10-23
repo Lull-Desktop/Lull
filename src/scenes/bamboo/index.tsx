@@ -95,6 +95,33 @@ const STARS = [
   [57, 28],
 ] as const;
 
+const MIST_BANDS = [
+  {
+    top: 54,
+    height: 18,
+    alpha: 0.5,
+    delayMs: 24000,
+    duration: "26s",
+    reverse: false,
+  },
+  {
+    top: 68,
+    height: 14,
+    alpha: 0.42,
+    delayMs: 31000,
+    duration: "31s",
+    reverse: true,
+  },
+  {
+    top: 79,
+    height: 11,
+    alpha: 0.34,
+    delayMs: 19000,
+    duration: "23s",
+    reverse: false,
+  },
+] as const;
+
 export function BambooScene({
   layout,
   sync,
@@ -103,8 +130,9 @@ export function BambooScene({
 }: SceneProps): ReactNode {
   const isCanvas = layout === "canvas";
   const { w, h } = canvasSize(canvas);
-  const mist = typeof params.mist === "number" ? params.mist : 0.5;
-  const mistOpacity = 0.35 + mist * 0.65;
+  // 雾浓度：0 = 无雾，1 = 最浓。直接作为各层不透明度，避免默认值叠出「看起来没反应」。
+  const rawMist = typeof params.mist === "number" ? params.mist : 0.5;
+  const mist = Math.min(1, Math.max(0, rawMist));
   const wordmarkSize = isCanvas ? canvasFont(canvas, 40) : 40;
   const clockSize = isCanvas ? canvasFont(canvas, 88) : 88;
   const subtitleSize = isCanvas ? canvasFont(canvas, 20) : 20;
@@ -144,23 +172,29 @@ export function BambooScene({
         opacity={0.85}
       />
 
-      {/* 薄雾：按元素自身宽度平移，视口与跨屏画布都不会跑出画面 */}
+      {/* 薄雾：整屏雾幔 + 三层带状雾。
+          不透明度直接等于 mist（0 = 完全不画），浓度越高雾层越厚、越亮，
+          这样滑到 0 与 1 的差别是肉眼可辨的，而不是「感觉没生效」。 */}
       <div
-        className="lull-mist absolute inset-x-[-10%] top-[54%] h-[18%] bg-[linear-gradient(90deg,transparent,rgba(190,214,198,0.14),transparent)] blur-[26px]"
-        style={{
-          animationDelay: delay(24000, sync),
-          opacity: mistOpacity,
-        }}
+        data-testid="bamboo-mist-veil"
+        className="absolute inset-0 bg-[linear-gradient(180deg,transparent_32%,rgba(198,218,203,0.34)_56%,rgba(178,204,190,0.16)_100%)]"
+        style={{ opacity: mist * 0.62 }}
       />
-      <div
-        className="lull-mist absolute inset-x-[-16%] top-[68%] h-[14%] bg-[linear-gradient(90deg,transparent,rgba(160,196,178,0.11),transparent)] blur-[30px]"
-        style={{
-          animationDelay: delay(31000, sync),
-          animationDuration: "31s",
-          animationDirection: "reverse",
-          opacity: mistOpacity,
-        }}
-      />
+      {MIST_BANDS.map((band) => (
+        <div
+          key={band.top}
+          data-testid={`bamboo-mist-band-${band.top}`}
+          className="lull-mist absolute inset-x-[-10%] bg-[linear-gradient(90deg,transparent,rgba(214,230,216,0.55),transparent)] blur-[26px]"
+          style={{
+            top: `${band.top}%`,
+            height: `${band.height + mist * 6}%`,
+            opacity: mist * band.alpha,
+            animationDelay: delay(band.delayMs, sync),
+            animationDuration: band.duration,
+            animationDirection: band.reverse ? "reverse" : undefined,
+          }}
+        />
+      ))}
 
       {/* 竹竿与竹叶 */}
       {STALKS.map((stalk, index) => (
