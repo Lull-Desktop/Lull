@@ -81,16 +81,16 @@ describe("WallpaperPanel external params", () => {
   test("已安装的场景包参数出现在 Setting，并能写回宿主", async () => {
     render(<WallpaperPanel />);
 
-    const input = await screen.findByLabelText("光晕强度");
+    const slider = await screen.findByRole("slider", { name: "光晕强度" });
     expect(screen.getByText(/参数由 Setting 实时下发到场景桥/)).toBeDefined();
 
-    fireEvent.change(input, { target: { value: "0.9" } });
-    fireEvent.blur(input);
+    fireEvent.keyDown(slider, { key: "End" });
+    fireEvent.keyUp(slider, { key: "End" });
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("wallpaper_set_scene_params", {
         scene: "demo.param-scene",
-        params: { glow: "0.9" },
+        params: { glow: "1.00" },
       });
     });
   });

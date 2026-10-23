@@ -18,7 +18,7 @@ Lull 采用 Tauri + Win32 桌面宿主这条最难的技术路径，**桌面运�
 - **播放器**：液态黑胶浮窗，在线氛围声与本地曲目。
 - **托盘常驻**：关闭窗口只隐藏；只有托盘「退出」才结束进程；托盘「扩展」子菜单直接打开已启用的工具扩展。
 - **可扩展内容**：外部场景包通过 `catalog.json` 被发现，支持静态 HTML/CSS 与声明 `wallpaper.script` 的沙箱脚本场景（参数、几何、同步相位经 `@lull/scene-sdk` 下发）；第三方内容包可在「扩展」页「从文件安装」选择 zip / 拖入安装，安装时复核清单与整包摘要。
-- **扩展中心**：设置页「扩展」页签统一管理壁纸内容与工具扩展；导入前预览清单、能力与体积，安装不执行代码，启用时才授权；scene 支持同 id 覆盖安装（本地手动更新，壁纸按版本重载）；开发模式可挂载本地目录热调试。
+- **扩展中心**：设置页「扩展」页签统一管理壁纸内容与工具扩展；导入前预览清单、能力与体积，安装不执行代码，启用时才授权；scene 支持同 id 覆盖安装（本地手动更新，壁纸按版本重载）；参数按 Manifest 类型渲染，带 min/max 的数字参数使用滑条；开发模式可挂载本地目录热调试。
 - **自定义 Widget 插件**：静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV；支持自绘窗口顶栏/透明背景，提供原生 / React / Vue 示例，见 [插件包格式](docs/widget-package.md)。
 
 ## 界面预览
@@ -174,8 +174,10 @@ pnpm scenes:sdk
 
 Setting 会按 Manifest 的 `params` 自动渲染控件；改值后热更壁纸 URL 哈希，
 再由 `scene.onFrame((frame) => ...)` 把 `frame.params` 送到场景，不需要重启壁纸。
-可直接安装的示例见 [`examples/content/param-demo`](examples/content/param-demo)，打包后为
-`artifacts/demo.param-scene-1.0.0.zip`。
+可直接安装的示例：
+[`examples/content/param-demo`](examples/content/param-demo)（参数演示，1.1.0）与
+[`examples/content/three-scene`](examples/content/three-scene)（Three.js WebGL，1.0.0）；
+打包后分别在 `artifacts/demo.param-scene-1.1.0.zip`、`artifacts/demo.three-scene-1.0.0.zip`。
 
 字段与打包细节见 [Scene SDK](docs/scene-sdk.md)、[`@lull/scene-sdk`](packages/scene-sdk/README.md) 与 [内容格式](docs/content-format.md)。
 
@@ -199,10 +201,10 @@ Setting 会按 Manifest 的 `params` 自动渲染控件；改值后热更壁纸 
 | `pnpm widgets:sdk:check` | 只做 SDK 类型检查（CI 用） |
 | `pnpm scenes:sdk` | 构建场景侧 SDK（TypeScript → `dist` + `.d.ts`） |
 | `pnpm scenes:sdk:check` | 只做场景 SDK 类型检查（CI 用） |
-| `pnpm scenes:samples:build` | 构建 `examples/content/param-demo` 脚本场景示例 |
-| `pnpm scenes:samples:hash` | 重算脚本场景示例的 `integrity` |
-| `pnpm scenes:samples:check` | 校验脚本场景示例摘要（CI 用） |
-| `pnpm scenes:samples:pack` | 把脚本场景示例打成可安装 zip |
+| `pnpm scenes:samples:build` | 构建 `param-demo` / `three-scene` 两个脚本场景示例 |
+| `pnpm scenes:samples:hash` | 重算两个示例的 `integrity` |
+| `pnpm scenes:samples:check` | 校验两个示例摘要（CI 用） |
+| `pnpm scenes:samples:pack` | 把两个示例打成可安装 zip |
 | `pnpm widgets:samples:build` | 构建 `examples/widgets/*` 三个示例插件包 |
 | `pnpm widgets:samples:pack` | 把三个示例打成 `artifacts/*.lull-widget.zip`（含 tampered 测试包） |
 | `pnpm widget:pack <dir>` | 把任意构建后的 Widget 目录打成可安装 zip |

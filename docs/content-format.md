@@ -242,6 +242,9 @@ scene 支持同 id **覆盖安装**（本地手动更新：旧目录备份后替
 - [`examples/content/demo-fireflies`](../examples/content/demo-fireflies) —— 可安装的测试包源码（纯 CSS 壁纸），
   打包后即 `artifacts/demo.fireflies-1.0.0.zip`，用来验证「拖入安装 → 场景出现在下拉里」这条链路
 - [`examples/content/param-demo`](../examples/content/param-demo) —— 声明 `wallpaper.params` +
-  `wallpaper.script` 的脚本场景，验证「Setting 改参数 → Scene SDK → 场景实时更新」这条链路；
-  打包后即 `artifacts/demo.param-scene-1.0.0.zip`
+  `wallpaper.script` 的脚本场景，验证「Setting 改参数 → Scene SDK → 场景实时更新」；
+  1.1.0 新增 blur/hue/ring，可配合 1.0.0 验证覆盖更新；打包后即
+  `artifacts/demo.param-scene-1.1.0.zip`
+- [`examples/content/three-scene`](../examples/content/three-scene) —— Three.js / WebGL 场景，
+  验证大体积 ESM 打包、WebGL 渲染与参数热更；打包后即 `artifacts/demo.three-scene-1.0.0.zip`
 - [`src/sdk/scene/manifest.test.ts`](../src/sdk/scene/manifest.test.ts)

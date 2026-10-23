@@ -254,8 +254,11 @@ scene.onFrame((frame) => {
 - Setting 改参数 → Rust 写配置并热更壁纸 URL 哈希 → `SceneHost` 重算帧 →
   桥推送 `frame`，不需要重启壁纸。
 
-完整可安装示例：[`examples/content/param-demo`](../examples/content/param-demo)（`glow / tint / pulse`
-三个参数，构建后可直接从扩展中心安装）。
+完整可安装示例：
+- [`examples/content/param-demo`](../examples/content/param-demo)：`glow / tint / pulse`，
+  1.1.0 新增 `blur / hue / ring`，可验证覆盖更新；
+- [`examples/content/three-scene`](../examples/content/three-scene)：Three.js / WebGL，
+  `speed / particles / tint / wireframe / tilt` 参数热更。
 
 ### 4.4 画布与 iframe
 
@@ -297,6 +300,8 @@ scene.onFrame((frame) => {
 设置页显示场景名、版本、许可证与来源（内置 / 随包内容包 / 已安装内容包），
 只对声明了 `wallpaper.params` 的场景渲染参数编辑器；参数按场景 id 持久化到配置，
 修改后热更新壁纸窗，再由 Scene SDK 桥或内置组件的 `SceneProps` 消费。
+`number` 参数同时声明 `min` 与 `max` 时使用滑条（`step` 控制步进，未声明时按范围推断），
+无界或只有单边限制的仍用数字输入；`boolean` / `enum` / `color` 分别用开关 / 下拉 / 取色器。
 没有 `wallpaper.params` 的场景不会出现参数控件，避免“改了没反应”。
 
 合并规则：

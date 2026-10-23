@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>流萤 · 内容包测试</title>
+    <style>
+      /* Lull 外部场景：纯静态 HTML/CSS，运行在 sandbox iframe 里，不执行 JS。 */
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { height: 100%; overflow: hidden; background: #04120f; }
+      .scene { position: fixed; inset: 0; overflow: hidden; }
+
+      .sky {
+        position: absolute; inset: -12%;
+        background:
+          radial-gradient(60% 45% at 18% 12%, rgba(24, 74, 64, 0.85), transparent 72%),
+          radial-gradient(52% 42% at 80% 26%, rgba(28, 58, 88, 0.72), transparent 72%),
+          radial-gradient(90% 65% at 50% 112%, rgba(10, 34, 30, 0.95), transparent 70%),
+          linear-gradient(180deg, #03100e 0%, #071a17 46%, #04120f 100%);
+        animation: sky-drift 52s ease-in-out infinite alternate;
+      }
+
+      .haze {
+        position: absolute; inset: -20%;
+        background:
+          radial-gradient(40% 30% at 30% 68%, rgba(120, 200, 175, 0.14), transparent 70%),
+          radial-gradient(36% 26% at 72% 62%, rgba(150, 190, 230, 0.12), transparent 70%);
+        filter: blur(24px);
+        animation: haze-drift 38s ease-in-out infinite alternate;
+      }
+
+      .ridge {
+        position: absolute; left: -6%; right: -6%; bottom: -6%; height: 46%;
+        background:
+          radial-gradient(50% 100% at 22% 100%, #0b2622 0%, #071a17 60%, transparent 100%),
+          radial-gradient(46% 100% at 68% 100%, #0a201d 0%, #061613 62%, transparent 100%);
+        filter: blur(2px);
+        opacity: 0.92;
+      }
+
+      .firefly {
+        position: absolute;
+        left: var(--x);
+        top: var(--y);
+        width: var(--size);
+        height: var(--size);
+        border-radius: 50%;
+        background: radial-gradient(circle, #fffdf3 0%, #f2c98a 46%, rgba(242, 201, 138, 0) 72%);
+        box-shadow: 0 0 10px 2px rgba(242, 201, 138, 0.38);
+        opacity: 0.25;
+        animation:
+          float var(--d) ease-in-out infinite alternate,
+          blink calc(var(--d) / 2) ease-in-out infinite;
+        animation-delay: var(--delay), calc(var(--delay) * -0.5);
+      }
+
+      .vignette {
+        position: absolute; inset: 0;
+        background: radial-gradient(120% 92% at 50% 44%, transparent 42%, rgba(2, 10, 9, 0.78) 100%);
+      }
+
+      @keyframes sky-drift {
+        from { transform: translate3d(-1.5%, -1%, 0) scale(1.02); }
+        to { transform: translate3d(1.5%, 1.2%, 0) scale(1.06); }
+      }
+
+      @keyframes haze-drift {
+        from { transform: translate3d(-2%, 0, 0); }
+        to { transform: translate3d(2.5%, -1.5%, 0); }
+      }
+
+      @keyframes float {
+        from { transform: translate3d(0, 0, 0); }
+        to { transform: translate3d(var(--dx), var(--dy), 0); }
+      }
+
+      @keyframes blink {
+        0%, 100% { opacity: 0.16; }
+        45% { opacity: 0.92; }
+        70% { opacity: 0.34; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .sky, .haze, .firefly { animation: none; }
+        .firefly { opacity: 0.55; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="scene">
+      <div class="sky"></div>
+      <div class="haze"></div>
+      <div class="ridge"></div>
+      <span class="firefly" style="--x:26.78%;--y:74.31%;--size:4px;--d:19.6s;--delay:-6.9s;--dx:-65px;--dy:-3px"></span>
+      <span class="firefly" style="--x:10.23%;--y:43.88%;--size:2px;--d:19.0s;--delay:-3.6s;--dx:-4px;--dy:18px"></span>
+      <span class="firefly" style="--x:92.39%;--y:40.41%;--size:4px;--d:20.5s;--delay:-1.7s;--dx:26px;--dy:-37px"></span>
+      <span class="firefly" style="--x:30.41%;--y:88.5%;--size:3px;--d:17.6s;--delay:-4.9s;--dx:25px;--dy:35px"></span>
+      <span class="firefly" style="--x:33.91%;--y:57.46%;--size:5px;--d:27.6s;--delay:-3.3s;--dx:-31px;--dy:37px"></span>
+      <span class="firefly" style="--x:51.74%;--y:67.79%;--size:4px;--d:23.7s;--delay:-11.4s;--dx:-9px;--dy:-14px"></span>
+      <span class="firefly" style="--x:52.78%;--y:33.67%;--size:5px;--d:19.6s;--delay:-3.4s;--dx:-32px;--dy:-21px"></span>
+      <span class="firefly" style="--x:91.13%;--y:30.16%;--size:2px;--d:28.9s;--delay:-9.8s;--dx:10px;--dy:48px"></span>
+      <span class="firefly" style="--x:59.78%;--y:90.48%;--size:2px;--d:24.4s;--delay:-7.2s;--dx:70px;--dy:-32px"></span>
+      <span class="firefly" style="--x:3.87%;--y:30.84%;--size:5px;--d:15.3s;--delay:-1.6s;--dx:0px;--dy:45px"></span>
+      <span class="firefly" style="--x:70.34%;--y:15.37%;--size:3px;--d:22.0s;--delay:-6.1s;--dx:-50px;--dy:20px"></span>
+      <span class="firefly" style="--x:82.39%;--y:26.1%;--size:3px;--d:16.3s;--delay:-5.6s;--dx:39px;--dy:11px"></span>
+      <span class="firefly" style="--x:54.33%;--y:48.67%;--size:5px;--d:17.1s;--delay:-6.7s;--dx:-10px;--dy:-18px"></span>
+      <span class="firefly" style="--x:5.07%;--y:76.07%;--size:2px;--d:24.4s;--delay:-3.8s;--dx:-29px;--dy:-10px"></span>
+      <span class="firefly" style="--x:46.43%;--y:56.35%;--size:2px;--d:19.8s;--delay:-4.4s;--dx:-61px;--dy:27px"></span>
+      <span class="firefly" style="--x:76.9%;--y:62.69%;--size:2px;--d:20.7s;--delay:-0.4s;--dx:58px;--dy:-49px"></span>
+      <span class="firefly" style="--x:27.42%;--y:87.91%;--size:3px;--d:26.3s;--delay:-0.4s;--dx:3px;--dy:17px"></span>
+      <span class="firefly" style="--x:25.54%;--y:57.1%;--size:2px;--d:21.1s;--delay:-10.2s;--dx:9px;--dy:-9px"></span>
+      <span class="firefly" style="--x:14.49%;--y:82.35%;--size:5px;--d:16.6s;--delay:-3.3s;--dx:19px;--dy:-27px"></span>
+      <span class="firefly" style="--x:79.58%;--y:79.0%;--size:5px;--d:15.4s;--delay:-2.2s;--dx:-53px;--dy:-28px"></span>
+      <span class="firefly" style="--x:72.53%;--y:33.05%;--size:2px;--d:15.3s;--delay:-10.1s;--dx:-64px;--dy:43px"></span>
+      <span class="firefly" style="--x:7.95%;--y:58.81%;--size:2px;--d:22.5s;--delay:-2.4s;--dx:-15px;--dy:10px"></span>
+      <span class="firefly" style="--x:50.06%;--y:78.01%;--size:3px;--d:22.7s;--delay:-0.3s;--dx:41px;--dy:11px"></span>
+      <span class="firefly" style="--x:84.8%;--y:36.04%;--size:4px;--d:27.6s;--delay:-3.4s;--dx:-57px;--dy:28px"></span>
+      <span class="firefly" style="--x:4.96%;--y:66.62%;--size:2px;--d:15.1s;--delay:-5.3s;--dx:31px;--dy:5px"></span>
+      <span class="firefly" style="--x:46.51%;--y:82.48%;--size:4px;--d:28.6s;--delay:-9.1s;--dx:24px;--dy:-30px"></span>
+      <div class="vignette"></div>
+    </div>
+  </body>
+</html>

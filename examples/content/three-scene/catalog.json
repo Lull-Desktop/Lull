@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "demo.three-scene",
+      "name": "三维光轨（Three.js）",
+      "version": "1.0.0",
+      "description": "Three.js 脚本场景：可调旋转速度、粒子数、颜色、线框与倾角，用来验证 WebGL 场景的参数热更。",
+      "author": "Lull Demo",
+      "license": "CC-BY-4.0",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.canvas",
+        "wallpaper.params",
+        "wallpaper.script"
+      ],
+      "entry": "scenes/three-scene/index.html",
+      "theme": {
+        "background": "#05070c",
+        "accent": "#7fd6c8"
+      },
+      "params": [
+        {
+          "key": "speed",
+          "type": "number",
+          "label": "旋转速度",
+          "description": "0 为静止，1.5 为最快。",
+          "default": 0.35,
+          "min": 0,
+          "max": 1.5,
+          "step": 0.05
+        },
+        {
+          "key": "particles",
+          "type": "number",
+          "label": "星尘数量",
+          "description": "300–5000；数值越大越密。",
+          "default": 1600,
+          "min": 300,
+          "max": 5000,
+          "step": 100
+        },
+        {
+          "key": "tint",
+          "type": "color",
+          "label": "主色",
+          "default": "#7fd6c8"
+        },
+        {
+          "key": "wireframe",
+          "type": "boolean",
+          "label": "线框模式",
+          "default": true
+        },
+        {
+          "key": "tilt",
+          "type": "number",
+          "label": "倾角（度）",
+          "default": 18,
+          "min": -45,
+          "max": 45,
+          "step": 1
+        }
+      ],
+      "performance": {
+        "tier": "medium",
+        "targetFps": 60
+      },
+      "compatibility": {
+        "hostApi": 1,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "fbad259bf8bbdc3f822aa53533d4325b4d6a82d7f5e75147118cc975827496e8"
+      }
+    }
+  ]
+}

@@ -419,6 +419,28 @@ mod tests {
     let _ = std::fs::remove_dir_all(&root);
   }
 
+  /// 端到端：Three.js 示例（WebGL + 参数）按文档构建后可直接安装。
+  #[test]
+  fn installs_three_scene_example_bundle() {
+    let Some(root) = temp_root("three-scene-dir") else {
+      return;
+    };
+    let source = root.join("three-scene");
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/content/three-scene");
+    if copy_dir_all(&example, &source).is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let installed = install_into(&root, &source);
+    assert!(installed.is_ok(), "Three.js 示例安装失败：{installed:?}");
+    if let Ok(info) = installed {
+      assert_eq!(info.id, "demo.three-scene");
+      assert_eq!(info.version, "1.0.0");
+      assert!(info.verified);
+    }
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
   /// 端到端：示例脚本场景（wallpaper.script + params）按文档构建后可直接安装。
   #[test]
   fn installs_scripted_param_demo_bundle() {

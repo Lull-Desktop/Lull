@@ -123,18 +123,18 @@ function renderWallpaperTab(): void {
   fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
 }
 
-test("editing a scene param persists via wallpaper_set_scene_params", async () => {
+test("moving a ranged scene param slider persists via wallpaper_set_scene_params", async () => {
   mockWallpaper(MONITORS, true);
   renderWallpaperTab();
 
-  const input = await screen.findByLabelText("薄雾浓度");
-  fireEvent.change(input, { target: { value: "0.8" } });
-  fireEvent.blur(input);
+  const slider = await screen.findByRole("slider", { name: "薄雾浓度" });
+  fireEvent.keyDown(slider, { key: "End" });
+  fireEvent.keyUp(slider, { key: "End" });
 
   await waitFor(() => {
     expect(invoke).toHaveBeenCalledWith("wallpaper_set_scene_params", {
       scene: "lull.bamboo",
-      params: { mist: "0.8" },
+      params: { mist: "1.00" },
     });
   });
 });

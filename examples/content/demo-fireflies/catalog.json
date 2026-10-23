@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "demo.fireflies",
+      "name": "流萤（测试包）",
+      "version": "1.0.0",
+      "description": "深林夜幕里的流萤。用于验证内容包安装：纯静态 HTML/CSS，无脚本、无外部资源。",
+      "author": "Lull Demo",
+      "license": "CC-BY-4.0",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.canvas"
+      ],
+      "entry": "scenes/fireflies/index.html",
+      "theme": {
+        "background": "#04120f",
+        "accent": "#f2c98a"
+      },
+      "performance": {
+        "tier": "low",
+        "targetFps": 30
+      },
+      "compatibility": {
+        "hostApi": 1,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "024ff77b4ac03738696e03743c3c90530f86491e6f264aad115b35637c478d79"
+      }
+    }
+  ]
+}

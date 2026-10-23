@@ -35,7 +35,10 @@ const resolveSceneSdk = {
   },
 };
 
-const SAMPLES = [{ dir: "param-demo", entry: "src/main.ts" }];
+const SAMPLES = [
+  { dir: "param-demo", entry: "src/main.ts" },
+  { dir: "three-scene", entry: "src/main.ts" },
+];
 
 let built = 0;
 for (const sample of SAMPLES) {
