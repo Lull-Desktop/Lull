@@ -27,6 +27,9 @@ export {
   type ScenePerformanceHints,
   type ScenePlatform,
   type SceneThemeHints,
+  sceneRunsScript,
+  sceneSupportsParams,
+  sceneSupportsSync,
 } from "./manifest";
 export {
   resolveSceneParams,

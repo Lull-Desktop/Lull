@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "demo.param-scene",
+      "name": "参数演示（脚本场景）",
+      "version": "1.1.0",
+      "description": "1.1.0 新增模糊、色相与光环开关，用来验证更新安装与参数热更。",
+      "author": "Lull Demo",
+      "license": "CC-BY-4.0",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.canvas",
+        "wallpaper.params",
+        "wallpaper.script"
+      ],
+      "entry": "scenes/param-demo/index.html",
+      "theme": {
+        "background": "#05100e",
+        "accent": "#9fc7c2"
+      },
+      "params": [
+        {
+          "key": "glow",
+          "type": "number",
+          "label": "光晕强度",
+          "description": "0 为熄灭，1 为最亮。",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.05
+        },
+        {
+          "key": "tint",
+          "type": "color",
+          "label": "光晕颜色",
+          "default": "#9fc7c2"
+        },
+        {
+          "key": "pulse",
+          "type": "number",
+          "label": "呼吸周期（秒）",
+          "default": 8,
+          "min": 2,
+          "max": 20,
+          "step": 1
+        },
+        {
+          "key": "blur",
+          "type": "number",
+          "label": "光晕模糊（px）",
+          "description": "1.1.0 新增：数值越大越柔。",
+          "default": 60,
+          "min": 10,
+          "max": 140,
+          "step": 5
+        },
+        {
+          "key": "hue",
+          "type": "number",
+          "label": "色相偏移（度）",
+          "description": "1.1.0 新增：-180 到 180 度。",
+          "default": 0,
+          "min": -180,
+          "max": 180,
+          "step": 5
+        },
+        {
+          "key": "ring",
+          "type": "boolean",
+          "label": "显示光环",
+          "description": "1.1.0 新增：关闭后只保留光晕。",
+          "default": true
+        }
+      ],
+      "performance": {
+        "tier": "low",
+        "targetFps": 30
+      },
+      "compatibility": {
+        "hostApi": 1,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "3a81b290fd8fdf35c7f74d80de838b5154d4c1b97a66b0c0fde6e4754a221d31"
+      }
+    }
+  ]
+}

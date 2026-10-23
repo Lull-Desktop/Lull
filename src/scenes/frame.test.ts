@@ -108,9 +108,31 @@ test("external static content never receives sync even if it declares it", () =>
   expect(frame?.sync.enabled).toBe(false);
 });
 
+test("external scripted content receives sync through the bridge", () => {
+  const external: SceneCatalogEntry = {
+    ...scene({
+      capabilities: [
+        "wallpaper.viewport",
+        "wallpaper.sync",
+        "wallpaper.script",
+      ],
+    }),
+    source: "user",
+    entryUrl: "/content/test/index.html",
+  };
+  const frame = resolveSceneFrame(external, BASE_PARAMS, ENV);
+  expect(frame?.sync).toEqual({ enabled: true, epochMs: 1234 });
+});
+
 test("scene params resolve from stored strings and manifest defaults", () => {
   const frame = resolveSceneFrame(
     scene({
+      capabilities: [
+        "wallpaper.viewport",
+        "wallpaper.canvas",
+        "wallpaper.sync",
+        "wallpaper.params",
+      ],
       params: [
         {
           key: "density",

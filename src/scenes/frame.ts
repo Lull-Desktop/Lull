@@ -10,6 +10,8 @@ import {
   type SceneCatalogEntry,
   type SceneFrame,
   type ScenePlatform,
+  sceneRunsScript,
+  sceneSupportsSync,
 } from "@/sdk/scene";
 
 /** 当前发布物只支持 Windows；将来扩展平台时从这里改。 */
@@ -45,11 +47,12 @@ export function resolveSceneFrame(
   if (!useCanvas && !supportsViewport) return null;
 
   const layout = useCanvas ? "canvas" : "viewport";
-  // 外部静态包不接收 SceneProps，无法读取相位；即使声明 capability 也不启用同步。
+  // 内置场景由组件直接读帧；外部场景必须启用脚本桥才能收到相位。
+  // 没有脚本桥的静态包即使声明 wallpaper.sync 也不会同步。
   const syncEnabled =
-    entry.source === "builtin" &&
     resolveSync(params.mode, params.sync) &&
-    manifest.capabilities.includes("wallpaper.sync");
+    sceneSupportsSync(manifest) &&
+    (entry.source === "builtin" || sceneRunsScript(manifest));
 
   return {
     mode: params.mode,

@@ -37,11 +37,20 @@ jobs:
       - name: Install dependencies from lockfile
         run: pnpm install --frozen-lockfile
 
+      - name: Type-check frontend and SDK contracts
+        run: pnpm typecheck
+
+      - name: Type-check SDK packages
+        run: pnpm widgets:sdk:check && pnpm scenes:sdk:check
+
       - name: Run tests
         run: pnpm test
 
       - name: Validate content catalog
         run: pnpm content:check
+
+      - name: Validate scripted scene example
+        run: pnpm scenes:samples:check
 
       - name: Validate widget manifests
         run: pnpm widgets:check

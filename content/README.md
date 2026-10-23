@@ -61,8 +61,12 @@ my-scene/
 
 ```powershell
 pnpm content:hash --bundle ./my-scene   # 写回 integrity（算法与安装器一致）
-# 压缩成 zip 后，拖到 Lull 设置窗口即可安装
+pnpm content:pack ./my-scene --out artifacts
+# 把 artifacts/my-scene-<version>.zip 从设置 → 扩展安装
 ```
+
+> 不要用 `Compress-Archive` 等会写反斜杠路径的工具；安装器会拒绝
+> `zip 内含反斜杠路径`。`content:pack` 统一使用正斜杠。
 
 安装器只接受声明了整包摘要的单场景包；详细校验顺序与限制见
 [内容包格式 §7](../docs/content-format.md)。

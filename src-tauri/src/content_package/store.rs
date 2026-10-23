@@ -172,7 +172,7 @@ pub fn install_staged(
     return Err(format!("内容包摘要不匹配：声明 {expected}，实际 {actual}"));
   }
   let target = staged
-    .commit(root, &registration.id)
+    .commit_replace(root, &registration.id)
     .map_err(|error| error.to_string())?;
   Ok(inspect(&target, &registration.id))
 }
@@ -216,10 +216,19 @@ mod tests {
 
   /// 造一个最小内容包：`<dir>/scenes/test/index.html` + `catalog.json`。
   fn write_bundle(dir: &Path, id: &str, entry_html: &str) -> Result<(), String> {
+    write_bundle_version(dir, id, "1.0.0", entry_html)
+  }
+
+  fn write_bundle_version(
+    dir: &Path,
+    id: &str,
+    version: &str,
+    entry_html: &str,
+  ) -> Result<(), String> {
     let scene_dir = dir.join("scenes/test");
     std::fs::create_dir_all(&scene_dir).map_err(|error| error.to_string())?;
     std::fs::write(scene_dir.join("index.html"), entry_html).map_err(|error| error.to_string())?;
-    let digest = digest::compute(id, "1.0.0", &scene_dir)?;
+    let digest = digest::compute(id, version, &scene_dir)?;
     let manifest = format!(
       r#"{{
         "schemaVersion": 1,
@@ -229,7 +238,7 @@ mod tests {
             "type": "scene",
             "id": "{id}",
             "name": "测试场景",
-            "version": "1.0.0",
+            "version": "{version}",
             "license": "CC-BY-4.0",
             "entry": "scenes/test/index.html",
             "capabilities": ["wallpaper.viewport"],
@@ -287,6 +296,53 @@ mod tests {
     assert_eq!(inspected.status, "tampered");
     assert!(inspected.error.is_some());
 
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn reinstalls_same_scene_id_with_new_version() {
+    let Some(root) = temp_root("replace") else {
+      return;
+    };
+    let v1 = root.join("v1");
+    if write_bundle_version(&v1, "community.up", "1.0.0", "<html>v1</html>").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let first = install_into(&root, &v1);
+    assert!(first.is_ok(), "首次安装失败：{first:?}");
+    if let Ok(info) = &first {
+      assert_eq!(info.version, "1.0.0");
+    }
+
+    let v2 = root.join("v2");
+    if write_bundle_version(&v2, "community.up", "1.1.0", "<html>v2</html>").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let second = install_into(&root, &v2);
+    assert!(second.is_ok(), "覆盖安装失败：{second:?}");
+    if let Ok(info) = second {
+      assert_eq!(info.version, "1.1.0");
+      assert!(info.verified);
+    }
+    let installed = std::fs::read_to_string(root.join("community.up/scenes/test/index.html"))
+      .unwrap_or_default();
+    assert!(installed.contains("v2"));
+
+    let leftovers = std::fs::read_dir(&root)
+      .ok()
+      .into_iter()
+      .flatten()
+      .filter_map(Result::ok)
+      .filter(|entry| {
+        entry
+          .file_name()
+          .to_string_lossy()
+          .starts_with(".replaced-")
+      })
+      .count();
+    assert_eq!(leftovers, 0, "成功覆盖后不应留下备份目录");
     let _ = std::fs::remove_dir_all(&root);
   }
 
@@ -363,6 +419,42 @@ mod tests {
     let _ = std::fs::remove_dir_all(&root);
   }
 
+  /// 端到端：示例脚本场景（wallpaper.script + params）按文档构建后可直接安装。
+  #[test]
+  fn installs_scripted_param_demo_bundle() {
+    let Some(root) = temp_root("param-demo") else {
+      return;
+    };
+    let source = root.join("param-demo");
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/content/param-demo");
+    if copy_dir_all(&example, &source).is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+
+    let installed = install_into(&root, &source);
+    assert!(installed.is_ok(), "示例脚本场景安装失败：{installed:?}");
+    if let Ok(info) = installed {
+      assert_eq!(info.id, "demo.param-scene");
+      assert!(info.verified);
+      assert_eq!(info.status, "ready");
+      assert_eq!(
+        info
+          .manifest
+          .get("capabilities")
+          .and_then(Value::as_array)
+          .map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
+        Some(vec![
+          "wallpaper.viewport",
+          "wallpaper.canvas",
+          "wallpaper.params",
+          "wallpaper.script"
+        ])
+      );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
   /// 用 zip 写作器造一个包再安装，覆盖 `extract_zip` 这条真实入口。
   #[test]
   fn installs_from_zip_archive() {
@@ -413,6 +505,39 @@ mod tests {
       assert!(info.verified);
     }
     assert!(root.join("community.zipped/scenes/test/index.html").is_file());
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  /// Windows 压缩工具会写反斜杠条目；安装器必须拒绝，避免路径语义分歧。
+  #[test]
+  fn rejects_zip_entries_with_backslashes() {
+    use std::io::Write;
+
+    let Some(root) = temp_root("zip-backslash") else {
+      return;
+    };
+    let archive_path = root.join("bad.zip");
+    let Ok(file) = std::fs::File::create(&archive_path) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let mut writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    if writer
+      .start_file("scenes\\param-demo\\index.html", options)
+      .is_err()
+      || writer.write_all(b"x").is_err()
+      || writer.finish().is_err()
+    {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+
+    let staged = install::stage(&root, &archive_path);
+    assert_eq!(
+      staged.err().map(|error| error.code).as_deref(),
+      Some("package.unsafe-entry")
+    );
     let _ = std::fs::remove_dir_all(&root);
   }
 

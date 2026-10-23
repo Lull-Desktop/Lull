@@ -9,7 +9,7 @@
 use super::manifest::valid_id;
 use super::manifest::PackageManifest;
 use super::store;
-use crate::resource::{mime_for, safe_join};
+use crate::resource::{html_with_script_nonce, mime_for, nonce, safe_join};
 use tauri::http::{header, HeaderValue, Request, Response, StatusCode};
 use tauri::{AppHandle, UriSchemeContext, Wry};
 
@@ -71,9 +71,8 @@ fn html_response(
   granted: &[String],
 ) -> Response<Vec<u8>> {
   let nonce = nonce();
-  let html = String::from_utf8_lossy(&bytes);
   // 只给 HTML 中已有的 <script> 打 nonce；插件不应自带 nonce。
-  let html = html.replace("<script", &format!("<script nonce=\"{nonce}\""));
+  let html = html_with_script_nonce(&String::from_utf8_lossy(&bytes), &nonce);
   let csp = plugin_csp(manifest, &nonce, granted);
   let mut response = binary_response(html.into_bytes(), content_type);
   set_header(&mut response, "Content-Security-Policy", &csp);
@@ -139,22 +138,6 @@ fn set_header(response: &mut Response<Vec<u8>>, name: &str, value: &str) {
   response.headers_mut().insert(name, value);
 }
 
-/// CSP nonce 只用于同一响应内的脚本；不承担密码学用途，但要求不可预测。
-fn nonce() -> String {
-  use std::collections::hash_map::RandomState;
-  use std::hash::{BuildHasher, Hasher};
-  let mut hasher = RandomState::new().build_hasher();
-  if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-    hasher.write_u64(now.as_secs());
-    hasher.write_u32(now.subsec_nanos());
-  }
-  format!(
-    "{:016x}{:016x}",
-    hasher.finish(),
-    RandomState::new().build_hasher().finish()
-  )
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -194,14 +177,4 @@ mod tests {
     let csp = plugin_csp(&manifest(), "abc", &[]);
     assert!(!csp.contains("https://api.example.com"));
   }
-
-  #[test]
-  fn nonce_is_hex_and_unique() {
-    let first = nonce();
-    let second = nonce();
-    assert_eq!(first.len(), 32);
-    assert!(first.chars().all(|ch| ch.is_ascii_hexdigit()));
-    assert_ne!(first, second);
-  }
-
 }

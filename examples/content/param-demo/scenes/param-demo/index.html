@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>参数演示</title>
+    <style>
+      :root {
+        --glow: 0.5;
+        --tint: #9fc7c2;
+        --pulse: 8s;
+        --sync-delay: 0ms;
+        --blur: 60px;
+        --hue: 0deg;
+        --ring-opacity: 0.8;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #05100e;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: -20%;
+        background: radial-gradient(
+          circle at 30% 35%,
+          var(--tint),
+          transparent 60%
+        );
+        opacity: calc(var(--glow) * 0.55);
+        filter: blur(var(--blur)) hue-rotate(var(--hue));
+      }
+
+      .glow {
+        position: absolute;
+        inset: 18%;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 50% 50%,
+          var(--tint),
+          transparent 70%
+        );
+        opacity: var(--glow);
+        filter: blur(var(--blur)) hue-rotate(var(--hue));
+        animation: breathe var(--pulse) ease-in-out infinite alternate;
+        animation-delay: var(--sync-delay);
+      }
+
+      .ring {
+        position: absolute;
+        inset: 22%;
+        border: 1px solid color-mix(in srgb, var(--tint) 45%, transparent);
+        border-radius: 50%;
+        opacity: var(--ring-opacity);
+        filter: hue-rotate(var(--hue));
+        animation: breathe var(--pulse) ease-in-out infinite alternate-reverse;
+        animation-delay: var(--sync-delay);
+      }
+
+      @keyframes breathe {
+        from {
+          transform: scale(0.82);
+        }
+        to {
+          transform: scale(1.12);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .glow,
+        .ring {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="glow"></div>
+    <div class="ring"></div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

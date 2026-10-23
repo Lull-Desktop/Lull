@@ -55,6 +55,43 @@ impl Staged {
     })?;
     Ok(target)
   }
+
+  /// 覆盖安装：目标已存在时先把旧目录改名为点号备份，再落新包。
+  ///
+  /// 仅用于支持本地更新的包类型（当前是 scene）；widget 仍走 `commit`，
+  /// 因为覆盖正在运行/已授权的插件需要额外的授权与状态迁移设计。
+  pub fn commit_replace(&self, root: &Path, id: &str) -> Result<PathBuf, ExtensionError> {
+    if !safe_component(id) {
+      return Err(ExtensionError::new(
+        "manifest.id-invalid",
+        format!("id 不能作为目录名：{id}"),
+      ));
+    }
+    std::fs::create_dir_all(root)
+      .map_err(|error| ExtensionError::new("io.error", format!("创建安装目录失败：{error}")))?;
+    let target = root.join(id);
+    if !target.exists() {
+      return self.commit(root, id);
+    }
+
+    let backup = root.join(format!(".replaced-{id}-{}", unique_suffix()));
+    std::fs::rename(&target, &backup)
+      .map_err(|error| ExtensionError::new("io.error", format!("备份旧版本失败：{error}")))?;
+    match std::fs::rename(&self.bundle, &target) {
+      Ok(()) => {
+        // 备份删除失败只会留下点号目录，扫描会忽略，不影响新版本。
+        let _ = std::fs::remove_dir_all(&backup);
+        Ok(target)
+      }
+      Err(error) => {
+        let _ = std::fs::rename(&backup, &target);
+        Err(
+          ExtensionError::new("io.error", format!("覆盖安装失败：{error}"))
+            .with_detail(self.bundle.display().to_string()),
+        )
+      }
+    }
+  }
 }
 
 impl Drop for Staged {

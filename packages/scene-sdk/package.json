@@ -1,0 +1,48 @@
+{
+  "name": "@lull/scene-sdk",
+  "version": "0.1.0",
+  "description": "Lull 壁纸场景侧 SDK（TypeScript）：通过 postMessage 桥读取宿主下发的参数、几何与同步相位。",
+  "keywords": [
+    "lull",
+    "scene",
+    "wallpaper",
+    "sdk",
+    "typescript",
+    "tauri"
+  ],
+  "type": "module",
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.check.json",
+    "prepublishOnly": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

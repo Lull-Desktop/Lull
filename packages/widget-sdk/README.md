@@ -197,8 +197,8 @@ packages/widget-sdk/
 - 插件是**不透明源 iframe**，不能访问宿主 DOM / 存储 / 窗口 API；但 WebView2 会把 Tauri
   初始化脚本注入子帧，插件里仍可能看到 `__TAURI_INTERNALS__`——它不是受支持的 API，ACL 也只授予
   本窗口的状态命令。
-- 没有安装器与包签名：插件包由用户手工放到 `%APPDATA%\app.lull.desktop\widgets\<id>\`，
-  宿主只校验 `widget.json` 字段，不校验来源。
+- 本地 ZIP 安装器与 `.lull-integrity.json` 摘要锁已落地；仍没有发布者签名、在线目录
+  与自动更新。手动放入 `%APPDATA%\app.lull.desktop\widgets\<id>\` 的包会在启用时补锁。
 - `resize.request` 在 v1 是只读探测；窗口尺寸由清单与宿主偏好决定。
 - 网络访问受宿主按插件注入的 CSP 限制，白名单来自清单 `network` 字段。
 

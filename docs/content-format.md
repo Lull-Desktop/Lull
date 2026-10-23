@@ -1,6 +1,7 @@
 # 内容包格式
 
-> 状态：v1 只落地**静态场景包**。主题、声景预设、桌面布局的类型已在 SDK 中预留，但宿主尚未加载。
+> 状态：v1 落地**静态场景包**与声明 `wallpaper.script` 的**沙箱脚本场景包**。
+> 主题、声景预设、桌面布局的类型已在 SDK 中预留，但宿主尚未加载。
 > 目标：官方内容与社区内容使用同一种格式；内容包不修改 Lull 核心代码。
 >
 > 统一安装入口与工具扩展的分发已落地基础版本，见 [扩展中心设计](./extension-center.md)；
@@ -36,7 +37,7 @@ public/content/
       "description": "薄雾与远山。",
       "author": "Lull Community",
       "license": "CC-BY-4.0",
-      "capabilities": ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
+      "capabilities": ["wallpaper.viewport", "wallpaper.canvas"],
       "entry": "scenes/mist/index.html",
       "theme": { "background": "#0a1416", "accent": "#9fc7c2" },
       "performance": { "tier": "low", "targetFps": 30 },
@@ -67,12 +68,17 @@ scenes/<name>/
 
 约束：
 
-- `entry` 必须是 `.html`，相对 `public/content/`，禁止 `..` / 绝对路径 / 反斜杠；
-- 只允许 HTML / CSS；iframe 空 `sandbox`，JavaScript 不执行；
-- 所有资源使用相对路径；不加载远程脚本、字体或音频；
-- 不访问 `window.parent`、Tauri API 或宿主存储；
-- 不声明 `wallpaper.sync`：静态包拿不到相位锚点，跨屏（mirror / independent）时各窗口各自播放，相位不保证一致；需要严格跨屏同步请实现内置场景；
-- 不依赖构建期工具；一个静态服务器能跑即可。
+- `entry` 必须是 `.html`，相对包根目录，禁止 `..` / 绝对路径 / 反斜杠；
+- **静态包**：只允许 HTML / CSS，iframe 空 `sandbox`，JavaScript 不执行；
+- **脚本包**：声明 `wallpaper.script`，iframe 使用 `sandbox="allow-scripts"`，脚本通过
+  [`@lull/scene-sdk`](../packages/scene-sdk/README.md) 读取参数/几何/同步相位；
+  资源协议会下发 nonce CSP，只允许包内资源；
+- 所有资源使用相对路径；CSP 默认阻止远程脚本、字体、图片与音频；
+- 静态包不访问 `window.parent`；脚本包只通过 Scene SDK 的 postMessage 桥与宿主通信，
+  不直接读取宿主 DOM、存储或 Tauri API；
+- 声明 `params` 时必须声明 `wallpaper.params`；外部场景使用 `wallpaper.params` 或
+  `wallpaper.sync` 时必须同时声明 `wallpaper.script`；静态包不能声明这两项；
+- 静态包不依赖构建期工具；脚本包用 esbuild / Vite 打成包内 ESM 即可。
 
 ### 3.2 主题 / 声景 / 布局（预留）
 
@@ -125,11 +131,12 @@ type ContentManifest = {
 ```powershell
 pnpm content:hash                     # 重算并写回每个包的 integrity 摘要（改了内容包之后）
 pnpm content:hash --bundle ./my-scene # 重算独立内容包（创作者打包前用）
+pnpm content:pack ./my-scene --out artifacts # 打成可安装 zip（正斜杠 + UTF-8）
 pnpm content:sign                     # 用本机私钥给 catalog.json 的原始字节签名
 pnpm content:check                    # 校验清单 + 摘要 + 目录签名（CI 与构建前置都跑这个）
 ```
 
-实现：[`scripts/validate-content.mjs`](../scripts/validate-content.mjs)、[`scripts/hash-content.mjs`](../scripts/hash-content.mjs)、[`scripts/sign-content.mjs`](../scripts/sign-content.mjs)。检查范围：
+实现：[`scripts/validate-content.mjs`](../scripts/validate-content.mjs)、[`scripts/hash-content.mjs`](../scripts/hash-content.mjs)、[`scripts/pack-content.mjs`](../scripts/pack-content.mjs)、[`scripts/sign-content.mjs`](../scripts/sign-content.mjs)。检查范围：
 
 1. `catalog.json` 可解析、schemaVersion 正确；
 2. 每个 manifest 的必填字段与格式；
@@ -177,8 +184,12 @@ my-scene/
 
 ```powershell
 pnpm content:hash --bundle ./my-scene   # 写回 integrity（算法与安装器一致）
-# 把 my-scene 压缩成 zip（Windows 右键「压缩为 ZIP」即可）
+pnpm content:pack ./my-scene --out artifacts
 ```
+
+> **不要用 `Compress-Archive` 或部分 Windows 压缩工具**：它们会把 zip 条目写成
+> 反斜杠路径，安装器会以 `package.unsafe-entry: zip 内含反斜杠路径` 拒绝。
+> `content:pack` 统一写正斜杠与 UTF-8，并在打包前复核 `integrity`。
 
 > `--bundle` 与随包目录走同一个 `computePackageDigest()`；摘要只覆盖 entry 所在目录，
 > 清单本身不在摘要范围内——否则写入 `integrity` 会改变自身字节，摘要永远算不出来。
@@ -207,15 +218,22 @@ pnpm content:hash --bundle ./my-scene   # 写回 integrity（算法与安装器�
 手动放置且未声明摘要的包仍可加载，但标记为「未校验」。第三方包没有目录签名，
 所以「未校验」是常态，不是错误。
 
-v1 限制：单场景包、不做第三方签名（未签名 = 未校验）、不联网、不做版本更新。
-仍缺：在线索引、下载与撤回、作者密钥信任链、多场景包、自动更新。
+v1 限制：单场景包、不做第三方签名（未签名 = 未校验）、不联网。
+scene 支持同 id **覆盖安装**（本地手动更新：旧目录备份后替换，壁纸按版本重载）；
+仍缺：在线索引、下载与撤回、作者密钥信任链、多场景包、自动更新/回滚。
 
 ## 8. 安全边界
 
-- 内容包运行在 `sandbox=""` 的 iframe：不执行 JavaScript，不能调用 Tauri；
+- 静态内容包运行在 `sandbox=""` 的 iframe：不执行 JavaScript，不能调用 Tauri；
+- 脚本场景运行在 `sandbox="allow-scripts"` 的 opaque-origin iframe：没有同源存储、
+  Cookie 或宿主 DOM 读取权限，只能通过 `window.parent.postMessage` 与宿主桥通信；
+  内容协议注入 nonce CSP，默认禁止远程资源；
+- 场景只能通过 `@lull/scene-sdk` 的桥读取宿主下发的帧，没有写配置、创建窗口或
+  调用原生/任意 Rust 命令的入口；
 - 宿主不执行内容包里的任意 Node/Rust 代码；
-- 不把「能加载 HTML」当成「安全插件系统」；
-- 安装/更新/签名/权限模型落地前，不开放第三方工具窗口与原生能力。
+- 不把「能加载 HTML / 能跑沙箱脚本」当成「安全插件系统」；
+- WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只授予只读
+  `content_packages` 与事件订阅，这不是受支持的场景 API。
 
 ## 9. 示例
 
@@ -223,4 +241,7 @@ v1 限制：单场景包、不做第三方签名（未签名 = 未校验）、�
 - [`public/content/scenes/mist/index.html`](../public/content/scenes/mist/index.html)
 - [`examples/content/demo-fireflies`](../examples/content/demo-fireflies) —— 可安装的测试包源码（纯 CSS 壁纸），
   打包后即 `artifacts/demo.fireflies-1.0.0.zip`，用来验证「拖入安装 → 场景出现在下拉里」这条链路
+- [`examples/content/param-demo`](../examples/content/param-demo) —— 声明 `wallpaper.params` +
+  `wallpaper.script` 的脚本场景，验证「Setting 改参数 → Scene SDK → 场景实时更新」这条链路；
+  打包后即 `artifacts/demo.param-scene-1.0.0.zip`
 - [`src/sdk/scene/manifest.test.ts`](../src/sdk/scene/manifest.test.ts)

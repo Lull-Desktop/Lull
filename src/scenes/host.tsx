@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { canvasTransform, type WallpaperParams } from "@/core/wallpaper/params";
 import { useSceneCatalog } from "@/hooks/use-scene-catalog";
+import { ExternalScene } from "@/scenes/external-scene";
 import { resolveSceneFrame, type SceneEnvironment } from "@/scenes/frame";
 import { DEFAULT_SCENE_ID } from "@/scenes/registry";
 import type { SceneCatalogEntry } from "@/sdk/scene";
@@ -30,20 +31,6 @@ function readEnvironment(): HostEnvironment {
     reducedMotion:
       window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false,
   };
-}
-
-function ExternalScene({ entry }: { entry: SceneCatalogEntry }) {
-  if (!entry.entryUrl) return null;
-  return (
-    <iframe
-      data-testid="external-scene"
-      title={entry.manifest.name}
-      src={entry.entryUrl}
-      sandbox=""
-      referrerPolicy="no-referrer"
-      className="absolute inset-0 h-full w-full border-0"
-    />
-  );
 }
 
 export function SceneHost({ params }: SceneHostProps) {
@@ -122,7 +109,12 @@ export function SceneHost({ params }: SceneHostProps) {
           <Scene {...frame} />
         ) : (
           // 没有内置组件就走 iframe：随包内容（content）与用户安装（user）都在这条路上。
-          <ExternalScene entry={entry} />
+          // key 绑定场景 id：切换场景时重建 iframe，旧页面的 ready/监听一并作废。
+          <ExternalScene
+            key={`${entry.manifest.id}@${entry.manifest.version}`}
+            entry={entry}
+            frame={frame}
+          />
         )}
       </div>
     </div>

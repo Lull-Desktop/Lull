@@ -122,6 +122,14 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   const sceneCount = (items ?? []).filter(
     (item) => item.kind === "scene",
   ).length;
+  const installedPreview = preview
+    ? (items ?? []).find(
+        (item) =>
+          item.kind === preview.preview.kind && item.id === preview.preview.id,
+      )
+    : undefined;
+  const isSceneUpdate =
+    preview?.preview.kind === "scene" && installedPreview !== undefined;
 
   useEffect(() => {
     getDevState()
@@ -242,7 +250,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
     setBusy(true);
     installExtension(preview.path, preview.preview.sourceDigest)
       .then(async (installed) => {
-        setMessage(`已安装 ${installed.name} ${installed.version}`);
+        setMessage(
+          `${isSceneUpdate ? "已更新" : "已安装"} ${installed.name} ${installed.version}`,
+        );
         setPreview(null);
         await refresh();
       })
@@ -252,7 +262,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       .finally(() => {
         setBusy(false);
       });
-  }, [preview, refresh]);
+  }, [isSceneUpdate, preview, refresh]);
 
   const runAction = useCallback(
     (action: () => Promise<unknown>, success: string): void => {
@@ -703,13 +713,22 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
           {preview && (
             <>
               <SheetHeader>
-                <SheetTitle>确认安装 {preview.preview.name}</SheetTitle>
+                <SheetTitle>
+                  {isSceneUpdate ? "确认更新" : "确认安装"}{" "}
+                  {preview.preview.name}
+                </SheetTitle>
                 <SheetDescription>
                   {kindLabel(preview.preview.kind)} · {preview.preview.version}{" "}
                   · {formatBytes(preview.preview.bytes)}
                 </SheetDescription>
               </SheetHeader>
               <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4 text-sm">
+                {isSceneUpdate && installedPreview && (
+                  <p className="rounded-lg border border-bamboo/30 bg-bamboo/5 p-2 text-[11px] text-ink-soft">
+                    已安装 {installedPreview.version}，确认后用{" "}
+                    {preview.preview.version} 覆盖；壁纸会自动重载新版本。
+                  </p>
+                )}
                 {preview.preview.description && (
                   <p className="text-xs text-muted-foreground">
                     {preview.preview.description}
@@ -764,7 +783,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   </ul>
                 )}
                 <p className="text-[11px] text-muted-foreground">
-                  安装只写入文件，不执行扩展代码；启用时才确认权限。
+                  {isSceneUpdate
+                    ? "确认后覆盖同 id 的旧版本；安装只写入文件，不执行扩展代码。"
+                    : "安装只写入文件，不执行扩展代码；启用时才确认权限。"}
                 </p>
                 {message && (
                   <p className="text-xs text-destructive">{message}</p>
@@ -780,7 +801,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   取消
                 </Button>
                 <Button type="button" onClick={confirmInstall} disabled={busy}>
-                  {busy ? "安装中…" : "确认安装"}
+                  {busy ? "安装中…" : isSceneUpdate ? "确认更新" : "确认安装"}
                 </Button>
               </div>
             </>

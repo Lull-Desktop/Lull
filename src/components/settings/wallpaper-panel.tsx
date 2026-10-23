@@ -27,6 +27,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSceneCatalog } from "@/hooks/use-scene-catalog";
+import { type SceneCatalogEntry, sceneSupportsParams } from "@/sdk/scene";
 
 /** 与 Rust 侧 `wallpaper::MonitorView` 对应。 */
 type MonitorView = {
@@ -42,6 +43,12 @@ type MonitorView = {
   /** 生效场景（每屏覆盖 → 全局回退）。 */
   scene: string;
 };
+
+function sceneSourceLabel(source: SceneCatalogEntry["source"]): string {
+  if (source === "builtin") return "内置";
+  if (source === "content") return "随包内容包";
+  return "已安装内容包";
+}
 
 /** 与 Rust 侧 `config::DisplayConfig` 对应。 */
 type DisplayConfig = {
@@ -286,19 +293,38 @@ export function WallpaperPanel() {
               <p className="text-xs text-muted-foreground">
                 {activeScene.manifest.description} · v
                 {activeScene.manifest.version} · {activeScene.manifest.license}{" "}
-                · {activeScene.source === "content" ? "内容包" : "内置"}
+                · {sceneSourceLabel(activeScene.source)}
               </p>
             )}
-            {activeScene?.manifest.params && (
-              <SceneParamFields
-                definitions={activeScene.manifest.params}
-                values={display.sceneParams?.[display.scene] ?? {}}
-                onChange={(key, value) =>
-                  updateSceneParam(display.scene, key, value)
-                }
-                onReset={() => commitSceneParams(display.scene, {})}
-              />
-            )}
+            {activeScene?.manifest.params &&
+              activeScene.manifest.params.length > 0 &&
+              sceneSupportsParams(activeScene.manifest) && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    {`参数由 Setting 实时下发到${
+                      activeScene.source === "builtin"
+                        ? "内置场景"
+                        : "场景桥（@lull/scene-sdk）"
+                    }`}
+                  </p>
+                  <SceneParamFields
+                    definitions={activeScene.manifest.params}
+                    values={display.sceneParams?.[display.scene] ?? {}}
+                    onChange={(key, value) =>
+                      updateSceneParam(display.scene, key, value)
+                    }
+                    onReset={() => commitSceneParams(display.scene, {})}
+                  />
+                </div>
+              )}
+            {activeScene?.manifest.params &&
+              activeScene.manifest.params.length > 0 &&
+              !sceneSupportsParams(activeScene.manifest) && (
+                <p className="text-xs text-destructive">
+                  该场景声明了参数，但没有声明 wallpaper.params，Setting
+                  不会下发这些值。
+                </p>
+              )}
           </>
         )}
         {sceneCatalogError && (
@@ -373,7 +399,9 @@ export function WallpaperPanel() {
                     />
                   </div>
                   {display?.mode === "independent" &&
-                    monitorScene?.manifest.params && (
+                    monitorScene?.manifest.params &&
+                    monitorScene.manifest.params.length > 0 &&
+                    sceneSupportsParams(monitorScene.manifest) && (
                       <SceneParamFields
                         definitions={monitorScene.manifest.params}
                         values={display?.sceneParams?.[m.scene] ?? {}}

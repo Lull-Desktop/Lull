@@ -21,6 +21,8 @@ const CAPABILITIES = new Set([
   "wallpaper.viewport",
   "wallpaper.canvas",
   "wallpaper.sync",
+  "wallpaper.params",
+  "wallpaper.script",
 ]);
 const ID = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -302,6 +304,24 @@ for (const [index, scene] of (catalog.scenes ?? []).entries()) {
       if (!CAPABILITIES.has(capability)) {
         fail(`${where}.capabilities 含未知能力: ${String(capability)}`);
       }
+    }
+    const hasCapability = (capability) =>
+      scene.capabilities.includes(capability);
+    // 外部场景只有脚本桥能收到参数/相位；没有 script 就不能声明这两项。
+    if (
+      !hasCapability("wallpaper.script") &&
+      (hasCapability("wallpaper.params") || hasCapability("wallpaper.sync"))
+    ) {
+      fail(
+        `${where}.capabilities: wallpaper.params / wallpaper.sync 必须同时声明 wallpaper.script`,
+      );
+    }
+    if (
+      Array.isArray(scene.params) &&
+      scene.params.length > 0 &&
+      !hasCapability("wallpaper.params")
+    ) {
+      fail(`${where}.params 需要同时声明 wallpaper.params`);
     }
   }
   if (typeof scene.entry !== "string" || !ENTRY.test(scene.entry)) {

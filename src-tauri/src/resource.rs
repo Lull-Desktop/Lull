@@ -34,6 +34,29 @@ pub fn safe_join(root: &Path, relative: &str) -> Result<PathBuf, String> {
   Ok(canonical)
 }
 
+/// 一次性 CSP nonce：只要求同一响应内不可预测，不承担密码学用途。
+pub fn nonce() -> String {
+  use std::collections::hash_map::RandomState;
+  use std::hash::{BuildHasher, Hasher};
+
+  let mut hasher = RandomState::new().build_hasher();
+  if let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+    hasher.write_u64(now.as_secs());
+    hasher.write_u32(now.subsec_nanos());
+  }
+  format!(
+    "{:016x}{:016x}",
+    hasher.finish(),
+    RandomState::new().build_hasher().finish()
+  )
+}
+
+/// 给 HTML 里已有的 `<script` 注入 nonce；插件/场景作者不应自带 nonce。
+/// 内联事件处理器（`onclick=`）不在 nonce 覆盖范围，CSP 会拒绝。
+pub fn html_with_script_nonce(html: &str, nonce: &str) -> String {
+  html.replace("<script", &format!("<script nonce=\"{nonce}\""))
+}
+
 /// 按扩展名推断 MIME；未知类型给 `application/octet-stream`。
 pub fn mime_for(path: &Path) -> &'static str {
   match path
@@ -109,5 +132,23 @@ mod tests {
     assert!(mime_for(Path::new("main.js")).starts_with("text/javascript"));
     assert_eq!(mime_for(Path::new("x.wasm")), "application/wasm");
     assert_eq!(mime_for(Path::new("x.bin")), "application/octet-stream");
+  }
+
+  #[test]
+  fn nonce_is_hex_and_unique() {
+    let first = nonce();
+    let second = nonce();
+    assert_eq!(first.len(), 32);
+    assert!(first.chars().all(|ch| ch.is_ascii_hexdigit()));
+    assert_ne!(first, second);
+  }
+
+  #[test]
+  fn script_tags_get_the_nonce() {
+    let html = html_with_script_nonce(
+      "<html><script src=\"./main.js\"></script><script>1</script></html>",
+      "abc",
+    );
+    assert_eq!(html.matches("<script nonce=\"abc\"").count(), 2);
   }
 }

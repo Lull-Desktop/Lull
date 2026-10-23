@@ -22,7 +22,13 @@ pub const CATALOG_SCHEMA_VERSION: u64 = 1;
 pub const MANIFEST_FILE: &str = "catalog.json";
 
 /// 与 `content/schema/scene.schema.json` 的 capabilities 枚举一致。
-pub const CAPABILITIES: &[&str] = &["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"];
+pub const CAPABILITIES: &[&str] = &[
+  "wallpaper.viewport",
+  "wallpaper.canvas",
+  "wallpaper.sync",
+  "wallpaper.params",
+  "wallpaper.script",
+];
 
 const MAX_ID_LEN: usize = 64;
 const MAX_NAME_CHARS: usize = 80;
@@ -209,6 +215,21 @@ fn parse_capabilities(scene: &serde_json::Map<String, Value>) -> Result<Vec<Stri
       capabilities.push(capability.to_string());
     }
   }
+
+  let has = |capability: &str| capabilities.iter().any(|known| known == capability);
+  if !has("wallpaper.script") && (has("wallpaper.params") || has("wallpaper.sync")) {
+    return Err(
+      "外部内容包的 wallpaper.params / wallpaper.sync 必须同时声明 wallpaper.script".to_string(),
+    );
+  }
+  if let Some(params) = scene.get("params").filter(|value| !value.is_null()) {
+    let Some(items) = params.as_array() else {
+      return Err("params 必须是数组".to_string());
+    };
+    if !items.is_empty() && !has("wallpaper.params") {
+      return Err("声明 params 时必须同时声明 wallpaper.params".to_string());
+    }
+  }
   Ok(capabilities)
 }
 
@@ -325,6 +346,36 @@ mod tests {
     let body = format!("{{\"schemaVersion\":1,\"scenes\":[{two},{two}]}}");
     assert!(std::fs::write(bundle.join(MANIFEST_FILE), body).is_ok());
     assert!(parse(&bundle).is_err(), "多场景在 v1 必须被拒绝");
+
+    let _ = std::fs::remove_dir_all(&bundle);
+  }
+
+  #[test]
+  fn external_params_and_sync_require_script_capability() {
+    let Some(bundle) = temp_bundle("script") else {
+      return;
+    };
+    let base = scene_json("community.test", "scenes/test/index.html");
+    let params_no_script = base.replace(
+      "\"capabilities\": [\"wallpaper.viewport\"]",
+      "\"capabilities\": [\"wallpaper.viewport\", \"wallpaper.params\"],\n        \"params\": [{\"key\":\"density\",\"type\":\"number\",\"label\":\"密度\",\"default\":0.5}]",
+    );
+    assert!(write_catalog(&bundle, &params_no_script).is_ok());
+    assert!(parse(&bundle).is_err(), "params 没有 script 必须拒绝");
+
+    let params_with_script = params_no_script.replace(
+      "\"wallpaper.params\"]",
+      "\"wallpaper.params\", \"wallpaper.script\"]",
+    );
+    assert!(write_catalog(&bundle, &params_with_script).is_ok());
+    assert!(parse(&bundle).is_ok(), "params + script 必须通过");
+
+    let sync_no_script = base.replace(
+      "\"wallpaper.viewport\"",
+      "\"wallpaper.viewport\", \"wallpaper.sync\"",
+    );
+    assert!(write_catalog(&bundle, &sync_no_script).is_ok());
+    assert!(parse(&bundle).is_err(), "sync 没有 script 必须拒绝");
 
     let _ = std::fs::remove_dir_all(&bundle);
   }

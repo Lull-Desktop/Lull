@@ -14,6 +14,14 @@ export const SCENE_CAPABILITIES = [
   "wallpaper.viewport",
   "wallpaper.canvas",
   "wallpaper.sync",
+  /** 场景接受 Manifest 声明的参数；外部场景还必须声明 wallpaper.script。 */
+  "wallpaper.params",
+  /**
+   * 外部场景允许在 sandbox="allow-scripts" 的 iframe 内执行脚本，
+   * 并通过 `@lull/scene-sdk` 的 postMessage 桥读取画面帧与参数。
+   * 内置场景由 React 组件直接渲染，不需要这个能力。
+   */
+  "wallpaper.script",
 ] as const;
 
 export type SceneCapability = (typeof SCENE_CAPABILITIES)[number];
@@ -501,6 +509,23 @@ export function parseSceneManifest(
     fail(where, `entry "${entry}" 必须是内容目录内的相对 .html 路径`);
   }
 
+  const params = parseSceneParams(input.params, where);
+  const external = options.requireEntry === true;
+  const has = (capability: SceneCapability): boolean =>
+    capabilities.includes(capability);
+
+  // 参数不是“写了就有”：Setting 只给声明 wallpaper.params 的场景渲染控件，
+  // 外部场景还必须能执行脚本（Bridge）才能收到参数值。
+  if (params && params.length > 0 && !has("wallpaper.params")) {
+    fail(where, "声明 params 时必须同时声明 wallpaper.params");
+  }
+  if (external && has("wallpaper.params") && !has("wallpaper.script")) {
+    fail(where, "外部内容包的 wallpaper.params 必须同时声明 wallpaper.script");
+  }
+  if (external && has("wallpaper.sync") && !has("wallpaper.script")) {
+    fail(where, "外部内容包的 wallpaper.sync 必须同时声明 wallpaper.script");
+  }
+
   const themeInput = input.theme;
   let theme: SceneThemeHints | undefined;
   if (themeInput !== undefined && themeInput !== null) {
@@ -523,9 +548,24 @@ export function parseSceneManifest(
     capabilities,
     entry,
     theme,
-    params: parseSceneParams(input.params, where),
+    params,
     performance: parsePerformance(input.performance, where),
     compatibility: parseCompatibility(input.compatibility, where),
     integrity: parseIntegrity(input.integrity, where),
   };
+}
+
+/** 外部场景是否允许脚本桥；内置场景由组件直接渲染，不依赖该能力。 */
+export function sceneRunsScript(manifest: SceneManifest): boolean {
+  return manifest.capabilities.includes("wallpaper.script");
+}
+
+/** 场景是否声明了参数通道；Settings 只对这类场景渲染参数控件。 */
+export function sceneSupportsParams(manifest: SceneManifest): boolean {
+  return manifest.capabilities.includes("wallpaper.params");
+}
+
+/** 场景是否声明了跨屏同步；外部场景还需要脚本桥才能读到相位。 */
+export function sceneSupportsSync(manifest: SceneManifest): boolean {
+  return manifest.capabilities.includes("wallpaper.sync");
 }

@@ -11,6 +11,7 @@ The following public SDK sources are licensed under **Apache-2.0**:
 - `src/sdk/widget/**`
 - `src/sdk/content/**`
 - `packages/widget-sdk/**`
+- `packages/scene-sdk/**`
 
 This includes the manifest types, catalog parser, capability enums and the
 public `SceneProps` / `WidgetManifest` contracts.
@@ -35,8 +36,12 @@ remain available under Apache-2.0 for reuse in other projects.
   you must retain its notices.
 - You may not use the Lull name or logo in a way that suggests endorsement;
   see [`TRADEMARK.md`](TRADEMARK.md).
-- The current external content path is HTML/CSS-only. JavaScript plugins and
-  host APIs are not part of the SDK contract yet.
+- Static content packages are HTML/CSS-only. Packages that declare
+  `wallpaper.script` run in an opaque-origin iframe and use
+  `@lull/scene-sdk` to receive parameters and frames; the bridge is the only
+  supported scene host API.
+- Third-party tool windows use `@lull/widget-sdk` in an opaque-origin iframe;
+  the postMessage bridge is the only supported widget host API.
 
 ## 4. Patent grant
 

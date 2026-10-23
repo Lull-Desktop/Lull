@@ -23,7 +23,12 @@ const BAMBOO_MANIFEST = parseSceneManifest({
   description: "深夜竹林、薄雾与远山，Lull 的默认场景。",
   author: "Lull",
   license: "GPL-3.0-or-later",
-  capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
+  capabilities: [
+    "wallpaper.viewport",
+    "wallpaper.canvas",
+    "wallpaper.sync",
+    "wallpaper.params",
+  ],
   theme: { background: "#07110f", accent: "#a9bf9b" },
   params: [
     {

@@ -37,7 +37,9 @@
         "enum": [
           "wallpaper.viewport",
           "wallpaper.canvas",
-          "wallpaper.sync"
+          "wallpaper.sync",
+          "wallpaper.params",
+          "wallpaper.script"
         ]
       }
     },

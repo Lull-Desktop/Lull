@@ -55,6 +55,20 @@ const preview: ExtensionPreview = {
   warnings: [],
 };
 
+const scenePreview: ExtensionPreview = {
+  kind: "scene",
+  id: "community.mist",
+  name: "雾岚",
+  version: "1.1.0",
+  license: "CC-BY-4.0",
+  capabilities: ["wallpaper.viewport"],
+  network: [],
+  fileCount: 2,
+  bytes: 2_048,
+  sourceDigest: "b".repeat(64),
+  warnings: [],
+};
+
 function mockCommands(
   overrides: Record<string, (args?: unknown) => unknown> = {},
 ): void {
@@ -121,6 +135,28 @@ test("install previews the package and submits the source digest", async () => {
     expect(invoke).toHaveBeenCalledWith("extensions_install", {
       path: "C:\\tmp\\demo.zip",
       sourceDigest: preview.sourceDigest,
+    });
+  });
+});
+
+test("scene update preview shows installed version and updates", async () => {
+  mockCommands({
+    extensions_pick: () => ({
+      path: "C:\\tmp\\mist-1.1.0.zip",
+      preview: scenePreview,
+    }),
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "从文件安装" }));
+  expect(await screen.findByText("确认更新 雾岚")).toBeDefined();
+  expect(screen.getByText(/已安装 1\.0\.0/)).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "确认更新" }));
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_install", {
+      path: "C:\\tmp\\mist-1.1.0.zip",
+      sourceDigest: scenePreview.sourceDigest,
     });
   });
 });

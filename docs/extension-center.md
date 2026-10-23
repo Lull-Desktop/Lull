@@ -342,13 +342,15 @@ sha256(
 | --- | --- |
 | `schemaVersion` | widget 固定 2；scene 固定 1；不支持直接拒绝 |
 | `hostApi` | widget `1..=HOST_API`；scene `compatibility.hostApi` 沿用现有过滤 |
-| `version` | 语义化版本；v1 不比较大小，不做升级 |
+| `version` | 语义化版本；v1 不比较大小；scene 可覆盖安装，widget 仍拒绝 |
 | `id` | widget `^[a-z][a-z0-9-]{1,31}$`；scene `^[a-z0-9][a-z0-9._-]{2,63}$`；两套命名空间独立 |
 | `lifecycle` | `background` / `suspend`；缺省 `background`，未知值拒绝 |
-| 同 id 已安装 | **拒绝安装**，提示先卸载；v1 不做覆盖升级 |
+| 同 id 已安装 | **scene**：备份旧目录后覆盖（本地手动更新）；**widget**：拒绝，提示先卸载 |
 | license | 从 ZIP 安装时必填；手动放置缺失只警告（不阻断） |
 
-“更新”留到第二阶段：需要版本比较、回滚、状态迁移三者一起设计，不能只做覆盖。
+scene 的覆盖安装只解决“本地把新 zip 装到同 id 上”：不做版本大小比较、不做回滚、
+不做状态迁移；壁纸按 manifest version 重建 iframe。完整更新/回滚仍在第二阶段。
+widget 覆盖需要授权账本、运行中窗口与状态 KV 的迁移设计，继续保持拒绝。
 
 ### 6.5 为什么不再造一个统一 manifest
 
@@ -384,7 +386,7 @@ source (.zip / 目录)
   │      · 清单字段 / id / entry / 能力 / 兼容性 / 许可
   │      · 摘要：scene 必填并比对；widget 有则比对，无则计算
   │
-  ├─ 4. 冲突检查：目标 <root>/<id> 是否已存在
+  ├─ 4. 冲突检查：scene 目标已存在 → 备份旧目录后覆盖；widget 已存在 → 拒绝
   │
   ├─ 5. 原子落地：rename(bundle, <root>/<id>)
   │
@@ -563,7 +565,7 @@ export type ExtensionPreview = {
 | `manifest.schema-unsupported` | `schemaVersion` 不支持 |
 | `manifest.field-invalid` | 必填字段缺失或格式错误 |
 | `manifest.id-invalid` | id 规则不符 |
-| `manifest.id-conflict` | 同 id 已安装 |
+| `manifest.id-conflict` | widget 同 id 已安装；scene 走覆盖安装 |
 | `manifest.entry-missing` | entry 不存在 |
 | `manifest.entry-unsafe` | entry 越界 |
 | `manifest.host-api-unsupported` | `hostApi` 超出范围 |

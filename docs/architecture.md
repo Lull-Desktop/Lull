@@ -39,7 +39,9 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 - 第三方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
 - 壁纸窗口只有一条**只读** capability（`window-wallpaper`：`content_packages` + 事件订阅）：
   场景切换走 `location.hash`（不重载页面），壁纸窗必须自己解析场景 id，因此要读得到用户内容包目录；
-  除此之外没有任何窗口/壁纸/插件命令，外部场景跑在 `sandbox=""` 的 iframe 里（不执行 JS），这条权限不落到第三方内容上。
+  除此之外没有任何窗口/壁纸/插件命令。外部静态场景跑在 `sandbox=""` 的 iframe 里（不执行 JS）；
+  声明 `wallpaper.script` 的外部场景跑在 `sandbox="allow-scripts"` 的 opaque-origin iframe 里，
+  只通过 `@lull/scene-sdk` 的 postMessage 桥读取参数/几何/相位。
 
 ### 2.2 壁纸画面协议
 
@@ -58,15 +60,15 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | `view` | 当前窗口对应的桌面矩形 |
 | `params` | JSON 后再 URI 编码的场景参数（字符串键值）；为空时省略 |
 
-前端 `src/core/wallpaper/params.ts` 负责解析与几何换算，`src/scenes/frame.ts` 负责合成本地帧（默认参数、能力与兼容性），`src/scenes/host.tsx` 负责选择内置组件或外部 iframe。协议是纯函数，Rust/前端都有回归测试。
+前端 `src/core/wallpaper/params.ts` 负责解析与几何换算，`src/scenes/frame.ts` 负责合成本地帧（默认参数、能力与兼容性），`src/scenes/host.tsx` 负责选择内置组件或外部 iframe；`src/scenes/external-scene.tsx` + `scene-bridge.ts` 把帧推给声明 `wallpaper.script` 的外部场景。协议是纯函数，Rust/前端都有回归测试。
 
 ## 3. 分层与依赖规则
 
 | 层 | 目录 | 允许依赖 | 禁止 |
 | --- | --- | --- | --- |
 | **Core** | `src/core/**`、`src-tauri/src/{config,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
-| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/widget-sdk/**`、`examples/widgets/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
-| **Community** | `content/**`、`public/content/**`、`scripts/*-content.mjs`、`src-tauri/src/content_package/**` | 清单格式、静态 HTML/CSS、用户内容目录读写 | 修改核心 / 创建系统窗口 / 执行内容包里的代码 |
+| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/{widget-sdk,scene-sdk}/**`、`examples/widgets/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
+| **Community** | `content/**`、`public/content/**`、`scripts/*-content.mjs`、`src-tauri/src/content_package/**` | 清单格式、静态 HTML/CSS、受限沙箱脚本、用户内容目录读写 | 修改核心 / 创建系统窗口 / 越权访问宿主 |
 | **Extension Center** | `src-tauri/src/extension/**`、`src-tauri/src/package_hash.rs`、`src/components/extensions/**`、`src/lib/extensions.ts`、`src/hooks/use-extensions.ts` | `content_package` / `widget_package` 的校验与运行时；共享安装管线 | 拥有包格式 / 直接执行包内代码 |
 | **Services** | 设计文档 | — | 成为本地运行前置依赖 |
 | **App** | `src/app/**`、`src/components/**`、`src/hooks/**` | 以上全部 | 把业务规则塞回路由壳 |
@@ -85,7 +87,8 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 ```text
 app/(wallpaper) ──► scenes/host ──► hooks/use-scene-catalog ──► content/catalog
        │                │                    │
-       │                └──► scenes/registry ─┴──► sdk/scene ──► core/wallpaper
+       │                ├──► scenes/registry ─┴──► sdk/scene ──► core/wallpaper
+       │                └──► scenes/external-scene ──► scene-bridge ──► postMessage（脚本场景）
        │
 app/(control) ──► components/settings ──► widgets/registry ──► widgets/manifests/*.json
        │
@@ -98,7 +101,9 @@ app/(widgets) ──► components/{liquid-player,liquid-pomodoro,ether-bubbles}
 app/(widgets)/embed ──► components/widget-plugin-shell ──► iframe（sandbox）
                                  └──► postMessage 桥 ──► widget_state_*（Rust）
 packages/widget-sdk ──► 插件侧客户端 + React/Vue 适配
+packages/scene-sdk ──► 场景侧客户端（参数 / 几何 / 同步 / 可见性）
 examples/widgets/* ──► 静态插件包样例（TypeScript 源码，esbuild 构建）
+examples/content/* ──► 内容包样例（静态 CSS / Scene SDK 脚本场景）
 ```
 
 ### 3.2 Rust 模块图
@@ -315,14 +320,16 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 32 个测试文件（186 项，含 packages/widget-sdk 与扩展中心）
-cargo test             Rust 92 项（配置 / 拓扑 / 协议 / 场景参数 / Widget 包摘要与安装 / 开发模式 / 扩展管线）
+pnpm test              前端 37 个测试文件（211 项，含 packages/{widget-sdk,scene-sdk}、场景桥、zip 打包、更新安装与扩展中心）
+cargo test             Rust 99 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / 开发模式 / 扩展管线）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
 pnpm widgets:check     Widget 清单 + 命令表 + 逐窗口 capability 同步
 pnpm widgets:sdk       Widget 插件侧 SDK 构建（TS → dist + .d.ts）
-pnpm widgets:sdk:check SDK 类型检查
+pnpm widgets:sdk:check Widget SDK 类型检查
+pnpm scenes:sdk        场景侧 SDK 构建（TS → dist + .d.ts）
+pnpm scenes:sdk:check  场景 SDK 类型检查
 pnpm build:next        Next 静态导出（离线字体）
 pnpm test-mode         Windows 真机：层序 + 命中 + 动画差分 + 桌面还原
 pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
@@ -335,7 +342,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | 阶段 | 目标 | 当前状态 | 退出条件 |
 | --- | --- | --- | --- |
 | **A · Core** | 模块边界、配置/协议版本、命名清理、测试基线 | 已完成第一轮 | 目录与命名重构后功能/测试/安装包不退化 |
-| **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件侧 SDK 已 TypeScript 化（`dist` + `.d.ts` + 契约测试）；插件 ZIP 安装、旁路摘要锁、扩展中心、逐能力授权、清单漂移复核、开发模式与托盘入口已落地；仍缺 npm 发布与签名 | 外部示例场景无需改核心即可运行 |
+| **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地：静态包 + `wallpaper.script` 沙箱场景，`@lull/scene-sdk` 提供参数/几何/同步/可见性桥与契约测试；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件 ZIP 安装、旁路摘要锁、扩展中心、逐能力授权、清单漂移复核、开发模式与托盘入口已落地；仍缺 npm 发布与签名 | 外部示例场景无需改核心即可运行 |
 | **C · Community** | 内容包格式、示例、包摘要、目录签名、用户内容目录与安装器 | 格式 + 示例 + 摘要 + 签名 + 统一安装入口（scene/widget 共用 staging）已落地；仍缺在线索引、第三方签名信任链与 scene 卸载自动回退 | 外部开发者可独立构建、安装并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
 
@@ -344,9 +351,12 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 1. **Windows-only**：依赖 `Progman` / `WorkerW` / DWM 行为，没有跨平台回退。
 2. **原生挂载不是稳定 API**：Explorer 重启、DPI、任务栏自动隐藏、混合缩放都可能改变桌面拓扑；看门狗与重建是产品能力，不是临时补丁。
 3. **WebView2 创建时序**：运行中建窗必须在非主线程；不要把 `WebviewWindowBuilder` 移回同步命令。
-4. **外部内容不等于安全插件系统**：首版 iframe 使用空 `sandbox`，只运行静态 HTML/CSS，不执行 JavaScript；若未来开放宿主 API，必须另做权限、来源校验、IPC 白名单与故障隔离。
+4. **外部内容仍是受限运行时**：静态包使用空 `sandbox`，只运行 HTML/CSS；脚本场景使用
+   `sandbox="allow-scripts"` 的 opaque-origin iframe，只能通过 `@lull/scene-sdk` 读取帧，
+   没有写配置、建窗、原生或任意 IPC 入口；仍不是通用插件系统。
 5. **安装包与素材授权**：公开分发前需完成代码签名、字体/图标/声音素材授权复核。
 6. **内部代号**：`ether-bubbles`、`liquid-player`、`liquid-pomodoro` 仍是组件目录名，属于实现代号，不构成对外产品名。
 7. **内容包安装的边界**：v1 只接受单场景包、必须声明整包摘要、无第三方签名（未签名=未校验）、
-   不联网也不做版本更新；安装目录由用户自行维护，卸载即删目录。
+   不联网。scene 支持同 id 本地覆盖安装（旧目录备份后替换，壁纸按版本重建 iframe）；
+   没有自动更新、版本比较与回滚；安装目录由用户自行维护，卸载即删目录。
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。

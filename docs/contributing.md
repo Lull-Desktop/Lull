@@ -31,9 +31,14 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | `pnpm lint` / `pnpm fix` | Biome 检查 / 自动修复 |
 | `pnpm typecheck` | 全仓 TypeScript 检查（含 `packages/widget-sdk` 与 `examples/widgets`） |
 | `pnpm widgets:sdk` | 构建插件侧 SDK（TS → `dist` + `.d.ts`） |
+| `pnpm scenes:sdk` | 构建场景侧 SDK（TS → `dist` + `.d.ts`） |
+| `pnpm scenes:samples:build` | 构建脚本场景示例的 `main.js` |
+| `pnpm scenes:samples:hash` | 重算示例场景的 `integrity` |
+| `pnpm scenes:samples:check` | 校验示例场景的 `integrity` |
 | `pnpm check` | 一次性跑 lint + typecheck + test + 内容/清单/SDK 校验 |
 | `pnpm content:check` | 内容目录校验 |
 | `pnpm content:hash --bundle <dir>` | 重算待分发的独立内容包摘要 |
+| `pnpm content:pack <dir> --out <dir>` | 打成可安装 zip（正斜杠 + UTF-8） |
 | `pnpm widgets:check` | Widget 清单校验 + capability 同步检查 |
 | `pnpm widgets:gen` | 生成 `src-tauri/capabilities/window-*.json` |
 | `pnpm widgets:samples:build` | 构建 `examples/widgets/*` 插件样例（TypeScript → 单文件 ESM） |
@@ -103,9 +108,9 @@ Lull 采用分层许可，提交前请确认文件归属：
 
 当前基线（会随测试增加）：
 
-- 前端：25 个测试文件 / 139 项；
-- Rust：63 项；
-- 内容：1 个外部场景示例。
+- 前端：37 个测试文件 / 211 项（含 Widget / Scene SDK 契约、zip 打包与更新预览）；
+- Rust：99 项；
+- 内容：1 个随包静态场景 + 1 个可安装脚本场景示例。
 
 新增行为请补测试；修复回归请先写失败用例。不要通过删除测试来“修复”失败。
 
@@ -125,7 +130,9 @@ Lull 采用分层许可，提交前请确认文件归属：
 ## 7. 新增内容 / 场景 / 工具
 
 - 内置场景：`src/scenes/<id>/index.tsx` + `src/scenes/registry.ts`。
-- 外部场景：`public/content/scenes/<id>/index.html` + `catalog.json` + `pnpm content:check`。
+- 外部静态场景：`public/content/scenes/<id>/index.html` + `catalog.json` + `pnpm content:check`。
+- 外部脚本场景：声明 `wallpaper.script`（参数/同步再加对应能力），用 `@lull/scene-sdk`
+  打包进包内 ESM；改桥协议要同时改 `src/scenes/scene-bridge.ts`、`packages/scene-sdk` 与两边测试。
 - 内置工具：`src/widgets/manifests/<id>.json` + 路由 + `src/sdk/widget` + `pnpm widgets:gen`；托盘与设置页从清单自动生成。
 - 第三方插件：`examples/widgets/` 样例 + `packages/widget-sdk`；包格式、协议与 CSP 见 [Widget 插件包](widget-package.md)。改桥协议要同时更新 SDK、宿主壳、Rust 命令与文档。
 - 新增 IPC：先确定归属模块，再在 `lib.rs` 注册，并把命令名加入 `build.rs` 的 `APP_COMMANDS`；更新 `docs/architecture.md` 的命令表与目标窗口的 capability（`pnpm widgets:gen`）。

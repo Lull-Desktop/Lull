@@ -152,6 +152,7 @@ describe("scene manifest", () => {
   test("parses params with defaults and enum options", () => {
     const manifest = parseSceneManifest(
       validManifest({
+        capabilities: ["wallpaper.viewport", "wallpaper.params"],
         params: [
           {
             key: "density",
@@ -219,6 +220,45 @@ describe("scene manifest", () => {
         }),
       ),
     ).toThrow(/重复/);
+  });
+
+  test("requires wallpaper.params, and external params/sync require script", () => {
+    const params = [
+      { key: "density", type: "number", label: "密度", default: 0.5 },
+    ];
+    expect(() => parseSceneManifest(validManifest({ params }))).toThrow(
+      /wallpaper.params/,
+    );
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities: ["wallpaper.viewport", "wallpaper.params"],
+          params,
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/wallpaper.script/);
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities: ["wallpaper.viewport", "wallpaper.sync"],
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/wallpaper.script/);
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities: [
+            "wallpaper.viewport",
+            "wallpaper.params",
+            "wallpaper.script",
+          ],
+          params,
+        }),
+        { requireEntry: true },
+      ),
+    ).not.toThrow();
   });
 
   test("parses performance and compatibility metadata", () => {

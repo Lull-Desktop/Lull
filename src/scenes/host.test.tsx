@@ -19,7 +19,13 @@ vi.mock("@/hooks/use-scene-catalog", () => ({
   }),
 }));
 
-function manifest(id: string): SceneManifest {
+function manifest(
+  id: string,
+  capabilities: SceneManifest["capabilities"] = [
+    "wallpaper.viewport",
+    "wallpaper.canvas",
+  ],
+): SceneManifest {
   return {
     schemaVersion: 1,
     type: "scene",
@@ -27,7 +33,7 @@ function manifest(id: string): SceneManifest {
     name: id,
     version: "1.0.0",
     license: "CC-BY-4.0",
-    capabilities: ["wallpaper.viewport", "wallpaper.canvas"],
+    capabilities,
     entry: "scenes/demo/index.html",
     theme: { background: "#04120f", accent: "#f2c98a" },
     compatibility: { hostApi: 1, platforms: ["windows"] },
@@ -75,6 +81,52 @@ describe("SceneHost", () => {
     render(<SceneHost params={{ ...params, scene: "community.mist" }} />);
 
     expect(screen.getByTestId("external-scene")).toBeDefined();
+  });
+
+  test("声明 wallpaper.script 的外部场景使用 allow-scripts 沙箱", () => {
+    harness.entries = [
+      {
+        manifest: manifest("demo.scripted", [
+          "wallpaper.viewport",
+          "wallpaper.params",
+          "wallpaper.script",
+        ]),
+        source: "user",
+        entryUrl:
+          "http://lullcontent.localhost/demo.scripted/scenes/demo/index.html",
+        component: null,
+      } satisfies SceneCatalogEntry,
+    ];
+
+    render(<SceneHost params={{ ...params, scene: "demo.scripted" }} />);
+
+    const frame = screen.getByTestId("external-scene");
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame.getAttribute("data-runtime")).toBe("scripted");
+  });
+
+  test("同 id 场景版本变化时重建 iframe，加载新版本资源", () => {
+    const entry: SceneCatalogEntry = {
+      manifest: manifest("demo.versioned"),
+      source: "user",
+      entryUrl:
+        "http://lullcontent.localhost/demo.versioned/scenes/demo/index.html",
+      component: null,
+    };
+    harness.entries = [entry];
+    const { rerender } = render(
+      <SceneHost params={{ ...params, scene: "demo.versioned" }} />,
+    );
+    const first = screen.getByTestId("external-scene");
+
+    const updated: SceneCatalogEntry = {
+      ...entry,
+      manifest: { ...entry.manifest, version: "1.1.0" },
+    };
+    harness.entries = [updated];
+    rerender(<SceneHost params={{ ...params, scene: "demo.versioned" }} />);
+
+    expect(screen.getByTestId("external-scene")).not.toBe(first);
   });
 
   test("内置场景用组件渲染，不套 iframe", () => {

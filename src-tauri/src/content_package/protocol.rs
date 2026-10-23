@@ -1,12 +1,12 @@
 //! `lullcontent://` 自定义协议：只读服务用户内容包。
 //!
-//! 内容包在 `sandbox=""` 的 iframe 里运行（不执行 JS、无 Tauri IPC），
-//! 所以这里不需要像插件那样注入 nonce / CSP；但路径校验、`nosniff`
-//! 与 `no-store` 必须和插件协议一致。
+//! 静态包仍在 `sandbox=""` 的 iframe 里运行；声明 `wallpaper.script` 的包改用
+//! `allow-scripts`，因此 HTML 必须像插件协议一样注入 nonce 并下发 CSP。
+//! 路径校验、`nosniff` 与 `no-store` 与插件协议共用 `resource` 实现。
 
 use super::manifest::valid_id;
 use super::store;
-use crate::resource::{mime_for, safe_join};
+use crate::resource::{html_with_script_nonce, mime_for, nonce, safe_join};
 use tauri::http::{header, HeaderValue, Request, Response, StatusCode};
 use tauri::{AppHandle, UriSchemeContext, Wry};
 
@@ -42,7 +42,34 @@ fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Result<Response<Vec<u8>
   })?;
   let bytes = std::fs::read(&path)
     .map_err(|error| (StatusCode::NOT_FOUND, format!("读取内容资源失败：{error}")))?;
-  Ok(binary_response(bytes, mime_for(&path)))
+  let content_type = mime_for(&path);
+  if content_type.starts_with("text/html") {
+    return Ok(html_response(bytes, content_type));
+  }
+  Ok(binary_response(bytes, content_type))
+}
+
+fn html_response(bytes: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>> {
+  let nonce = nonce();
+  let html = html_with_script_nonce(&String::from_utf8_lossy(&bytes), &nonce);
+  let csp = scene_csp(&nonce);
+  let mut response = binary_response(html.into_bytes(), content_type);
+  set_header(&mut response, "Content-Security-Policy", &csp);
+  response
+}
+
+/// 场景文档 CSP：脚本只允许包内源与本次 nonce，远程资源与嵌套 iframe 全禁。
+fn scene_csp(nonce: &str) -> String {
+  #[cfg(windows)]
+  let origin = "http://lullcontent.localhost";
+  #[cfg(not(windows))]
+  let origin = "lullcontent://localhost";
+  format!(
+    "default-src {origin}; script-src {origin} 'nonce-{nonce}'; style-src {origin} 'unsafe-inline'; \
+     img-src {origin} data: blob:; media-src {origin} data: blob:; font-src {origin} data:; \
+     connect-src {origin}; worker-src {origin} blob:; frame-src 'none'; object-src 'none'; \
+     base-uri 'none'; form-action 'none'"
+  )
 }
 
 fn binary_response(bytes: Vec<u8>, content_type: &'static str) -> Response<Vec<u8>> {
@@ -81,4 +108,41 @@ fn set_header(response: &mut Response<Vec<u8>>, name: &str, value: &str) {
     return;
   };
   response.headers_mut().insert(name, value);
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn scene_csp_allows_nonce_and_blocks_remote_assets() {
+    let csp = scene_csp("abc123");
+    assert!(csp.contains("script-src"));
+    assert!(csp.contains("'nonce-abc123'"));
+    assert!(csp.contains("frame-src 'none'"));
+    assert!(csp.contains("connect-src "));
+    assert!(!csp.contains("https://"));
+    let script_src = csp
+      .split("script-src ")
+      .nth(1)
+      .and_then(|rest| rest.split(';').next())
+      .unwrap_or_default();
+    assert!(!script_src.contains("'unsafe-inline'"));
+  }
+
+  #[test]
+  fn html_response_injects_nonce_and_sets_csp() {
+    let response = html_response(
+      b"<html><script>window.x=1</script></html>".to_vec(),
+      "text/html; charset=utf-8",
+    );
+    let csp = response
+      .headers()
+      .get("content-security-policy")
+      .and_then(|value| value.to_str().ok())
+      .unwrap_or_default();
+    assert!(csp.contains("script-src"));
+    let body = String::from_utf8_lossy(response.body());
+    assert!(body.contains("<script nonce=\""));
+  }
 }
