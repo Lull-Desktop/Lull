@@ -46,7 +46,6 @@ pnpm preview    # 预览构建产物
 | `/docs/i18n-plan/` | `docs/i18n-plan.md` | 架构与运行时 |
 | `/docs/scene-sdk/` | `docs/scene-sdk.md` | 扩展开发 |
 | `/docs/widget-sdk/` | `docs/widget-sdk.md` | 扩展开发 |
-| `/docs/widget-package/` | `docs/widget-package.md` | 扩展开发 |
 | `/docs/content-format/` | `docs/content-format.md` | 扩展开发 |
 | `/docs/extension-center/` | `docs/extension-center.md` | 扩展中心 |
 | `/docs/extension-center-plan/` | `docs/extension-center-plan.md` | 扩展中心 |

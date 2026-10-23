@@ -35,7 +35,7 @@
 5. Widget 包完整性（旁路摘要 + TOFU）与运行时复核。
 6. 开发模式：挂载本地目录、打开、重载、关闭即销毁。
 7. 托盘「扩展」子菜单；设置页工具列表接入已启用扩展。
-8. 文档同步：`widget-package.md`、`content-format.md`、`architecture.md`、`README.md`。
+8. 文档同步：`widget-sdk.md`、`content-format.md`、`architecture.md`、`README.md`。
 
 ### 0.2 完成定义（DoD）
 
@@ -272,7 +272,7 @@ cd src-tauri; cargo test; cargo clippy
 
 | 文档 | 需要改什么 |
 | --- | --- |
-| `docs/widget-package.md` | §1 安装方式（zip/目录/开发模式）、§2 `icon` 可选、§3 授权粒度、§6 点号路径、§10 已知边界（去掉“没有安装器”） |
+| `docs/widget-sdk.md` | 插件包结构、安装方式（zip/目录/开发模式）、清单 `icon` 可选、授权粒度、路径规则、已知边界（去掉“没有安装器”） |
 | `docs/content-format.md` | §7 统一安装入口、scene 卸载行为、与 widget 的分工 |
 | `docs/architecture.md` | 模块表加 `extension/**`、命令表、事件表、状态表 |
 | `README.md` | 功能列表加“扩展中心”；文档索引加两篇新文档 |

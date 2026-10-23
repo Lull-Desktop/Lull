@@ -345,7 +345,7 @@ pnpm scenes:sdk
 
 #### 写一个 Widget 插件
 
-静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV，支持自绘窗口顶栏和透明背景，提供原生 / React / Vue 三个示例。格式与能力声明见[插件包格式](docs/widget-package.md)，示例在 [`examples/widgets`](examples/widgets)。
+静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV，支持自绘窗口顶栏和透明背景，提供原生 / React / Vue 三个示例。包格式、能力声明与 SDK 接入见 [Widget SDK](docs/widget-sdk.md)，示例在 [`examples/widgets`](examples/widgets)。
 
 > **安全边界**：静态场景不执行脚本；脚本场景跑在 opaque-origin 的 `allow-scripts` iframe 里，只能通过 Scene SDK 桥读取宿主下发的帧，拿不到宿主 DOM、任意 Tauri IPC、Rust 命令或 Win32 调用。插件窗口同理，只拿到自身状态命令和窗口操作。
 
@@ -386,7 +386,6 @@ pnpm scenes:sdk
 | 架构与模块边界 | [docs/architecture.md](docs/architecture.md)                                           |
 | 场景开发    | [Scene SDK](docs/scene-sdk.md) · [`@lull/scene-sdk`](packages/scene-sdk/README.md)     |
 | 插件开发    | [Widget SDK](docs/widget-sdk.md) · [`@lull/widget-sdk`](packages/widget-sdk/README.md) |
-| 插件包格式   | [docs/widget-package.md](docs/widget-package.md)                                       |
 | 内容包格式   | [docs/content-format.md](docs/content-format.md)                                       |
 | 扩展中心    | [设计](docs/extension-center.md) · [实施计划](docs/extension-center-plan.md)                 |
 | 原生桌面宿主  | [docs/native-host.md](docs/native-host.md)                                             |

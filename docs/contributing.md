@@ -136,7 +136,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 - [ ] 这段逻辑属于 Core、Extensions 还是 App？有没有放错层？
 - [ ] 是否让 `core` 反向依赖 `scenes/widgets/app`？
 - [ ] 是否把 Tauri 命令直接暴露成“公共插件 API”？
-- [ ] 是否新增了第三方可执行代码路径？插件代码只能通过 iframe + 白名单桥访问宿主；WebView2 注入的 internals 不是受支持入口（见 [`widget-package.md`](widget-package.md) 6.3）。
+- [ ] 是否新增了第三方可执行代码路径？插件代码只能通过 iframe + 白名单桥访问宿主；WebView2 注入的 internals 不是受支持入口（见 [`widget-sdk.md`](widget-sdk.md)）。
 - [ ] 新工具的能力是否写进 manifest，并在 SDK 门面里实际校验？
 - [ ] 新增 IPC 是否同时更新了 `lib.rs` 与 `build.rs` 的 `APP_COMMANDS`，并确认目标窗口 capability 已授权？
 - [ ] 配置写入失败时是否会回滚？
@@ -149,7 +149,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 - 外部脚本场景：声明 `wallpaper.script`（参数/同步再加对应能力），用 `@lull/scene-sdk`
   打包进包内 ESM；改桥协议要同时改 `src/scenes/scene-bridge.ts`、`packages/scene-sdk` 与两边测试。
 - 内置工具：`src/widgets/manifests/<id>.json` + 路由 + `src/sdk/widget` + `pnpm widgets:gen`；托盘与设置页从清单自动生成。
-- 第三方插件：`examples/widgets/` 样例 + `packages/widget-sdk`；包格式、协议与 CSP 见 [Widget 插件包](widget-package.md)。改桥协议要同时更新 SDK、宿主壳、Rust 命令与文档。
+- 第三方插件：`examples/widgets/` 样例 + `packages/widget-sdk`；包格式、协议与 CSP 见 [Widget SDK](widget-sdk.md)。改桥协议要同时更新 SDK、宿主壳、Rust 命令与文档。
 - 新增 IPC：先确定归属模块，再在 `lib.rs` 注册，并把命令名加入 `build.rs` 的 `APP_COMMANDS`；更新 `docs/architecture.md` 的命令表与目标窗口的 capability（`pnpm widgets:gen`）。
 - 新增配置字段：提升 `CURRENT_VERSION` 并写迁移测试；旧字段保留默认值。
 

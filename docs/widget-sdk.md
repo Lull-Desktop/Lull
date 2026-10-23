@@ -1,277 +1,255 @@
 # Widget SDK
 
-> 目标：给桌面工具窗口建立稳定的**清单、能力分层、运行时门面与窗口生命周期**契约。
-> 当前状态：**内置工具 Host SDK**（本文）与**第三方插件体系 v1**（[Widget 插件包](widget-package.md)）均已落地。
-> 两者是并行契约；能力词汇/主题/宿主建窗共享，但清单、SDK、状态后端与信任模型不同，见[两套契约的关系](widget-package.md#0-与官方内置-widget-host-sdk-的关系)。
-> 内置工具仍由编译期清单注册；第三方插件以静态包安装到用户目录，在宿主壳 + iframe 中运行。
+> 面向第三方 Widget（工具窗口）插件作者：包结构 → 清单 → SDK 接入 → 能力边界。
+> 插件是**静态 Web 包**，装到用户目录后由宿主创建独立窗口，运行在 `sandbox="allow-scripts"` 的
+> 不透明源 iframe 里；所有宿主能力都通过 `@lull/widget-sdk` 走 postMessage 桥，由宿主校验后转发。
+> 内置工具（播放器 / 番茄钟 / 白噪音 / 设置）走另一套编译期契约，见[与内置工具的关系](#与内置工具的关系)。
 
-## 1. 当前实现
+## 这是什么
 
-| 位置 | 职责 |
-| --- | --- |
-| `src/widgets/manifests/*.json` | 清单唯一事实源：id / 能力 / 窗口尺寸 / 展示顺序 |
-| `src/sdk/widget/types.ts` | 契约类型、能力枚举、`WIDGET_HOST_API` |
-| `src/sdk/widget/manifest.ts` | 清单与宿主上下文的运行时校验 |
-| `src/sdk/widget/runtime.ts` | 能力校验、命名空间状态、窗口 chrome、音频/媒体闸门 |
-| `src/sdk/widget/react.ts` | `useWidgetTheme` / `useWidgetFit` / `useWidgetState` |
-| `src/widgets/registry.ts` | 解析清单，供设置页与工具列表使用 |
-| `src-tauri/build.rs` | 构建期校验清单、生成 Rust 静态窗口描述与 app 命令 ACL |
-| `src-tauri/src/window_host/spec.rs` | 生成的 `WidgetSpec` + `find` / `is_managed` |
-| `src-tauri/src/window_host/mod.rs` | 创建、复用、隐藏、兜底显示、注入上下文 |
-| `src-tauri/tauri.conf.json` | 生产 CSP 与 dev CSP（`csp` / `devCsp`） |
-| `packages/widget-sdk` | 第三方插件侧 SDK：TypeScript 源码 + `tsc` 产物（`dist` + `.d.ts`），见 4.7 与 [包 README](../packages/widget-sdk/README.md) |
-| `scripts/gen-widgets.mjs` | 校验清单 / 命令表，生成逐窗口 capability |
-
-## 2. 单一事实源
+一个 Widget 插件 = 一个静态站点 + 一份清单。宿主负责窗口、顶栏（或交给插件自绘）、主题令牌、
+状态持久化与透明背景；插件只负责自己的 UI 与逻辑，不碰 Tauri IPC。
 
 ```text
-src/widgets/manifests/<id>.json
-   ├─ src-tauri/build.rs ──────► $OUT_DIR/widget_specs.rs ──► WidgetSpec / ALL_WIDGETS
-   │                       └───► app ACL manifest（allow-* 权限）
-   ├─ scripts/gen-widgets.mjs ─► src-tauri/capabilities/window-<label>.json
-   └─ src/widgets/registry.ts ─► 设置页 / 工具列表
+widgets/<id>/
+  widget.json      # 清单，必需
+  index.html       # entry 指向的入口，必需
+  assets/          # 构建产物，全部相对路径
 ```
 
-- 新增或修改工具只改 JSON；Rust 描述在 `cargo build` 时重新生成，校验失败会中断编译。
-- `pnpm widgets:check` 校验清单、命令表与逐窗口 capability，已接入 CI 与 `pnpm build` 前置。
-- 不再维护第二份手写的 `spec.rs` 或第二份窗口授权表。
+运行模型：
 
-`WidgetManifest`：
-
-```ts
-type WidgetManifest = {
-  schemaVersion: 1;
-  type: "widget";
-  role: "shell" | "tool";      // shell = 设置窗；tool = 可开关的桌面工具
-  id: string;                  // 稳定 id，也是 widget_open 的参数
-  name: string;
-  version: string;
-  description?: string;
-  author?: string;
-  license: string;
-  builtin: boolean;            // 首期只接受 true
-  order?: number;              // 设置页 / 托盘展示顺序
-  capabilities: WidgetCapability[];
-  window: {
-    label: string;
-    route: string;
-    title: string;
-    width: number;             // 初始宽度，同时是 chrome 调宽上限
-    height: number;
-    minWidth: number;
-    minHeight: number;
-    resizable: boolean;
-    transparent: boolean;
-  };
-};
+```text
+window label = widget-<id>
+  └─ 宿主壳页                      # 拥有 Tauri IPC，只按清单与授权调命令
+       ├─ chrome: "host"           # 宿主绘制顶栏：拖拽 / 最小化 / 关闭
+       ├─ chrome: "custom"         # 不渲染顶栏，由插件自绘拖拽区与按钮
+       └─ iframe（不透明源）        # 插件页面 + @lull/widget-sdk
 ```
 
-示例（当前播放器）：
+### 能力词汇
+
+清单里声明、宿主授权后生效：
+
+| 能力 | 执行方式 | 说明 |
+| --- | --- | --- |
+| `widget.ui` | 声明 | iframe 内 UI / CSS / 动画 |
+| `widget.theme` | 软约束 | 宿主下发流光令牌；插件可以忽略 |
+| `widget.state` | 硬隔离 | Rust 侧 KV；按窗口 label 推导插件 id，消息里的 id 不被信任 |
+| `widget.audio` | 软约束 | 宿主只返回是否同意；未授权时静音运行 |
+| `widget.media` | 软约束 | 导入本地媒体前检查 |
+| `widget.network` | 硬约束 | 只有清单声明的 `https://` 源会进 CSP |
+| `widget.chrome` | 硬约束 | 拖动 / 最小化 / 关闭 / 切换透明**自己的**窗口；`chrome: "custom"` 时必须声明 |
+
+`widget.window`（创建或控制其他窗口）与 `widget.native`（Win32 / 原生宿主）**不可申请**。
+
+### 与内置工具的关系
+
+这是两套并行契约，不是子集关系：
+
+| 维度 | 内置工具（Host SDK） | 第三方插件（本文） |
+| --- | --- | --- |
+| 信任级 | 与宿主同级 | 不可信静态代码 |
+| 清单 | `src/widgets/manifests/*.json`，编译期注册 | 包内 `widget.json`（schemaVersion 2） |
+| SDK | `src/sdk/widget` | `@lull/widget-sdk` |
+| 状态 | 同源 `localStorage` | Rust KV（`.state/<id>.json`） |
+| 窗口 | 宿主创建，可调宽 / 换边 | 宿主创建，只能操作自己的窗口，不能调宽 / 换边 |
+
+共享的只有**能力词汇、主题令牌、宿主建窗、关闭即隐藏**这几个概念。写插件按本文来，
+不要照抄内置工具的做法，也不要把内置组件原样丢进插件包。
+
+## 如何使用
+
+### 1. 写清单
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "type": "widget",
-  "role": "tool",
-  "id": "player",
-  "name": "播放器",
+  "id": "community-pomodoro",
+  "name": "番茄钟",
   "version": "1.0.0",
-  "license": "GPL-3.0-or-later",
-  "builtin": true,
-  "order": 10,
-  "capabilities": [
-    "widget.ui",
-    "widget.theme",
-    "widget.state",
-    "widget.audio",
-    "widget.media",
-    "widget.chrome"
-  ],
+  "description": "专注计时",
+  "author": "Lull",
+  "license": "MIT",
+  "builtin": false,
+  "hostApi": 1,
+  "entry": "index.html",
+  "icon": "assets/icon.png",
+  "lifecycle": "background",
+  "capabilities": ["widget.theme", "widget.state", "widget.audio", "widget.chrome"],
   "window": {
-    "label": "player",
-    "route": "player",
-    "title": "Lull 播放器",
-    "width": 880,
-    "height": 552,
-    "minWidth": 500,
-    "minHeight": 520,
+    "width": 560,
+    "height": 680,
+    "minWidth": 520,
+    "minHeight": 620,
     "resizable": false,
-    "transparent": true
-  }
+    "transparent": true,
+    "chrome": "custom"
+  },
+  "network": []
 }
 ```
 
-## 3. 能力分层
+| 字段 | 规则 |
+| --- | --- |
+| `schemaVersion` | 固定 `2`，不兼容直接拒绝 |
+| `type` | 固定 `widget` |
+| `id` | 与目录名一致，格式 `^[a-z][a-z0-9-]{1,31}$` |
+| `version` | `MAJOR.MINOR.PATCH` |
+| `builtin` | 用户包必须 `false` |
+| `hostApi` | 当前宿主只接受 `1` |
+| `entry` | 包内相对 `.html`；禁止 `..`、反斜杠、百分号编码与绝对路径 |
+| `icon` | 可选，包内 `.png` / `.jpg` / `.jpeg` / `.webp` |
+| `lifecycle` | `background`（默认，关闭只隐藏）或 `suspend`（关闭即销毁窗口） |
+| `capabilities` | 只能申请上表的 7 个 |
+| `window.width/height` | 320×240 – 1600×1200；`minWidth/minHeight` 不得大于初始值 |
+| `window.resizable` | 首期固定 `false`，窗口尺寸由宿主决定 |
+| `window.transparent` | 初始是否透明（默认 `true`），运行时可用 `setTransparent` 切换 |
+| `window.chrome` | `host`（默认，宿主绘制顶栏）或 `custom`（插件自绘）；`custom` 必须同时申请 `widget.chrome` |
+| `network` | 允许的 `https://` 源；非空时必须同时申请 `widget.network` |
 
-| 能力 | 首期 | 运行时行为 | 说明 |
-| --- | --- | --- | --- |
-| `widget.ui` | ✅ | 始终允许 | WebView 内 UI / CSS / 动画 |
-| `widget.theme` | ✅ | 只读；未授权时退回宿主默认主题 | 读取 `--flow-*` 流光令牌，不能改全局主题 |
-| `widget.state` | ✅ | `lull:<id>:<key>` 命名空间读写 | 未授权时只更新内存、不落盘 |
-| `widget.audio` | ✅ | 创建音频上下文前检查 | 未授权时静音运行 |
-| `widget.media` | ✅ | 导入本地媒体前检查 | 在线曲目仍受 CSP / 网络策略约束 |
-| `widget.chrome` | ✅ 官方 / 插件自窗口 | 隐藏 / 最小化 / 拖拽 / 缩放 / 调宽；插件版只允许自己的窗口 | 调宽夹在 `[minWidth, width]` |
-| `widget.window` | ⚠️ 仅设置外壳 | 宿主代建窗口；只有 settings 的 capability 含 `widget_*` 命令 | 第三方不可申请 |
-| `widget.native` | ❌ | 无入口 | Win32 / 原生宿主 |
+### 2. 接入 SDK
 
-**声明不等于授权**：能力写在清单里，Rust 建窗时把它注入上下文；前端每个入口都先查上下文。
-Tauri 侧还有第二道门：自定义命令由 app ACL manifest 生成 `allow-*` 权限，逐窗口 capability 决定谁能调用（见 4.5）。
-能力校验目前防的是内置工具的误用，不是不可信代码的沙箱；第三方插件走独立的 iframe + Rust KV 边界，见 [Widget 插件包](widget-package.md)。
+`@lull/widget-sdk` 是插件侧唯一受支持的宿主入口，提供四个入口：
+`.`（无框架依赖）、`./react`、`./vue`、`./testing`（内存传输，只给单测用）。
+完整 API、桥方法与错误码见 [`packages/widget-sdk/README.md`](../packages/widget-sdk/README.md)。
 
-## 4. 运行时契约
-
-### 4.1 宿主注入
-
-Rust 在窗口创建时通过初始化脚本注入（先于页面 JS 执行）：
+原生：
 
 ```js
-window.__LULL_WIDGET__ = {
-  schemaVersion: 1,
-  hostApi: 1,
-  id: "player",
-  capabilities: ["widget.ui", "widget.theme", "widget.state", "widget.audio", "widget.media", "widget.chrome"],
-  window: { label: "player", width: 880, minWidth: 500, /* … */ }
-};
+import { connectLullWidget } from "@lull/widget-sdk";
+
+const lull = await connectLullWidget();
+
+// 宿主 KV：关闭窗口、重启应用后仍在
+const prefs = await lull.getState("prefs", { focusMinutes: 25 });
+await lull.setState("prefs", { ...prefs, focusMinutes: 50 });
+
+// 主题与视口：订阅会立刻回放当前值
+lull.onTheme((theme) => applyTheme(theme));
+lull.onViewport(({ width, height }) => layout(width, height));
+
+if (lull.has("widget.audio") && (await lull.requestAudio())) {
+  // 可以创建音频上下文
+}
+
+// chrome: "custom" 时自绘窗口按钮，拖拽区位置与样式完全由插件 CSS 决定
+document.querySelector(".my-drag-region")?.addEventListener("pointerdown", (event) => {
+  if (event.button === 0) void lull.startDrag();
+});
+document.querySelector(".my-minimize")?.addEventListener("click", () => void lull.minimize());
+document.querySelector(".my-close")?.addEventListener("click", () => void lull.close());
+
+await lull.setTransparent(false, "#0b1014"); // 不透明并指定背景色
 ```
 
-### 4.2 内置工具可用的 API
+React：
 
-| 入口 | 内容 |
-| --- | --- |
-| `@/sdk/widget` | `getWidgetContext` / `hasWidgetCapability` / `requireWidgetCapability`、`readWidgetStorage` / `writeWidgetStorage` / `widgetStorageKey`、`isWidgetAudioAvailable` / `isWidgetMediaAvailable`、`widgetHideWindow` / `widgetMinimizeWindow` / `widgetIsMinimizable` / `onWidgetPrefsChanged` / `widgetSetResizable` / `widgetStartWindowDrag` / `widgetResizeWidth` / `widgetAlignPlayer` |
-| `@/sdk/widget/react` | `useWidgetTheme` / `useWidgetFit` / `useWidgetState` |
+```tsx
+import { connectLullWidget } from "@lull/widget-sdk";
+import { LullProvider, useLullState, useLullTheme } from "@lull/widget-sdk/react";
 
-- 浏览器预览与单元测试没有注入上下文：按开发环境放行。
-- **Tauri 里缺少上下文时失败关闭**：能力查询返回 false，窗口操作与存储写入被忽略并只记一条告警。
-- 内置工具不得再直接 import `src/core/window/controls` 或直接读 `localStorage`；`window-topbar` 属于宿主外壳，不在此列。
+const client = await connectLullWidget();
 
-### 4.3 状态命名空间
+function Timer() {
+  const [prefs, setPrefs] = useLullState("prefs", { focusMinutes: 25 });
+  const theme = useLullTheme();
+  return <button onClick={() => setPrefs({ ...prefs, focusMinutes: 50 })}>{prefs.focusMinutes}</button>;
+}
 
-- 键格式固定为 `lull:<id>:<key>`，`id` 必须与当前上下文一致，否则抛错。
-- 现有键：`lull:player:v1`、`lull:pomodoro:v1`、`lull:noise:startup`。
-- 宿主键（`lull:window:locked`、`lull:flow-theme`）不属于工具状态，工具不能通过 SDK 写入。
-
-### 4.4 窗口 chrome
-
-- 隐藏即关闭（`hide`），应用继续驻留托盘。
-- 透明浮窗固定尺寸；只有声明 `widget.chrome` 的工具才能调宽或换边。
-- 调宽请求按清单夹取，工具无法把自己撑出设计画布。
-
-### 4.5 命令 ACL（逐窗口 capability）
-
-- `build.rs` 的 `AppManifest::new().commands(APP_COMMANDS)` 为全部自定义命令生成 `allow-<command>` 权限。
-- `lib.rs` 的 `generate_handler!` 与 `APP_COMMANDS` 必须一致；`pnpm widgets:check` 在 CI 里比对两份清单。
-- 每个窗口一份 `src-tauri/capabilities/window-<label>.json`：
-  - `settings`：全部自定义命令（宿主控制面）；
-  - `player` / `pomodoro` / `noise`：只有 `allow-window-set-frame`，不能开关其他窗口或改壁纸；
-  - 壁纸窗口 `wallpaper-*` 只有 `allow-content-packages` 与事件订阅（解析用户内容包场景 id 用），
-    壁纸、窗口、插件与内容包安装命令一律拒绝。
-- `tauri-build` 在编译期校验 capability 引用的权限存在，命令改名漏同步会直接编译失败。
-
-### 4.6 WebView CSP
-
-`tauri.conf.json` 的生产 `csp`：
-
-```text
-default-src 'self'; connect-src 'self' ipc: http://ipc.localhost;
-img-src 'self' data: blob:; media-src 'self' blob: data:; font-src 'self' data:;
-style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';
-worker-src 'self' blob:; frame-src 'self'; object-src 'none';
-base-uri 'self'; form-action 'none'
+createRoot(root).render(
+  <LullProvider client={client}>
+    <Timer />
+  </LullProvider>,
+);
 ```
 
-- `connect-src` 必须含 `ipc:` 与 `http://ipc.localhost`，否则 Tauri IPC 全部失效。
-- `tauri-build` 会为内联脚本和 JS 资源追加 `sha256`；`'unsafe-inline'` 只作兜底。
-- `devCsp` 额外允许 Next 开发服务器的 `http://localhost:3000`、`ws://localhost:3000` 与 `'unsafe-eval'`。
-- `media-src blob:` 覆盖本地音频的 object URL；`frame-src 'self'` 覆盖内容场景的 iframe。
+Vue 3：
 
-### 4.7 插件侧 SDK 包（`@lull/widget-sdk`）
+```js
+import { createLullPlugin, useLullState } from "@lull/widget-sdk/vue";
 
-内置工具用 `@/sdk/widget`；**第三方插件只能用 `packages/widget-sdk`**（编译进插件产物，运行在 iframe 里）。
-这一层过去是手写 JS、没有类型声明，现已按“可交付 SDK”重做：
+app.use(createLullPlugin(client));
+const prefs = useLullState("prefs", defaults);
+```
 
-| 项 | 当前状态 |
-| --- | --- |
-| 源码 | TypeScript（`src/protocol.ts` / `client.ts` / `transport.ts` / `react.ts` / `vue.ts` / `testing.ts`） |
-| 产物 | `pnpm widgets:sdk` → `dist/*.js` + `dist/*.d.ts` + sourcemap（`dist` 不进仓库） |
-| 入口 | `.` / `./react` / `./vue` / `./testing`，`exports` 带 `types`，`sideEffects: false` |
-| 类型 | `WidgetBridgeMethods` 一张表驱动 `request()` 的参数与返回值推导；`LullWidgetError.code` 为字面量联合 |
-| 契约锁定 | `client.test.ts` 断言 `WIDGET_PROTOCOL === 1` 与 request 字段集合；改线上格式必须同时改这条测试 |
-| 兼容矩阵 | SDK / 桥协议 / 宿主 API / Lull 版本的对照表写在包 README |
-| 测试 | 握手、typed request、状态回退、订阅回放、超时、销毁、React/Vue 适配；`pnpm test` 一起跑 |
-| 传输 | `WidgetBridgeTransport` 可替换；`createMemoryTransport()` 让插件作者不启动宿主就能写单测 |
+常用成员：`getState` / `setState` / `removeState`、`theme` / `onTheme`、`viewport` / `onViewport`、
+`onVisibility`、`has(cap)`、`requestAudio()`、`startDrag()` / `minimize()` / `setTransparent()` / `close()`、
+`log()`、`destroy()`。错误统一抛 `LullWidgetError`，按 `code` 分支，不要匹配文案。
 
-给创作者的最小闭环：
+### 3. 构建与安装
 
 ```powershell
-pnpm widgets:sdk            # 构建包
-pnpm test                   # 跑 SDK 契约测试
-pnpm widgets:samples:build  # 三个示例按包名导入并打包
+pnpm widgets:sdk              # 构建 @lull/widget-sdk（dist + 类型声明）
+pnpm widgets:samples:build    # 构建 examples/widgets/*/dist
+pnpm widgets:samples:install  # 复制到 %APPDATA%\app.lull.desktop\widgets
+pnpm widget:pack <dir>        # 把构建好的目录打成 .lull-widget.zip
 ```
 
-仍未做：SDK 发布到 npm、CLI 脚手架、插件包签名（见 8）。
+用户侧：设置 → 扩展，把 `.zip` 拖进窗口或点「从文件安装」。安装只解包并校验清单，
+**不执行插件代码**；启用时才按清单声明的能力授权。
 
-## 5. 窗口生命周期
+开发时：在设置 → 扩展底部开启「开发模式」，选择含 `widget.json` 的项目根目录。
+不复制文件、不锁摘要，改完点卡片上的「重载」即可。
 
-1. 创建时 `visible(false)`、无边框、`shadow(false)`；前端 `useWidgetFit` 贴合内容后再显示。
-2. 已存在窗口再次 `widget_open` 只做 `show + unminimize + focus`，不重建 WebView。
-3. 所有工具窗关闭 = `hide`；托盘「退出」才结束进程。
-4. 透明浮窗（播放器 / 番茄钟 / 白噪音）固定尺寸、不可缩放，避免 Aero Snap 改变窗口。
-5. 设置窗保留缩放；顶栏锁定按钮可动态关闭缩放。
-6. 全局偏好关闭时，所有窗口不进任务栏、不可最小化；顶栏据此隐藏最小化按钮。
-7. 前端贴合失败时，Rust 侧轮询兜底显示，避免窗口永远隐藏。
-8. 托盘工具菜单由 `ALL_WIDGETS` 生成，新增工具不再改 `tray.rs`。
+### 4. 示例工程
 
-### 5.1 为什么第三方不能直接建窗
+三个示例覆盖三套技术栈，直接对照着改最快：
 
-- 系统窗口是宿主能力，涉及 Z 序、焦点、任务栏、DPI 与桌面层；
-- 窗口 label 也是 Tauri capability 的授权键，任意创建会扩大攻击面；
-- 插件没有签名、权限声明与崩溃隔离。
+| 示例 | 技术栈 | 位置 |
+| --- | --- | --- |
+| `pomodoro-js` | 原生 TypeScript | `examples/widgets/pomodoro-js` |
+| `pomodoro-react` | React | `examples/widgets/pomodoro-react` |
+| `pomodoro-vue` | Vue 3 | `examples/widgets/pomodoro-vue` |
 
-v1 的开放路径是：插件清单声明尺寸/透明/chrome → 宿主创建受限窗口 → 只暴露白名单桥 API，而不是把 `WebviewWindowBuilder` 交给第三方。
+## 需要注意
 
-## 6. 新增一个内置工具
+### 运行环境
 
-1. 新增 `src/widgets/manifests/<id>.json`（role = tool，写清能力与窗口尺寸）。
-2. 新增 `src/app/(widgets)/<route>/page.tsx`，只负责挂载组件。
-3. 组件只通过 `@/sdk/widget` 与 `@/sdk/widget/react` 使用宿主能力。
-4. 运行 `pnpm widgets:gen` 生成逐窗口 capability；`cargo build` 会重新生成 Rust 描述。
-5. 补测试：清单校验、能力使用、窗口尺寸与透明策略。
-6. 跑 `pnpm test`、`pnpm lint`、`pnpm widgets:check`、`cargo test`。
-7. 真机检查：打开 / 关闭 / 托盘唤醒 / 锁定 / 任务栏偏好 / 多屏。
+iframe 不带 `allow-same-origin`，是一个**不透明源**：
 
-> 不要改 `spec.rs` 或 `capabilities/window-*.json`：前者由构建脚本生成，后者由 `pnpm widgets:gen` 生成。
-> 新增或改名自定义命令时，`lib.rs` 与 `build.rs` 的 `APP_COMMANDS` 必须同时更新，`pnpm widgets:check` 会拦截漏项。
+- 拿不到宿主 DOM、`localStorage` / `sessionStorage` / IndexedDB / Cookie，也没有 Service Worker；
+- 不能通过 `window.parent` 访问宿主壳页；
+- 所有宿主能力只能走 SDK 封装的 postMessage 桥。WebView2 会把 Tauri 初始化脚本注入子帧，
+  插件里仍可能看到 `__TAURI_INTERNALS__`，但**它不是受支持的 API**，直接调用属于未定义行为；
+- 不透明源的 `event.origin` 是 `"null"`，不要依赖 origin 做校验。
 
-## 7. 状态与存储
-- 工具状态统一走 SDK 门面，禁止直接 `localStorage`。
-- 内置工具仍落在同源 `localStorage`（与宿主同信任级）；第三方插件走 Rust 侧 per-widget 状态文件（`.state/<id>.json`），带配额与原子写。
-- 宿主配置（`display.json`、窗口偏好、主题）不对工具/插件开放写接口。
+### 产物约定
 
-## 8. 第三方插件 v1 的边界
+1. 单入口 HTML，所有资源使用相对路径（`base: './'`），不能依赖站根路径；
+2. 路由用 hash，不要操作 `window.top`；
+3. 不加载远程脚本 / 字体 / 样式，需要外部 API 时在清单 `network` 里声明 `https://` 源；
+4. 不 import `@tauri-apps/api`；
+5. 不要依赖运行时 `eval`（Vue 运行时模板、部分热重载运行时会失败）；
+6. 内联脚本会被宿主注入 nonce 后放行，**内联事件处理器（`onclick=`）不可用**，请用 `addEventListener`；
+7. 单包建议 < 5 MB。
 
-插件包格式、宿主壳、iframe 桥、Rust 状态 KV、逐窗口 ACL 与授权 UI 已落地（见 [Widget 插件包](widget-package.md)）。
-插件侧 SDK 已 TypeScript 化并产出类型声明与契约测试（见 4.7）。
-仍缺：
+### 状态
 
-1. **安装器/签名/更新**：目前手动复制目录；没有来源校验与在线更新。
-2. **网络授权 UI**：`network` 目前随启用一起授予，没有逐源同意与运行时撤销提示。
-3. **硬 IPC 隔离**：WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`；ACL 只授予该窗口的最小命令，状态按窗口 label 隔离，但不能宣称“完全看不到 IPC”。
-4. **故障隔离**：iframe 崩溃/卡死时宿主壳可重载，但没有 ErrorBoundary 指标与 per-plugin 日志面板。
-5. **状态迁移 DSL**：撤销即清空；没有插件自定义迁移。
-6. **插件市场**：不在首期范围。
+- 键：1–64 字符，允许字母、数字、`.`、`_`、`-`；
+- 单值 ≤ 32 KiB，单插件总量 ≤ 256 KiB（UTF-8 JSON）；
+- 撤销授权或卸载时清空，停用保留，没有迁移机制。
 
-> 内置工具 Host SDK 的 4.5（ACL）与 4.6（CSP）仍是插件体系的基础设施。
+### 窗口与透明
 
-## 9. 非目标
+- 窗口尺寸由清单与宿主决定，`resize.request` 只是探测，不会真的改尺寸；
+- 关闭窗口 = 隐藏（Alt+F4 同样只隐藏），进程继续驻留托盘；
+- `window.transparent` 只决定**初始**背景，运行时用 `lull.setTransparent` 切换，不会重建窗口或刷新插件；
+- 透明是 WebView 背景色，不改变窗口尺寸或阴影，Windows 下透明窗口没有原生阴影；
+- **透明窗口不要给 `:root` / `html` 设置 `color-scheme: dark`**：WebView2 会把 iframe 的默认画布
+  画成不透明深色，`background: transparent` 也看不穿桌面。需要深色控件时把它放到局部容器。
 
-- 不把内部 Tauri 命令直接暴露为公共插件 API；
-- 不允许内容包执行任意 Rust 命令；
-- 不允许内容包访问壁纸窗口或原生宿主；
-- 不在首版实现工具市场、安装器或在线更新。
+### 能力边界
 
-## 10. 许可
+- 声明不等于授权：启用时按清单授权，之后用户可逐项撤销；撤销 `widget.chrome` 会回退到宿主顶栏；
+- 音频 / 媒体是产品策略，不是安全沙箱——CSP 无法阻止 iframe 自己发声或选择文件；
+- 网络授权是整体开关，不支持按源逐个授权；撤销后需停止并重开插件，当前页面才会收紧 CSP。
 
-- `src/sdk/widget/**`、`packages/widget-sdk/**`：**Apache-2.0**（见 [SDK License](../SDK-LICENSE.md)）；
-- 内置工具实现、窗口工厂与构建脚本：**GPL-3.0-or-later**；
-- 第三方插件自身代码由其作者选择许可；官方样例为 MIT。插件安装器/签名仍未实现。
+### 已知限制
+
+- 没有发布者签名、在线目录与自动更新；手动复制目录仍可用，但只会标记为“未校验”，
+  首次启用时生成本地摘要锁；
+- 插件窗口固定尺寸，不能创建或控制其他窗口；
+- 没有崩溃隔离（iframe 崩溃时宿主壳保留，可重载）；
+- Next.js / Nuxt 非官方支持（产物含内联 bootstrap 与绝对路径），需要 SSR 或服务端的不适用。

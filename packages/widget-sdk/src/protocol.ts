@@ -3,7 +3,7 @@
  *
  * 这一层是插件与宿主之间唯一的契约：宿主壳（`src/components/widget-plugin-shell.tsx`）
  * 按这里的结构收发消息，插件侧只通过 postMessage 说话。改动任何字段都必须同时改宿主壳、
- * `packages/widget-sdk` 与 `docs/widget-package.md`，并递增 `WIDGET_PROTOCOL`。
+ * `packages/widget-sdk` 与 `docs/widget-sdk.md`，并递增 `WIDGET_PROTOCOL`。
  */
 
 /** 桥协议版本。破坏性变更才递增；当前与宿主 `PROTOCOL_VERSION` 必须一致。 */

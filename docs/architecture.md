@@ -293,7 +293,7 @@ form-action 'none'
 %APPDATA%\app.lull.desktop\widgets\.state\<id>.json     # 插件状态 KV
 ```
 
-`LULL_WIDGETS_DIR` 可覆盖插件根目录（开发/测试）。包格式与协议见 [Widget 插件包](widget-package.md)。
+`LULL_WIDGETS_DIR` 可覆盖插件根目录（开发/测试）。包格式、能力声明与协议见 [Widget SDK](widget-sdk.md)。
 
 ## 6. 原生 C ABI
 

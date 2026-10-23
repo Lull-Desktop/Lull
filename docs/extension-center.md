@@ -5,8 +5,8 @@
 > 尚未完成：在线目录与签名、scene 卸载自动回退、最终真机验收。
 > 落地顺序与进度见 [实施计划](./extension-center-plan.md)。
 >
-> 关联文档：[Widget 插件包](./widget-package.md)、[内容包格式](./content-format.md)、
-> [Widget SDK](./widget-sdk.md)、[架构与模块边界](./architecture.md)。
+> 关联文档：[Widget SDK](./widget-sdk.md)（插件包格式与能力声明）、[内容包格式](./content-format.md)、
+> [架构与模块边界](./architecture.md)。
 
 ---
 
