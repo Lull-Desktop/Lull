@@ -52,6 +52,10 @@ const APP_COMMANDS: &[&str] = &[
   "wallpaper_set_display",
   "wallpaper_set_scene_params",
   "wallpaper_set_monitor_scene",
+  "content_packages",
+  "content_package_install",
+  "content_package_remove",
+  "content_open_dir",
 ];
 
 fn fail(message: &str) -> ! {

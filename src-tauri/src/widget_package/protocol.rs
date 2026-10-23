@@ -9,7 +9,7 @@
 use super::manifest::valid_id;
 use super::manifest::PackageManifest;
 use super::store;
-use std::path::{Path, PathBuf};
+use crate::resource::{mime_for, safe_join};
 use tauri::http::{header, HeaderValue, Request, Response, StatusCode};
 use tauri::{AppHandle, UriSchemeContext, Wry};
 
@@ -42,7 +42,14 @@ fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Result<Response<Vec<u8>
   } else {
     rest.to_string()
   };
-  let path = safe_join(&dir, &relative)?;
+  let path = safe_join(&dir, &relative).map_err(|error| {
+    let status = if error.contains("逃逸") {
+      StatusCode::FORBIDDEN
+    } else {
+      StatusCode::NOT_FOUND
+    };
+    (status, error)
+  })?;
   let bytes = std::fs::read(&path)
     .map_err(|error| (StatusCode::NOT_FOUND, format!("读取插件资源失败：{error}")))?;
   let content_type = mime_for(&path);
@@ -50,34 +57,6 @@ fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Result<Response<Vec<u8>
     return Ok(html_response(&manifest, bytes, content_type));
   }
   Ok(binary_response(bytes, content_type))
-}
-
-fn safe_join(root: &Path, relative: &str) -> Result<PathBuf, Failure> {
-  if relative.starts_with('/')
-    || relative.contains('\\')
-    || relative.contains('%')
-    || relative.contains('\0')
-  {
-    return Err((StatusCode::BAD_REQUEST, "unsafe path".to_string()));
-  }
-  let mut path = root.to_path_buf();
-  for segment in relative.split('/') {
-    if segment.is_empty() || segment == "." || segment == ".." {
-      return Err((StatusCode::BAD_REQUEST, "unsafe path".to_string()));
-    }
-    path.push(segment);
-  }
-  let canonical_root =
-    std::fs::canonicalize(root).map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
-  let canonical =
-    std::fs::canonicalize(&path).map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
-  if !canonical.starts_with(&canonical_root) {
-    return Err((
-      StatusCode::FORBIDDEN,
-      "path escaped widget root".to_string(),
-    ));
-  }
-  Ok(canonical)
 }
 
 fn html_response(
@@ -151,39 +130,6 @@ fn set_header(response: &mut Response<Vec<u8>>, name: &str, value: &str) {
   response.headers_mut().insert(name, value);
 }
 
-fn mime_for(path: &Path) -> &'static str {
-  match path
-    .extension()
-    .and_then(|extension| extension.to_str())
-    .map(str::to_ascii_lowercase)
-    .as_deref()
-  {
-    Some("html") | Some("htm") => "text/html; charset=utf-8",
-    Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
-    Some("css") => "text/css; charset=utf-8",
-    Some("json") | Some("map") => "application/json",
-    Some("svg") => "image/svg+xml",
-    Some("png") => "image/png",
-    Some("jpg") | Some("jpeg") => "image/jpeg",
-    Some("gif") => "image/gif",
-    Some("webp") => "image/webp",
-    Some("avif") => "image/avif",
-    Some("ico") => "image/x-icon",
-    Some("woff2") => "font/woff2",
-    Some("woff") => "font/woff",
-    Some("ttf") => "font/ttf",
-    Some("otf") => "font/otf",
-    Some("wasm") => "application/wasm",
-    Some("mp3") => "audio/mpeg",
-    Some("wav") => "audio/wav",
-    Some("ogg") | Some("oga") => "audio/ogg",
-    Some("m4a") | Some("aac") => "audio/mp4",
-    Some("webm") => "video/webm",
-    Some("txt") => "text/plain; charset=utf-8",
-    _ => "application/octet-stream",
-  }
-}
-
 /// CSP nonce 只用于同一响应内的脚本；不承担密码学用途，但要求不可预测。
 fn nonce() -> String {
   use std::collections::hash_map::RandomState;
@@ -233,14 +179,6 @@ mod tests {
   }
 
   #[test]
-  fn mime_covers_plugin_assets() {
-    assert!(mime_for(Path::new("index.html")).starts_with("text/html"));
-    assert!(mime_for(Path::new("main.js")).starts_with("text/javascript"));
-    assert_eq!(mime_for(Path::new("x.wasm")), "application/wasm");
-    assert_eq!(mime_for(Path::new("x.bin")), "application/octet-stream");
-  }
-
-  #[test]
   fn nonce_is_hex_and_unique() {
     let first = nonce();
     let second = nonce();
@@ -249,21 +187,4 @@ mod tests {
     assert_ne!(first, second);
   }
 
-  #[test]
-  fn safe_join_rejects_traversal_and_allows_package_files() {
-    let root = std::env::temp_dir().join(format!("lull-widget-test-{}", nonce()));
-    if std::fs::create_dir_all(&root).is_err() {
-      return;
-    }
-    if std::fs::write(root.join("index.html"), b"ok").is_err() {
-      let _ = std::fs::remove_dir_all(&root);
-      return;
-    }
-    assert!(safe_join(&root, "../secret").is_err());
-    assert!(safe_join(&root, "a/../../b").is_err());
-    assert!(safe_join(&root, "a%2e%2e/b").is_err());
-    assert!(safe_join(&root, "a\\b").is_err());
-    assert!(safe_join(&root, "index.html").is_ok());
-    let _ = std::fs::remove_dir_all(&root);
-  }
 }

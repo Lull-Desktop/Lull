@@ -64,7 +64,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | --- | --- | --- | --- |
 | **Core** | `src/core/**`、`src-tauri/src/{config,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
 | **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/widget-sdk/**`、`examples/widgets/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
-| **Community** | `content/**`、`public/content/**`、`scripts/validate-content.mjs` | 清单格式、静态 HTML/CSS | 修改核心 / 创建系统窗口 |
+| **Community** | `content/**`、`public/content/**`、`scripts/*-content.mjs`、`src-tauri/src/content_package/**` | 清单格式、静态 HTML/CSS、用户内容目录读写 | 修改核心 / 创建系统窗口 / 执行内容包里的代码 |
 | **Services** | 设计文档 | — | 成为本地运行前置依赖 |
 | **App** | `src/app/**`、`src/components/**`、`src/hooks/**` | 以上全部 | 把业务规则塞回路由壳 |
 
@@ -107,6 +107,13 @@ lib.rs
  │    ├─ mod.rs（窗口工厂 / 上下文注入 / IPC）
  │    ├─ spec.rs（WidgetSpec 结构 + 查询；静态描述由 build.rs 生成）
  │    └─ prefs.rs（全局窗口偏好）
+ ├─ content_package
+ │    ├─ mod.rs（命令 + content-changed 事件）
+ │    ├─ manifest.rs（catalog.json 校验：单场景 / id / entry / license）
+ │    ├─ digest.rs（整包 sha256，与 content-digest.mjs 逐字节一致）
+ │    ├─ store.rs（扫描 / zip 安装 / 卸载 / 打开目录）
+ │    └─ protocol.rs（lullcontent:// 资源协议）
+ ├─ resource.rs（safe_join + MIME，插件与内容包共用）
  ├─ widget_package
  │    ├─ mod.rs（插件窗口 / 命令 / 上下文）
  │    ├─ manifest.rs（widget.json v2 校验）
@@ -159,6 +166,10 @@ lib.rs
 | `wallpaper_display_get` | — | `DisplayConfig` | `wallpaper::runtime` |
 | `wallpaper_set_display` | `mode?,sync?,scene?` | `()` | `wallpaper::runtime` |
 | `wallpaper_set_monitor_scene` | `device,scene` | `()` | `wallpaper::runtime` |
+| `content_packages` | — | `ContentPackageInfo[]` | `content_package` |
+| `content_package_install` | `path` | `ContentPackageInfo` | `content_package`（设置窗专用） |
+| `content_package_remove` | `id` | `()` | `content_package`（设置窗专用） |
+| `content_open_dir` | — | `string` | `content_package`（设置窗专用） |
 
 所有会写配置的命令遵循同一事务模型：**先改内存 → 写盘 → 失败回滚内存 → 返回错误**。写盘使用临时文件 + 原子替换。
 
@@ -172,6 +183,7 @@ lib.rs
 | `widgets-changed` | Rust / 前端 | 设置页刷新工具窗开关 |
 | `window-prefs-changed` | Rust | 所有顶栏重新读取 `isMinimizable` |
 | `flow-theme-changed` | 前端（跨窗口） | 设置 / 播放器 / 番茄钟 / 白噪音 |
+| `content-changed` | Rust（内容包安装 / 卸载） | 设置页与壁纸窗的场景目录 |
 
 ### 4.3 Widget 上下文注入
 
@@ -282,11 +294,11 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 29 个测试文件（172 项，含 packages/widget-sdk 契约测试）
-cargo test             Rust 63 项（display 配置 / 拓扑 / 协议 / 场景参数 / Widget 清单、上下文与插件包）
+pnpm test              前端 31 个测试文件（180 项，含 packages/widget-sdk 与内容包卡片）
+cargo test             Rust 74 项（配置 / 拓扑 / 协议 / 场景参数 / Widget 插件包 / 内容包摘要与安装）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
-pnpm content:hash      重算包摘要 / content:sign 重新签名
+pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
 pnpm widgets:check     Widget 清单 + 命令表 + 逐窗口 capability 同步
 pnpm widgets:sdk       Widget 插件侧 SDK 构建（TS → dist + .d.ts）
 pnpm widgets:sdk:check SDK 类型检查
@@ -303,7 +315,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | --- | --- | --- | --- |
 | **A · Core** | 模块边界、配置/协议版本、命名清理、测试基线 | 已完成第一轮 | 目录与命名重构后功能/测试/安装包不退化 |
 | **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件侧 SDK 已 TypeScript 化（`dist` + `.d.ts` + 契约测试）；仍缺 npm 发布、安装器与签名 | 外部示例场景无需改核心即可运行 |
-| **C · Community** | 内容包格式、示例、包摘要、目录签名、贡献流程 | 格式 + 示例 + 摘要 + 签名已落地 | 外部开发者可独立构建并分享内容包 |
+| **C · Community** | 内容包格式、示例、包摘要、目录签名、用户内容目录与安装器 | 格式 + 示例 + 摘要 + 签名 + 本地安装器（拖入 zip/文件夹）已落地；仍缺在线索引与第三方签名信任链 | 外部开发者可独立构建、安装并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
 
 ## 9. 已知边界与风险
@@ -314,4 +326,6 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 4. **外部内容不等于安全插件系统**：首版 iframe 使用空 `sandbox`，只运行静态 HTML/CSS，不执行 JavaScript；若未来开放宿主 API，必须另做权限、来源校验、IPC 白名单与故障隔离。
 5. **安装包与素材授权**：公开分发前需完成代码签名、字体/图标/声音素材授权复核。
 6. **内部代号**：`ether-bubbles`、`liquid-player`、`liquid-pomodoro` 仍是组件目录名，属于实现代号，不构成对外产品名。
-7. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
+7. **内容包安装的边界**：v1 只接受单场景包、必须声明整包摘要、无第三方签名（未签名=未校验）、
+   不联网也不做版本更新；安装目录由用户自行维护，卸载即删目录。
+8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。

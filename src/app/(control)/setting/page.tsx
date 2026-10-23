@@ -14,6 +14,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { ContentPackagesCard } from "@/components/content-packages-card";
 import { SceneParamFields } from "@/components/scene-params";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -666,6 +667,8 @@ export default function Settings() {
         </Card>
 
         <WidgetPluginsCard />
+
+        <ContentPackagesCard />
 
         {/* ── About Lull（开源身份与扩展入口）── */}
         <Card className="w-full">

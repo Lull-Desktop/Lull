@@ -33,6 +33,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | `pnpm widgets:sdk` | 构建插件侧 SDK（TS → `dist` + `.d.ts`） |
 | `pnpm check` | 一次性跑 lint + typecheck + test + 内容/清单/SDK 校验 |
 | `pnpm content:check` | 内容目录校验 |
+| `pnpm content:hash --bundle <dir>` | 重算待分发的独立内容包摘要 |
 | `pnpm widgets:check` | Widget 清单校验 + capability 同步检查 |
 | `pnpm widgets:gen` | 生成 `src-tauri/capabilities/window-*.json` |
 | `pnpm widgets:samples:build` | 构建 `examples/widgets/*` 插件样例（TypeScript → 单文件 ESM） |

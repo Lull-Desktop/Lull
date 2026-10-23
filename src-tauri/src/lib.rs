@@ -7,6 +7,8 @@
 use tauri::Manager;
 
 mod config;
+mod content_package;
+mod resource;
 mod tray;
 mod wallpaper;
 mod widget_package;
@@ -25,6 +27,10 @@ pub fn run() {
     // 第三方插件资源协议：只读服务用户插件包，并按插件注入 CSP。
     .register_uri_scheme_protocol("lullwidget", |ctx, request| {
       widget_package::handle_protocol(ctx, request)
+    })
+    // 用户内容包资源协议：只读服务 %APPDATA%\content\<id>\，供沙箱 iframe 加载。
+    .register_uri_scheme_protocol("lullcontent", |ctx, request| {
+      content_package::handle_protocol(ctx, request)
     })
     .invoke_handler(tauri::generate_handler![
       window_frame::window_set_frame,
@@ -52,7 +58,11 @@ pub fn run() {
       wallpaper::runtime::wallpaper_display_get,
       wallpaper::runtime::wallpaper_set_display,
       wallpaper::runtime::wallpaper_set_scene_params,
-      wallpaper::runtime::wallpaper_set_monitor_scene
+      wallpaper::runtime::wallpaper_set_monitor_scene,
+      content_package::content_packages,
+      content_package::content_package_install,
+      content_package::content_package_remove,
+      content_package::content_open_dir
     ])
     .setup(|app| {
       tray::init(app)?;

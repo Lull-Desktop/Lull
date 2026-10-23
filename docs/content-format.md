@@ -120,9 +120,10 @@ type ContentManifest = {
 ## 6. 校验
 
 ```powershell
-pnpm content:hash     # 重算并写回每个包的 integrity 摘要（改了内容包之后）
-pnpm content:sign     # 用本机私钥给 catalog.json 的原始字节签名
-pnpm content:check    # 校验清单 + 摘要 + 目录签名（CI 与构建前置都跑这个）
+pnpm content:hash                     # 重算并写回每个包的 integrity 摘要（改了内容包之后）
+pnpm content:hash --bundle ./my-scene # 重算独立内容包（创作者打包前用）
+pnpm content:sign                     # 用本机私钥给 catalog.json 的原始字节签名
+pnpm content:check                    # 校验清单 + 摘要 + 目录签名（CI 与构建前置都跑这个）
 ```
 
 实现：[`scripts/validate-content.mjs`](../scripts/validate-content.mjs)、[`scripts/hash-content.mjs`](../scripts/hash-content.mjs)、[`scripts/sign-content.mjs`](../scripts/sign-content.mjs)。检查范围：
@@ -158,17 +159,48 @@ sha256(
 
 CI 在 `frontend-test.yml` 中执行同一 `pnpm content:check`；Vitest 还会解析随包目录，防止示例与实现漂移。
 
-## 7. 分发（C 阶段）
+## 7. 分发与安装
 
-现在有了"可信清单"，但还没有"安装渠道"：
+创作者产出的是**一个内容包目录**，结构与 `public/content/` 完全同构
+（这样摘要算法、校验脚本、安装器三处只认一种格式）：
 
-1. 内容包放在独立 Git 仓库 / Release，发布时附上 catalog 片段与 `integrity` 摘要；
-2. 用户（或未来的安装器）解压到 `public/content/`（开发）或用户内容目录（规划）；
-3. 安装器**必须**先按 §6.1 重算摘要，再接受该包；
-4. 目录文件由发布者签名；应用只用**内置公钥**核对来源，未签名目录可加载但标记为"不可校验"。
+```text
+my-scene/
+  catalog.json                 # { schemaVersion: 1, scenes: [ 单条 scene ] }
+  scenes/my-scene/index.html
+```
 
-仍缺：安装器、在线索引、下载与撤回、签名信任链（第三方作者密钥如何被用户信任）。
-目前官方目录随包分发并已签名；第三方目录可以加载，但会被标记为"未签名"。
+打包：
+
+```powershell
+pnpm content:hash --bundle ./my-scene   # 写回 integrity（算法与安装器一致）
+# 把 my-scene 压缩成 zip（Windows 右键「压缩为 ZIP」即可）
+```
+
+> `--bundle` 与随包目录走同一个 `computePackageDigest()`；摘要只覆盖 entry 所在目录，
+> 清单本身不在摘要范围内——否则写入 `integrity` 会改变自身字节，摘要永远算不出来。
+
+用户侧安装（v1 已落地）：
+
+| 方式 | 说明 |
+| --- | --- |
+| 拖拽 | 把 `.zip` 或解压后的文件夹拖到设置窗口，卡片提示「已安装」 |
+| 手动放置 | 设置页「内容包 → 内容目录」打开 `%APPDATA%\app.lull.desktop\content\`，放好后点「刷新」 |
+
+安装器（`src-tauri/src/content_package`）按顺序校验，任一步失败都不落盘：
+
+1. **路径安全**：zip 条目拒绝 `..`、绝对路径、反斜杠、符号链接；
+2. **体积上限**：单文件 8 MiB、整包 64 MiB、512 个文件；
+3. **清单**：`catalog.json` 恰好一条 scene、id 合法、entry 在子目录内且文件存在、`license` 必填；
+4. **摘要**：按 §6.1 重算并与 `integrity.digest` 比对（**缺失即拒绝**）；
+5. **落地**：通过后才 `rename` 到 `content/<scene-id>/`，并广播 `content-changed` 刷新场景列表。
+
+运行时扫描会**再复核一次摘要**：被改动过的包标记为 `tampered` 并跳过，不会渲染；
+手动放置且未声明摘要的包仍可加载，但标记为「未校验」。第三方包没有目录签名，
+所以「未校验」是常态，不是错误。
+
+v1 限制：单场景包、不做第三方签名（未签名 = 未校验）、不联网、不做版本更新。
+仍缺：在线索引、下载与撤回、作者密钥信任链、多场景包、自动更新。
 
 ## 8. 安全边界
 

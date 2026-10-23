@@ -49,4 +49,22 @@ pnpm test
 - 第三方内容包：作者自选许可，但必须在 manifest 中声明，并自行确认素材授权；
 - 不要在内容包中使用与 GPL 应用分发冲突的非商业/禁止演绎条款。
 
+## 分发给用户
+
+这里的内容随安装包发布。要让别人**安装后**再加场景，把自己的内容包做成同样结构：
+
+```text
+my-scene/
+  catalog.json              # 恰好一条 scene
+  scenes/my-scene/index.html
+```
+
+```powershell
+pnpm content:hash --bundle ./my-scene   # 写回 integrity（算法与安装器一致）
+# 压缩成 zip 后，拖到 Lull 设置窗口即可安装
+```
+
+安装器只接受声明了整包摘要的单场景包；详细校验顺序与限制见
+[内容包格式 §7](../docs/content-format.md)。
+
 完整字段与安全边界见 [Scene SDK](../docs/scene-sdk.md) 与 [内容包格式](../docs/content-format.md)。

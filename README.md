@@ -17,7 +17,7 @@ Lull 采用 Tauri + Win32 桌面宿主这条最难的技术路径，**桌面运�
 - **番茄钟**：液态时间沙漏，专注 / 短休 / 长休节奏，可保存偏好。
 - **播放器**：液态黑胶浮窗，在线氛围声与本地曲目。
 - **托盘常驻**：关闭窗口只隐藏；只有托盘「退出」才结束进程。
-- **可扩展内容**：外部静态场景包通过 `public/content/catalog.json` 被发现，不需要改核心代码。
+- **可扩展内容**：外部静态场景包通过 `public/content/catalog.json` 被发现；第三方内容包可从设置页拖入 `.zip` / 文件夹安装，安装时复核清单与整包摘要。
 - **自定义 Widget 插件**：静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV；支持自绘窗口顶栏/透明背景，提供原生 / React / Vue 示例，见 [插件包格式](docs/widget-package.md)。
 
 ## 界面预览
@@ -107,6 +107,7 @@ src-tauri/
       watchdog.rs          # 挂载修复、拓扑指纹、WorkerW 补建
       runtime.rs           # 配置状态、生命周期、IPC 命令
     window_host/           # 窗口工厂 + WidgetSpec + 全局窗口偏好
+  content_package/       # 用户内容包：清单校验、整包摘要、zip 安装、lullcontent:// 协议
   native/                  # C++ 原生宿主（lull_native.dll）
   acceptance/              # Windows 真机验收工具（Python）
   capabilities/            # Tauri 权限（壁纸窗口刻意不在授权列表内）
@@ -122,7 +123,7 @@ scripts/                   # 构建、内容校验、预览、验收编排
 | --- | --- | --- |
 | **A · Core** | `src-tauri/src/{wallpaper,window_host,config}` + `src/core` | 桌面宿主、显示器拓扑、窗口生命周期、配置、IPC、原生桥 |
 | **B · Extensions** | `src/sdk/{scene,widget,content}` + `src/scenes` + `src/widgets` + `packages/widget-sdk` | 场景清单/目录协议、工具窗口能力分层；第三方插件侧 SDK 为 TypeScript（`dist` + `.d.ts`）；首版只开放静态场景包 |
-| **C · Community** | `content/schema` + `public/content` + `scripts/{hash,sign,validate}-content.mjs` | 内容包格式、包摘要、目录签名、校验工具；仍未提供在线市场与安装器 |
+| **C · Community** | `content/schema` + `public/content` + `scripts/{hash,sign,validate}-content.mjs` + `src-tauri/src/content_package` | 内容包格式、包摘要、目录签名、校验工具；用户内容目录与安装器（拖入 zip/文件夹、摘要复核）已落地；仍无在线市场 |
 | **D · Services** | 设计文档 | 内容索引、同步、发布服务；不影响本地核心运行 |
 
 壁纸运行协议：Rust 把 `mode / sync / scene / canvas / view / params` 编码进窗口 URL 哈希，前端 `SceneHost` 按 Manifest 解析默认值、能力与兼容性后选择内置组件或外部静态包。该协议是前后端唯一画面契约。
@@ -165,7 +166,7 @@ pnpm content:check
 | `cargo test` | Rust 单元测试（在 `src-tauri/` 下） |
 | `pnpm lint` / `pnpm fix` | Biome 检查 / 自动修复 |
 | `pnpm content:check` | 校验内容目录、包摘要与目录签名 |
-| `pnpm content:hash` | 重算并写回内容包的 `integrity` 摘要 |
+| `pnpm content:hash` | 重算并写回内容包的 `integrity` 摘要（`--bundle <dir>` 可处理待分发内容包） |
 | `pnpm content:sign` | 用本机私钥给 `catalog.json` 原始字节签名 |
 | `pnpm content:keygen` | 生成内容签名密钥（私钥在 `.keys/`，不进仓库） |
 | `pnpm widgets:sdk` | 构建第三方插件 SDK（TypeScript → `dist` + `.d.ts`） |
@@ -198,6 +199,7 @@ pnpm content:check
 - 仅支持 Windows；Lull 依赖 Win32 `WorkerW` / `Progman` 桌面层，不具备跨平台回退。
 - 原生挂载涉及系统桌面层级，失败恢复、真机验收与日志是产品的一部分；发布前请阅读 [原生宿主说明](docs/native-host.md)。
 - 不包含在线服务、账号、云同步；断网不影响壁纸、声场与番茄钟。
+- 内容包安装为本地行为：只接受单场景包、必须声明整包摘要、未做第三方签名与在线更新。
 - 安装包尚未做代码签名；公开分发前需补齐签名与素材授权复核。
 
 ## 许可证与归属
