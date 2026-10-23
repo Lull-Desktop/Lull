@@ -13,6 +13,9 @@ name: Website
 on:
   push:
     branches:
+      # 仓库默认分支是 master（从旧仓库迁移过来，未改名）。
+      # main 一起列上，是为了以后真把默认分支改成 main 时不用再动工作流。
+      - master
       - main
     paths:
       - "website/**"
