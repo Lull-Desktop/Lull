@@ -63,6 +63,9 @@ if (missing.length || extra.length || brokenSources.length) {
   if (extra.length) console.error(`站点多出的页面（docs/ 里没有对应文件）：\n  ${extra.join("\n  ")}`);
   if (brokenSources.length) console.error(`frontmatter 的 source 指向不存在的文件：\n  ${brokenSources.join("\n  ")}`);
   console.error("\n文档区与 docs/ 不同步：补齐页面或把站点自有页加入 SITE_ONLY，见 website/README.md。");
+  if (missing.length) {
+    console.error("提示：若该文件本地明明存在，先确认它已被 git 跟踪（`git add docs/<name>.md`）——CI 只看得见已提交的文件。");
+  }
   process.exit(1);
 }
 
