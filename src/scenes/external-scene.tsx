@@ -28,15 +28,19 @@ import {
 type ExternalSceneProps = {
   entry: SceneCatalogEntry;
   frame: SceneFrame;
+  /** 内容完成首次绘制后回调；静态包用 onLoad，脚本包等 scene bridge 的 ready。 */
+  onReady?: () => void;
 };
 
 /** 外部 static 包不执行脚本，也不接收参数；保持首版的安全边界。 */
 function StaticScene({
   entry,
   src,
+  onReady,
 }: {
   entry: SceneCatalogEntry;
   src: string;
+  onReady?: () => void;
 }) {
   return (
     <iframe
@@ -47,6 +51,7 @@ function StaticScene({
       sandbox=""
       referrerPolicy="no-referrer"
       className="absolute inset-0 h-full w-full border-0"
+      onLoad={onReady}
     />
   );
 }
@@ -81,14 +86,17 @@ function ScriptedScene({
   entry,
   frame,
   src,
+  onReady,
 }: ExternalSceneProps & { src: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const frameRef = useRef(frame);
   const readyRef = useRef(false);
+  const onReadyRef = useRef(onReady);
   const [ready, setReady] = useState(false);
 
-  // 事件回调里读到的是最新一帧，而不是注册监听时的闭包。
+  // 事件回调里读到的是最新一帧 / 最新回调，而不是注册监听时的闭包。
   frameRef.current = frame;
+  onReadyRef.current = onReady;
 
   const send = useCallback((message: SceneHostMessage): void => {
     iframeRef.current?.contentWindow?.postMessage(message, "*");
@@ -126,6 +134,7 @@ function ScriptedScene({
         readyRef.current = true;
         setReady(true);
         sendInit();
+        onReadyRef.current?.();
         return;
       }
       const level =
@@ -196,11 +205,13 @@ function ScriptedScene({
   );
 }
 
-export function ExternalScene({ entry, frame }: ExternalSceneProps) {
+export function ExternalScene({ entry, frame, onReady }: ExternalSceneProps) {
   const src = entry.entryUrl;
   if (!src) return null;
   if (!sceneRunsScript(entry.manifest)) {
-    return <StaticScene entry={entry} src={src} />;
+    return <StaticScene entry={entry} src={src} onReady={onReady} />;
   }
-  return <ScriptedScene entry={entry} frame={frame} src={src} />;
+  return (
+    <ScriptedScene entry={entry} frame={frame} src={src} onReady={onReady} />
+  );
 }

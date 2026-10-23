@@ -82,14 +82,15 @@ dumpbin /exports src-tauri/native/lull_native.dll
 
 ## 4. 挂载流程
 
-1. Rust 以无边框、`shadow(false)`、隐藏状态创建 `WebviewWindow`；
+1. Rust 以无边框、`shadow(false)`、隐藏状态创建 `WebviewWindow`；初始 `inner_size` 用目标显示器的物理矩形（按主屏 DPI 折算成逻辑尺寸），避免 Tauri 默认 800×600 让 WebView2 先按小视口加载/绘制；
 2. 取 `HWND`，调用 `lull_native_disable_dwm_frame`（在 WebView 创建前/后都调用一次做硬化）；
 3. `lull_native_attach(hwnd, index)`：
    - 探测宿主布局（`Progman` 子级 / 分层窗口）；
    - 先装 `WM_ERASEBKGND` / `WM_DPICHANGED` 子类，再挂载（闭合 DPI 竞态）；
    - `SetParent` 到桌面宿主、调整样式与 Z 序；
+   - 摆好最终矩形后、`ShowWindow` 之前同步补发一次 `WM_SIZE`，让 wry 的父窗口子类把 WebView2 controller bounds 与 `WRY_WEBVIEW` 子窗一起设到最终尺寸；返回前再用 `EnsureWebviewCover` 兜底；
    - 失败时滚回原过程并释放槽位；
-4. Rust 按 700ms / 1800ms / 3500ms 做尺寸与重绘修复。
+4. Rust 在 120ms / 700ms / 1800ms / 3500ms 复写 controller bounds 并强制重绘；第一个 120ms 复查专门接住 Tauri 在 `ShowWindow` 之后才处理的 `Resized`（125% 屏上可能缩成 0.8×），此时启动幕还盖着。**不再**在可见窗口上做 1px 收缩/回弹（那会让 WebView2 重新布局一帧，表现为另一次闪动）。
 
 ### 4.1 为什么吞 `WM_DPICHANGED`
 
@@ -103,6 +104,12 @@ tauri-runtime-wry 用 `size.to_logical(window.scale_factor())` 计算 WebView bo
 - 子类化拦截 `WM_ERASEBKGND`，用页面底色填未绘制区；
 - 挂载后强制重绘，清掉首帧残留的浅色像素；
 - `.shadow(false)` 避免 tao 阴影帧导致客户区内缩。
+
+### 4.3 启动首帧与启动幕
+
+- 原生侧的目标：第一帧可见画面就是最终尺寸。窗口创建尺寸、挂载时同步 `WM_SIZE`、显示前 `EnsureWebviewCover` 三者一起消除"小窗 → 全屏"跳变。
+- 页面侧的目标：遮住"暗场 → 首帧"和"默认回退场景 → 目标场景"之间的内容空档。`BootVeil` 是第一份 HTML 就存在的静态层，场景 `onReady`（内置场景双 rAF / iframe 的 `ready` 或 `onLoad`）后淡出；另有 700ms 最短停留与 3s 兜底。
+- 两层职责不能互换：启动幕在 WebView 内部，只能遮内容闪动；窗口/子窗尺寸跳变必须走上面的原生路径。
 
 ## 5. 看门狗
 

@@ -25,6 +25,8 @@ import {
 
 export type SceneCatalogState = {
   entries: SceneCatalogEntry[];
+  /** 首次目录加载是否仍在进行；壁纸启动幕据此避免先回退再切换。 */
+  loading: boolean;
   /** 随包目录整体不可用时的原因；内置场景与用户内容包仍可正常使用。 */
   error: string | null;
   /** 单个内容包被跳过 / 未签名 / 未校验等可恢复问题，逐条展示。 */
@@ -36,6 +38,7 @@ export function useSceneCatalog(): SceneCatalogState {
     builtinCatalogEntries(),
   );
   const [external, setExternal] = useState<SceneCatalogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<string[]>([]);
 
@@ -46,6 +49,7 @@ export function useSceneCatalog(): SceneCatalogState {
     const load = async (): Promise<void> => {
       const collected: SceneCatalogEntry[] = [];
       const messages: string[] = [];
+      setLoading(true);
 
       try {
         const result = await loadContentSceneEntries();
@@ -82,6 +86,7 @@ export function useSceneCatalog(): SceneCatalogState {
       if (!alive) return;
       setExternal(collected);
       setIssues([...new Set(messages)]);
+      setLoading(false);
     };
 
     void load();
@@ -122,5 +127,5 @@ export function useSceneCatalog(): SceneCatalogState {
     });
   }, [builtin, external]);
 
-  return { entries, error, issues };
+  return { entries, loading, error, issues };
 }

@@ -343,6 +343,14 @@ inline void PlaceWallpaperRect(HWND p_target, HWND p_host, const RECT *p_client_
 		lull::timing::ScopedTimer t(lull::timing::kTagAttachMove2);
 		MoveWindow(p_target, x, y, w, h, TRUE);
 	}
+	// 在显示之前同步补一次 WM_SIZE：wry 的父窗口子类会在这里把 WebView2 controller
+	// bounds 与 WRY_WEBVIEW 子窗一起设成最终尺寸。只依赖 MoveWindow 的 WM_SIZE 时，
+	// 挂载发生在 Tauri 事件循环启动前，Resized 消息可能被合并/迟到；于是窗口已经全屏、
+	// WebView 仍按创建时的 800x600 画出第一帧，等看门狗（≤700ms）才拉回全屏。
+	// 这就是"壁纸先小窗、再突然铺满"的直接来源。SendMessage 在 ShowWindow 之前，
+	// 第一帧可见画面就是最终尺寸。
+	SendMessageW(p_target, WM_SIZE, SIZE_RESTORED,
+			MAKELPARAM(static_cast<WORD>(w), static_cast<WORD>(h)));
 	{
 		lull::timing::ScopedTimer t(lull::timing::kTagAttachShow);
 		ShowWindow(p_target, SW_SHOW);

@@ -20,6 +20,13 @@ test("default (empty hash) renders bamboo in viewport layout", () => {
   expect(screen.queryByTestId("canvas-container")).toBeNull();
 });
 
+test("startup veil stays visible until the scene reports its first paint", () => {
+  render(<Page />);
+  const veil = screen.getByTestId("wallpaper-boot-veil");
+  // jsdom 里没有真实合成帧；rAF 尚未回调，启动幕应保持可见。
+  expect(veil.getAttribute("data-state")).toBe("visible");
+});
+
 test("span hash renders canvas container with transform numbers", () => {
   window.location.hash =
     "#mode=span&sync=1&scene=lull.bamboo&canvas=-2560,0,4480,1440&view=0,0,1920,1080";

@@ -513,6 +513,151 @@ html[data-flow-theme] .flow-topbar {
   }
 }
 
+/* —— 壁纸启动幕 ——
+   第一份 HTML 就渲染的静态遮罩：盖住 WebView 首帧、场景目录加载与场景替换之间的
+   暗场。它不参与交互；淡出后保留在 DOM 里（visibility:hidden），避免卸载造成闪断。 */
+.wallpaper-boot-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      52% 46% at 50% 42%,
+      rgba(169, 191, 155, 0.14),
+      transparent 72%
+    ),
+    radial-gradient(
+      110% 80% at 78% 6%,
+      rgba(184, 214, 181, 0.09),
+      transparent 62%
+    ),
+    linear-gradient(158deg, #0a1714 0%, #0b1d18 45%, #06100e 100%);
+  opacity: 1;
+  transition: opacity 700ms var(--ease-floral);
+}
+
+.wallpaper-boot-veil[data-state="hidden"] {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 700ms var(--ease-floral),
+    visibility 0s linear 700ms;
+}
+
+.wallpaper-boot-veil__glow {
+  position: absolute;
+  width: min(34vmax, 520px);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: radial-gradient(
+    circle,
+    rgba(169, 191, 155, 0.2),
+    transparent 68%
+  );
+  filter: blur(2px);
+  animation: boot-veil-breathe 4.8s ease-in-out infinite;
+}
+
+.wallpaper-boot-veil__mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  animation: boot-veil-breathe 4.2s ease-in-out infinite;
+}
+
+.wallpaper-boot-veil__wordmark {
+  font-family: "Noto Sans SC", system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 300;
+  letter-spacing: 0.68em;
+  padding-left: 0.68em;
+  color: #e9efe4;
+  opacity: 0.9;
+}
+
+.wallpaper-boot-veil__subtitle {
+  font-family: "Source Han Serif SC", "Songti SC", serif;
+  font-size: 13px;
+  letter-spacing: 0.28em;
+  padding-left: 0.28em;
+  color: #a9bf9b;
+  opacity: 0.72;
+}
+
+.wallpaper-boot-veil__line {
+  position: absolute;
+  bottom: 11%;
+  left: 50%;
+  width: 56px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(169, 191, 155, 0.75),
+    transparent
+  );
+  transform: translateX(-50%) scaleX(0.55);
+  animation: boot-veil-line 2.8s ease-in-out infinite;
+}
+
+@keyframes boot-veil-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scale(0.99);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.01);
+  }
+}
+
+@keyframes boot-veil-line {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateX(-50%) scaleX(0.55);
+  }
+  50% {
+    opacity: 0.65;
+    transform: translateX(-50%) scaleX(1);
+  }
+}
+
+/* 场景首次挂载时从暗场淡入，和启动幕的淡出重叠，避免"啪"地出现。 */
+@keyframes wallpaper-scene-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.wallpaper-scene-enter {
+  animation: wallpaper-scene-in 900ms ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wallpaper-boot-veil {
+    transition-duration: 0.01ms !important;
+  }
+  .wallpaper-boot-veil[data-state="hidden"] {
+    transition-delay: 0s !important;
+  }
+  .wallpaper-boot-veil__glow,
+  .wallpaper-boot-veil__mark,
+  .wallpaper-boot-veil__line,
+  .wallpaper-scene-enter {
+    animation: none !important;
+  }
+}
+
 .animate-fade-up {
   animation: fade-up 0.55s var(--ease-floral) forwards;
 }

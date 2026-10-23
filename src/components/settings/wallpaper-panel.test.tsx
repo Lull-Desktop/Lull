@@ -15,6 +15,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@/hooks/use-scene-catalog", () => ({
   useSceneCatalog: () => ({
     entries: entry.current ? [entry.current] : [],
+    loading: false,
     error: null,
     issues: [],
   }),

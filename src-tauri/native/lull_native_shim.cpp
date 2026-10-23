@@ -289,6 +289,10 @@ __declspec(dllexport) int lull_native_attach(void *hwnd, int monitor_index) {
 	ApplyDwmAttrs(h);
 	SetWindowPos(h, nullptr, 0, 0, 0, 0,
 			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+	// 返回前兜底复核一次 WebView 子窗：PlaceWallpaperRect 已经同步补过 WM_SIZE，
+	// 正常路径这里应返回 false；但 SetParent / DPI 竞态下若子窗仍保留创建时的
+	// 默认尺寸，就在"窗口已显示"的这一拍修正，而不是等看门狗 700ms 后再跳变。
+	EnsureWebviewCover(h);
 	return 0;
 }
 

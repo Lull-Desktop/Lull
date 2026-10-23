@@ -14,6 +14,7 @@ const harness = vi.hoisted(() => ({ entries: [] as unknown[] }));
 vi.mock("@/hooks/use-scene-catalog", () => ({
   useSceneCatalog: () => ({
     entries: harness.entries,
+    loading: false,
     error: null,
     issues: [],
   }),

@@ -35,9 +35,28 @@ pub(crate) fn create_one(
     "{label}: 开始创建（当前线程 {:?}）",
     std::thread::current().name()
   ));
+  // 不能用 Tauri 默认的 800×600 建窗：WebView2 会先按小视口创建、导航与首帧，
+  // 挂载后即使窗口被拉成全屏，第一帧仍可能是"小窗"再跳变。这里按目标显示器的
+  // 物理矩形给初始尺寸。
+  //
+  // Tauri 的 inner_size 按逻辑像素解释，并用窗口创建时的缩放换算；窗口默认落在
+  // 主屏，所以用主屏 DPI 反推逻辑尺寸，创建出来的物理尺寸才与目标显示器一致。
+  // 直接用目标屏 DPI 会在混合 DPI 下二次换算（例如次屏 125% 时偏大 25%）。
+  let primary_scale = monitor_infos(host)
+    .iter()
+    .filter_map(|result| result.as_ref().ok())
+    .find(|monitor| monitor.primary)
+    .map_or(1.0, |monitor| f64::from(monitor.dpi.max(96)) / 96.0);
+  let logical = (
+    f64::from(physical.0) / primary_scale,
+    f64::from(physical.1) / primary_scale,
+  );
   let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
     .title("Lull 壁纸")
     .visible(false)
+    .inner_size(logical.0, logical.1)
+    // 页面首帧之前的窗口底色，与 native 的 WM_ERASEBKGND / 壁纸底色一致，避免白闪。
+    .background_color(tauri::window::Color(5, 10, 16, 255))
     .decorations(false)
     .shadow(false)
     .resizable(false)
@@ -82,19 +101,24 @@ pub(crate) fn create_one(
     });
   }
 
-  // 白边修复 + controller 尺寸修复：挂载后按延时多次强制全窗重绘，并用 Physical Rect
-  // 直接写 controller bounds（物理单位不再参与 DPI 换算）。
+  // 白边修复 + controller 尺寸兜底：挂载后按延时用 Physical Rect 复写 controller bounds，
+  // 并强制全窗重绘（清掉首帧残留的浅色像素）。
+  //
+  // 首个 120ms 的复查专门接住 Tauri 在 ShowWindow 之后才处理的 Resized：那条路径仍会
+  // 按 tao 的 scale 缓存把 WebView bounds 做一次 logical→physical 换算，125% 屏上可能
+  // 缩成 0.8×。此时页面启动幕（最短 700ms）还盖着，用户看不到这次修正；等到 700ms
+  // 看门狗再修就晚了。后续 700/1800/3500ms 只负责白边与慢加载场景。
+  //
+  // 这里**不再**做"先缩 1px 再还原"的尺寸推挤：启动尺寸已由 native attach 在
+  // ShowWindow 之前用同步 WM_SIZE 固定，如果在可见窗口上再收缩一次，会让 WebView2
+  // 重新布局一帧——用户看到的就是另一次"画面缩一下再弹回"。set_bounds 只提交
+  // 相同的物理矩形，不会改变布局。
   let repaint = host.force_repaint;
   let raw_isize = raw as isize;
   std::thread::spawn(move || {
     let raw = raw_isize as *mut c_void;
-    for delay_ms in [700u64, 1800, 3500] {
+    for delay_ms in [120u64, 700, 1800, 3500] {
       std::thread::sleep(Duration::from_millis(delay_ms));
-      let _ = window.set_size(tauri::PhysicalSize::new(
-        physical.0.saturating_sub(1),
-        physical.1,
-      ));
-      let _ = window.set_size(tauri::PhysicalSize::new(physical.0, physical.1));
       let bounds = tauri::Rect {
         position: tauri::Position::Physical(tauri::PhysicalPosition::new(0, 0)),
         size: tauri::Size::Physical(tauri::PhysicalSize::new(physical.0, physical.1)),

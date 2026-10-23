@@ -6,7 +6,7 @@
  * 外部内容包以 `sandbox=""` 的 iframe 加载：**不执行 JavaScript**、没有同源
  * 存储、没有 Tauri IPC。这是首版明确的安全边界；动态能力只在内置 React 场景中提供。
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { canvasTransform, type WallpaperParams } from "@/core/wallpaper/params";
 import { useSceneCatalog } from "@/hooks/use-scene-catalog";
 import { ExternalScene } from "@/scenes/external-scene";
@@ -16,6 +16,8 @@ import type { SceneCatalogEntry } from "@/sdk/scene";
 
 type SceneHostProps = {
   params: WallpaperParams;
+  /** 场景完成一次真实绘制后回调；壁纸页据此收起启动幕。 */
+  onReady?: () => void;
 };
 
 type HostEnvironment = Omit<SceneEnvironment, "epochMs">;
@@ -33,9 +35,13 @@ function readEnvironment(): HostEnvironment {
   };
 }
 
-export function SceneHost({ params }: SceneHostProps) {
-  const { entries } = useSceneCatalog();
+export function SceneHost({ params, onReady }: SceneHostProps) {
+  const { entries, loading } = useSceneCatalog();
   const [environment, setEnvironment] = useState(readEnvironment);
+  // 外部场景通过 iframe 的 ready 消息回报；用"场景 id"作为键，切换场景后旧信号自动失效。
+  const [externalReadyKey, setExternalReadyKey] = useState<string | null>(null);
+  const readyRef = useRef(onReady);
+  readyRef.current = onReady;
 
   useEffect(() => {
     const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
@@ -76,6 +82,35 @@ export function SceneHost({ params }: SceneHostProps) {
     }))
     .find((candidate) => candidate.frame !== null);
 
+  const sceneKey = resolved?.entry.manifest.id ?? null;
+  // 目标场景已解析，或目录已加载完（确认只能回退）时，才算"可以揭幕"。
+  // 目录还在加载且当前只是默认回退场景时先不揭幕，避免用户先看到竹影再切到目标场景。
+  const sceneSettled =
+    sceneKey !== null && (sceneKey === params.scene || !loading);
+
+  const markExternalReady = useCallback(() => {
+    if (sceneKey) setExternalReadyKey(sceneKey);
+  }, [sceneKey]);
+
+  useEffect(() => {
+    if (!sceneSettled || !sceneKey) return;
+    if (resolved?.entry.component) {
+      // 内置 React 场景：两次 rAF 覆盖 commit → 浏览器首次绘制。
+      let second = 0;
+      const first = requestAnimationFrame(() => {
+        second = requestAnimationFrame(() => readyRef.current?.());
+      });
+      return () => {
+        cancelAnimationFrame(first);
+        cancelAnimationFrame(second);
+      };
+    }
+    // iframe 场景：等 ExternalScene 的 ready 消息（静态包则是 iframe onLoad）。
+    if (externalReadyKey === sceneKey) {
+      readyRef.current?.();
+    }
+  }, [sceneSettled, sceneKey, externalReadyKey, resolved?.entry.component]);
+
   if (!resolved?.frame) return null;
 
   const { entry, frame } = resolved;
@@ -88,7 +123,7 @@ export function SceneHost({ params }: SceneHostProps) {
 
   return (
     <div
-      className="absolute inset-0 overflow-hidden"
+      className="wallpaper-scene-enter absolute inset-0 overflow-hidden"
       style={{ backgroundColor: background }}
     >
       <div
@@ -114,6 +149,7 @@ export function SceneHost({ params }: SceneHostProps) {
             key={`${entry.manifest.id}@${entry.manifest.version}`}
             entry={entry}
             frame={frame}
+            onReady={markExternalReady}
           />
         )}
       </div>
