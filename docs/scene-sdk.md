@@ -11,7 +11,9 @@
 | 外部静态场景（content） | `public/content/catalog.json` | `sandbox=""` iframe（仅 HTML/CSS） | ✅ |
 | 动态 JS 插件 | 未定义 | — | ❌ |
 
-外部场景不进入 `src/`，不参与 Rust 编译，也不能调用 Tauri IPC。壁纸窗口本身没有 Tauri capability。
+外部场景不进入 `src/`，不参与 Rust 编译，也不能调用 Tauri IPC。
+壁纸窗口本身只拿到一条只读 capability（列出已安装内容包），用于把 `scene` id 解析成入口 URL；
+场景 iframe 是 `sandbox=""`，不执行 JS，因此这条权限不对外部内容开放。
 
 ## 2. Scene Manifest
 
@@ -203,7 +205,7 @@ public/content/
 ### 4.4 安全边界
 
 - iframe 使用 `sandbox=""`，脚本完全不执行，也没有同源存储权限；
-- 壁纸窗口不在 Tauri capability 列表内；
+- 壁纸窗口只通过 `window-wallpaper` 拿到 `content_packages`（只读目录）与事件订阅，没有安装/窗口/壁纸命令；
 - 场景资源必须随包本地分发，不加载远程脚本、字体或音频；
 - 不允许 `entry` 逃逸内容根目录（校验器与运行时双重检查）；
 - 每个包有 `integrity` 摘要，目录有签名；安装器未来必须先验摘要再接受包。

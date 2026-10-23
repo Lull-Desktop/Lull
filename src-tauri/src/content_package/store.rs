@@ -466,8 +466,7 @@ mod tests {
     let Some(root) = temp_root("install") else {
       return;
     };
-    let source = root.join("source-bundle");
-    if write_bundle(&source, "community.test", "<html>ok</html>").is_err() {
+    let source = root.join("source-bundle");    if write_bundle(&source, "community.test", "<html>ok</html>").is_err() {
       let _ = std::fs::remove_dir_all(&root);
       return;
     }
@@ -586,6 +585,94 @@ mod tests {
       assert_eq!(info.status, "ready");
       assert_eq!(info.license.as_deref(), Some("CC-BY-4.0"));
     }
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  /// 用 zip 写作器造一个包再安装，覆盖 `extract_zip` 这条真实入口。
+  #[test]
+  fn installs_from_zip_archive() {
+    use std::io::Write;
+
+    let Some(root) = temp_root("zip") else {
+      return;
+    };
+    // 先造好目录形态，拿到正确摘要，再把同样的字节塞进 zip。
+    let source = root.join("source-bundle");
+    if write_bundle(&source, "community.zipped", "<html>zipped</html>").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let archive_path = root.join("bundle.zip");
+    let Ok(file) = std::fs::File::create(&archive_path) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let mut writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    let entries = [
+      ("catalog.json", source.join(MANIFEST_FILE)),
+      (
+        "scenes/test/index.html",
+        source.join("scenes/test/index.html"),
+      ),
+    ];
+    for (name, path) in entries {
+      let Ok(bytes) = std::fs::read(&path) else {
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+      };
+      if writer.start_file(name, options).is_err() || writer.write_all(&bytes).is_err() {
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+      }
+    }
+    if writer.finish().is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+
+    let staging = root.join(".staging-zip");
+    let _ = std::fs::create_dir_all(&staging);
+    let installed = install_staged(&root, &staging, &archive_path);
+    assert!(installed.is_ok(), "zip 安装失败：{installed:?}");
+    if let Ok(info) = installed {
+      assert_eq!(info.id, "community.zipped");
+      assert!(info.verified);
+    }
+    assert!(root.join("community.zipped/scenes/test/index.html").is_file());
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  /// zip 条目带 `..` 时必须整体拒绝，且不能在暂存区外落下任何文件。
+  #[test]
+  fn rejects_zip_slip_entries() {
+    use std::io::Write;
+
+    let Some(root) = temp_root("zipslip") else {
+      return;
+    };
+    let archive_path = root.join("evil.zip");
+    let Ok(file) = std::fs::File::create(&archive_path) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let mut writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    if writer.start_file("../escaped.txt", options).is_err()
+      || writer.write_all(b"nope").is_err()
+    {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    if writer.finish().is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+
+    let staging = root.join(".staging-slip");
+    let _ = std::fs::create_dir_all(&staging);
+    assert!(extract_zip(&archive_path, &staging).is_err());
+    assert!(!root.join("escaped.txt").exists());
     let _ = std::fs::remove_dir_all(&root);
   }
 }

@@ -93,4 +93,19 @@ describe("ContentPackagesCard", () => {
     });
     expect(await screen.findByText(/C:\\Users\\test\\content/)).toBeDefined();
   });
+
+  test("选择 zip 走原生选择器命令（不依赖拖拽）", async () => {
+    render(<ContentPackagesCard />);
+    const pick = await screen.findByRole("button", { name: "选择 zip" });
+
+    fireEvent.click(pick);
+
+    await waitFor(() => {
+      expect(harness.invoke).toHaveBeenCalledWith(
+        "content_package_pick_and_install",
+        { folder: false },
+      );
+    });
+    expect(await screen.findByText("已取消选择")).toBeDefined();
+  });
 });

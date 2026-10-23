@@ -56,6 +56,7 @@ const APP_COMMANDS: &[&str] = &[
   "content_package_install",
   "content_package_remove",
   "content_open_dir",
+  "content_package_pick_and_install",
 ];
 
 fn fail(message: &str) -> ! {

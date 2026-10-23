@@ -62,7 +62,8 @@ pub fn run() {
       content_package::content_packages,
       content_package::content_package_install,
       content_package::content_package_remove,
-      content_package::content_open_dir
+      content_package::content_open_dir,
+      content_package::content_package_pick_and_install
     ])
     .setup(|app| {
       tray::init(app)?;

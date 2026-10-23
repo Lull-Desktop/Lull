@@ -184,8 +184,13 @@ pnpm content:hash --bundle ./my-scene   # 写回 integrity（算法与安装器�
 
 | 方式 | 说明 |
 | --- | --- |
+| 选择文件 | 设置页「内容包 → 选择 zip」，走系统文件对话框；不依赖拖拽，远程会话/受限环境也能用 |
 | 拖拽 | 把 `.zip` 或解压后的文件夹拖到设置窗口，卡片提示「已安装」 |
 | 手动放置 | 设置页「内容包 → 内容目录」打开 `%APPDATA%\app.lull.desktop\content\`，放好后点「刷新」 |
+
+> 拖拽走的是 Tauri 的原生 drop 事件（前端 HTML5 DnD 被关闭）。拿不到路径的典型情况：
+> 从「压缩文件夹」视图里拖内部文件、从虚拟目录（此电脑/库）拖、远程桌面会话。
+> 这几种情况请用「选择 zip」。
 
 安装器（`src-tauri/src/content_package`）按顺序校验，任一步失败都不落盘：
 
@@ -213,4 +218,6 @@ v1 限制：单场景包、不做第三方签名（未签名 = 未校验）、�
 
 - [`public/content/catalog.json`](../public/content/catalog.json)
 - [`public/content/scenes/mist/index.html`](../public/content/scenes/mist/index.html)
+- [`examples/content/demo-fireflies`](../examples/content/demo-fireflies) —— 可安装的测试包源码（纯 CSS 壁纸），
+  打包后即 `artifacts/demo.fireflies-1.0.0.zip`，用来验证「拖入安装 → 场景出现在下拉里」这条链路
 - [`src/sdk/scene/manifest.test.ts`](../src/sdk/scene/manifest.test.ts)

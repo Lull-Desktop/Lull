@@ -53,3 +53,6 @@ __pycache__/
 
 # sdk build output
 /packages/*/dist/
+
+# 本地测试/打包产物（内容包 zip 等）
+/artifacts/

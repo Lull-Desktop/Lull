@@ -118,11 +118,12 @@ export function SceneHost({ params }: SceneHostProps) {
             : { inset: 0 }
         }
       >
-        {entry.source === "content" ? (
-          <ExternalScene entry={entry} />
-        ) : Scene ? (
+        {Scene ? (
           <Scene {...frame} />
-        ) : null}
+        ) : (
+          // 没有内置组件就走 iframe：随包内容（content）与用户安装（user）都在这条路上。
+          <ExternalScene entry={entry} />
+        )}
       </div>
     </div>
   );

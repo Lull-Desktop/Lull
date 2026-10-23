@@ -164,7 +164,8 @@ window.__LULL_WIDGET__ = {
 - 每个窗口一份 `src-tauri/capabilities/window-<label>.json`：
   - `settings`：全部自定义命令（宿主控制面）；
   - `player` / `pomodoro` / `noise`：只有 `allow-window-set-frame`，不能开关其他窗口或改壁纸；
-  - 壁纸窗口没有 capability，任何 Tauri 命令都会被拒绝。
+  - 壁纸窗口 `wallpaper-*` 只有 `allow-content-packages` 与事件订阅（解析用户内容包场景 id 用），
+    壁纸、窗口、插件与内容包安装命令一律拒绝。
 - `tauri-build` 在编译期校验 capability 引用的权限存在，命令改名漏同步会直接编译失败。
 
 ### 4.6 WebView CSP

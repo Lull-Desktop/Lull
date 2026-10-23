@@ -30,6 +30,7 @@ serde_json = "1"
 libloading = "0.8"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
+rfd = { version = "0.16", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # 无边框窗口用一次 SetWindowPos 同时改位置和尺寸，避免两帧之间闪烁。

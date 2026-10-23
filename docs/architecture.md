@@ -37,7 +37,9 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
 - 工具窗口 label 固定为 `settings` / `player` / `pomodoro` / `noise`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。
 - 第三方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
-- 壁纸窗口**没有任何 capability**：场景页面无法调用 Tauri 命令。
+- 壁纸窗口只有一条**只读** capability（`window-wallpaper`：`content_packages` + 事件订阅）：
+  场景切换走 `location.hash`（不重载页面），壁纸窗必须自己解析场景 id，因此要读得到用户内容包目录；
+  除此之外没有任何窗口/壁纸/插件命令，外部场景跑在 `sandbox=""` 的 iframe 里（不执行 JS），这条权限不落到第三方内容上。
 
 ### 2.2 壁纸画面协议
 
@@ -170,6 +172,7 @@ lib.rs
 | `content_package_install` | `path` | `ContentPackageInfo` | `content_package`（设置窗专用） |
 | `content_package_remove` | `id` | `()` | `content_package`（设置窗专用） |
 | `content_open_dir` | — | `string` | `content_package`（设置窗专用） |
+| `content_package_pick_and_install` | `folder` | `ContentPackageInfo \| null` | `content_package`（设置窗专用，系统文件对话框） |
 
 所有会写配置的命令遵循同一事务模型：**先改内存 → 写盘 → 失败回滚内存 → 返回错误**。写盘使用临时文件 + 原子替换。
 
@@ -208,7 +211,8 @@ lib.rs
 - `scripts/gen-widgets.mjs` 为每个窗口生成一份 `src-tauri/capabilities/window-<label>.json`：
   - `settings`：`core` 窗口权限 + 全部自定义命令（宿主控制面）；
   - `player` / `pomodoro` / `noise`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
-  - 壁纸窗口：**没有 capability**，因此无法调用任何 Tauri 命令；
+  - 壁纸窗口 `wallpaper-*`：只有 `core:event` 的 listen/unlisten + `allow-content-packages`（解析场景 id 用），
+    没有窗口、壁纸、插件或内容包安装命令；
   - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten（主题跟随）+ `allow-widget-state-*` + `allow-widget-package-notify` + `allow-widget-set-transparent`，**没有 `core:default`**、**没有 event.emit**，不能调用包管理、壁纸或偏好命令。
 - 构建期 `tauri-build` 会校验 capability 引用的权限是否存在；权限名或命令改名漏同步会直接编译失败。
 - 已知限制：WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。但 ACL 只授予上表里的最小命令，且状态命令按窗口 label 推导插件 id；不要把它当成插件 API，宿主桥仍是唯一受支持入口。
@@ -294,8 +298,8 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 31 个测试文件（180 项，含 packages/widget-sdk 与内容包卡片）
-cargo test             Rust 74 项（配置 / 拓扑 / 协议 / 场景参数 / Widget 插件包 / 内容包摘要与安装）
+pnpm test              前端 31 个测试文件（181 项，含 packages/widget-sdk 与内容包卡片）
+cargo test             Rust 76 项（配置 / 拓扑 / 协议 / 场景参数 / Widget 插件包 / 内容包摘要、zip 安装与逃逸防护）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名

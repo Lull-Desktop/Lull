@@ -8,7 +8,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { FolderOpen, Package, RefreshCw, Trash2 } from "lucide-react";
+import { FolderOpen, Package, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,22 +114,53 @@ export function ContentPackagesCard() {
           return;
         }
         setDragging(false);
-        if (event.payload.type === "drop") {
-          void installPaths(event.payload.paths);
+        if (event.payload.type !== "drop") return;
+        const paths = event.payload.paths ?? [];
+        if (paths.length === 0) {
+          setMessage("没有拿到拖入的文件路径：请改用「选择 zip」安装。");
+          return;
         }
+        void installPaths(paths);
       })
       .then((unlisten) => {
         if (disposed) unlisten();
         else stop = unlisten;
       })
-      .catch(() => {
-        // 拖拽不可用时仍可从「打开内容目录」手动放置。
+      .catch((error: unknown) => {
+        // 事件通道不可用（远程会话 / 被别的拖拽处理器接管）时给出去路。
+        setMessage(
+          `拖拽通道不可用（${String(error)}），请用「选择 zip」安装。`,
+        );
       });
     return () => {
       disposed = true;
       stop?.();
     };
   }, [installPaths]);
+
+  const pickAndInstall = useCallback(
+    (folder: boolean): void => {
+      setBusy(true);
+      invoke<UserContentPackage | null>("content_package_pick_and_install", {
+        folder,
+      })
+        .then((installed) => {
+          setMessage(
+            installed
+              ? `已安装 ${installed.name} ${installed.version}`
+              : "已取消选择",
+          );
+          refresh();
+        })
+        .catch((error: unknown) => {
+          setMessage(`安装失败：${String(error)}`);
+        })
+        .finally(() => {
+          setBusy(false);
+        });
+    },
+    [refresh],
+  );
 
   const openDir = useCallback((): void => {
     invoke<string>("content_open_dir")
@@ -179,6 +210,16 @@ export function ContentPackagesCard() {
           <div className="flex items-center gap-2">
             <Button
               type="button"
+              size="sm"
+              onClick={() => pickAndInstall(false)}
+              disabled={busy}
+              className="gap-1.5"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              选择 zip
+            </Button>
+            <Button
+              type="button"
               variant="outline"
               size="sm"
               onClick={openDir}
@@ -210,7 +251,7 @@ export function ContentPackagesCard() {
         >
           {dragging
             ? "松开即可安装"
-            : "把 .zip 或内容包文件夹拖到这里；也可以在内容目录里放好后点「刷新」"}
+            : "把 .zip 或内容包文件夹拖到这里；拖不动就点「选择 zip」，或在「内容目录」里放好后点「刷新」"}
         </div>
 
         {packages?.length === 0 && (
