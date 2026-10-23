@@ -207,6 +207,33 @@ inline unsigned int QueryDpi(HWND hwnd) {
 }
 
 // ---------------------------------------------------------------------------
+// WebView2 子窗覆盖
+// ---------------------------------------------------------------------------
+
+// WebView2 子窗（WRY_WEBVIEW）尺寸必须等于窗口客户区（物理像素）。
+// 实测非管理员启动下，某些父窗/桌面事件会让 wry 的自动调整按"逻辑化"坐标把子窗
+// 缩到 ÷系统缩放（125% 屏 = 0.8×），页面只铺屏幕的 80% 且不自愈。必须在
+// ShowWindow 之前调用，否则用户先看到小窗、再看到它被拉满。
+inline bool EnsureWebviewCover(HWND p_hwnd) {
+	if (!p_hwnd || !IsWindow(p_hwnd)) {
+		return false;
+	}
+	HWND wv = FindWindowExW(p_hwnd, nullptr, L"WRY_WEBVIEW", nullptr);
+	if (!wv) {
+		return false;
+	}
+	RECT cr = {0, 0, 0, 0};
+	GetClientRect(p_hwnd, &cr);
+	RECT wr = {0, 0, 0, 0};
+	GetWindowRect(wv, &wr);
+	if ((wr.right - wr.left) == cr.right && (wr.bottom - wr.top) == cr.bottom) {
+		return false;
+	}
+	SetWindowPos(wv, nullptr, 0, 0, cr.right, cr.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // 桌面结构探测
 // ---------------------------------------------------------------------------
 
@@ -291,7 +318,11 @@ inline void SnapshotWindowState(HWND p_target, SavedState &r_saved) {
 inline void ApplyWallpaperStyles(HWND p_target, bool p_want_layered) {
 	LONG style = GetWindowLongW(p_target, GWL_STYLE);
 	style &= ~(kWallpaperStyleClear | kWallpaperStyleClearAttachOnly);
-	style |= (WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS);
+	// ★ 不要在这里加 WS_VISIBLE：可见性由 Rust 的 set_visible(SW_SHOWNA) 控制。
+	//   Attach 只负责摆位；如果这时带上 WS_VISIBLE，SetWindowLong 之后的
+	//   SetParent / SetWindowPos 会让窗口按旧位置/旧尺寸提前显示一帧——开关打开
+	//   瞬间的闪动就来自这里。ShowWindow(SW_SHOWNA) 会自己补回 WS_VISIBLE。
+	style |= (WS_CHILD | WS_CLIPSIBLINGS);
 	SetLastError(0);
 	SetWindowLongW(p_target, GWL_STYLE, style);
 
@@ -304,10 +335,11 @@ inline void ApplyWallpaperStyles(HWND p_target, bool p_want_layered) {
 //   p_client_rect 为空时铺满宿主（单显示器老行为）；多显示器场景必须传各自矩形，
 //   否则 N 个窗口会全部叠在同一个 4480x1440 上互相覆盖。
 //
-// 顺序很重要：**先藏起来 → 把位置尺寸摆好 → 最后才显示**。
-// MoveWindow 会让 Godot 的 OpenGL 渲染目标重建，中间那次 kRepaintNudgePx 的尺寸差如果
-// 发生在可见状态下，用户会看到画面闪一下。Attach 之后窗口本来就是隐藏的
-// （Detach 保持隐藏；Godot 新建的子窗口初始也是隐藏的），这里显式再藏一次兜底。
+// 顺序很重要：**先藏起来 → 把位置尺寸摆好 → 同步 WebView2 覆盖**。
+// 这里不再 ShowWindow：显示时机交给 Rust 的页面首帧门（native set_visible 使用
+// SW_SHOWNA，不抢焦点）。MoveWindow 会让 Godot 的 OpenGL 渲染目标重建，中间那次
+// kRepaintNudgePx 的尺寸差如果发生在可见状态下，用户会看到画面闪一下；所以整个
+// 摆位过程都在隐藏状态完成。
 inline void PlaceWallpaperRect(HWND p_target, HWND p_host, const RECT *p_client_rect) {
 	RECT rc = {0, 0, 0, 0};
 	if (p_client_rect) {
@@ -347,14 +379,12 @@ inline void PlaceWallpaperRect(HWND p_target, HWND p_host, const RECT *p_client_
 	// bounds 与 WRY_WEBVIEW 子窗一起设成最终尺寸。只依赖 MoveWindow 的 WM_SIZE 时，
 	// 挂载发生在 Tauri 事件循环启动前，Resized 消息可能被合并/迟到；于是窗口已经全屏、
 	// WebView 仍按创建时的 800x600 画出第一帧，等看门狗（≤700ms）才拉回全屏。
-	// 这就是"壁纸先小窗、再突然铺满"的直接来源。SendMessage 在 ShowWindow 之前，
+	// 这就是"壁纸先小窗、再突然铺满"的直接来源。SendMessage 在隐藏状态完成，
 	// 第一帧可见画面就是最终尺寸。
 	SendMessageW(p_target, WM_SIZE, SIZE_RESTORED,
 			MAKELPARAM(static_cast<WORD>(w), static_cast<WORD>(h)));
-	{
-		lull::timing::ScopedTimer t(lull::timing::kTagAttachShow);
-		ShowWindow(p_target, SW_SHOW);
-	}
+	// controller bounds 是异步的；再直接复核一次 WRY 子窗，确保它也在隐藏状态到位。
+	EnsureWebviewCover(p_target);
 }
 
 } // namespace detail
@@ -620,8 +650,8 @@ inline bool Attach(HWND target, bool use_layered, const RECT *client_rect, Place
 //   会把桌面鼠标消息全吃掉的可见窗口**。rebuild() 的流程是"先把所有壁纸窗口 detach，
 //   再重新 attach"，如果 Detach 顺手把它显示出来，中间那一瞬间用户看到的就是
 //   ① 画面闪一下；② 桌面点不动（那块全屏窗口在吞点击）。
-//   detach 之后要么紧接着 attach（native 的 Attach 里有 ShowWindow(SW_SHOW)，会自己
-//   显示回来），要么就是应用退出 —— 两种情况下"隐藏"都是正确的状态。
+//   detach 之后要么紧接着 rebuild（Rust 会在新窗口页面首帧后调用 set_visible 显示），
+//   要么就是应用退出 —— 两种情况下"隐藏"都是正确的状态。
 inline bool Detach(HWND target, const SavedState &saved) {
 	lull::timing::ScopedTimer t_total(lull::timing::kTagDetachTotal);
 	if (!target || !IsWindow(target)) {

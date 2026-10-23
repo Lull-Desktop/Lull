@@ -88,9 +88,11 @@ dumpbin /exports src-tauri/native/lull_native.dll
    - 探测宿主布局（`Progman` 子级 / 分层窗口）；
    - 先装 `WM_ERASEBKGND` / `WM_DPICHANGED` 子类，再挂载（闭合 DPI 竞态）；
    - `SetParent` 到桌面宿主、调整样式与 Z 序；
-   - 摆好最终矩形后、`ShowWindow` 之前同步补发一次 `WM_SIZE`，让 wry 的父窗口子类把 WebView2 controller bounds 与 `WRY_WEBVIEW` 子窗一起设到最终尺寸；返回前再用 `EnsureWebviewCover` 兜底；
+   - 摆好最终矩形后，仍在隐藏状态同步补发一次 `WM_SIZE`，并调用 `EnsureWebviewCover`，让 wry 的父窗口子类把 WebView2 controller bounds 与 `WRY_WEBVIEW` 子窗一起设到最终尺寸；
+   - **Attach 不再 `ShowWindow`**：窗口保持隐藏，显示时机交给 Rust 的页面首帧门；
    - 失败时滚回原过程并释放槽位；
-4. Rust 在 120ms / 700ms / 1800ms / 3500ms 复写 controller bounds 并强制重绘；第一个 120ms 复查专门接住 Tauri 在 `ShowWindow` 之后才处理的 `Resized`（125% 屏上可能缩成 0.8×），此时启动幕还盖着。**不再**在可见窗口上做 1px 收缩/回弹（那会让 WebView2 重新布局一帧，表现为另一次闪动）。
+4. Rust 在 `PageLoadEvent::Finished` 后调用 `lull_native_set_visible(SW_SHOWNA)` 显示窗口；另有 2.5s 兜底，页面加载异常时也不会永远隐藏。显示前按当前总开关/显示器配置复核，避免迟到回调把已关闭的壁纸弹回来。
+5. Rust 在 120ms / 700ms / 1800ms / 3500ms 只改尺寸（`set_size`）并调用 native `ensure` + 强制重绘；第一个 120ms 复查专门接住 Tauri 在 attach 之后才处理的 `Resized`（125% 屏上可能缩成 0.8×），此时窗口仍在首帧门之前（隐藏）。**不再**在可见窗口上做 1px 收缩/回弹，也**不再**用 `set_bounds(position=(0,0))`——窗口已 SetParent 到 Progman，这个位置会把主屏壁纸瞬间挪到虚拟桌面左上角，再被看门狗拉回，表现为开关打开时的"跳一下"。
 
 ### 4.1 为什么吞 `WM_DPICHANGED`
 
@@ -107,8 +109,10 @@ tauri-runtime-wry 用 `size.to_logical(window.scale_factor())` 计算 WebView bo
 
 ### 4.3 启动首帧与启动幕
 
-- 原生侧的目标：第一帧可见画面就是最终尺寸。窗口创建尺寸、挂载时同步 `WM_SIZE`、显示前 `EnsureWebviewCover` 三者一起消除"小窗 → 全屏"跳变。
-- 页面侧的目标：遮住"暗场 → 首帧"和"默认回退场景 → 目标场景"之间的内容空档。`BootVeil` 是第一份 HTML 就存在的静态层，场景 `onReady`（内置场景双 rAF / iframe 的 `ready` 或 `onLoad`）后淡出；另有 700ms 最短停留与 3s 兜底。
+- 原生侧的目标：**窗口第一次可见时，页面已经加载完成、WebView 已经铺满、启动幕已经存在**。窗口创建尺寸、隐藏状态同步 `WM_SIZE` / `EnsureWebviewCover`、页面首帧门三者一起消除"暗场空窗 → 小窗 → 全屏"的跳变。
+- `ApplyWallpaperStyles` 不再给窗口补 `WS_VISIBLE`：Attach 期间保持隐藏，避免 `SetParent` / `SetWindowPos` 按旧位置/旧尺寸提前显示一帧。`set_visible(SW_SHOWNA)` 显示时会自己补回可见位。
+- 页面侧的目标：遮住"首帧 → 场景"和"默认回退场景 → 目标场景"之间的内容空档。`BootVeil` 是第一份 HTML 就存在的静态层，场景 `onReady`（内置场景双 rAF / iframe 的 `ready` 或 `onLoad`）后淡出；另有 700ms 最短停留与 3s 兜底。
+- 显示使用 `SW_SHOWNA`（不激活），因此从 Setting 打开某屏时不会把焦点从设置窗抢走；单台显示器开关在重建期间由前端 pending 态锁住，避免连点造成 create/destroy 竞态。
 - 两层职责不能互换：启动幕在 WebView 内部，只能遮内容闪动；窗口/子窗尺寸跳变必须走上面的原生路径。
 
 ## 5. 看门狗

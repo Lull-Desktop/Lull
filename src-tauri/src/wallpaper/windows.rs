@@ -8,8 +8,11 @@
 #![allow(unsafe_code)]
 
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
+use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use super::ffi::{self, NativeHost};
@@ -18,6 +21,16 @@ use super::runtime::{
   config, emit_changed, push_target, remove_target, snapshot_targets, take_targets,
 };
 use super::topology::{enabled_display_targets, monitor_infos, MonitorInfo};
+
+/// 当前配置是否允许这个壁纸窗显示：总开关开 + 该显示器开启。
+///
+/// 页面首帧回调可能晚于用户再次关闭总开关/显示器；显示前必须按**当前**配置复核，
+/// 不能只用建窗时的 `show` 快照，否则已关闭的壁纸会被迟到回调重新弹出来。
+fn monitor_visible(device: &str, fallback: bool) -> bool {
+  config().map_or(fallback, |state| {
+    state.data.master_visible && state.data.monitor_enabled(device)
+  })
+}
 
 pub(crate) fn create_one(
   app: &AppHandle,
@@ -51,6 +64,20 @@ pub(crate) fn create_one(
     f64::from(physical.0) / primary_scale,
     f64::from(physical.1) / primary_scale,
   );
+  // 页面首帧门：native attach 只挂载、不显示；这里等 WebView2 的
+  // PageLoadEvent::Finished 再通过 native set_visible(SW_SHOWNA) 显示。
+  // 这样开关打开时，用户先看到原来那块桌面/旧壁纸，等启动幕已经渲染好才换上来，
+  // 不会先闪一块深色空 WebView。attached/loaded 两个标记覆盖"页面先加载完、
+  // 挂载后完成"的竞态；show 只是建窗时的快照，最终还要按当前配置复核。
+  let attached = Arc::new(AtomicBool::new(false));
+  let loaded = Arc::new(AtomicBool::new(false));
+  let raw_slot = Arc::new(AtomicIsize::new(0));
+  let attached_for_load = Arc::clone(&attached);
+  let loaded_for_load = Arc::clone(&loaded);
+  let raw_for_load = Arc::clone(&raw_slot);
+  let device_for_load = device.to_string();
+  let set_visible = host.set_visible;
+  let allow_show = show;
   let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
     .title("Lull 壁纸")
     .visible(false)
@@ -62,10 +89,27 @@ pub(crate) fn create_one(
     .resizable(false)
     .skip_taskbar(true)
     .devtools(crate::window_host::devtools_enabled())
+    .on_page_load(move |_window, payload| {
+      if !matches!(payload.event(), PageLoadEvent::Finished) {
+        return;
+      }
+      loaded_for_load.store(true, Ordering::Release);
+      if !allow_show
+        || !attached_for_load.load(Ordering::Acquire)
+        || !monitor_visible(&device_for_load, allow_show)
+      {
+        return;
+      }
+      let raw = raw_for_load.load(Ordering::Acquire);
+      if raw != 0 {
+        unsafe { (set_visible)(raw as *mut c_void, 1) };
+      }
+    })
     .build()
     .map_err(|error| format!("创建 {label} 失败: {error}"))?;
   ffi::wlog(&format!("{label}: 窗口+WebView 已建 ({url})"));
   let raw = window.hwnd().map_err(|error| error.to_string())?.0;
+  raw_slot.store(raw as isize, Ordering::Release);
   let drc = unsafe { (host.disable_dwm_frame)(raw) };
   ffi::wlog(&format!("{label}: disable_dwm_frame rc={drc}"));
 
@@ -78,13 +122,49 @@ pub(crate) fn create_one(
     let _ = window.destroy();
     return Err(format!("{label} attach rc={rc}"));
   }
-  if !show {
-    // 总开关关闭期间创建：attach 内部会 SW_SHOW，立刻藏回去。
+  attached.store(true, Ordering::Release);
+  push_target(&label, raw as isize, device);
+
+  // 页面可能在 attach 之前就 Finished；此时回调只置了 loaded，需要在这里补一次显示。
+  if show && loaded.load(Ordering::Acquire) && monitor_visible(device, show) {
     unsafe {
-      (host.set_visible)(raw, 0);
+      (host.set_visible)(raw, 1);
     }
   }
-  push_target(&label, raw as isize, device);
+
+  // 兜底：页面加载异常（dev server 未启动 / 静态资源 404）时不能让窗口永远隐藏。
+  // 2.5s 后仍未显示才补一次；显示前再按当前配置复核，避免把已关闭的壁纸弹回来。
+  if show {
+    let fallback_app = app.clone();
+    let fallback_label = label.clone();
+    let fallback_device = device.to_string();
+    let fallback_raw = raw as isize;
+    let fallback_set_visible = host.set_visible;
+    std::thread::spawn(move || {
+      std::thread::sleep(Duration::from_millis(2500));
+      if !monitor_visible(&fallback_device, false) {
+        return;
+      }
+      if let Some(window) = fallback_app.get_webview_window(&fallback_label) {
+        // label 会按显示器下标复用：若旧窗已被销毁、同 label 的新窗正在加载，
+        // 这个迟到的兜底不能把新窗提前弹出来。
+        if window
+          .hwnd()
+          .map(|hwnd| hwnd.0 as isize)
+          .unwrap_or_default()
+          != fallback_raw
+        {
+          return;
+        }
+        if window.is_visible().unwrap_or(true) {
+          return;
+        }
+        unsafe {
+          (fallback_set_visible)(fallback_raw as *mut c_void, 1);
+        }
+      }
+    });
+  }
 
   // 诊断：导航是异步的，加载后延迟读取真实地址，确认参数哈希到达了 WebView。
   {
@@ -101,38 +181,36 @@ pub(crate) fn create_one(
     });
   }
 
-  // 白边修复 + controller 尺寸兜底：挂载后按延时用 Physical Rect 复写 controller bounds，
-  // 并强制全窗重绘（清掉首帧残留的浅色像素）。
+  // 白边修复 + 尺寸兜底：挂载后按延时只改尺寸、不改位置，再由 native ensure 用
+  // attach 时按宿主客户区算好的精确矩形做校正，最后强制全窗重绘（清首帧浅色像素）。
   //
-  // 首个 120ms 的复查专门接住 Tauri 在 ShowWindow 之后才处理的 Resized：那条路径仍会
+  // 首个 120ms 的复查专门接住 Tauri 在 attach 之后才处理的 Resized：那条路径仍会
   // 按 tao 的 scale 缓存把 WebView bounds 做一次 logical→physical 换算，125% 屏上可能
-  // 缩成 0.8×。此时页面启动幕（最短 700ms）还盖着，用户看不到这次修正；等到 700ms
+  // 缩成 0.8×。此时窗口还停在页面首帧门之前（隐藏），修正不会被看到；等到 700ms
   // 看门狗再修就晚了。后续 700/1800/3500ms 只负责白边与慢加载场景。
   //
-  // 这里**不再**做"先缩 1px 再还原"的尺寸推挤：启动尺寸已由 native attach 在
-  // ShowWindow 之前用同步 WM_SIZE 固定，如果在可见窗口上再收缩一次，会让 WebView2
-  // 重新布局一帧——用户看到的就是另一次"画面缩一下再弹回"。set_bounds 只提交
-  // 相同的物理矩形，不会改变布局。
+  // ★ 这里**不能**用 `set_bounds(position=(0,0))`：窗口已经 SetParent 到 Progman，
+  //   position 是父窗口客户区坐标；虚拟桌面原点在副屏左上角时，(0,0) 会把主屏壁纸
+  //   瞬间挪到 (-2560,0)，再被 EnsureRect 拉回来——这正是开关打开/窗口重建时
+  //   "跳一下"的来源。set_size 只改尺寸，位置交给 native want_rect。
   let repaint = host.force_repaint;
+  let ensure = host.ensure;
   let raw_isize = raw as isize;
   std::thread::spawn(move || {
     let raw = raw_isize as *mut c_void;
     for delay_ms in [120u64, 700, 1800, 3500] {
       std::thread::sleep(Duration::from_millis(delay_ms));
-      let bounds = tauri::Rect {
-        position: tauri::Position::Physical(tauri::PhysicalPosition::new(0, 0)),
-        size: tauri::Size::Physical(tauri::PhysicalSize::new(physical.0, physical.1)),
-      };
-      if let Err(error) = window.as_ref().set_bounds(bounds) {
-        ffi::wlog(&format!("{label}: controller bounds 修复失败: {error}"));
-      }
+      let _ = window
+        .as_ref()
+        .set_size(tauri::PhysicalSize::new(physical.0, physical.1));
+      let _ = unsafe { ensure(raw) };
       unsafe { repaint(raw) };
     }
   });
   Ok(())
 }
 
-/// 开启 → 无窗口则按需创建（初始显隐跟随总开关）；关闭 → detach+销毁+移出清单。
+/// 开启 → 无窗口则按需重建（窗口先隐藏，页面首帧后显示）；关闭 → detach+销毁+移出清单。
 /// 在非主线程（async 命令/任务）上执行；tauri 负责把窗口相关操作封送回主线程。
 pub(crate) fn apply_monitor_visibility(
   app: &AppHandle,

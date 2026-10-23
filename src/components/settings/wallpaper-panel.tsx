@@ -73,9 +73,12 @@ export function WallpaperPanel() {
   const [monitors, setMonitors] = useState<MonitorView[] | null>(null);
   const [display, setDisplay] = useState<DisplayConfig | null>(null);
   const [wallpaperMsg, setWallpaperMsg] = useState("查询中…");
+  // 单台显示器的开关是"重建窗口"级操作，可能耗时几百毫秒；期间锁住开关，
+  // 避免用户连点造成 create/destroy 竞态与画面抖动。
+  const [pendingDevice, setPendingDevice] = useState<string | null>(null);
 
-  const refreshWallpaper = useCallback((): void => {
-    Promise.all([
+  const refreshWallpaper = useCallback((): Promise<void> => {
+    return Promise.all([
       invoke<boolean>("wallpaper_get_visible"),
       invoke<MonitorView[]>("wallpaper_monitors"),
       invoke<DisplayConfig>("wallpaper_display_get"),
@@ -99,11 +102,9 @@ export function WallpaperPanel() {
   }, []);
 
   const runWallpaperCommand = useCallback(
-    (command: string, args?: Record<string, unknown>): void => {
-      invoke(command, args)
-        .then(() => {
-          refreshWallpaper();
-        })
+    (command: string, args?: Record<string, unknown>): Promise<void> => {
+      return invoke(command, args)
+        .then(() => refreshWallpaper())
         .catch((err: unknown) => {
           setWallpaperMsg(String(err));
         });
@@ -112,12 +113,12 @@ export function WallpaperPanel() {
   );
 
   useEffect(() => {
-    refreshWallpaper();
+    void refreshWallpaper();
     // 后端拓扑变化 / 开关后广播：热插拔、改分辨率时清单实时刷新。
     // listen 失败（capability 权限缺失 / 纯浏览器）立即降级为仅手动刷新——catch 必须
     // 紧跟 listen，不能在 unmount 的 cleanup 里才挂（实测会产生 unhandledRejection）。
     const unlisten = listen("wallpaper-changed", () => {
-      refreshWallpaper();
+      void refreshWallpaper();
     }).catch(() => () => {});
     return () => {
       unlisten.then((f) => f()).catch(() => {});
@@ -144,24 +145,29 @@ export function WallpaperPanel() {
 
   const toggleMonitor = useCallback(
     (device: string, on: boolean): void => {
-      runWallpaperCommand("wallpaper_set_monitor_visible", {
+      if (pendingDevice) return;
+      setPendingDevice(device);
+      void runWallpaperCommand("wallpaper_set_monitor_visible", {
         device,
         visible: on,
-      });
+      }).finally(() => setPendingDevice(null));
     },
-    [runWallpaperCommand],
+    [pendingDevice, runWallpaperCommand],
   );
 
   const updateDisplay = useCallback(
     (patch: Partial<DisplayConfig>): void => {
-      runWallpaperCommand("wallpaper_set_display", patch);
+      void runWallpaperCommand("wallpaper_set_display", patch);
     },
     [runWallpaperCommand],
   );
 
   const updateMonitorScene = useCallback(
     (device: string, scene: string): void => {
-      runWallpaperCommand("wallpaper_set_monitor_scene", { device, scene });
+      void runWallpaperCommand("wallpaper_set_monitor_scene", {
+        device,
+        scene,
+      });
     },
     [runWallpaperCommand],
   );
@@ -182,11 +188,11 @@ export function WallpaperPanel() {
       );
       invoke("wallpaper_set_scene_params", { scene, params })
         .then(() => {
-          refreshWallpaper();
+          void refreshWallpaper();
         })
         .catch((err: unknown) => {
           setWallpaperMsg(String(err));
-          refreshWallpaper();
+          void refreshWallpaper();
         });
     },
     [refreshWallpaper],
@@ -215,7 +221,7 @@ export function WallpaperPanel() {
         </CardTitle>
         <CardDescription>
           每台显示器一个壁纸窗口。关闭某屏即销毁该窗口（省内存），重新开启时重建；
-          总开关为临时显隐（窗口保持挂载）
+          重建会在页面首帧完成后才显示，避免黑闪；总开关为临时显隐（窗口保持挂载）
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -394,7 +400,9 @@ export function WallpaperPanel() {
                     <Switch
                       aria-label={`显示器 ${i + 1}`}
                       checked={m.enabled}
-                      disabled={wallpaperVisible !== true}
+                      disabled={
+                        wallpaperVisible !== true || pendingDevice === m.device
+                      }
                       onCheckedChange={(on) => toggleMonitor(m.device, on)}
                     />
                   </div>

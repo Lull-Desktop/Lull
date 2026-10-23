@@ -13,11 +13,11 @@
 | --- | --- | --- |
 | M0 契约与骨架 | ✅ | `extension::*` 类型、错误码、命令接线、capability 生成 |
 | M1 共享管线 + widget 后端 | ✅ | `package_hash`、`extension::install`、scene 迁移、widget 摘要/安装/卸载/扫描/门面命令 |
-| M2 扩展中心 UI | ✅ 基础竖切 | 设置页双页签、列表/过滤、导入预览与确认、启用确认、详情、逐能力开关、卸载 |
-| M3 权限与诊断 | 🟡 部分 | CSP 按授权收紧、chrome 回退、运行中锁定已做；清单漂移 `needs-review` 未做 |
-| M4 开发模式 | ⬜ | 未开始 |
-| M5 托盘 / 打包 / 文档 | 🟡 部分 | 文档已同步；托盘与 `widget:pack` 未做 |
-| M6 验收与清理 | ⬜ | 旧卡片/旧命令仍在，待 M6 清理 |
+| M2 扩展中心 UI | ✅ | 设置页三页签、列表/过滤、导入预览与确认、启用确认、详情、逐能力开关、卸载 |
+| M3 权限与诊断 | ✅ | CSP 按授权收紧、chrome 回退、运行中锁定、清单漂移 `needs-review` |
+| M4 开发模式 | ✅ | 挂载本地目录、开发包标记、重载、关闭即销毁、id 冲突拒绝 |
+| M5 托盘 / 打包 / 文档 | ✅ 部分 | 托盘「扩展」子菜单、`widget:pack`、文档已落地；scene 自动回退改为拒绝卸载 |
+| M6 验收与清理 | 🟡 部分 | 旧卡片与旧管理命令已清理；真机验收与最终文档校对待做 |
 
 > 与设计稿的偏差：scene 卸载在“正被壁纸引用”时**拒绝并提示先切换**，
 > 自动回退到默认场景留到后续；其余行为按设计执行。
@@ -28,7 +28,7 @@
 
 ### 0.1 v1 交付
 
-1. 设置窗「偏好 / 扩展」两个页签。
+1. 设置窗「偏好 / 壁纸 / 扩展」三个页签。
 2. 扩展中心：已安装列表、过滤、详情、卸载、诊断。
 3. 本地 ZIP 导入：选择文件 / 拖拽 → 预览确认 → 安装；scene 与 widget 共用一条安装管线。
 4. Widget 启用、权限确认、逐能力撤销、打开 / 关闭 / 结束运行 / 停用。
@@ -104,7 +104,7 @@
 
 | ID | 任务 | 产出 / 文件 | 验收 |
 | --- | --- | --- | --- |
-| EC-201 | 设置页拆「偏好 / 扩展」页签 | `src/app/(control)/setting/page.tsx`、`components/settings/preferences-panel.tsx` | 现有设置测试通过；滚动位置/锚点不丢 |
+| EC-201 | 设置页拆「偏好 / 壁纸 / 扩展」页签 | `src/app/(control)/setting/page.tsx`、`components/settings/wallpaper-panel.tsx` | 现有设置测试通过；壁纸层只出现在壁纸页签 |
 | EC-202 | 前端客户端与 hook | `src/lib/extensions.ts`、`src/hooks/use-extensions.ts` | 安装/卸载/启用后自动刷新；错误类型化 |
 | EC-203 | 已安装列表、过滤、徽章 | `components/extensions/extensions-panel.tsx`、`extension-card.tsx` | 空态、加载态、坏包态都有 |
 | EC-204 | 从文件安装：选择 zip + 拖拽 + 预览确认 | `install-dropzone.tsx`、`install-preview-dialog.tsx` | 拖拽不可用时有降级路径；确认前不落盘 |
@@ -113,7 +113,7 @@
 | EC-207 | 错误码到中文文案的映射 | `src/lib/extension-errors.ts` | 未知 code 有兜底，不显示裸英文 |
 | EC-208 | 组件测试 | `components/extensions/*.test.tsx` | 覆盖安装失败、启用取消、卸载确认、运行中禁用 |
 
-**UI 取舍**：页签切换用局部 state，不引入路由；「偏好」内容整体搬到子组件，
+**UI 取舍**：页签切换用局部 state，不引入路由；「壁纸层」整体搬到 WallpaperPanel，
 业务逻辑不改。现有 `page.test.tsx` 若按文本查询，理论上无需改动；若失败，优先修测试
 选择器，不改交互语义。
 

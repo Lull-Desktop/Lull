@@ -116,27 +116,6 @@ LRESULT CALLBACK WallpaperEraseProc(HWND p_hwnd, UINT p_msg, WPARAM p_wparam, LP
 	return DefWindowProcW(p_hwnd, p_msg, p_wparam, p_lparam);
 }
 
-// —— 第五查（2026-10-11 实测定案）——
-// WebView2 子窗（WRY_WEBVIEW）尺寸必须等于窗口客户区（物理像素）。实测非管理员启动下，
-// 某些父窗/桌面事件会让 wry 的自动调整按"逻辑化"坐标把子窗缩到 ÷系统缩放（本机 0.8×），
-// 页面只铺屏幕的 80% 且不自愈——"普通模式不全屏、管理员才正常"的真凶（管理员时父进程的
-// 此类消息被 UIPI 拦掉，永不触发）。本函数运行在 PMv2 已钉好的线程上 → 读数为物理。
-bool EnsureWebviewCover(HWND p_hwnd) {
-	HWND wv = FindWindowExW(p_hwnd, nullptr, L"WRY_WEBVIEW", nullptr);
-	if (!wv) {
-		return false;
-	}
-	RECT cr;
-	GetClientRect(p_hwnd, &cr);
-	RECT wr;
-	GetWindowRect(wv, &wr);
-	if ((wr.right - wr.left) == cr.right && (wr.bottom - wr.top) == cr.bottom) {
-		return false;
-	}
-	SetWindowPos(wv, nullptr, 0, 0, cr.right, cr.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
-	return true;
-}
-
 } // namespace
 
 extern "C" {
@@ -272,6 +251,11 @@ __declspec(dllexport) int lull_native_attach(void *hwnd, int monitor_index) {
 	slot->orig_proc = reinterpret_cast<WNDPROC>(
 			SetWindowLongPtrW(h, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(WallpaperEraseProc)));
 
+	// 视觉硬化必须在窗口显示之前完成：DWM 非客户区属性一旦在可见后重设，
+	// 会触发一次帧重算，表现为开关打开瞬间的 1px 抖动。Rust 侧已经先调过
+	// disable_dwm_frame，这里在 Attach（只摆位、不显示）之前再钉一次。
+	ApplyDwmAttrs(h);
+
 	Status st;
 	if (!Attach(h, use_layered, prc, &slot->placement, &slot->saved, &st)) {
 		// 还原原过程再释放槽位，否则崩溃链断在 freed slot 上。
@@ -284,15 +268,10 @@ __declspec(dllexport) int lull_native_attach(void *hwnd, int monitor_index) {
 	slot->want_rect = rc;
 	slot->want_valid = true;
 	slot->attached = true;
-
-	// 视觉硬化（见上方函数注释）：DWM 属性 + 帧重算（子类已在上方先装）。
-	ApplyDwmAttrs(h);
-	SetWindowPos(h, nullptr, 0, 0, 0, 0,
-			SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-	// 返回前兜底复核一次 WebView 子窗：PlaceWallpaperRect 已经同步补过 WM_SIZE，
-	// 正常路径这里应返回 false；但 SetParent / DPI 竞态下若子窗仍保留创建时的
-	// 默认尺寸，就在"窗口已显示"的这一拍修正，而不是等看门狗 700ms 后再跳变。
-	EnsureWebviewCover(h);
+	// 注意：Attach 现在只摆位、不显示；窗口保持隐藏，由 Rust 在页面首帧完成后
+	// 通过 lull_native_set_visible(SW_SHOWNA) 显示。这样开关打开时不会先闪一块
+	// 深色/白色 WebView，也不会抢走设置窗焦点。PlaceWallpaperRect 已经在隐藏
+	// 状态完成 controller bounds + WRY_WEBVIEW 子窗的同步。
 	return 0;
 }
 
