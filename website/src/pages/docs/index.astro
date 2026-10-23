@@ -1,37 +1,49 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { getCollection } from "astro:content";
-import { page, repoUrl } from "../../lib/site";
+import { docGroups, groupDocs, page, repoUrl } from "../../lib/site";
 
-const entries = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+const groups = groupDocs(await getCollection("docs"));
+const total = groups.reduce((sum, group) => sum + group.entries.length, 0);
+const columnCount = docGroups.length;
 ---
 
-<BaseLayout title="文档" description="Lull 的快速开始、架构说明、场景 SDK 与插件包格式。">
+<BaseLayout
+  title="文档"
+  description="Lull 的文档目录：快速开始、架构与运行时、场景与插件开发、内容包格式、扩展中心、原生宿主、多语言方案，以及贡献与许可。"
+>
   <section class="section">
     <div class="container">
       <div class="section-head">
         <p class="eyebrow">Docs</p>
         <h1>文档</h1>
         <p class="lead">
-          从跑起来到写第一个场景。这里的页面是精选导读，字段级细节与完整规范都在仓库的
-          <code>docs/</code> 目录里。
+          {total} 篇，按 README 的阅读顺序分成 {columnCount} 组：从跑起来开始，到架构与运行时，
+          再到写场景、写插件、打包内容，最后是扩展中心的设计与项目治理。
+          每页都对应仓库里的一份原始文档，字段级细节以原文为准。
         </p>
       </div>
 
-      <div class="doc-cards">
-        {entries.map((entry) => (
-          <a class="doc-card" href={page(`/docs/${entry.id}/`)}>
-            <div class="doc-card__title">{entry.data.title}</div>
-            <p class="doc-card__desc">{entry.data.description}</p>
-          </a>
-        ))}
-      </div>
+      {groups.map((group) => (
+        <section class="doc-group" aria-labelledby={`doc-group-${group.name}`}>
+          <h2 class="doc-group__title" id={`doc-group-${group.name}`}>{group.name}</h2>
+          <div class="doc-cards">
+            {group.entries.map((entry) => (
+              <a class="doc-card" href={page(`/docs/${entry.id}/`)}>
+                <div class="doc-card__title">{entry.data.title}</div>
+                <p class="doc-card__desc">{entry.data.description}</p>
+                {entry.data.source && <span class="doc-card__source">{entry.data.source}</span>}
+              </a>
+            ))}
+          </div>
+        </section>
+      ))}
 
       <div class="grid-2" style="margin-top:36px">
         <article class="card">
           <h3>仓库里的原始文档</h3>
           <p>
-            架构、场景 SDK、插件 SDK、内容格式、原生宿主、许可说明都在仓库
+            架构、场景 SDK、插件 SDK、内容格式、扩展中心、原生宿主、多语言、许可说明都在仓库
             <code>docs/</code>，与代码一起 review、一起发版。
           </p>
           <span class="card__tag"><a href={`${repoUrl}/tree/main/docs`} rel="noopener">打开 docs/ ↗</a></span>

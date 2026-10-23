@@ -2,6 +2,8 @@
 title: 架构与模块
 description: 四层分层、壁纸运行协议，以及为什么原生宿主是核心而不是附属品。
 order: 2
+group: 架构与运行时
+source: docs/architecture.md
 ---
 
 ## 四层
@@ -41,8 +43,8 @@ WorkerW / Progman 的查找与子窗口挂载，Rust 侧用一个薄 FFI 边界�
 - **需要看门狗**：拓扑变化、Explorer 重启、WorkerW 被别的程序顶掉都要重建窗口。
 - **需要真机验收**：层序、命中测试、动画帧率只能在真实桌面上验证，`pnpm test-mode` 是发布前的必需步骤。
 
-细节见 [原生桌面宿主](https://github.com/Lull-Desktop/Lull/blob/main/docs/native-host.md)
-与 [架构说明](https://github.com/Lull-Desktop/Lull/blob/main/docs/architecture.md)。
+细节见 [原生桌面宿主](../native-host/)（C ABI、看门狗与真机验收）
+与仓库的 [架构说明](https://github.com/Lull-Desktop/Lull/blob/main/docs/architecture.md)（逐模块边界、IPC 合约）。
 
 ## 前端外壳
 

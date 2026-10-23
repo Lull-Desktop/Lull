@@ -26,6 +26,43 @@ export const repoUrl = "https://github.com/Lull-Desktop/Lull";
 export const releasesUrl = `${repoUrl}/releases`;
 export const issuesUrl = `${repoUrl}/issues`;
 
+/**
+ * 文档分组顺序。
+ *
+ * 和 README 的章节归属对齐：先用（开始使用）→ 再懂（架构与运行时）→ 再做扩展
+ * （扩展开发 / 扩展中心）→ 最后是项目治理（项目）。分组名写在每个 md 的
+ * frontmatter 里，顺序只在这里定，避免各处各写一套。
+ */
+export const docGroups = ["开始使用", "架构与运行时", "扩展开发", "扩展中心", "项目"] as const;
+
+/** 仓库内文档的 GitHub 链接，例如 sourceUrl("docs/architecture.md") */
+export function sourceUrl(path: string): string {
+  return `${repoUrl}/blob/main/${path.replace(/^\/+/, "")}`;
+}
+
+/**
+ * 按 docGroups 的顺序把文档分组，组内按 order 排序。
+ * 未知分组排在最后，避免新加的 md 写错组名就整页消失。
+ */
+export function groupDocs<T extends { data: { group: string; order: number } }>(entries: T[]) {
+  const buckets = new Map<string, T[]>();
+  for (const entry of entries) {
+    const key = entry.data.group;
+    const list = buckets.get(key) ?? [];
+    list.push(entry);
+    buckets.set(key, list);
+  }
+
+  const known: (typeof docGroups)[number][] = [...docGroups];
+  const ordered = known.filter((name) => buckets.has(name));
+  const unknown = [...buckets.keys()].filter((name) => !(known as string[]).includes(name));
+
+  return [...ordered, ...unknown].map((name) => ({
+    name,
+    entries: (buckets.get(name) ?? []).sort((a, b) => a.data.order - b.data.order),
+  }));
+}
+
 export const siteMeta = {
   name: "Lull",
   nameZh: "云栖",

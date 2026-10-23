@@ -2,6 +2,8 @@
 title: 场景与 Scene SDK
 description: 写一个能装进 Lull 的场景包：清单字段、静态包与脚本包的区别、参数与同步怎么拿到。
 order: 3
+group: 扩展开发
+source: docs/scene-sdk.md
 ---
 
 ## 内容包长这样
@@ -80,4 +82,4 @@ pnpm content:pack ./my-scene --out artifacts
 与 [`examples/content/three-scene`](https://github.com/Lull-Desktop/Lull/tree/main/examples/content/three-scene)（Three.js WebGL）。
 
 字段级规范：[Scene SDK](https://github.com/Lull-Desktop/Lull/blob/main/docs/scene-sdk.md) ·
-[内容包格式](https://github.com/Lull-Desktop/Lull/blob/main/docs/content-format.md)。
+[内容包格式](../content-format/)（站内摘要 / 仓库原文）。

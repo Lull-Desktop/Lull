@@ -11,7 +11,8 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "check": "astro check",
+    "check": "astro check && node scripts/check-docs-sync.mjs",
+    "docs:check": "node scripts/check-docs-sync.mjs",
     "sync:release": "node scripts/sync-release.mjs"
   },
   "dependencies": {

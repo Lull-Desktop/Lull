@@ -2,6 +2,8 @@
 title: 快速开始
 description: 从下载安装到本地开发环境，跑通 Lull 的最短路径。
 order: 1
+group: 开始使用
+source: README.md
 ---
 
 ## 直接使用
@@ -67,4 +69,12 @@ pnpm test-mode -SkipVerify -HoldSeconds 30
 | `pnpm build` | 打包安装包（含内容校验、DLL 编译、Next 静态导出） |
 | `pnpm build:next` | 只导出前端静态资源 |
 
-完整的命令表与目录说明见仓库 [README](https://github.com/Lull-Desktop/Lull#readme)。
+完整的命令表与目录说明见仓库 [README](https://github.com/Lull-Desktop/Lull#readme)，
+前置条件与提交流程见[参与贡献](../contributing/)。
+
+## 接下来
+
+- 想懂它为什么这么设计：[架构与模块](../architecture/) → [原生桌面宿主](../native-host/)。
+- 想做场景：[场景与 Scene SDK](../scene-sdk/) → [内容包格式](../content-format/)。
+- 想写工具窗口：[Widget 插件包](../widget-package/) → [Widget SDK](../widget-sdk/)。
+- 想管扩展：[扩展中心](../extension-center/)。

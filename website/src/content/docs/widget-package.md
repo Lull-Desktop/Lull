@@ -1,7 +1,9 @@
 ---
 title: Widget 插件包
 description: 用原生 JS、React 或 Vue 写一个工具窗口，装到 Lull 的扩展里。
-order: 4
+order: 5
+group: 扩展开发
+source: docs/widget-package.md
 ---
 
 ## 结构
@@ -48,6 +50,6 @@ pnpm widget:pack examples/widgets/pomodoro-react/dist
 - 没有宿主 DOM、没有任意 IPC、没有 Win32；
 - 状态通过 Rust 侧 KV 持久化，不依赖浏览器存储。
 
-完整清单字段与宿主壳行为见
+完整清单字段与宿主壳行为见[Widget SDK](../widget-sdk/)（宿主侧能力分层与 ACL）、
 [Widget 插件包格式](https://github.com/Lull-Desktop/Lull/blob/main/docs/widget-package.md)
 与 [`@lull/widget-sdk` 说明](https://github.com/Lull-Desktop/Lull/blob/main/packages/widget-sdk/README.md)。
