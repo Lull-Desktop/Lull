@@ -5,6 +5,7 @@
 
 import { FlowThemeRoot } from "@/components/flow-theme-root";
 import { WindowShell } from "@/components/window-shell";
+import { m } from "@/paraglide/messages";
 
 export default function ControlLayout({
   children,
@@ -15,7 +16,7 @@ export default function ControlLayout({
     <>
       {/* 主题流光桥只挂在应用窗口组；壁纸页保持零 Tauri 依赖。 */}
       <FlowThemeRoot />
-      <WindowShell section="设置">{children}</WindowShell>
+      <WindowShell section={m.window_section_settings}>{children}</WindowShell>
     </>
   );
 }

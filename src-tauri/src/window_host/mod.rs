@@ -39,6 +39,8 @@ fn widget_context_json(spec: &WidgetSpec) -> String {
     "hostApi": WIDGET_HOST_API,
     "id": spec.kind,
     "capabilities": spec.capabilities,
+    // 界面语言：插件据此挑选自己的文案资源，与宿主保持一致。
+    "locale": crate::i18n::current(),
     "window": {
       "label": spec.label,
       "route": spec.url,
@@ -54,9 +56,16 @@ fn widget_context_json(spec: &WidgetSpec) -> String {
   .to_string()
 }
 
-/// 页面脚本执行前注入 `window.__LULL_WIDGET__`；不能只返回裸 JSON。
+/// 页面脚本执行前注入 `window.__LULL_WIDGET__` 与 `window.__LULL_LOCALE__`；不能只返回裸 JSON。
+///
+/// 语言必须是同步可读的：前端 i18n 在模块求值时就要拿到它，
+/// 否则首帧会先按基准语言渲染，再跳成用户语言。
 fn widget_context_script(spec: &WidgetSpec) -> String {
-  format!("window.__LULL_WIDGET__ = {};", widget_context_json(spec))
+  format!(
+    "window.__LULL_LOCALE__ = {};\nwindow.__LULL_WIDGET__ = {};",
+    serde_json::to_string(&crate::i18n::current()).unwrap_or_else(|_| "\"zh-CN\"".to_string()),
+    widget_context_json(spec)
+  )
 }
 
 /// 打开窗口；已存在则只做唤醒（显示 / 还原 / 聚焦），不会重建 WebView。
@@ -198,11 +207,17 @@ mod tests {
   }
 
   #[test]
-  fn context_script_assigns_the_global() {
+  fn context_script_assigns_both_globals() {
     let script = widget_context_script(&PLAYER);
-    assert!(script.starts_with("window.__LULL_WIDGET__ = {"));
+    // 语言必须排在前面：前端 i18n 在模块求值时就要读到它。
+    assert!(
+      script.starts_with("window.__LULL_LOCALE__ = \""),
+      "注入脚本应先写语言：{script}"
+    );
+    assert!(script.contains("window.__LULL_WIDGET__ = {"));
     assert!(script.ends_with("};"));
     assert!(script.contains("\"capabilities\""));
+    assert!(script.contains("\"locale\""));
   }
 
   #[test]

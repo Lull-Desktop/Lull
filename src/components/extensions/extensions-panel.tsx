@@ -56,6 +56,8 @@ import {
   stopExtension,
   toExtensionFailure,
 } from "@/lib/extensions";
+import { useLocale } from "@/i18n/locale";
+import { m } from "@/paraglide/messages";
 import { ExtensionDetailSheet } from "./extension-detail-sheet";
 import {
   capabilityLabel,
@@ -66,6 +68,14 @@ import {
 } from "./labels";
 
 const REMOVE_CONFIRM_MS = 5000;
+
+/** 卸载按钮的两段式文案：第一次点「卸载」，5 秒内再点变成「确认卸载」。 */
+function removeLabel(item: ExtensionInfo, pending: boolean): string {
+  if (pending) {
+    return item.dev ? m.ext_confirm_remove() : m.ext_confirm_uninstall();
+  }
+  return item.dev ? m.ext_action_remove() : m.ext_action_uninstall();
+}
 
 type Filter = "all" | ExtensionKind;
 
@@ -105,6 +115,8 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   const [detail, setDetail] = useState<ExtensionInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  // 订阅语言：整块扩展中心（含两个抽屉）随界面语言重渲染。
+  useLocale();
   const [dragging, setDragging] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
   const [devMode, setDevMode] = useState<boolean | null>(null);
@@ -153,7 +165,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       const next = await inspectExtension(path);
       setPreview({ path, preview: next });
     } catch (error) {
-      setMessage(`无法读取扩展包：${toExtensionFailure(error).message}`);
+      setMessage(
+        m.ext_error_inspect({ reason: toExtensionFailure(error).message }),
+      );
     } finally {
       setBusy(false);
     }
@@ -178,7 +192,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         if (event.payload.type !== "drop") return;
         const first = (event.payload.paths ?? [])[0];
         if (!first) {
-          setMessage("没有拿到拖入的文件路径：请改用「从文件安装」。");
+          setMessage(m.ext_drop_no_path());
           return;
         }
         void previewPath(first);
@@ -188,7 +202,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         else stop = unlisten;
       })
       .catch(() => {
-        setMessage("拖拽通道不可用，请用「从文件安装」。");
+        setMessage(m.ext_drop_unavailable());
       });
     return () => {
       disposed = true;
@@ -204,7 +218,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         if (picked) setPreview(picked);
       })
       .catch((error: unknown) => {
-        setMessage(`选择扩展包失败：${toExtensionFailure(error).message}`);
+        setMessage(
+          m.ext_error_pick({ reason: toExtensionFailure(error).message }),
+        );
       })
       .finally(() => {
         setBusy(false);
@@ -217,11 +233,13 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       setDeveloperMode(enabled)
         .then(async (state) => {
           setDevMode(state.devMode);
-          setMessage(enabled ? "开发模式已开启" : "开发模式已关闭");
+          setMessage(enabled ? m.ext_dev_on() : m.ext_dev_off());
           await refresh();
         })
         .catch((error: unknown) => {
-          setMessage(`切换开发模式失败：${toExtensionFailure(error).message}`);
+          setMessage(
+            m.ext_error_dev_toggle({ reason: toExtensionFailure(error).message }),
+          );
         })
         .finally(() => {
           setBusy(false);
@@ -234,11 +252,13 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
     setBusy(true);
     pickDevPackage()
       .then(async (info) => {
-        if (info) setMessage(`已挂载 ${info.name}`);
+        if (info) setMessage(m.ext_toast_dev_mounted({ name: info.name }));
         await refresh();
       })
       .catch((error: unknown) => {
-        setMessage(`挂载开发包失败：${toExtensionFailure(error).message}`);
+        setMessage(
+          m.ext_error_dev_mount({ reason: toExtensionFailure(error).message }),
+        );
       })
       .finally(() => {
         setBusy(false);
@@ -250,14 +270,22 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
     setBusy(true);
     installExtension(preview.path, preview.preview.sourceDigest)
       .then(async (installed) => {
+        const toastArgs = {
+          name: installed.name,
+          version: installed.version,
+        };
         setMessage(
-          `${isSceneUpdate ? "已更新" : "已安装"} ${installed.name} ${installed.version}`,
+          isSceneUpdate
+            ? m.ext_toast_updated(toastArgs)
+            : m.ext_toast_installed(toastArgs),
         );
         setPreview(null);
         await refresh();
       })
       .catch((error: unknown) => {
-        setMessage(`安装失败：${toExtensionFailure(error).message}`);
+        setMessage(
+          m.ext_error_install({ reason: toExtensionFailure(error).message }),
+        );
       })
       .finally(() => {
         setBusy(false);
@@ -288,12 +316,14 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
     setBusy(true);
     setExtensionEnabled(target.id, true)
       .then(async () => {
-        setMessage(`已启用 ${target.name}`);
+        setMessage(m.ext_toast_enabled({ name: target.name }));
         setEnableTarget(null);
         await refresh();
       })
       .catch((error: unknown) => {
-        setMessage(`启用失败：${toExtensionFailure(error).message}`);
+        setMessage(
+          m.ext_error_enable({ reason: toExtensionFailure(error).message }),
+        );
       })
       .finally(() => {
         setBusy(false);
@@ -310,7 +340,11 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
           await refresh();
         })
         .catch((error: unknown) => {
-          setMessage(`更新权限失败：${toExtensionFailure(error).message}`);
+          setMessage(
+            m.ext_error_update_caps({
+              reason: toExtensionFailure(error).message,
+            }),
+          );
         })
         .finally(() => {
           setBusy(false);
@@ -333,14 +367,20 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         : removeExtension(item.kind, item.id);
       removal
         .then(async () => {
-          setMessage(item.dev ? `已移除 ${item.name}` : `已卸载 ${item.name}`);
+          setMessage(
+            item.dev
+              ? m.ext_toast_removed({ name: item.name })
+              : m.ext_toast_uninstalled({ name: item.name }),
+          );
           if (detail?.kind === item.kind && detail.id === item.id) {
             setDetail(null);
           }
           await refresh();
         })
         .catch((error: unknown) => {
-          setMessage(`卸载失败：${toExtensionFailure(error).message}`);
+          setMessage(
+            m.ext_error_uninstall({ reason: toExtensionFailure(error).message }),
+          );
         })
         .finally(() => {
           setBusy(false);
@@ -352,9 +392,11 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   const openDir = useCallback((): void => {
     const kind: ExtensionKind = filter === "scene" ? "scene" : "widget";
     openExtensionsDir(kind)
-      .then((path) => setMessage(`扩展目录：${path}`))
+      .then((path) => setMessage(m.ext_toast_open_dir({ path })))
       .catch((error: unknown) => {
-        setMessage(`打开目录失败：${toExtensionFailure(error).message}`);
+        setMessage(
+          m.ext_error_open_dir({ reason: toExtensionFailure(error).message }),
+        );
       });
   }, [filter]);
 
@@ -363,18 +405,20 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Package className="h-5 w-5 text-bamboo" />
-          扩展
+          {m.ext_title()}
         </CardTitle>
-        <CardDescription>
-          管理壁纸内容与工具扩展。安装不会自动运行；启用时才授予权限。
-        </CardDescription>
+        <CardDescription>{m.ext_description()}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
             {items === null
-              ? "正在读取扩展…"
-              : `已安装 ${items.length} 个（工具 ${widgetCount} / 壁纸 ${sceneCount}）`}
+              ? m.ext_loading()
+              : m.ext_installed_count({
+                  count: String(items.length),
+                  widgets: String(widgetCount),
+                  scenes: String(sceneCount),
+                })}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -385,7 +429,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
               className="gap-1.5"
             >
               <Plus className="h-3.5 w-3.5" />
-              从文件安装
+              {m.ext_install_from_file()}
             </Button>
             <Button
               type="button"
@@ -395,7 +439,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
               className="gap-1.5"
             >
               <FolderOpen className="h-3.5 w-3.5" />
-              打开目录
+              {m.ext_open_dir()}
             </Button>
             <Button
               type="button"
@@ -405,18 +449,18 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
               className="gap-1.5"
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              刷新
+              {m.ext_refresh()}
             </Button>
           </div>
         </div>
 
         <fieldset className="m-0 flex items-center gap-2 border-0 p-0">
-          <legend className="sr-only">扩展类型</legend>
+          <legend className="sr-only">{m.ext_type_legend()}</legend>
           {(
             [
-              ["all", "全部"],
-              ["widget", "工具"],
-              ["scene", "壁纸"],
+              ["all", m.ext_filter_all],
+              ["widget", m.ext_filter_widget],
+              ["scene", m.ext_filter_scene],
             ] as const
           ).map(([value, label]) => (
             <button
@@ -430,7 +474,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   : "border-border/70 text-muted-foreground hover:border-bamboo/60"
               }`}
             >
-              {label}
+              {label()}
             </button>
           ))}
         </fieldset>
@@ -443,9 +487,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
               : "border-border/70 text-muted-foreground"
           }`}
         >
-          {dragging
-            ? "松开即可检查扩展包"
-            : "把 .zip 或扩展包文件夹拖到这里；拖不动就点「从文件安装」。"}
+          {dragging ? m.ext_drop_active() : m.ext_drop_hint()}
         </div>
 
         {issues.length > 0 && (
@@ -460,8 +502,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
 
         {items?.length === 0 && (
           <p className="rounded-lg border border-dashed border-border/70 p-4 text-xs text-muted-foreground">
-            还没有安装扩展。从文件安装一个 `.zip`：工具包根目录含
-            `widget.json`， 壁纸包根目录含 `catalog.json`。
+            {m.ext_empty()}
           </p>
         )}
 
@@ -484,14 +525,16 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                     <Badge variant={statusVariant(item)}>
                       {statusLabel(item.status)}
                     </Badge>
-                    {item.dev && <Badge variant="outline">开发</Badge>}
+                    {item.dev && (
+                      <Badge variant="outline">{m.ext_dev_badge()}</Badge>
+                    )}
                     {item.kind === "widget" && item.enabled && (
                       <Badge variant="secondary">
                         {item.running
                           ? item.visible
-                            ? "运行中"
-                            : "后台运行"
-                          : "已启用"}
+                            ? m.ext_state_running()
+                            : m.ext_state_background()
+                          : m.ext_state_enabled()}
                       </Badge>
                     )}
                   </div>
@@ -507,7 +550,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   )}
                   {(item.author || item.license) && (
                     <p className="text-[11px] text-ink-faint">
-                      {item.author ? `作者 ${item.author}` : ""}
+                      {item.author ? m.ext_author({ name: item.author }) : ""}
                       {item.author && item.license ? " · " : ""}
                       {item.license ?? ""}
                     </p>
@@ -524,30 +567,30 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                             size="sm"
                             variant="outline"
                             disabled={busy}
-                            aria-label={`关闭 ${item.name}`}
+                            aria-label={m.ext_aria_action({ action: m.ext_action_close(), name: item.name })}
                             onClick={() =>
                               runAction(
                                 () => closeExtension(item.id),
-                                `已关闭 ${item.name}`,
+                                m.ext_toast_closed({ name: item.name }),
                               )
                             }
                           >
-                            关闭
+                            {m.ext_action_close()}
                           </Button>
                         ) : (
                           <Button
                             type="button"
                             size="sm"
                             disabled={busy || !item.enabled}
-                            aria-label={`打开 ${item.name}`}
+                            aria-label={m.ext_aria_action({ action: m.ext_action_open(), name: item.name })}
                             onClick={() =>
                               runAction(
                                 () => openExtension("widget", item.id),
-                                `已打开 ${item.name}`,
+                                m.ext_toast_opened({ name: item.name }),
                               )
                             }
                           >
-                            打开
+                            {m.ext_action_open()}
                           </Button>
                         )}
                         {item.running && (
@@ -556,11 +599,11 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                             size="sm"
                             variant="ghost"
                             disabled={busy}
-                            aria-label={`结束 ${item.name}`}
+                            aria-label={m.ext_aria_action({ action: m.ext_action_stop(), name: item.name })}
                             onClick={() =>
                               runAction(
                                 () => stopExtension(item.id),
-                                `已结束 ${item.name}`,
+                                m.ext_toast_stopped({ name: item.name }),
                               )
                             }
                           >
@@ -572,15 +615,15 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                           size="sm"
                           variant="outline"
                           disabled={busy}
-                          aria-label={`停用 ${item.name}`}
+                          aria-label={m.ext_aria_action({ action: m.ext_action_disable(), name: item.name })}
                           onClick={() =>
                             runAction(
                               () => setExtensionEnabled(item.id, false),
-                              `已停用 ${item.name}`,
+                              m.ext_toast_disabled({ name: item.name }),
                             )
                           }
                         >
-                          停用
+                          {m.ext_action_disable()}
                         </Button>
                       </>
                     ) : (
@@ -588,14 +631,14 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                         type="button"
                         size="sm"
                         disabled={busy || !canEnable(item)}
-                        aria-label={`启用 ${item.name}`}
+                        aria-label={m.ext_aria_action({ action: m.ext_action_enable(), name: item.name })}
                         onClick={() => {
                           setMessage("");
                           setEnableTarget(item);
                         }}
                       >
                         <ShieldCheck className="h-3.5 w-3.5" />
-                        启用
+                        {m.ext_action_enable()}
                       </Button>
                     ))}
 
@@ -606,7 +649,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                       variant="outline"
                       onClick={onOpenWallpaperSettings}
                     >
-                      壁纸设置
+                      {m.ext_action_wallpaper_settings()}
                     </Button>
                   )}
 
@@ -616,15 +659,15 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                       size="sm"
                       variant="outline"
                       disabled={busy || !item.enabled}
-                      aria-label={`重载 ${item.name}`}
+                      aria-label={m.ext_aria_action({ action: m.ext_action_reload(), name: item.name })}
                       onClick={() =>
                         runAction(
                           () => reloadDevPackage(item.id),
-                          `已重载 ${item.name}`,
+                          m.ext_toast_reloaded({ name: item.name }),
                         )
                       }
                     >
-                      重载
+                      {m.ext_action_reload()}
                     </Button>
                   )}
 
@@ -632,10 +675,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    aria-label={`详情 ${item.name}`}
+                    aria-label={m.ext_aria_action({ action: m.ext_action_details(), name: item.name })}
                     onClick={() => setDetail(item)}
                   >
-                    详情
+                    {m.ext_action_details()}
                   </Button>
                   <Button
                     type="button"
@@ -644,17 +687,16 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                       pendingRemove === itemKey(item) ? "destructive" : "ghost"
                     }
                     disabled={busy}
-                    aria-label={`${item.dev ? "移除" : "卸载"} ${item.name}`}
+                    aria-label={m.ext_aria_action({
+                      action: item.dev
+                        ? m.ext_action_remove()
+                        : m.ext_action_uninstall(),
+                      name: item.name,
+                    })}
                     onClick={() => removeItem(item)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    {pendingRemove === itemKey(item)
-                      ? item.dev
-                        ? "确认移除"
-                        : "确认卸载"
-                      : item.dev
-                        ? "移除"
-                        : "卸载"}
+                    {removeLabel(item, pendingRemove === itemKey(item))}
                   </Button>
                 </div>
               </div>
@@ -665,14 +707,13 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         <div className="space-y-2 rounded-xl border border-dashed border-border/70 p-3">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
-              <p className="text-sm text-ink-soft">开发模式</p>
+              <p className="text-sm text-ink-soft">{m.ext_dev_mode()}</p>
               <p className="text-xs text-muted-foreground">
-                挂载本地 Widget
-                项目目录，不复制文件、不锁摘要；仍走同一套权限与沙箱。
+                {m.ext_dev_description()}
               </p>
             </div>
             <Switch
-              aria-label="开发模式"
+              aria-label={m.ext_dev_mode()}
               checked={devMode === true}
               disabled={busy || devMode === null}
               onCheckedChange={toggleDevMode}
@@ -689,10 +730,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 className="gap-1.5"
               >
                 <FolderOpen className="h-3.5 w-3.5" />
-                添加本地目录
+                {m.ext_dev_add()}
               </Button>
               <span className="text-[11px] text-muted-foreground">
-                目录需包含 widget.json；改完文件点卡片上的「重载」。
+                {m.ext_dev_add_hint()}
               </span>
             </div>
           )}
@@ -714,7 +755,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
             <>
               <SheetHeader>
                 <SheetTitle>
-                  {isSceneUpdate ? "确认更新" : "确认安装"}{" "}
+                  {isSceneUpdate ? m.ext_confirm_update() : m.ext_confirm_install()}{" "}
                   {preview.preview.name}
                 </SheetTitle>
                 <SheetDescription>
@@ -725,8 +766,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
               <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4 text-sm">
                 {isSceneUpdate && installedPreview && (
                   <p className="rounded-lg border border-bamboo/30 bg-bamboo/5 p-2 text-[11px] text-ink-soft">
-                    已安装 {installedPreview.version}，确认后用{" "}
-                    {preview.preview.version} 覆盖；壁纸会自动重载新版本。
+                    {m.ext_update_notice({
+                      current: installedPreview.version,
+                      next: preview.preview.version,
+                    })}
                   </p>
                 )}
                 {preview.preview.description && (
@@ -737,13 +780,21 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 <dl className="grid grid-cols-[5rem_1fr] gap-y-1 text-xs">
                   <dt className="text-ink-faint">ID</dt>
                   <dd className="truncate font-mono">{preview.preview.id}</dd>
-                  <dt className="text-ink-faint">作者</dt>
-                  <dd>{preview.preview.author ?? "未声明"}</dd>
-                  <dt className="text-ink-faint">许可</dt>
-                  <dd>{preview.preview.license ?? "未声明"}</dd>
-                  <dt className="text-ink-faint">文件</dt>
-                  <dd>{preview.preview.fileCount} 个</dd>
-                  <dt className="text-ink-faint">指纹</dt>
+                  <dt className="text-ink-faint">{m.ext_field_author()}</dt>
+                  <dd>
+                    {preview.preview.author ?? m.ext_undeclared()}
+                  </dd>
+                  <dt className="text-ink-faint">{m.ext_field_license()}</dt>
+                  <dd>
+                    {preview.preview.license ?? m.ext_undeclared()}
+                  </dd>
+                  <dt className="text-ink-faint">{m.ext_field_files()}</dt>
+                  <dd>
+                    {m.ext_file_count({
+                      count: String(preview.preview.fileCount),
+                    })}
+                  </dd>
+                  <dt className="text-ink-faint">{m.ext_field_digest()}</dt>
                   <dd className="truncate font-mono text-[10px]">
                     {preview.preview.sourceDigest}
                   </dd>
@@ -751,7 +802,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 {preview.preview.capabilities.length > 0 && (
                   <section className="space-y-1">
                     <h3 className="text-xs font-medium text-ink-soft">
-                      声明能力
+                      {m.ext_field_capabilities()}
                     </h3>
                     <div className="flex flex-wrap gap-1">
                       {preview.preview.capabilities.map((capability) => (
@@ -766,7 +817,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 {preview.preview.network.length > 0 && (
                   <section className="space-y-1">
                     <h3 className="text-xs font-medium text-ink-soft">
-                      网络源
+                      {m.ext_field_network()}
                     </h3>
                     <ul className="space-y-0.5 font-mono text-[11px] text-ink-faint">
                       {preview.preview.network.map((origin) => (
@@ -784,8 +835,8 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 )}
                 <p className="text-[11px] text-muted-foreground">
                   {isSceneUpdate
-                    ? "确认后覆盖同 id 的旧版本；安装只写入文件，不执行扩展代码。"
-                    : "安装只写入文件，不执行扩展代码；启用时才确认权限。"}
+                    ? m.ext_install_note_update()
+                    : m.ext_install_note()}
                 </p>
                 {message && (
                   <p className="text-xs text-destructive">{message}</p>
@@ -798,10 +849,14 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   onClick={() => setPreview(null)}
                   disabled={busy}
                 >
-                  取消
+                  {m.ext_cancel()}
                 </Button>
                 <Button type="button" onClick={confirmInstall} disabled={busy}>
-                  {busy ? "安装中…" : isSceneUpdate ? "确认更新" : "确认安装"}
+                  {busy
+                    ? m.ext_installing()
+                    : isSceneUpdate
+                      ? m.ext_confirm_update()
+                      : m.ext_confirm_install()}
                 </Button>
               </div>
             </>
@@ -819,15 +874,17 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
           {enableTarget && (
             <>
               <SheetHeader>
-                <SheetTitle>启用 {enableTarget.name}</SheetTitle>
+                <SheetTitle>
+                  {m.ext_enable_title({ name: enableTarget.name })}
+                </SheetTitle>
                 <SheetDescription>
-                  启用会授予清单声明的能力，但不会自动打开窗口。
+                  {m.ext_enable_description()}
                 </SheetDescription>
               </SheetHeader>
               <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
                 {enableTarget.status === "needs-review" && (
                   <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-amber-700">
-                    清单在启用后发生变化，确认后会用当前清单重新记录授权快照。
+                    {m.ext_enable_manifest_changed()}
                   </p>
                 )}
                 <ul className="space-y-2">
@@ -851,14 +908,14 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   ))}
                   {(enableTarget.capabilities ?? []).length === 0 && (
                     <li className="text-xs text-muted-foreground">
-                      该扩展未声明能力。
+                      {m.ext_no_capabilities()}
                     </li>
                   )}
                 </ul>
                 {(enableTarget.network ?? []).length > 0 && (
                   <section className="space-y-1">
                     <h3 className="text-xs font-medium text-ink-soft">
-                      网络源
+                      {m.ext_field_network()}
                     </h3>
                     <ul className="space-y-0.5 font-mono text-[11px] text-ink-faint">
                       {(enableTarget.network ?? []).map((origin) => (
@@ -868,7 +925,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   </section>
                 )}
                 <p className="text-[11px] text-muted-foreground">
-                  强制项由宿主拦截；提示项（音频/媒体）不是安全沙箱。
+                  {m.ext_capabilities_note()}
                 </p>
                 {message && (
                   <p className="text-xs text-destructive">{message}</p>
@@ -881,10 +938,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   onClick={() => setEnableTarget(null)}
                   disabled={busy}
                 >
-                  取消
+                  {m.ext_cancel()}
                 </Button>
                 <Button type="button" onClick={confirmEnable} disabled={busy}>
-                  {busy ? "启用中…" : "确认启用"}
+                  {busy ? m.ext_enabling() : m.ext_confirm_enable()}
                 </Button>
               </div>
             </>

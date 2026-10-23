@@ -5,12 +5,14 @@
  * `<html>` 的 CSS 变量上，所有窗口（设置 / 播放器 / 番茄钟 / 白噪音）
  * 通过 `--flow-*` 与派生的 `--bamboo` / `--primary` 令牌统一换肤。
  */
+import { m } from "@/paraglide/messages";
 
 export type FlowThemeId = "blueGold" | "jade" | "amber" | "violet" | "aurora";
 
 export type FlowTheme = {
   id: FlowThemeId;
-  label: string;
+  /** 配色名，取消息函数而不是字符串：语言切换后色板标签要跟着变。 */
+  label: () => string;
   /** 流光三色：高光 / 氛围 / 尾色，用于玻璃件与面板渐变。 */
   a: string;
   b: string;
@@ -32,7 +34,7 @@ export type FlowTheme = {
 export const FLOW_THEMES: readonly FlowTheme[] = [
   {
     id: "blueGold",
-    label: "蓝/金",
+    label: m.flow_theme_blue_gold,
     a: "#ffe0a0",
     b: "#8fe4ff",
     c: "#b8a4ff",
@@ -43,7 +45,7 @@ export const FLOW_THEMES: readonly FlowTheme[] = [
   },
   {
     id: "jade",
-    label: "林光",
+    label: m.flow_theme_forest,
     a: "#e8ffb8",
     b: "#8df0c1",
     c: "#8fe4ff",
@@ -54,7 +56,7 @@ export const FLOW_THEMES: readonly FlowTheme[] = [
   },
   {
     id: "amber",
-    label: "暖金",
+    label: m.flow_theme_warm_gold,
     a: "#ffd179",
     b: "#ff9d63",
     c: "#ffe7c0",
@@ -65,7 +67,7 @@ export const FLOW_THEMES: readonly FlowTheme[] = [
   },
   {
     id: "violet",
-    label: "星紫",
+    label: m.flow_theme_star_violet,
     a: "#ff9ddd",
     b: "#b8a4ff",
     c: "#8fd7ff",
@@ -76,7 +78,7 @@ export const FLOW_THEMES: readonly FlowTheme[] = [
   },
   {
     id: "aurora",
-    label: "极光",
+    label: m.flow_theme_aurora,
     a: "#a6a8ff",
     b: "#8dffe2",
     c: "#ffe0a0",

@@ -20,7 +20,9 @@ import {
   onWindowPrefsChanged,
   setWindowResizable,
 } from "@/core/window/controls";
+import { useLocale } from "@/i18n/locale";
 import { cn } from "@/lib/utils";
+import { m } from "@/paraglide/messages";
 
 /** 锁定状态跨启动保留：浮窗被误拖动会破坏它在桌面上的位置。 */
 const LOCK_STORAGE_KEY = "lull:window:locked";
@@ -44,17 +46,19 @@ function persistLock(locked: boolean): void {
 type WindowTopbarProps = {
   /** 额外的容器类名，供其他无边框窗口复用时微调外观。 */
   className?: string;
-  /** 品牌倒第二段：设置 / 播放器。 */
-  section?: string;
+  /** 品牌倒第二段（设置 / 播放器）；传消息函数而不是字符串，语言切换时才会更新。 */
+  section?: () => string;
   /** 是否尝试渲染最小化按钮（实际以窗口的 minimizable 为准）。 */
   allowMinimize?: boolean;
 };
 
 export function WindowTopbar({
   className,
-  section = "设置",
+  section = m.window_section_settings,
   allowMinimize = false,
 }: WindowTopbarProps) {
+  // 订阅语言：切换语言后整条顶栏（窗口名、锁定徽标、提示）都要跟着变。
+  useLocale();
   const [locked, setLocked] = useState(false);
   const [canMinimize, setCanMinimize] = useState(false);
 
@@ -118,7 +122,7 @@ export function WindowTopbar({
             className="hidden h-3 w-px shrink-0 self-center bg-paper-deep sm:inline-block"
           />
           <span className="truncate text-[11px] tracking-wider text-ink-faint">
-            {section}
+            {section()}
           </span>
           <span
             aria-hidden={!locked}
@@ -127,7 +131,7 @@ export function WindowTopbar({
               !locked && "invisible",
             )}
           >
-            已锁定
+            {m.topbar_locked_badge()}
           </span>
         </span>
       </div>
@@ -138,13 +142,9 @@ export function WindowTopbar({
           variant="ghost"
           size="icon"
           data-testid="topbar-lock"
-          aria-label={locked ? "解锁窗口" : "锁定窗口"}
+          aria-label={locked ? m.topbar_unlock() : m.topbar_lock()}
           aria-pressed={locked}
-          title={
-            locked
-              ? "已锁定：窗口不可拖动，点击解锁"
-              : "锁定窗口（禁止拖动与缩放）"
-          }
+          title={locked ? m.topbar_unlock_hint() : m.topbar_lock_hint()}
           onClick={toggleLock}
           className={cn(
             "h-7 w-7 cursor-pointer rounded-md text-ink-faint [&_svg]:size-3.5",
@@ -160,8 +160,8 @@ export function WindowTopbar({
             variant="ghost"
             size="icon"
             data-testid="topbar-minimize"
-            aria-label="最小化"
-            title="最小化"
+            aria-label={m.topbar_minimize()}
+            title={m.topbar_minimize()}
             onClick={() => void minimizeWindow()}
             className="h-7 w-7 cursor-pointer rounded-md text-ink-faint [&_svg]:size-3.5"
           >
@@ -173,8 +173,8 @@ export function WindowTopbar({
           variant="ghost"
           size="icon"
           data-testid="topbar-close"
-          aria-label="关闭窗口"
-          title="关闭（隐藏到托盘，应用继续运行）"
+          aria-label={m.topbar_close()}
+          title={m.topbar_close_hint()}
           onClick={() => void hideWindow()}
           className="h-7 w-7 cursor-pointer rounded-md text-ink-faint hover:bg-destructive/10 hover:text-destructive [&_svg]:size-3.5"
         >

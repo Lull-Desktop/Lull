@@ -25,6 +25,9 @@ function run(command, args, options = {}) {
   }
 }
 
+// ① i18n 消息编译（生成 src/paraglide，dist 已在上一步清空前先算好，顺序无依赖）
+run(process.execPath, [join(root, "scripts", "i18n-compile.mjs")]);
+
 // ① 内容目录校验（场景包清单 / entry 存在性 / id 唯一）
 run(process.execPath, [join(root, "scripts", "validate-content.mjs")]);
 

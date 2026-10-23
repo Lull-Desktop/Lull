@@ -6,7 +6,7 @@
   "type": "module",
   "packageManager": "pnpm@11.11.0",
   "scripts": {
-    "dev:next": "next dev --turbopack",
+    "dev:next": "pnpm i18n:compile && next dev --turbopack",
     "build:next": "next build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -38,7 +38,10 @@
     "lint": "biome check",
     "fix": "biome check --write",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "i18n:compile": "node scripts/i18n-compile.mjs",
+    "pretest": "node scripts/i18n-compile.mjs",
+    "pretypecheck": "node scripts/i18n-compile.mjs"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.0",
@@ -56,6 +59,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
+    "@inlang/paraglide-js": "^2.29.1",
     "@tailwindcss/postcss": "^4.2.1",
     "@tauri-apps/cli": "^2.12.1",
     "@testing-library/dom": "^10.4.1",

@@ -15,6 +15,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import { m } from "@/paraglide/messages";
 import type { ExtensionInfo } from "@/lib/extensions";
 import {
   capabilityLabel,
@@ -61,7 +62,9 @@ export function ExtensionDetailSheet({
                 <Badge variant={statusVariant(item.status)}>
                   {statusLabel(item.status)}
                 </Badge>
-                {item.dev && <Badge variant="outline">开发包</Badge>}
+                {item.dev && (
+                  <Badge variant="outline">{m.ext_dev_package()}</Badge>
+                )}
               </SheetTitle>
               <SheetDescription>
                 {item.id} · {item.version}
@@ -97,30 +100,32 @@ export function ExtensionDetailSheet({
               {item.kind === "widget" && (
                 <div className="flex flex-wrap gap-2 text-xs">
                   <Badge variant={item.enabled ? "secondary" : "outline"}>
-                    {item.enabled ? "已启用" : "未启用"}
+                    {item.enabled ? m.ext_state_enabled() : m.ext_state_disabled()}
                   </Badge>
                   {item.running && (
                     <Badge variant="secondary">
-                      {item.visible ? "运行中" : "后台运行"}
+                      {item.visible
+                        ? m.ext_state_running()
+                        : m.ext_state_background()}
                     </Badge>
                   )}
                   {item.lifecycle === "suspend" && (
-                    <Badge variant="outline">关闭即结束</Badge>
+                    <Badge variant="outline">{m.ext_closed_when_ended()}</Badge>
                   )}
                 </div>
               )}
 
               <section className="space-y-2">
                 <h3 className="text-xs font-medium text-ink-soft">
-                  声明与授权
+                  {m.ext_caps_section()}
                 </h3>
                 <p className="text-[11px] text-muted-foreground">
-                  强制项由宿主拦截；提示项是产品策略，不是安全沙箱。
+                  {m.ext_capabilities_note_short()}
                 </p>
                 <ul className="space-y-2">
                   {(item.capabilities ?? []).length === 0 && (
                     <li className="text-xs text-muted-foreground">
-                      未声明能力
+                      {m.ext_no_capabilities_declared()}
                     </li>
                   )}
                   {(item.capabilities ?? []).map((capability) => {
@@ -156,7 +161,9 @@ export function ExtensionDetailSheet({
                             }
                           />
                         ) : (
-                          <Badge variant="secondary">已包含</Badge>
+                          <Badge variant="secondary">
+                            {m.ext_cap_included()}
+                          </Badge>
                         )}
                       </li>
                     );
@@ -165,7 +172,7 @@ export function ExtensionDetailSheet({
                 {item.kind === "widget" && item.running && (
                   <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     <Lock className="h-3 w-3" />
-                    先结束运行，才能修改权限。
+                    {m.ext_stop_to_edit()}
                   </p>
                 )}
               </section>
@@ -174,14 +181,14 @@ export function ExtensionDetailSheet({
                 (item.capabilities ?? []).includes("widget.network") && (
                   <section className="space-y-2">
                     <h3 className="text-xs font-medium text-ink-soft">
-                      网络白名单
+                      {m.ext_network_allowlist()}
                     </h3>
                     <p className="text-[11px] text-muted-foreground">
-                      未授予网络能力时，CSP 只允许包自身源。
+                      {m.ext_network_hint()}
                     </p>
                     <ul className="space-y-1 font-mono text-[11px] text-ink-faint">
                       {(item.network ?? []).length === 0 && (
-                        <li>（清单未声明外部源）</li>
+                        <li>{m.ext_network_none()}</li>
                       )}
                       {(item.network ?? []).map((origin) => (
                         <li key={origin}>{origin}</li>

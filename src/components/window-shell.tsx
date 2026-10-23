@@ -12,8 +12,8 @@ import { ThemeProvider } from "@/hooks/use-theme";
 import { useWindowFit } from "@/hooks/use-window-fit";
 
 type WindowShellProps = {
-  /** 顶栏里的窗口名（设置 / 播放器 / 番茄钟 / 白噪音）。 */
-  section: string;
+  /** 顶栏里的窗口名（设置 / 播放器 / 番茄钟 / 白噪音），传消息函数以跟随语言切换。 */
+  section: () => string;
   children: React.ReactNode;
 };
 

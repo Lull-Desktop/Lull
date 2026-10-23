@@ -30,6 +30,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | `cargo test` | Rust 单元测试 |
 | `pnpm lint` / `pnpm fix` | Biome 检查 / 自动修复 |
 | `pnpm typecheck` | 全仓 TypeScript 检查（含 `packages/widget-sdk` 与 `examples/widgets`） |
+| `pnpm i18n:compile` | 编译 `i18n/messages/*.json` → `src/paraglide/`（生成物不入库；`dev:next` / `typecheck` / `test` / 打包前自动跑） |
 | `pnpm widgets:sdk` | 构建插件侧 SDK（TS → `dist` + `.d.ts`） |
 | `pnpm scenes:sdk` | 构建场景侧 SDK（TS → `dist` + `.d.ts`） |
 | `pnpm scenes:samples:build` | 构建脚本场景示例的 `main.js` |
@@ -75,6 +76,20 @@ Lull 采用分层许可，提交前请确认文件归属：
 - 工具组件只通过 `@/sdk/widget` / `@/sdk/widget/react` 使用宿主能力（状态、窗口、音频、媒体），不要直接 import `core/window/controls` 或读 `localStorage`。
 - 外部内容包只放 `public/content/`，不要 import 到 `src/`。
 - 中文注释用于解释“为什么”，不要复述代码。
+- 界面文案一律走消息文件，不在组件里写死中英文：
+
+  ```tsx
+  import { m } from "@/paraglide/messages";
+
+  <CardTitle>{m.settings_language_title()}</CardTitle>
+  <p>{m.settings_language_effective({ locale: label })}</p>
+  ```
+
+  - 键名扁平 `snake_case`，前缀即命名空间（`settings_`、`player_`、`pomodoro_`、`tray_`、`settings_about_`）。
+  - 插值用 ICU 命名参数 `{name}`，禁止字符串拼接；数量变化用 `plural`。
+  - 两套语言（`zh-CN` 基准 / `en-US`）的键必须齐全，`cargo test` 与 CI 都会查；新增语言要同步 `project.inlang/settings.json`、`src-tauri/src/i18n/mod.rs` 的 `SOURCES` 与 `src/i18n/locale.ts` 的语言表。
+  - 渲染文案的组件调用 `useLocale()` 订阅语言变化；首帧可能早于注入语言时用 `useLocaleReady()` 挡住预渲染内容。
+  - 语言自称（简体中文 / English）不翻译，统一走 `localeLabel()`。
 
 ### 3.2 Rust
 

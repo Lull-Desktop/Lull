@@ -34,6 +34,8 @@
     "allow-extensions-set-capability",
     "allow-extensions-set-enabled",
     "allow-extensions-stop",
+    "allow-i18n-boot",
+    "allow-i18n-set-locale",
     "allow-wallpaper-detach",
     "allow-wallpaper-display-get",
     "allow-wallpaper-get-visible",

@@ -34,7 +34,7 @@ rfd = { version = "0.16", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # 无边框窗口用一次 SetWindowPos 同时改位置和尺寸，避免两帧之间闪烁。
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Globalization"] }
 
 [lints.rust]
 # FFI 与 Win32 调用集中在 wallpaper/ffi.rs、wallpaper/windows.rs 等模块，

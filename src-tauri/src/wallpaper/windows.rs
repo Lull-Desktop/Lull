@@ -61,6 +61,11 @@ pub(crate) fn create_one(
     .shadow(false)
     .resizable(false)
     .skip_taskbar(true)
+    // 壁纸窗也要按当前语言渲染（时钟、场景内的文字），与其它窗口同一注入点。
+    .initialization_script(format!(
+      "window.__LULL_LOCALE__ = {};",
+      serde_json::to_string(&crate::i18n::current()).unwrap_or_else(|_| "\"zh-CN\"".to_string())
+    ))
     .devtools(crate::window_host::devtools_enabled())
     .build()
     .map_err(|error| format!("创建 {label} 失败: {error}"))?;
