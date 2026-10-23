@@ -3,6 +3,7 @@
 //! 这一层不拥有包格式：scene 仍由 `content_package` 校验，widget 仍由
 //! `widget_package` 校验；这里只负责把两条链路收敛到同一组命令与事件。
 
+pub mod dev;
 pub mod error;
 pub mod install;
 
@@ -130,6 +131,7 @@ fn emit_changed(app: &AppHandle) {
   let _ = app.emit(EXTENSIONS_CHANGED_EVENT, ());
   // 兼容期：壁纸窗还在监听旧事件。
   let _ = app.emit("content-changed", ());
+  crate::tray::refresh(app);
 }
 
 fn staging_base(app: &AppHandle) -> Result<PathBuf, ExtensionError> {
@@ -237,7 +239,7 @@ fn widget_info(app: &AppHandle, package: widget_package::store::PackageInfo) -> 
     license: package.license,
     status: status.to_string(),
     verified: package.integrity,
-    dev: false,
+    dev: package.dev,
     error,
     enabled: Some(package.enabled),
     running: Some(package.running),
@@ -549,6 +551,80 @@ pub fn extensions_open_dir(app: AppHandle, kind: String) -> Result<String, Exten
     .open_path(display.clone(), None::<&str>)
     .map_err(|error| io_error(format!("打开目录失败：{error}")))?;
   Ok(display)
+}
+
+#[tauri::command]
+#[must_use]
+pub fn extensions_dev_state(app: AppHandle) -> dev::DevState {
+  dev::state(&app)
+}
+
+#[tauri::command]
+pub fn extensions_dev_set_enabled(
+  app: AppHandle,
+  enabled: bool,
+) -> Result<dev::DevState, ExtensionError> {
+  let state = dev::set_enabled(&app, enabled)
+    .map_err(|error| ExtensionError::new("dev.update-failed", error))?;
+  emit_changed(&app);
+  Ok(state)
+}
+
+/// 选择本地 Widget 项目目录并挂载；返回挂载后的扩展条目。
+#[tauri::command]
+pub async fn extensions_dev_pick_and_add(
+  app: AppHandle,
+) -> Result<Option<ExtensionInfo>, ExtensionError> {
+  let picked = tauri::async_runtime::spawn_blocking(pick_dev_dir)
+    .await
+    .map_err(|error| io_error(format!("打开目录选择器失败：{error}")))?;
+  let Some(path) = picked else {
+    return Ok(None);
+  };
+  let manifest = dev::add(&app, &path)
+    .map_err(|error| ExtensionError::new("dev.path-invalid", error))?;
+  emit_changed(&app);
+  find_widget(&app, &manifest.id).map(Some)
+}
+
+#[tauri::command]
+pub fn extensions_dev_remove(app: AppHandle, id: String) -> Result<(), ExtensionError> {
+  if !dev::contains(&app, &id) {
+    return Err(ExtensionError::new(
+      "dev.not-found",
+      format!("没有挂载 id={id} 的开发包"),
+    ));
+  }
+  widget_package::store::remove(&app, &id)
+    .map_err(|error| ExtensionError::new("extension.remove-failed", error))?;
+  emit_changed(&app);
+  Ok(())
+}
+
+#[tauri::command]
+pub async fn extensions_dev_reload(app: AppHandle, id: String) -> Result<(), ExtensionError> {
+  if !dev::contains(&app, &id) {
+    return Err(ExtensionError::new(
+      "dev.not-found",
+      format!("没有挂载 id={id} 的开发包"),
+    ));
+  }
+  let label = format!("widget-{id}");
+  if let Some(window) = app.get_webview_window(&label) {
+    window
+      .reload()
+      .map_err(|error| ExtensionError::new("extension.reload-failed", error.to_string()))
+  } else {
+    widget_package::open(app, id)
+      .await
+      .map_err(|error| ExtensionError::new("extension.open-failed", error))
+  }
+}
+
+fn pick_dev_dir() -> Option<PathBuf> {
+  rfd::FileDialog::new()
+    .set_title("选择 Widget 项目目录")
+    .pick_folder()
 }
 
 #[cfg(test)]

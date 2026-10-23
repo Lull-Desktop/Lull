@@ -9,6 +9,8 @@
 
 use crate::package_hash;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::fmt::Write;
 use std::path::Path;
 
 /// 旁路锁文件名；不参与摘要，协议层拒绝服务。
@@ -34,6 +36,23 @@ pub fn compute(dir: &Path, id: &str, version: &str) -> Result<String, String> {
     return Err("计算摘要需要 id 与 version".to_string());
   }
   package_hash::compute(SCHEME, &[id, version], dir, ignored)
+}
+
+/// 只哈希 `widget.json` 本身，作为启用时的能力快照依据。
+pub fn manifest_hash(dir: &Path) -> Result<String, String> {
+  let bytes = std::fs::read(dir.join("widget.json"))
+    .map_err(|error| format!("读取 widget.json 失败：{error}"))?;
+  let mut hash = Sha256::new();
+  hash.update(&bytes);
+  Ok(hex(&hash.finalize()))
+}
+
+fn hex(bytes: &[u8]) -> String {
+  let mut out = String::with_capacity(bytes.len() * 2);
+  for byte in bytes {
+    let _ = write!(out, "{byte:02x}");
+  }
+  out
 }
 
 /// 读取并校验锁文件；不存在时返回 `None`，格式非法时报错。

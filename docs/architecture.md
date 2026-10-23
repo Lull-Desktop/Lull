@@ -105,7 +105,7 @@ examples/widgets/* ──► 静态插件包样例（TypeScript 源码，esbuild
 
 ```text
 lib.rs
- ├─ tray.rs ───────────────► window_host（菜单项由 ALL_WIDGETS 生成）
+ ├─ tray.rs ───────────────► window_host + widget_package（菜单项：内置工具 + 已启用扩展）
  ├─ window_host
  │    ├─ mod.rs（窗口工厂 / 上下文注入 / IPC）
  │    ├─ spec.rs（WidgetSpec 结构 + 查询；静态描述由 build.rs 生成）
@@ -121,6 +121,7 @@ lib.rs
  ├─ extension
  │    ├─ mod.rs（门面：列表 / 预览 / 安装 / 卸载 / 启停 / 权限）
  │    ├─ install.rs（共享 staging / zip / 预算 / 原子落地）
+ │    ├─ dev.rs（开发模式配置 / 本地目录挂载）
  │    └─ error.rs（稳定错误码）
  ├─ widget_package
  │    ├─ mod.rs（插件窗口 / 命令 / 上下文）
@@ -166,11 +167,11 @@ lib.rs
 | `extensions_close` | `id` | `()` | `extension` |
 | `extensions_stop` | `id` | `()` | `extension` |
 | `extensions_open_dir` | `kind` | `string` | `extension` |
-| `widget_packages` | — | `PackageInfo[]` | `widget_package` |
-| `widget_package_set_enabled` | `id,enabled` | `()` | `widget_package` |
-| `widget_package_open` | `id` | `()` | `widget_package` |
-| `widget_package_close` | `id` | `()` | `widget_package` |
-| `widget_package_revoke` | `id` | `()` | `widget_package` |
+| `extensions_dev_state` | — | `DevState` | `extension::dev` |
+| `extensions_dev_set_enabled` | `enabled` | `DevState` | `extension::dev` |
+| `extensions_dev_pick_and_add` | — | `ExtensionInfo \| null` | `extension::dev`（目录选择器） |
+| `extensions_dev_remove` | `id` | `()` | `extension::dev` |
+| `extensions_dev_reload` | `id` | `()` | `extension::dev` |
 | `widget_package_notify` | — | `()` | `widget_package`（仅插件窗口） |
 | `widget_state_get` | `key` | `Value \| null` | `widget_package` |
 | `widget_state_set` | `key,value` | `()` | `widget_package` |
@@ -187,11 +188,7 @@ lib.rs
 | `wallpaper_display_get` | — | `DisplayConfig` | `wallpaper::runtime` |
 | `wallpaper_set_display` | `mode?,sync?,scene?` | `()` | `wallpaper::runtime` |
 | `wallpaper_set_monitor_scene` | `device,scene` | `()` | `wallpaper::runtime` |
-| `content_packages` | — | `ContentPackageInfo[]` | `content_package` |
-| `content_package_install` | `path` | `ContentPackageInfo` | `content_package`（设置窗专用） |
-| `content_package_remove` | `id` | `()` | `content_package`（设置窗专用） |
-| `content_open_dir` | — | `string` | `content_package`（设置窗专用） |
-| `content_package_pick_and_install` | `folder` | `ContentPackageInfo \| null` | `content_package`（设置窗专用，系统文件对话框） |
+| `content_packages` | — | `ContentPackageInfo[]` | `content_package`（壁纸窗只读） |
 
 所有会写配置的命令遵循同一事务模型：**先改内存 → 写盘 → 失败回滚内存 → 返回错误**。写盘使用临时文件 + 原子替换。
 
@@ -318,8 +315,8 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 31 个测试文件（181 项，含 packages/widget-sdk 与内容包卡片）
-cargo test             Rust 76 项（配置 / 拓扑 / 协议 / 场景参数 / Widget 插件包 / 内容包摘要、zip 安装与逃逸防护）
+pnpm test              前端 32 个测试文件（186 项，含 packages/widget-sdk 与扩展中心）
+cargo test             Rust 92 项（配置 / 拓扑 / 协议 / 场景参数 / Widget 包摘要与安装 / 开发模式 / 扩展管线）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
@@ -338,7 +335,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | 阶段 | 目标 | 当前状态 | 退出条件 |
 | --- | --- | --- | --- |
 | **A · Core** | 模块边界、配置/协议版本、命名清理、测试基线 | 已完成第一轮 | 目录与命名重构后功能/测试/安装包不退化 |
-| **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件侧 SDK 已 TypeScript 化（`dist` + `.d.ts` + 契约测试）；插件 ZIP 安装、旁路摘要锁、扩展中心与逐能力授权已落地；仍缺开发模式、托盘入口、npm 发布与签名 | 外部示例场景无需改核心即可运行 |
+| **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件侧 SDK 已 TypeScript 化（`dist` + `.d.ts` + 契约测试）；插件 ZIP 安装、旁路摘要锁、扩展中心、逐能力授权、清单漂移复核、开发模式与托盘入口已落地；仍缺 npm 发布与签名 | 外部示例场景无需改核心即可运行 |
 | **C · Community** | 内容包格式、示例、包摘要、目录签名、用户内容目录与安装器 | 格式 + 示例 + 摘要 + 签名 + 统一安装入口（scene/widget 共用 staging）已落地；仍缺在线索引、第三方签名信任链与 scene 卸载自动回退 | 外部开发者可独立构建、安装并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
 

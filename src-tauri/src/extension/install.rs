@@ -469,6 +469,86 @@ mod tests {
   }
 
   #[test]
+  fn reads_packed_sample_and_verifies_declared_digest() {
+    let Some(root) = temp_root("packed") else {
+      return;
+    };
+    // 这些 zip 由 `pnpm widgets:samples:pack` 生成，属于本地测试产物；
+    // 缺失时跳过，不阻塞 CI。
+    let samples = [
+      (
+        "../artifacts/community-pomodoro-1.0.0.lull-widget.zip",
+        true,
+      ),
+      (
+        "../artifacts/community-pomodoro-1.0.0-tampered.lull-widget.zip",
+        false,
+      ),
+    ];
+    for (relative, expected_ok) in samples {
+      let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
+      if !path.is_file() {
+        continue;
+      }
+      let staged = stage(&root.join("staging"), &path);
+      assert!(
+        staged.is_ok(),
+        "{relative}: 解压失败 {}",
+        staged
+          .as_ref()
+          .err()
+          .map(|error| error.code.clone())
+          .unwrap_or_default()
+      );
+      let Ok(staged) = staged else {
+        continue;
+      };
+      let manifest = crate::widget_package::manifest::PackageManifest::from_dir(staged.bundle());
+      assert!(
+        manifest.is_ok(),
+        "{relative}: 清单校验失败 {}",
+        manifest
+          .as_ref()
+          .err()
+          .cloned()
+          .unwrap_or_default()
+      );
+      let Ok(manifest) = manifest else {
+        continue;
+      };
+      let check =
+        crate::widget_package::digest::check(staged.bundle(), &manifest.id, &manifest.version);
+      assert_eq!(check.is_ok(), expected_ok, "{relative}");
+
+      let target_root = root.join(if expected_ok {
+        "packages-ok"
+      } else {
+        "packages-tampered"
+      });
+      let installed = crate::widget_package::store::install_from_staged(&target_root, &staged);
+      if expected_ok {
+        assert!(
+          installed.is_ok(),
+          "{relative}: 安装失败 {}",
+          installed
+            .as_ref()
+            .err()
+            .map(|error| error.code.clone())
+            .unwrap_or_default()
+        );
+        assert!(target_root.join(&manifest.id).is_dir());
+      } else {
+        assert_eq!(
+          installed.err().map(|error| error.code),
+          Some("integrity.mismatch".to_string())
+        );
+        assert!(!target_root.join(&manifest.id).exists());
+      }
+    }
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
   fn locates_single_wrapper_directory() {
     let Some(root) = temp_root("wrapper") else {
       return;

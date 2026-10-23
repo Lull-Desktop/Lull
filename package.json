@@ -23,6 +23,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "widgets:samples:build": "pnpm widgets:sdk && node scripts/build-widget-examples.mjs",
     "widgets:samples:install": "node scripts/install-widget-examples.mjs",
+    "widget:pack": "node scripts/pack-widget.mjs",
+    "widgets:samples:pack": "node scripts/pack-widget.mjs examples/widgets/pomodoro-js/dist examples/widgets/pomodoro-react/dist examples/widgets/pomodoro-vue/dist --tampered",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm content:check && pnpm widgets:check && pnpm widgets:sdk:check",
     "tauri": "tauri",
     "format": "biome format",

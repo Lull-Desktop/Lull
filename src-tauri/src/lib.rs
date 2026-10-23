@@ -11,7 +11,7 @@ mod content_package;
 mod extension;
 mod package_hash;
 mod resource;
-mod tray;
+pub(crate) mod tray;
 pub(crate) mod wallpaper;
 mod widget_package;
 mod window_frame;
@@ -50,14 +50,14 @@ pub fn run() {
       extension::extensions_close,
       extension::extensions_stop,
       extension::extensions_open_dir,
+      extension::extensions_dev_state,
+      extension::extensions_dev_set_enabled,
+      extension::extensions_dev_pick_and_add,
+      extension::extensions_dev_remove,
+      extension::extensions_dev_reload,
       window_host::prefs::window_prefs_get,
       window_host::prefs::window_prefs_set,
       widget_package::widget_package_notify,
-      widget_package::widget_packages,
-      widget_package::widget_package_set_enabled,
-      widget_package::widget_package_open,
-      widget_package::widget_package_close,
-      widget_package::widget_package_revoke,
       widget_package::widget_state_get,
       widget_package::widget_state_set,
       widget_package::widget_state_remove,
@@ -72,11 +72,7 @@ pub fn run() {
       wallpaper::runtime::wallpaper_set_display,
       wallpaper::runtime::wallpaper_set_scene_params,
       wallpaper::runtime::wallpaper_set_monitor_scene,
-      content_package::content_packages,
-      content_package::content_package_install,
-      content_package::content_package_remove,
-      content_package::content_open_dir,
-      content_package::content_package_pick_and_install
+      content_package::content_packages
     ])
     .setup(|app| {
       tray::init(app)?;

@@ -144,6 +144,24 @@ test("uninstall requires a second click", async () => {
   });
 });
 
+test("dev mode toggles through the dedicated command", async () => {
+  mockCommands({
+    extensions_dev_state: () => ({ devMode: true, packages: [] }),
+    extensions_dev_set_enabled: () => ({ devMode: false, packages: [] }),
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  const toggle = await screen.findByRole("switch", { name: "开发模式" });
+  expect(toggle.getAttribute("aria-checked")).toBe("true");
+
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_dev_set_enabled", {
+      enabled: false,
+    });
+  });
+});
+
 test("scene action hands off to wallpaper settings", async () => {
   const onOpenWallpaperSettings = vi.fn();
   mockCommands();

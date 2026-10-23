@@ -32,19 +32,25 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { isDesktopWindow } from "@/core/window/controls";
 import { useExtensions } from "@/hooks/use-extensions";
 import {
   closeExtension,
   type ExtensionInfo,
   type ExtensionKind,
+  getDevState,
   inspectExtension,
   installExtension,
   openExtension,
   openExtensionsDir,
   type PickedExtension,
+  pickDevPackage,
   pickExtension,
+  reloadDevPackage,
+  removeDevPackage,
   removeExtension,
+  setDevMode as setDeveloperMode,
   setExtensionCapability,
   setExtensionEnabled,
   stopExtension,
@@ -101,6 +107,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   const [message, setMessage] = useState("");
   const [dragging, setDragging] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
+  const [devMode, setDevMode] = useState<boolean | null>(null);
 
   const visibleItems = useMemo(() => {
     const list = items ?? [];
@@ -115,6 +122,12 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   const sceneCount = (items ?? []).filter(
     (item) => item.kind === "scene",
   ).length;
+
+  useEffect(() => {
+    getDevState()
+      .then((state) => setDevMode(state.devMode))
+      .catch(() => setDevMode(false));
+  }, []);
 
   useEffect(() => {
     if (!pendingRemove) return;
@@ -189,6 +202,40 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         setBusy(false);
       });
   }, []);
+
+  const toggleDevMode = useCallback(
+    (enabled: boolean): void => {
+      setBusy(true);
+      setDeveloperMode(enabled)
+        .then(async (state) => {
+          setDevMode(state.devMode);
+          setMessage(enabled ? "开发模式已开启" : "开发模式已关闭");
+          await refresh();
+        })
+        .catch((error: unknown) => {
+          setMessage(`切换开发模式失败：${toExtensionFailure(error).message}`);
+        })
+        .finally(() => {
+          setBusy(false);
+        });
+    },
+    [refresh],
+  );
+
+  const pickDev = useCallback((): void => {
+    setBusy(true);
+    pickDevPackage()
+      .then(async (info) => {
+        if (info) setMessage(`已挂载 ${info.name}`);
+        await refresh();
+      })
+      .catch((error: unknown) => {
+        setMessage(`挂载开发包失败：${toExtensionFailure(error).message}`);
+      })
+      .finally(() => {
+        setBusy(false);
+      });
+  }, [refresh]);
 
   const confirmInstall = useCallback((): void => {
     if (!preview) return;
@@ -271,9 +318,12 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       }
       setPendingRemove(null);
       setBusy(true);
-      removeExtension(item.kind, item.id)
+      const removal = item.dev
+        ? removeDevPackage(item.id)
+        : removeExtension(item.kind, item.id);
+      removal
         .then(async () => {
-          setMessage(`已卸载 ${item.name}`);
+          setMessage(item.dev ? `已移除 ${item.name}` : `已卸载 ${item.name}`);
           if (detail?.kind === item.kind && detail.id === item.id) {
             setDetail(null);
           }
@@ -550,6 +600,24 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                     </Button>
                   )}
 
+                  {item.dev && item.kind === "widget" && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || !item.enabled}
+                      aria-label={`重载 ${item.name}`}
+                      onClick={() =>
+                        runAction(
+                          () => reloadDevPackage(item.id),
+                          `已重载 ${item.name}`,
+                        )
+                      }
+                    >
+                      重载
+                    </Button>
+                  )}
+
                   <Button
                     type="button"
                     size="sm"
@@ -566,16 +634,58 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                       pendingRemove === itemKey(item) ? "destructive" : "ghost"
                     }
                     disabled={busy}
-                    aria-label={`卸载 ${item.name}`}
+                    aria-label={`${item.dev ? "移除" : "卸载"} ${item.name}`}
                     onClick={() => removeItem(item)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    {pendingRemove === itemKey(item) ? "确认卸载" : "卸载"}
+                    {pendingRemove === itemKey(item)
+                      ? item.dev
+                        ? "确认移除"
+                        : "确认卸载"
+                      : item.dev
+                        ? "移除"
+                        : "卸载"}
                   </Button>
                 </div>
               </div>
             </article>
           ))}
+        </div>
+
+        <div className="space-y-2 rounded-xl border border-dashed border-border/70 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-sm text-ink-soft">开发模式</p>
+              <p className="text-xs text-muted-foreground">
+                挂载本地 Widget
+                项目目录，不复制文件、不锁摘要；仍走同一套权限与沙箱。
+              </p>
+            </div>
+            <Switch
+              aria-label="开发模式"
+              checked={devMode === true}
+              disabled={busy || devMode === null}
+              onCheckedChange={toggleDevMode}
+            />
+          </div>
+          {devMode === true && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={pickDev}
+                disabled={busy}
+                className="gap-1.5"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                添加本地目录
+              </Button>
+              <span className="text-[11px] text-muted-foreground">
+                目录需包含 widget.json；改完文件点卡片上的「重载」。
+              </span>
+            </div>
+          )}
         </div>
 
         {message && (
@@ -694,6 +804,11 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 </SheetDescription>
               </SheetHeader>
               <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+                {enableTarget.status === "needs-review" && (
+                  <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-amber-700">
+                    清单在启用后发生变化，确认后会用当前清单重新记录授权快照。
+                  </p>
+                )}
                 <ul className="space-y-2">
                   {(enableTarget.capabilities ?? []).map((capability) => (
                     <li

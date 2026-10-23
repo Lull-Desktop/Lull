@@ -72,6 +72,16 @@ export type PickedExtension = {
   preview: ExtensionPreview;
 };
 
+export type DevPackage = {
+  id: string;
+  path: string;
+};
+
+export type DevState = {
+  devMode: boolean;
+  packages: DevPackage[];
+};
+
 const UNKNOWN_ERROR: ExtensionFailure = {
   code: "unknown",
   message: "未知错误",
@@ -160,4 +170,28 @@ export async function stopExtension(id: string): Promise<void> {
 
 export async function openExtensionsDir(kind: ExtensionKind): Promise<string> {
   return invoke<string>("extensions_open_dir", { kind });
+}
+
+export async function getDevState(): Promise<DevState> {
+  const state = await invoke<DevState>("extensions_dev_state");
+  return state ?? { devMode: false, packages: [] };
+}
+
+export async function setDevMode(enabled: boolean): Promise<DevState> {
+  const state = await invoke<DevState>("extensions_dev_set_enabled", {
+    enabled,
+  });
+  return state ?? { devMode: enabled, packages: [] };
+}
+
+export async function pickDevPackage(): Promise<ExtensionInfo | null> {
+  return invoke<ExtensionInfo | null>("extensions_dev_pick_and_add");
+}
+
+export async function removeDevPackage(id: string): Promise<void> {
+  await invoke("extensions_dev_remove", { id });
+}
+
+export async function reloadDevPackage(id: string): Promise<void> {
+  await invoke("extensions_dev_reload", { id });
 }

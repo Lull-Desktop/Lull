@@ -16,7 +16,6 @@ use serde::Serialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
-use tauri_plugin_opener::OpenerExt;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -151,11 +150,8 @@ fn invalid_info(id: &str, error: &str) -> ContentPackageInfo {
   }
 }
 
-/// 从文件夹或 zip 安装；成功后返回新包状态。
-pub fn install(app: &AppHandle, source: &Path) -> Result<ContentPackageInfo, String> {
-  install_into(&root(app)?, source)
-}
-
+/// 从文件夹或 zip 安装；仅测试与旧调用路径使用，正式入口是 `extensions_install`。
+#[cfg(test)]
 fn install_into(root: &Path, source: &Path) -> Result<ContentPackageInfo, String> {
   let staged = install::stage(root, source).map_err(|error| error.to_string())?;
   install_staged(root, &staged)
@@ -199,18 +195,6 @@ pub fn remove(app: &AppHandle, id: &str) -> Result<(), String> {
     return Err("拒绝删除内容目录之外的路径".to_string());
   }
   std::fs::remove_dir_all(&canonical_target).map_err(|error| format!("卸载失败：{error}"))
-}
-
-/// 在资源管理器里打开内容目录；返回路径供前端提示。
-pub fn open_dir(app: &AppHandle) -> Result<String, String> {
-  let root = root(app)?;
-  std::fs::create_dir_all(&root).map_err(|error| format!("创建内容目录失败：{error}"))?;
-  let display = root.to_string_lossy().to_string();
-  app
-    .opener()
-    .open_path(display.clone(), None::<&str>)
-    .map_err(|error| format!("打开内容目录失败：{error}"))?;
-  Ok(display)
 }
 
 #[cfg(test)]

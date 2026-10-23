@@ -36,7 +36,7 @@ fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Result<Response<Vec<u8>
   }
   let dir =
     store::resolve_dir(app, id).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
-  let manifest = PackageManifest::load(&dir, id).map_err(|error| (StatusCode::NOT_FOUND, error))?;
+  let manifest = store::load_manifest(app, id).map_err(|error| (StatusCode::NOT_FOUND, error))?;
   let granted = store::granted(app, id);
   // 点号路径（含旁路摘要锁、.git 等）不提供服务，避免摘要范围与可服务范围不一致。
   if rest.split('/').any(|segment| segment.starts_with('.')) {

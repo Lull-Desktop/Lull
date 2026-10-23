@@ -1,8 +1,8 @@
 # 扩展中心（Extension Center）设计
 
-> 状态：**v1 进行中**。M0–M2 已落地：共享安装管线、widget 摘要锁/安装/卸载/扫描、
-> 扩展中心基础 UI（双页签、列表、导入预览、启用、逐能力开关、详情、卸载）。
-> 尚未落地：清单漂移复核、开发模式、托盘入口、在线目录与签名。
+> 状态：**v1 基本落地**。共享安装管线、widget 摘要锁、扩展中心 UI、逐能力授权、
+> 清单漂移复核、开发模式与托盘入口均已实现；旧卡片与旧管理命令已清理。
+> 尚未完成：在线目录与签名、scene 卸载自动回退、最终真机验收。
 > 落地顺序与进度见 [实施计划](./extension-center-plan.md)。
 >
 > 关联文档：[Widget 插件包](./widget-package.md)、[内容包格式](./content-format.md)、
@@ -531,14 +531,18 @@ export type ExtensionPreview = {
 | `extensions_set_enabled` | `id, enabled` | `ExtensionInfo` | 启用前 UI 已确认权限 |
 | `extensions_set_capability` | `id, capability, granted` | `ExtensionInfo` | 运行中拒绝 |
 | `extensions_open_dir` | `kind` | `string` | 打开安装目录 |
-| `extensions_dev_*` | — | — | **M4 设计，尚未实现** |
+| `extensions_dev_state` | — | `DevState` | 开发模式开关 + 已挂目录 |
+| `extensions_dev_set_enabled` | `enabled` | `DevState` | 关闭时销毁开发窗口，保留配置 |
+| `extensions_dev_pick_and_add` | — | `ExtensionInfo \| null` | 目录选择器 + 挂载 |
+| `extensions_dev_remove` | `id` | `()` | 取消挂载（不删文件） |
+| `extensions_dev_reload` | `id` | `()` | 重载窗口；未打开则建窗 |
 
 保留的运行时命令：`widget_state_get/set/remove`、`widget_set_transparent`、
 `widget_package_notify`、`window_set_frame`、`widget_open` 等。
 
 旧的场景/插件管理命令（`content_package_*`、`widget_packages`、
-`widget_package_set_enabled` 等）在 M2 迁移期**仍然注册**，但新 UI 不再调用；
-M6 清理时统一下线，避免同一功能长期双轨。
+`widget_package_set_enabled` 等）已在 M6 下线，避免同一功能长期双轨；
+设置页统一走 `extensions_*`。
 
 > `content_packages`（只读场景列表）**保留**：壁纸窗需要它来解析场景目录，且不应为了
 > 列场景而拿到 widget 管理命令。扩展中心用 `extensions_list`，壁纸窗继续用窄命令。
@@ -577,7 +581,10 @@ M6 清理时统一下线，避免同一功能长期双轨。
 | `extension.open-failed` | 创建/唤醒窗口失败 |
 | `extension.update-failed` | 启用/停用/权限/关闭失败 |
 | `extension.remove-failed` | 卸载失败 |
+| `extension.reload-failed` | 开发包重载窗口失败 |
 | `dev.disabled` | 开发模式未开启 |
+| `dev.not-found` | 没有挂载该开发包 |
+| `dev.update-failed` | 切换开发模式失败 |
 | `dev.path-invalid` | 本地路径不可用 / 无清单 |
 | `dev.id-conflict` | 开发包 id 与已安装冲突 |
 | `internal.unimplemented` | 命令尚未实现（仅过渡期） |
@@ -613,7 +620,7 @@ M6 清理时统一下线，避免同一功能长期双轨。
 - 哈希一致 → 正常。
 - 哈希不一致 → `status = needs-review`，**不加载、不建窗**；卡片提示“清单已变化，
   请重新确认权限”。用户重新启用即刷新快照。
-- 旧版授权记录没有 `manifestHash` → 视为已信任，首次扫描补齐（迁移，不打扰用户）。
+- 旧版授权记录没有 `manifestHash` → 视为已信任，不强制重新确认；下次启用时写入快照。
 
 这弥补了“摘要锁只证明文件没变、但不能证明能力没变”的缺口：清单本身也在摘要里，
 所以正常情况下改清单会先触发 `tampered`；`needs-review` 主要覆盖“用户手动重算锁”
@@ -690,7 +697,8 @@ M6 清理时统一下线，避免同一功能长期双轨。
 
 ### 10.4 隔离与退出
 
-- 开发模式开启时，设置页顶部显示常驻提示条：“开发模式已开启，扩展来自本地目录”。
+- 开发模式开启时，扩展中心底部显示开发模式卡片；开发包条目带「开发」徽章，
+  不能只靠颜色区分。
 - 关闭开发模式：销毁所有开发窗口、隐藏开发包；不删除目录、不清授权账本。
 - 开发包 ID 与正式包同表展示时必须有显式徽章，不能只靠颜色区分。
 
@@ -752,9 +760,9 @@ Scene 不建窗。中心里的“查看壁纸设置”切到「偏好」的壁�
 | 对象 | 迁移方式 |
 | --- | --- |
 | 已手动安装的 widget | 无锁 → `unverified`；仍可加载；首次启用补锁 |
-| 已启用的 widget | M3 引入 `manifestHash` 后，旧记录首次扫描补齐，不强制重新确认 |
+| 已启用的 widget | 旧记录缺 `manifestHash` 时视为已信任；下次启用写入快照 |
 | 已安装的 scene | 完全不变 |
-| 旧管理命令 | M2 迁移期保留；M6 清理时下线；运行时命令始终保留 |
+| 旧管理命令 | M6 已下线；`content_packages` 与运行时命令保留 |
 | `content-changed` 监听方 | 过渡期继续可用；同时监听 `extensions-changed` |
 | `widget.json` | 不改必填字段；新字段可选；旧宿主忽略新字段 |
 | 降级 | 新版本安装的 widget 在旧版本仍可加载（旧版本忽略 `.lull-integrity.json`） |

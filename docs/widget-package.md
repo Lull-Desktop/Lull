@@ -56,6 +56,8 @@ widgets/<id>/
 
 安装：在设置 → 扩展里点「从文件安装」选择 `.zip`（或拖入设置窗），
 安装器校验清单、包结构、摘要与许可后写入上述路径；也可以手动复制目录后点「刷新」。
+开发模式：在设置 → 扩展底部开启「开发模式」，选择项目根目录（含 `widget.json`）；
+不复制文件、不锁摘要，改完点卡片上的「重载」。
 示例安装命令：
 
 ```powershell
@@ -377,6 +379,7 @@ SDK 只做协议封装，不做权限判断；权限永远由宿主桥校验。
 ```powershell
 pnpm widgets:sdk               # 先构建 SDK（dist + 类型声明）
 pnpm widgets:samples:build     # 构建 examples/widgets/*/dist（内部会先跑 widgets:sdk）
+pnpm widgets:samples:pack      # 打成 artifacts/*.lull-widget.zip（含 tampered 测试包）
 pnpm widgets:samples:install   # 复制到 %APPDATA%\app.lull.desktop\widgets
 pnpm widgets:sdk:check         # 只做类型检查（CI）
 ```
@@ -386,12 +389,21 @@ pnpm widgets:sdk:check         # 只做类型检查（CI）
 示例源码同时在根 `pnpm typecheck` 的覆盖范围内（`tsconfig.json` 为 SDK 配了 paths 映射），
 所以示例与 SDK 的类型契约漂移会在 CI 直接暴露。
 
-插件作者侧建议（后续提供 CLI）：
+插件作者侧：
 
 1. 任意静态构建工具产出 `dist/`；
 2. 生成/校验 `widget.json`；
 3. 检查产物：entry 存在、无绝对路径、无远程 URL、无 `localStorage`/`@tauri-apps/api`；
-4. 打包 zip（安装器已支持；签名与自动更新待做）。
+4. 打包：
+
+```powershell
+pnpm widget:pack path\to\dist
+pnpm widget:pack path\to\dist --out artifacts --tampered
+```
+
+`scripts/pack-widget.mjs` 会计算并写入 `.lull-integrity.json`（`source: declared`），
+再把包根直接压进 zip；启动时用官方 mist 场景的已知摘要自检 Node 与 Rust 的哈希实现，
+防止两侧漂移。签名与自动更新待做。
 
 ## 10. 已知边界
 

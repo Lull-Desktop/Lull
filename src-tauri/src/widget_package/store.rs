@@ -67,6 +67,8 @@ pub struct PackageInfo {
   /// `declared` / `computed` / `none`
   pub integrity: String,
   pub tampered: bool,
+  pub review_required: bool,
+  pub dev: bool,
   pub window: PackageWindow,
   pub lifecycle: String,
   pub network: Vec<String>,
@@ -80,6 +82,9 @@ struct GrantRecord {
   enabled: bool,
   #[serde(default)]
   granted: Vec<String>,
+  /// 启用时的 `widget.json` 哈希；缺失表示旧记录，首次启用时补齐。
+  #[serde(default)]
+  manifest_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -149,20 +154,71 @@ pub fn entry_url(id: &str, entry: &str) -> String {
 }
 
 pub fn resolve_dir(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+  if let Some(dir) = crate::extension::dev::resolve(app, id) {
+    return Ok(dir);
+  }
   package_dir(app, id)
 }
 
-pub fn find(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
+/// 读取清单：正式包要求目录名与 id 一致；开发包目录名可任意，但清单 id 必须匹配。
+pub fn load_manifest(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
   let dir = resolve_dir(app, id)?;
-  PackageManifest::load(&dir, id)
+  let manifest = if crate::extension::dev::contains(app, id) {
+    PackageManifest::from_dir(&dir)?
+  } else {
+    PackageManifest::load(&dir, id)?
+  };
+  if manifest.id != id {
+    return Err(format!(
+      "清单 id={} 与请求 id={id} 不一致",
+      manifest.id
+    ));
+  }
+  Ok(manifest)
+}
+
+pub fn find(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
+  load_manifest(app, id)
 }
 
 /// 打开/启用前复核摘要：有锁且不匹配就阻止加载。
-pub fn ensure_intact(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
+pub fn ensure_package(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
   let dir = resolve_dir(app, id)?;
-  let manifest = PackageManifest::load(&dir, id)?;
-  if let Err(error) = digest::check(&dir, &manifest.id, &manifest.version) {
-    return Err(format!("内容包摘要不匹配，已阻止加载：{error}"));
+  let manifest = load_manifest(app, id)?;
+  // 开发包的文件本来就会被反复修改，不参与摘要锁校验。
+  if !crate::extension::dev::contains(app, id) {
+    if let Err(error) = digest::check(&dir, &manifest.id, &manifest.version) {
+      return Err(format!("内容包摘要不匹配，已阻止加载：{error}"));
+    }
+  }
+  Ok(manifest)
+}
+
+/// 清单在启用后是否发生变化（需要重新确认权限）。
+pub fn review_required(app: &AppHandle, id: &str) -> bool {
+  let Ok(dir) = resolve_dir(app, id) else {
+    return false;
+  };
+  let Ok(grants) = load_grants(app) else {
+    return false;
+  };
+  let Some(record) = grants.widgets.get(id) else {
+    return false;
+  };
+  if !record.enabled {
+    return false;
+  }
+  let Some(expected) = record.manifest_hash.as_deref() else {
+    return false;
+  };
+  digest::manifest_hash(&dir).map_or(true, |actual| actual != expected)
+}
+
+/// 打开窗口前的完整检查：包完整 + 清单未漂移。
+pub fn ensure_intact(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
+  let manifest = ensure_package(app, id)?;
+  if review_required(app, id) {
+    return Err("插件清单在启用后发生变化，请重新确认权限".to_string());
   }
   Ok(manifest)
 }
@@ -172,32 +228,56 @@ pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
     return Vec::new();
   };
   let grants = load_grants(app).unwrap_or_default();
-  let Ok(entries) = std::fs::read_dir(&root) else {
-    return Vec::new();
-  };
   let mut packages: Vec<PackageInfo> = Vec::new();
-  for entry in entries.filter_map(Result::ok) {
-    let path = entry.path();
-    if !path.is_dir() {
-      continue;
-    }
-    let Some(dir_name) = path.file_name().and_then(|name| name.to_str()) else {
-      continue;
-    };
-    if dir_name.starts_with('.') || !path.join("widget.json").is_file() {
-      continue;
-    }
-    let running = is_running(app, dir_name);
-    match PackageManifest::load(&path, dir_name) {
-      Ok(manifest) => packages.push(info_from(
-        &path,
-        &manifest,
-        grants.widgets.get(dir_name),
-        running,
-      )),
-      Err(error) => packages.push(invalid_info(dir_name, &error)),
+  if let Ok(entries) = std::fs::read_dir(&root) {
+    for entry in entries.filter_map(Result::ok) {
+      let path = entry.path();
+      if !path.is_dir() {
+        continue;
+      }
+      let Some(dir_name) = path.file_name().and_then(|name| name.to_str()) else {
+        continue;
+      };
+      if dir_name.starts_with('.') || !path.join("widget.json").is_file() {
+        continue;
+      }
+      let running = is_running(app, dir_name);
+      match PackageManifest::load(&path, dir_name) {
+        Ok(manifest) => packages.push(info_from(
+          &path,
+          &manifest,
+          grants.widgets.get(dir_name),
+          running,
+          false,
+        )),
+        Err(error) => packages.push(invalid_info(dir_name, &error, false)),
+      }
     }
   }
+
+  // 开发包只在开发模式开启时进入列表；关闭后条目消失、窗口已销毁。
+  if crate::extension::dev::enabled(app) {
+    for package in crate::extension::dev::packages(app) {
+      let path = PathBuf::from(&package.path);
+      let running = is_running(app, &package.id);
+      match PackageManifest::from_dir(&path) {
+        Ok(manifest) if manifest.id == package.id => packages.push(info_from(
+          &path,
+          &manifest,
+          grants.widgets.get(&package.id),
+          running,
+          true,
+        )),
+        Ok(manifest) => packages.push(invalid_info(
+          &package.id,
+          &format!("清单 id={} 与挂载 id 不一致", manifest.id),
+          true,
+        )),
+        Err(error) => packages.push(invalid_info(&package.id, &error, true)),
+      }
+    }
+  }
+
   packages.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
   packages
 }
@@ -207,8 +287,17 @@ fn info_from(
   manifest: &PackageManifest,
   grant: Option<&GrantRecord>,
   running: bool,
+  dev: bool,
 ) -> PackageInfo {
-  let enabled = grant.is_some_and(|record| record.enabled);
+  let enabled_by_grant = grant.is_some_and(|record| record.enabled);
+  // 清单在启用后变化：不加载、不建窗，等用户重新确认权限。
+  let review_required = enabled_by_grant
+    && grant
+      .and_then(|record| record.manifest_hash.as_deref())
+      .is_some_and(|expected| {
+        digest::manifest_hash(dir).map_or(true, |actual| actual != expected)
+      });
+  let enabled = enabled_by_grant && !review_required;
   let granted = if enabled {
     grant
       .map(|record| record.granted.clone())
@@ -216,12 +305,27 @@ fn info_from(
   } else {
     Vec::new()
   };
-  let (verified, integrity, tampered, integrity_error) =
+  let (verified, integrity, tampered, integrity_error) = if dev {
+    (false, "none".to_string(), false, None)
+  } else {
     match digest::check(dir, &manifest.id, &manifest.version) {
       Ok(Some(record)) => (true, record.source, false, None),
       Ok(None) => (false, "none".to_string(), false, None),
       Err(error) => (false, "none".to_string(), true, Some(error)),
-    };
+    }
+  };
+  let status = if tampered {
+    "tampered"
+  } else if review_required {
+    "needs-review"
+  } else {
+    "ready"
+  };
+  let error = if review_required {
+    Some("widget.json 在启用后发生变化，请重新确认权限".to_string())
+  } else {
+    integrity_error
+  };
   PackageInfo {
     id: manifest.id.clone(),
     name: manifest.name.clone(),
@@ -229,12 +333,8 @@ fn info_from(
     description: manifest.description.clone(),
     author: manifest.author.clone(),
     license: manifest.license.clone(),
-    status: if tampered {
-      "tampered".to_string()
-    } else {
-      "ready".to_string()
-    },
-    error: integrity_error,
+    status: status.to_string(),
+    error,
     requested: manifest.capabilities.clone(),
     granted,
     enabled,
@@ -242,6 +342,8 @@ fn info_from(
     verified,
     integrity,
     tampered,
+    review_required,
+    dev,
     window: PackageWindow::from(&manifest.window),
     lifecycle: manifest.lifecycle.clone(),
     network: manifest.network.clone(),
@@ -250,7 +352,7 @@ fn info_from(
   }
 }
 
-fn invalid_info(id: &str, error: &str) -> PackageInfo {
+fn invalid_info(id: &str, error: &str, dev: bool) -> PackageInfo {
   PackageInfo {
     id: id.to_string(),
     name: id.to_string(),
@@ -267,6 +369,8 @@ fn invalid_info(id: &str, error: &str) -> PackageInfo {
     verified: false,
     integrity: "none".to_string(),
     tampered: false,
+    review_required: false,
+    dev,
     window: PackageWindow::from(&WindowSpec::default()),
     lifecycle: "background".to_string(),
     network: Vec::new(),
@@ -304,17 +408,20 @@ fn save_grants(app: &AppHandle, grants: &GrantsFile) -> Result<(), String> {
 
 pub fn set_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(), String> {
   let manifest = if enabled {
-    ensure_intact(app, id)?
+    ensure_package(app, id)?
   } else {
     find(app, id)?
   };
-  if enabled {
-    // 手动放置的包在首次启用时补一把本地锁；目录只读则保持“未校验”，不阻断启用。
+  let manifest_hash = if enabled {
+    // 手动放置的包在首次启用时补一把本地锁；开发包与只读目录例外。
     let dir = resolve_dir(app, id)?;
-    if digest::read(&dir)?.is_none() {
+    if !crate::extension::dev::contains(app, id) && digest::read(&dir)?.is_none() {
       let _ = digest::seal(&dir, &manifest.id, &manifest.version, "computed");
     }
-  }
+    Some(digest::manifest_hash(&dir)?)
+  } else {
+    None
+  };
   let mut grants = load_grants(app)?;
   if enabled {
     grants.widgets.insert(
@@ -322,6 +429,7 @@ pub fn set_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(), Strin
       GrantRecord {
         enabled: true,
         granted: manifest.capabilities.clone(),
+        manifest_hash,
       },
     );
   } else {
@@ -330,6 +438,7 @@ pub fn set_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(), Strin
       GrantRecord {
         enabled: false,
         granted: Vec::new(),
+        manifest_hash: None,
       },
     );
   }
@@ -390,6 +499,11 @@ pub fn remove(app: &AppHandle, id: &str) -> Result<(), String> {
   if !super::manifest::valid_id(id) {
     return Err("插件 id 非法".to_string());
   }
+  // 开发包只取消挂载，不删除用户目录。
+  if crate::extension::dev::contains(app, id) {
+    revoke(app, id)?;
+    return crate::extension::dev::remove(app, id);
+  }
   let dir = resolve_dir(app, id)?;
   if !dir.is_dir() {
     return Err(format!("没有安装 id={id} 的插件"));
@@ -448,7 +562,7 @@ pub fn install_from_staged(
   }
 
   let target = staged.commit(root, &manifest.id)?;
-  Ok(info_from(&target, &manifest, None, false))
+  Ok(info_from(&target, &manifest, None, false, false))
 }
 
 pub fn is_enabled(app: &AppHandle, id: &str) -> bool {
@@ -603,7 +717,7 @@ mod tests {
 
   #[test]
   fn invalid_info_uses_safe_defaults() {
-    let info = invalid_info("broken", "bad manifest");
+    let info = invalid_info("broken", "bad manifest", false);
     assert_eq!(info.status, "invalid");
     assert!(!info.enabled);
     assert!(info.window.width >= 320.0);
@@ -692,9 +806,54 @@ mod tests {
       let _ = std::fs::remove_dir_all(&root);
       return;
     };
-    let info = info_from(&target, &manifest, None, false);
+    let info = info_from(&target, &manifest, None, false, false);
     assert_eq!(info.status, "tampered");
     assert!(info.error.is_some());
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn manifest_drift_requires_review() {
+    let Some(root) = temp_root("review") else {
+      return;
+    };
+    let dir = root.join("community-test");
+    if write_widget_package(&dir).is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let Ok(manifest) = PackageManifest::load(&dir, "community-test") else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let Ok(hash) = digest::manifest_hash(&dir) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let grant = GrantRecord {
+      enabled: true,
+      granted: vec!["widget.state".to_string()],
+      manifest_hash: Some(hash),
+    };
+    let info = info_from(&dir, &manifest, Some(&grant), false, false);
+    assert_eq!(info.status, "ready");
+    assert!(info.enabled);
+    assert!(!info.review_required);
+
+    let Ok(text) = std::fs::read_to_string(dir.join("widget.json")) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let changed = text.replace("测试插件", "测试插件（已改动）");
+    let _ = std::fs::write(dir.join("widget.json"), changed);
+    let Ok(manifest) = PackageManifest::load(&dir, "community-test") else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let info = info_from(&dir, &manifest, Some(&grant), false, false);
+    assert_eq!(info.status, "needs-review");
+    assert!(!info.enabled);
+    assert!(info.review_required);
     let _ = std::fs::remove_dir_all(&root);
   }
 }

@@ -9,7 +9,6 @@ mod protocol;
 pub(crate) mod store;
 
 pub use protocol::handle as handle_protocol;
-pub use store::PackageInfo;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -158,25 +157,6 @@ pub fn widget_package_notify(window: Window) -> Result<(), String> {
   Ok(())
 }
 
-#[tauri::command]
-pub fn widget_packages(app: AppHandle) -> Vec<PackageInfo> {
-  store::list(&app)
-}
-
-#[tauri::command]
-pub fn widget_package_set_enabled(app: AppHandle, id: String, enabled: bool) -> Result<(), String> {
-  store::set_enabled(&app, &id, enabled)?;
-  notify(&app);
-  Ok(())
-}
-
-#[tauri::command]
-pub fn widget_package_revoke(app: AppHandle, id: String) -> Result<(), String> {
-  store::revoke(&app, &id)?;
-  notify(&app);
-  Ok(())
-}
-
 /// 打开插件窗口；固定尺寸、透明、无边框，窗口内容由 `/embed` 壳页承载。
 ///
 /// 必须是 async 命令：同步命令跑在主线程，运行中创建 WebView2 会卡死消息泵。
@@ -184,11 +164,6 @@ pub async fn open(app: AppHandle, id: String) -> Result<(), String> {
   tauri::async_runtime::spawn_blocking(move || open_window(&app, &id))
     .await
     .map_err(|error| error.to_string())?
-}
-
-#[tauri::command]
-pub async fn widget_package_open(app: AppHandle, id: String) -> Result<(), String> {
-  open(app, id).await
 }
 
 fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
@@ -277,11 +252,6 @@ pub fn stop(app: &AppHandle, id: &str) -> Result<(), String> {
   }
   notify(app);
   Ok(())
-}
-
-#[tauri::command]
-pub fn widget_package_close(app: AppHandle, id: String) -> Result<(), String> {
-  close(&app, &id)
 }
 
 #[tauri::command]
