@@ -1,0 +1,25 @@
+{
+  "name": "@lull/website",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Lull 官网：产品宣传、下载入口与文档",
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "sync:release": "node scripts/sync-release.mjs"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.4",
+    "astro": "^7.4.2"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "typescript": "~5.9.3"
+  }
+}

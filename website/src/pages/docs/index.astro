@@ -1,0 +1,50 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { getCollection } from "astro:content";
+import { page, repoUrl } from "../../lib/site";
+
+const entries = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+---
+
+<BaseLayout title="文档" description="Lull 的快速开始、架构说明、场景 SDK 与插件包格式。">
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">Docs</p>
+        <h1>文档</h1>
+        <p class="lead">
+          从跑起来到写第一个场景。这里的页面是精选导读，字段级细节与完整规范都在仓库的
+          <code>docs/</code> 目录里。
+        </p>
+      </div>
+
+      <div class="doc-cards">
+        {entries.map((entry) => (
+          <a class="doc-card" href={page(`/docs/${entry.id}/`)}>
+            <div class="doc-card__title">{entry.data.title}</div>
+            <p class="doc-card__desc">{entry.data.description}</p>
+          </a>
+        ))}
+      </div>
+
+      <div class="grid-2" style="margin-top:36px">
+        <article class="card">
+          <h3>仓库里的原始文档</h3>
+          <p>
+            架构、场景 SDK、插件 SDK、内容格式、原生宿主、许可说明都在仓库
+            <code>docs/</code>，与代码一起 review、一起发版。
+          </p>
+          <span class="card__tag"><a href={`${repoUrl}/tree/main/docs`} rel="noopener">打开 docs/ ↗</a></span>
+        </article>
+        <article class="card">
+          <h3>代码里的类型即文档</h3>
+          <p>
+            <code>@lull/scene-sdk</code> 与 <code>@lull/widget-sdk</code> 随仓库构建，产出
+            <code>dist</code> + <code>.d.ts</code>。清单字段以 TypeScript 类型与 JSON Schema 为准。
+          </p>
+          <span class="card__tag"><a href={`${repoUrl}/tree/main/packages`} rel="noopener">packages/ ↗</a></span>
+        </article>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

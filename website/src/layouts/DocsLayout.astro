@@ -1,0 +1,40 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import { getCollection } from "astro:content";
+import { page, repoUrl } from "../lib/site";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+
+const entries = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+const current = Astro.url.pathname.replace(/\/+$/, "");
+---
+
+<BaseLayout title={title} description={description}>
+  <div class="container doc-shell">
+    <nav class="doc-nav" aria-label="文档目录">
+      <span class="doc-nav__title">文档</span>
+      {entries.map((entry) => (
+        <a
+          href={page(`/docs/${entry.id}/`)}
+          aria-current={current.endsWith(`/docs/${entry.id}`) ? "page" : undefined}
+        >
+          {entry.data.title}
+        </a>
+      ))}
+      <a href={`${repoUrl}/tree/main/docs`} rel="noopener">仓库 docs/ ↗</a>
+    </nav>
+
+    <div class="doc-body">
+      <slot />
+      <div class="doc-footer">
+        <span>文档随版本一起更新，完整说明见仓库 <code>docs/</code></span>
+        <a href={`${repoUrl}/issues`} rel="noopener">发现错误？提个 issue</a>
+      </div>
+    </div>
+  </div>
+</BaseLayout>

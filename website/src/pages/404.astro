@@ -1,0 +1,18 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { page } from "../lib/site";
+---
+
+<BaseLayout title="页面不存在" description="这个页面不存在或已经搬家。">
+  <section class="section">
+    <div class="container" style="max-width:640px">
+      <p class="eyebrow">404</p>
+      <h1>这里很安静，因为什么也没有</h1>
+      <p class="lead">页面不存在，或者链接里的路径少了点什么。</p>
+      <div class="btn-row" style="margin-top:24px">
+        <a class="btn" href={page("/")}>回到首页</a>
+        <a class="btn btn--ghost" href={page("/docs/")}>看文档</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

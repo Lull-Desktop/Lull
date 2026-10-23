@@ -1,0 +1,190 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { page, asset, repoUrl } from "../lib/site";
+
+const layers = [
+  {
+    name: "Core",
+    body: "桌面宿主、显示器拓扑、窗口生命周期、配置与 IPC，外加一层 C++ 原生宿主负责 Win32 桌面层挂载。",
+  },
+  {
+    name: "Extensions",
+    body: "场景清单与目录协议、脚本场景桥、工具窗口能力分层。插件侧与场景侧 SDK 都是 TypeScript，产出 dist + .d.ts。",
+  },
+  {
+    name: "Community",
+    body: "内容包格式、整包摘要、目录签名与校验工具。zip 拖入安装，装前复核清单与摘要，安装不执行代码。",
+  },
+  {
+    name: "Services",
+    body: "内容索引、同步与发布服务。设计上不影响本地核心运行——断网不影响任何已有功能。",
+  },
+];
+
+const modes = [
+  { name: "复制", body: "所有显示器显示同一场景、同一相位，最省心的默认。" },
+  { name: "独立", body: "每台显示器各自选场景与参数，一屏竹林一屏暮色。" },
+  { name: "跨屏", body: "把多块屏当成一块画布，场景横跨显示器连续绘制。" },
+];
+
+const capabilities = [
+  { name: "静态包", body: "只跑 HTML + CSS，在 sandbox=\"\" 的 iframe 里渲染：没有 JavaScript，没有 IPC，没有同源存储。", tag: "零风险" },
+  { name: "脚本包", body: "声明 wallpaper.script 后用 @lull/scene-sdk 读取宿主下发的帧：参数、几何、同步相位、可见性。", tag: "沙箱" },
+  { name: "Widget 插件", body: "静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV，可自绘顶栏与透明背景。", tag: "工具窗口" },
+];
+---
+
+<BaseLayout
+  title="功能"
+  description="Lull 的功能细节：动态壁纸三种模式、五层声景混音、番茄钟、播放器、托盘常驻，以及场景包与 Widget 插件的分层扩展体系。"
+>
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">Features</p>
+        <h1>安静，但每件事<br />都做完整</h1>
+        <p class="lead">
+          Lull 不做功能列表的堆砌。它只把桌面上的四件事——看、听、专注、计时——做成一体，然后把扩展性交给社区。
+        </p>
+      </div>
+
+      <div class="preview" style="max-width:960px">
+        <div class="preview__frame preview__frame--ui">
+          <img
+            src={asset("images/window-setting.jpg")}
+            alt="Lull 设置窗口：壁纸层、主题流光、窗口与工具开关"
+            width="1440"
+            height="900"
+            loading="lazy"
+          />
+        </div>
+        <div class="preview__caption">
+          <span>设置窗口 · 壁纸层 / 主题流光 / 窗口</span>
+          <span>所有开关即时生效</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">Wallpaper</p>
+        <h2>一次挂载，三种屏幕关系</h2>
+        <p class="muted">
+          壁纸不是一张会动的图，而是挂在 Win32 桌面层上的独立窗口。Rust 把
+          <code>mode / sync / scene / canvas / view / params</code> 编码进窗口 URL 哈希，
+          前端按清单解析后决定渲染什么——这是前后端唯一的画面契约。
+        </p>
+      </div>
+
+      <div class="grid-3">
+        {modes.map((mode) => (
+          <article class="card">
+            <h3>{mode.name}</h3>
+            <p>{mode.body}</p>
+          </article>
+        ))}
+      </div>
+
+      <div class="grid-2" style="margin-top:18px">
+        <article class="card">
+          <h3>改参数不用重启</h3>
+          <p>
+            在设置里拖动滑条，壁纸 URL 哈希即时热更，<code>scene.onFrame()</code> 收到新的
+            <code>frame.params</code>，画面当场变化。参数控件由清单里的类型自动生成。
+          </p>
+        </article>
+        <article class="card">
+          <h3>挂载失败会自己修</h3>
+          <p>
+            原生宿主带看门狗：拓扑指纹变化时重建窗口，WorkerW 被其他程序顶掉时补建。
+            失败恢复、真机验收与日志都是产品的一部分，而不是「重启试试」。
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">Sound & focus</p>
+        <h2>五层声景，一个计时器</h2>
+      </div>
+      <div class="grid-3">
+        <article class="card">
+          <h3>独立混音</h3>
+          <p>雨、雷、风、海浪、篝火各有自己的推子与开关，主音量与静音是总闸，助眠定时到点淡出。</p>
+        </article>
+        <article class="card">
+          <h3>液态沙漏</h3>
+          <p>番茄钟用液态时间沙漏表示剩余时间，专注 / 短休 / 长休三段节奏，偏好保存到本地配置。</p>
+        </article>
+        <article class="card">
+          <h3>黑胶浮窗</h3>
+          <p>播放器是一只液态黑胶，在线氛围声与本地曲目共用播放控制，浮在桌面上但不抢焦点。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">Extensions</p>
+        <h2>核心不长大，能力长在外面</h2>
+        <p class="muted">
+          四种内容形态共用一套清单与安装流程，权限按能力分层——装的时候不执行代码，启用时才授权。
+        </p>
+      </div>
+
+      <div class="grid-3">
+        {capabilities.map((item) => (
+          <article class="card">
+            <h3>{item.name}</h3>
+            <p>{item.body}</p>
+            <span class="card__tag">{item.tag}</span>
+          </article>
+        ))}
+      </div>
+
+      <div class="section-head" style="margin-top:56px">
+        <h2 style="font-size:clamp(1.3rem,2.2vw,1.6rem)">架构四层</h2>
+      </div>
+      <div class="layers">
+        {layers.map((layer) => (
+          <div class="layer">
+            <div class="layer__name"><span class="layer__dot"></span>{layer.name}</div>
+            <p>{layer.body}</p>
+          </div>
+        ))}
+      </div>
+
+      <div class="btn-row" style="margin-top:32px">
+        <a class="btn btn--ghost" href={page("/docs/architecture/")}>读架构文档</a>
+        <a class="btn btn--ghost" href={`${repoUrl}/tree/main/docs`} rel="noopener">仓库 docs/</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section--tight">
+    <div class="container">
+      <div class="cta">
+        <div>
+          <h2>先装上，再决定要不要折腾</h2>
+          <p>安装包由 GitHub Actions 从源码构建，版本号与文档同步，不维护第二份下载链接。</p>
+        </div>
+        <div class="btn-row">
+          <a class="btn" href={page("/download/")}>前往下载</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

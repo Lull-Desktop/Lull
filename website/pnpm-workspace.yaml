@@ -1,0 +1,9 @@
+# 让 website/ 成为独立的 pnpm 工作区根。
+#
+# 仓库根的 pnpm-workspace.yaml 属于桌面应用。若这里没有自己的 workspace 文件，
+# pnpm 会向上找到根工作区，把 Next / Tauri 全量依赖装一遍——网站完全不需要这些，
+# 而且会把应用的 node_modules 一起重算。加上这个文件后：
+#   - website/node_modules 与 website/pnpm-lock.yaml 自成一套；
+#   - 仓库根的 pnpm install 不会碰网站依赖，应用 CI 不受影响；
+#   - GitHub Actions 里只需在 website/ 目录下装依赖。
+packages: []

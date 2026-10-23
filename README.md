@@ -117,6 +117,7 @@ src-tauri/
 public/content/            # 随包分发的内容目录与外部场景示例
 content/schema/            # JSON Schema
 docs/                      # 架构、SDK、内容格式、原生宿主、贡献指南
+website/                   # Astro 官网（独立 pnpm 项目，CI 发布到 GitHub Pages）
 scripts/                   # 构建、内容校验、预览、验收编排
 ```
 
@@ -232,6 +233,7 @@ Setting 会按 Manifest 的 `params` 自动渲染控件；改值后热更壁纸 
 - [原生桌面宿主](docs/native-host.md)
 - [许可说明](docs/licensing.md)
 - [贡献指南](docs/contributing.md)
+- [官网与自动发布](docs/website.md)（`website/`，Astro + GitHub Pages）
 
 ## 当前边界
 

@@ -1,0 +1,51 @@
+---
+import "../styles/global.css";
+import SiteHeader from "../components/SiteHeader.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import { siteMeta, asset } from "../lib/site";
+
+interface Props {
+  title?: string;
+  description?: string;
+  /** 页面类型，给 og:type 用 */
+  type?: "website" | "article";
+}
+
+const { title, description = siteMeta.description, type = "website" } = Astro.props;
+
+// siteMeta.name 用站点自己的 site/build 配置拼绝对地址：GitHub Pages 项目页必须带 base
+const pageTitle = title ? `${title} · ${siteMeta.name}` : `${siteMeta.name} ${siteMeta.nameZh} · ${siteMeta.tagline}`;
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const ogImage = new URL(asset("images/scene-bamboo.jpg"), Astro.site).href;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href={asset("favicon.svg")} />
+    <meta name="theme-color" content="#060a09" />
+    <meta name="color-scheme" content="dark" />
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content={siteMeta.name} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="sitemap" href={asset("sitemap-index.xml")} />
+  </head>
+  <body>
+    <SiteHeader />
+    <main>
+      <slot />
+    </main>
+    <SiteFooter />
+  </body>
+</html>

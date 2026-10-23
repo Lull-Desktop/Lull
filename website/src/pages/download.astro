@@ -1,0 +1,160 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { page, repoUrl, releasesUrl } from "../lib/site";
+import { release, formatSize, formatDate } from "../lib/release";
+
+const primary = release.assets.find((item) => item.key === "windows-msi") ?? release.assets[0];
+const others = primary ? release.assets.filter((item) => item !== primary) : [];
+const published = formatDate(release.publishedAt);
+---
+
+<BaseLayout
+  title="下载"
+  description="下载 Lull（云栖）：Windows 10 / 11 桌面应用。版本号与安装包来自 GitHub Release，与源码同源。"
+>
+  <section class="section">
+    <div class="container">
+      <div class="download-hero">
+        <div>
+          <p class="eyebrow">Download</p>
+          <h1>下载 Lull</h1>
+          <p class="lead">
+            当前版本 <strong>{release.version}</strong>
+            {published && <span class="muted"> · 发布于 {published}</span>}。
+            安装包由 CI 从同一份源码构建，文档与站点随版本一起更新。
+          </p>
+
+          <div class="download-list" style="margin-top:28px">
+            {primary ? (
+              <a class="download-item" href={primary.url} rel="noopener">
+                <span class="download-item__body">
+                  <span class="download-item__name">
+                    {primary.label}
+                    {primary.hint && <span class="chip chip--green">{primary.hint}</span>}
+                  </span>
+                  <span class="download-item__file">{primary.name}</span>
+                </span>
+                <span class="download-item__meta">{formatSize(primary.size)}</span>
+              </a>
+            ) : (
+              <a class="download-item" href={releasesUrl} rel="noopener">
+                <span class="download-item__body">
+                  <span class="download-item__name">还没有可下载的安装包</span>
+                  <span class="download-item__file">先去 GitHub Release 页面看看</span>
+                </span>
+                <span class="download-item__meta">→</span>
+              </a>
+            )}
+
+            {others.map((item) => (
+              <a class="download-item" href={item.url} rel="noopener">
+                <span class="download-item__body">
+                  <span class="download-item__name">{item.label}</span>
+                  <span class="download-item__file">{item.name}</span>
+                </span>
+                <span class="download-item__meta">{formatSize(item.size)}</span>
+              </a>
+            ))}
+          </div>
+
+          <div class="btn-row" style="margin-top:20px">
+            <a class="btn btn--ghost btn--sm" href={release.notesUrl || releasesUrl} rel="noopener">
+              更新说明
+            </a>
+            <a class="btn btn--ghost btn--sm" href={`${repoUrl}/releases`} rel="noopener">
+              所有历史版本
+            </a>
+          </div>
+
+          {!release.hasRelease && (
+            <p class="small muted" style="margin-top:18px">
+              提示：站点通过 GitHub Release 元数据读取文件名。如果这里显示「还没有可下载的安装包」，
+              说明仓库还没有发布正式版本，或者构建时没能读到 release 信息。
+            </p>
+          )}
+        </div>
+
+        <aside class="panel">
+          <h3>运行要求</h3>
+          <ul class="plain-list">
+            <li>Windows 10 / 11（依赖 Win32 WorkerW 桌面层）</li>
+            <li>无需管理员权限，无需安装 .NET 或 Node</li>
+            <li>约 20–40 MB 磁盘占用</li>
+            <li>首次启动不联网也能用</li>
+          </ul>
+          <p class="small muted" style="margin:16px 0 0">
+            Lull 目前只支持 Windows，没有跨平台回退。
+          </p>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="section">
+    <div class="container">
+      <div class="grid-2">
+        <div>
+          <p class="eyebrow">Install</p>
+          <h2>安装</h2>
+          <ol class="steps">
+            <li>下载上方的 <code>.msi</code> 或 <code>.exe</code> 安装包。</li>
+            <li>双击运行。安装包尚未做代码签名，SmartScreen 可能提示「未知发布者」，选择「更多信息 → 仍要运行」。</li>
+            <li>首次启动后壁纸可能需要在设置里手动打开「显示壁纸」（debug 构建默认不接管桌面）。</li>
+            <li>关闭窗口只是隐藏，退出请用托盘菜单的「退出」。</li>
+          </ol>
+        </div>
+        <div>
+          <p class="eyebrow">From source</p>
+          <h2>从源码构建</h2>
+          <p class="small muted">
+            需要 Node 22+、pnpm 11、Rust stable（MSVC 工具链）、Visual Studio「使用 C++ 的桌面开发」与 Git Bash。
+          </p>
+          <pre><code>git clone https://github.com/Lull-Desktop/Lull.git
+cd Lull
+pnpm install
+&amp; "C:\Program Files\Git\bin\bash.exe" src-tauri/native/build-shim.sh
+pnpm build</code></pre>
+          <p class="small muted">
+            构建细节见 <a href={page("/docs/getting-started/")}>快速开始</a> 与
+            <a href={`${repoUrl}/blob/main/docs/native-host.md`} rel="noopener">原生宿主说明</a>。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">Know before install</p>
+        <h2>安装前该知道的三件事</h2>
+      </div>
+      <div class="grid-3">
+        <article class="card">
+          <h3>会改桌面层</h3>
+          <p>
+            壁纸挂在 Explorer 的 WorkerW / Progman 之下。撤销挂载、异常恢复与日志都是必需功能，
+            不是「可选优化」。
+          </p>
+        </article>
+        <article class="card">
+          <h3>许可不是单一许可</h3>
+          <p>
+            应用代码 GPL-3.0-or-later，SDK 接口 Apache-2.0，官方内容与文档 CC BY 4.0。
+            分发改造版前请先看许可说明。
+          </p>
+        </article>
+        <article class="card">
+          <h3>还没有在线市场</h3>
+          <p>
+            内容包安装是本地行为：只接受单场景包、必须声明整包摘要，暂未做第三方签名与在线更新。
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+</BaseLayout>

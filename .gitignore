@@ -64,3 +64,10 @@ __pycache__/
 /project.inlang/.lix/
 /project.inlang/cache/
 /project.inlang/.meta.json
+
+# Astro 网站（website/ 是独立 pnpm 项目，不参与根工作区）
+/website/node_modules/
+/website/dist/
+/website/.astro/
+# 构建期由 scripts/sync-release.mjs 生成的发布元数据，不入库
+/website/src/data/release.json
