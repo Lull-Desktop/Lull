@@ -82,3 +82,53 @@ check-docs-sync    11 篇仓库文档 ↔ 12 个站点页面，一致
 | 5 | 站点文档是导读，不是全文镜像 | 有意为之：站内维护全量副本必然与 `docs/` 漂移，字段级内容留在仓库 | 正文措辞不做自动 diff；能自动守住的只有「页面存在且指向正确源文件」 |
 | 6 | 根 README 的目录结构注释写 `docs/ # 架构、SDK、内容格式、原生宿主、贡献指南`，没提扩展中心、多语言、许可 | README 自身描述滞后，与 `docs/` 实际内容（11 篇）不符 | 一行字的事，属 README 侧待补；站点已按实际文件列全 |
 | 7 | 站点只有中文，应用支持 `zh-CN` / `en-US` | 官网没有做 i18n，属于产品决策而非文档结构问题 | 如要做英文站，需先定内容归属（英文文档从哪来），否则会多出一套无人维护的翻译 |
+
+# 追加：`content-format` 并入 `scene-sdk`（2026-10-24）
+
+`/docs/content-format/` 与 `/docs/scene-sdk/` 讲的是同一件事——一个场景包长什么样、怎么打包、怎么装。
+两页开头是同一段状态说明，包结构、静态/脚本包、安全边界、`Compress-Archive` 警告四处近乎逐句重复，
+读者要在两页之间来回对照才知道「清单字段在哪、SDK 怎么用」。
+
+处理：以 `scene-sdk` 为唯一入口，把 `content-format` 的独有内容并进去，站点不再保留后者。
+
+## 保留的内容
+
+- 从 `scene-sdk` 保留：静态包 / 脚本包的分界与适用场景、`pnpm scenes:sdk` 与 `onFrame` 用法、
+  设置页按 `params` 自动渲染控件与热更、脚本包的能力边界（无宿主 DOM / Tauri IPC / Win32）。
+- 从 `content-format` 保留：`public/content/` 与 `dist/content/` 目录约定、`catalog.json` 完整示例与
+  JSON Schema 位置、`entry` / `params` / `wallpaper.script` 的声明约束、版本与兼容约定表、
+  宿主读取目录的容错、`content:hash|pack|sign|check` 四条命令、包摘要算法、目录签名（ECDSA P-256）、
+  安装器五步校验与 v1 限制、体积上限与非签名目录的处理。
+
+## 删掉的重复
+
+- 两页完全相同的开头三行（已落地能力、`theme`/`sound-preset`/`layout` 预留、Beta 提示）——只留一份；
+- 「包结构」写了两遍（`scene-sdk` 的 `my-scene/catalog.json/scenes/mist` 与 `content-format` 的
+  `public/content/` 目录树）——合成一节「目录结构与 catalog.json」，创作者侧结构并入「包结构与约束」；
+- 静态包 / 脚本包的 sandbox 差异、`Compress-Archive` 警告、安装时复核摘要——各留一处；
+- 安全边界两段合并，去掉「不能访问宿主 DOM」的重复表述。
+
+## 同步改动的位置
+
+| 位置 | 改动 |
+| --- | --- |
+| `src/content/docs/scene-sdk.md` | 重写为合并版，`order` 3（接管被删页的槽位）、`description` 覆盖打包与安装 |
+| `src/content/docs/content-format.md` | 删除（内容已并入） |
+| `astro.config.mjs` | `redirects`：`/docs/content-format` → `${base}/docs/scene-sdk/`。**目标必须自己带 base**，Astro 不会替 redirects 补 |
+| `scripts/check-docs-sync.mjs` | 新增 `MERGED_INTO`（`content-format` → `scene-sdk`）：不再要求单独建页，并校验目标页存在、旧页无残留 |
+| `src/content/docs/getting-started.md` | 「想做场景」一行去掉指向旧页的链接 |
+| `src/pages/docs/index.astro` | 索引 description 的「场景与插件开发、内容包格式」改为「场景包与插件开发」 |
+| `README.md` | 映射表删掉 `content-format` 行、补合并登记说明；frontmatter 示例改用 `widget-sdk` |
+
+侧栏、`/docs/` 索引、文档卡片都由集合自动生成，删页后自动消失，无需改页面代码。
+
+## 验证
+
+```text
+astro check        0 errors / 0 warnings / 0 hints（18 个文件）
+astro build        13 page(s)；/docs/ 下 8 篇 + 1 个重定向页
+check-docs-sync    content-format 不再算缺页；仅剩 native-host、extension-center-plan 两篇缺页（本次之前就缺）
+站内链接扫描        14 个 HTML、300 条 /Lull/* 链接全部落地，无残留指向 content-format
+sitemap           不含 /docs/content-format/（Astro 不把重定向页写进 sitemap）
+```
+

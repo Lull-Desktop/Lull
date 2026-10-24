@@ -13,10 +13,24 @@ import sitemap from "@astrojs/sitemap";
 const site = process.env.WEBSITE_SITE ?? "https://lull-desktop.github.io";
 const base = process.env.WEBSITE_BASE ?? "/Lull";
 
+/** 末尾不带斜杠的 base，用来拼 redirects 的目标（Astro 不会替 redirects 补 base） */
+const basePrefix = base.replace(/\/+$/, "");
+
 export default defineConfig({
   site,
   base,
   integrations: [sitemap()],
+  /**
+   * 已合并页面的旧地址仍要能打开。
+   *
+   * `content-format` 的独有内容（清单、摘要、签名、安装器）已并入 `scene-sdk`，
+   * 站内链接都改成了 `../scene-sdk/`；这里兜住历史外链与搜索结果。
+   * 键写站内路径（Astro 按它生成 dist 里的文件），值必须自己带上 base——
+   * 生成的 meta refresh 是原样输出，漏了 base 在 Pages 子路径下会 404。
+   */
+  redirects: {
+    "/docs/content-format": `${basePrefix}/docs/scene-sdk/`,
+  },
   // 目录式输出：/features/ -> features/index.html，和 GitHub Pages 的路径一致
   trailingSlash: "always",
   build: {

@@ -74,7 +74,7 @@ pnpm test-mode -SkipVerify -HoldSeconds 30
 
 ## 接下来
 
-- 想懂它为什么这么设计：[架构与模块](../architecture/) → [原生桌面宿主](../native-host/)。
-- 想做场景：[场景与 Scene SDK](../scene-sdk/) → [内容包格式](../content-format/)。
+- 想懂它为什么这么设计：[架构与模块](../architecture/)。
+- 想做场景：[Scene SDK](../scene-sdk/)（包结构、参数与同步、摘要签名、打包安装）。
 - 想写工具窗口：[Widget SDK](../widget-sdk/)（包结构、清单与插件侧 SDK）。
 - 想管扩展：[扩展中心](../extension-center/)。

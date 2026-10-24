@@ -10,7 +10,7 @@ const columnCount = docGroups.length;
 
 <BaseLayout
   title="文档"
-  description="Lull 的文档目录：快速开始、架构与运行时、场景与插件开发、内容包格式、扩展中心、原生宿主、多语言方案，以及贡献与许可。"
+  description="Lull 的文档目录：快速开始、架构与运行时、场景包与插件开发、扩展中心、原生宿主、多语言方案，以及贡献与许可。"
 >
   <section class="section">
     <div class="container">
@@ -18,9 +18,7 @@ const columnCount = docGroups.length;
         <p class="eyebrow">Docs</p>
         <h1>文档</h1>
         <p class="lead">
-          {total} 篇，按 README 的阅读顺序分成 {columnCount} 组：从跑起来开始，到架构与运行时，
-          再到写场景、写插件、打包内容，最后是扩展中心的设计与项目治理。
-          每页都对应仓库里的一份原始文档，字段级细节以原文为准。
+          从快速上手开始，依次介绍架构与运行时、场景与扩展内容设计与实现。每篇对应仓库中的一份原始文档，字段级细节请以原文为准。
         </p>
       </div>
 
@@ -46,7 +44,7 @@ const columnCount = docGroups.length;
             架构、场景 SDK、插件 SDK、内容格式、扩展中心、原生宿主、多语言、许可说明都在仓库
             <code>docs/</code>，与代码一起 review、一起发版。
           </p>
-          <span class="card__tag"><a href={`${repoUrl}/tree/main/docs`} rel="noopener">打开 docs/ ↗</a></span>
+          <span class="card__tag"><a href={`${repoUrl}/tree/master/docs`} rel="noopener">打开 docs/ ↗</a></span>
         </article>
         <article class="card">
           <h3>代码里的类型即文档</h3>
@@ -54,7 +52,7 @@ const columnCount = docGroups.length;
             <code>@lull/scene-sdk</code> 与 <code>@lull/widget-sdk</code> 随仓库构建，产出
             <code>dist</code> + <code>.d.ts</code>。清单字段以 TypeScript 类型与 JSON Schema 为准。
           </p>
-          <span class="card__tag"><a href={`${repoUrl}/tree/main/packages`} rel="noopener">packages/ ↗</a></span>
+          <span class="card__tag"><a href={`${repoUrl}/tree/master/packages`} rel="noopener">packages/ ↗</a></span>
         </article>
       </div>
     </div>

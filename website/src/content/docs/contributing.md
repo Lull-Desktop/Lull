@@ -120,4 +120,4 @@ cargo test --manifest-path src-tauri/Cargo.toml
 不可恢复、权限提升或任意命令执行，请不要公开细节，先按 `SECURITY.md` 私密报告。
 
 任务清单原文（含完整命令表、测试基线与架构检查项）见仓库
-[贡献指南](https://github.com/Lull-Desktop/Lull/blob/main/docs/contributing.md)。
+[贡献指南](https://github.com/Lull-Desktop/Lull/blob/master/docs/contributing.md)。

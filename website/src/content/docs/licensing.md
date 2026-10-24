@@ -94,4 +94,4 @@ Apache-2.0；把内容编译进应用则按 GPL 处理。
 存在冲突风险，已替换为 OFL 的 Noto Sans SC。
 
 完整条款与逐条说明见仓库
-[许可说明](https://github.com/Lull-Desktop/Lull/blob/main/docs/licensing.md)。
+[许可说明](https://github.com/Lull-Desktop/Lull/blob/master/docs/licensing.md)。

@@ -19,7 +19,7 @@ Attribution example:
 
 ```text
 “雾岚” scene package from Lull, licensed CC BY 4.0.
-https://github.com/<your-repo>/tree/main/public/content/scenes/mist
+https://github.com/<your-repo>/tree/master/public/content/scenes/mist
 ```
 
 ## 2. Built-in scenes are application code

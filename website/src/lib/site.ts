@@ -37,7 +37,7 @@ export const docGroups = ["开始使用", "架构与运行时", "扩展开发", 
 
 /** 仓库内文档的 GitHub 链接，例如 sourceUrl("docs/architecture.md") */
 export function sourceUrl(path: string): string {
-  return `${repoUrl}/blob/main/${path.replace(/^\/+/, "")}`;
+  return `${repoUrl}/blob/master/${path.replace(/^\/+/, "")}`;
 }
 
 /**

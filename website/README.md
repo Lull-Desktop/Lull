@@ -44,9 +44,8 @@ pnpm preview    # 预览构建产物
 | `/docs/architecture/` | `docs/architecture.md` | 架构与运行时 |
 | `/docs/native-host/` | `docs/native-host.md` | 架构与运行时 |
 | `/docs/i18n-plan/` | `docs/i18n-plan.md` | 架构与运行时 |
-| `/docs/scene-sdk/` | `docs/scene-sdk.md` | 扩展开发 |
+| `/docs/scene-sdk/` | `docs/scene-sdk.md`（含已并入的 `docs/content-format.md`） | 扩展开发 |
 | `/docs/widget-sdk/` | `docs/widget-sdk.md` | 扩展开发 |
-| `/docs/content-format/` | `docs/content-format.md` | 扩展开发 |
 | `/docs/extension-center/` | `docs/extension-center.md` | 扩展中心 |
 | `/docs/extension-center-plan/` | `docs/extension-center-plan.md` | 扩展中心 |
 | `/docs/contributing/` | `docs/contributing.md` | 项目 |
@@ -55,6 +54,13 @@ pnpm preview    # 预览构建产物
 `packages/*/README.md` 是包自身的使用说明，仍留在仓库（站点在文档页里外链），不单独建页面。
 每次同步的差异记录在 [`docs-sync-report.md`](./docs-sync-report.md)。
 
+站点页与仓库文档默认 1:1，但允许**合并**：`docs/` 里两篇讲同一件事的文档，站点只建一页，
+把另一篇的独有内容并进来。合并要在两处登记：
+
+- `scripts/check-docs-sync.mjs` 的 `MERGED_INTO`（`content-format` → `scene-sdk`），
+  脚本会校验目标页存在、旧页没有残留；
+- `astro.config.mjs` 的 `redirects`，让 `/docs/content-format/` 这类旧地址跳到合并后的页面。
+
 ## 新增或更新一个文档页
 
 1. 在 `src/content/docs/` 加/改一个 `.md`，文件名与 `docs/<name>.md` 保持一致。
@@ -62,11 +68,11 @@ pnpm preview    # 预览构建产物
 
    ```yaml
    ---
-   title: 内容包格式
+   title: Widget SDK
    description: 一句话说明这页解决什么问题。
-   order: 6          # 组内排序，小的在前
+   order: 5          # 组内排序，小的在前
    group: 扩展开发    # 开始使用 / 架构与运行时 / 扩展开发 / 扩展中心 / 项目
-   source: docs/content-format.md
+   source: docs/widget-sdk.md
    ---
    ```
 

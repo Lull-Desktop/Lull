@@ -5,19 +5,19 @@ import { page, asset, repoUrl } from "../lib/site";
 const layers = [
   {
     name: "Core",
-    body: "桌面宿主、显示器拓扑、窗口生命周期、配置与 IPC，外加一层 C++ 原生宿主负责 Win32 桌面层挂载。",
+    body: "桌面宿主、显示器拓扑、窗口生命周期、配置与 IPC。",
   },
   {
     name: "Extensions",
-    body: "场景清单与目录协议、脚本场景桥、工具窗口能力分层。插件侧与场景侧 SDK 都是 TypeScript，产出 dist + .d.ts。",
+    body: "内容与工具SDK持续开发，原生支持TypeScript，拥抱AI生态。",
   },
   {
     name: "Community",
-    body: "内容包格式、整包摘要、目录签名与校验工具。zip 拖入安装，装前复核清单与摘要，安装不执行代码。",
+    body: "统一内容包格式，提供整包摘要、目录签名与校验工具，zip拖入即装，安全可控。",
   },
   {
     name: "Services",
-    body: "内容索引、同步与发布服务。设计上不影响本地核心运行——断网不影响任何已有功能。",
+    body: "计划中。",
   },
 ];
 
@@ -72,11 +72,9 @@ const capabilities = [
     <div class="container">
       <div class="section-head">
         <p class="eyebrow">Wallpaper</p>
-        <h2>一次挂载，三种屏幕关系</h2>
+        <h2>纯Web壁纸实现</h2>
         <p class="muted">
-          壁纸不是一张会动的图，而是挂在 Win32 桌面层上的独立窗口。Rust 把
-          <code>mode / sync / scene / canvas / view / params</code> 编码进窗口 URL 哈希，
-          前端按清单解析后决定渲染什么——这是前后端唯一的画面契约。
+          支持静态包、脚本包、Widget 插件扩展
         </p>
       </div>
 
@@ -88,23 +86,6 @@ const capabilities = [
           </article>
         ))}
       </div>
-
-      <div class="grid-2" style="margin-top:18px">
-        <article class="card">
-          <h3>改参数不用重启</h3>
-          <p>
-            在设置里拖动滑条，壁纸 URL 哈希即时热更，<code>scene.onFrame()</code> 收到新的
-            <code>frame.params</code>，画面当场变化。参数控件由清单里的类型自动生成。
-          </p>
-        </article>
-        <article class="card">
-          <h3>挂载失败会自己修</h3>
-          <p>
-            原生宿主带看门狗：拓扑指纹变化时重建窗口，WorkerW 被其他程序顶掉时补建。
-            失败恢复、真机验收与日志都是产品的一部分，而不是「重启试试」。
-          </p>
-        </article>
-      </div>
     </div>
   </section>
 
@@ -113,21 +94,21 @@ const capabilities = [
   <section class="section">
     <div class="container">
       <div class="section-head">
-        <p class="eyebrow">Sound & focus</p>
-        <h2>五层声景，一个计时器</h2>
+        <p class="eyebrow">Workbench</p>
+        <h2>专注声景工作台</h2>
       </div>
       <div class="grid-3">
         <article class="card">
-          <h3>独立混音</h3>
+          <h3>以太之母</h3>
           <p>雨、雷、风、海浪、篝火各有自己的推子与开关，主音量与静音是总闸，助眠定时到点淡出。</p>
         </article>
         <article class="card">
-          <h3>液态沙漏</h3>
-          <p>番茄钟用液态时间沙漏表示剩余时间，专注 / 短休 / 长休三段节奏，偏好保存到本地配置。</p>
+          <h3>专注时钟</h3>
+          <p>以液态沙漏流转呈现剩余时间，专注、短休、长休三段节律自然衔接，偏好设置本地留存。</p>
         </article>
         <article class="card">
-          <h3>黑胶浮窗</h3>
-          <p>播放器是一只液态黑胶，在线氛围声与本地曲目共用播放控制，浮在桌面上但不抢焦点。</p>
+          <h3>气泡音乐</h3>
+          <p>播放器是一只液态气泡，在线氛围声与本地曲目共用播放控制，浮在桌面上但不抢焦点。</p>
         </article>
       </div>
     </div>
@@ -139,9 +120,9 @@ const capabilities = [
     <div class="container">
       <div class="section-head">
         <p class="eyebrow">Extensions</p>
-        <h2>核心不长大，能力长在外面</h2>
+        <h2>核心轻量，能力外生</h2>
         <p class="muted">
-          四种内容形态共用一套清单与安装流程，权限按能力分层——装的时候不执行代码，启用时才授权。
+          大家按同一套规范贡献扩展，核心保持轻量，能力不断外延。
         </p>
       </div>
 
@@ -169,7 +150,7 @@ const capabilities = [
 
       <div class="btn-row" style="margin-top:32px">
         <a class="btn btn--ghost" href={page("/docs/architecture/")}>读架构文档</a>
-        <a class="btn btn--ghost" href={`${repoUrl}/tree/main/docs`} rel="noopener">仓库 docs/</a>
+        <a class="btn btn--ghost" href={`${repoUrl}/tree/master/docs`} rel="noopener">仓库 docs/</a>
       </div>
     </div>
   </section>
