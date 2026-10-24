@@ -4,6 +4,17 @@
 #   - push tag `v*`       → 构建 + 创建 Release（正式发布就走这条路）
 #   - workflow_dispatch   → 手动构建；勾选 publish 才发 Release，否则只留 artifact
 #
+# 预发布标签（`v0.1.0-alpha1` / `v0.1.0-beta2` / `v0.1.0-rc1` 这类）：
+#   - 版本校验按「基版本」比对：标签去掉 `v`、去掉 `-` 之后的后缀，必须等于
+#     src-tauri/tauri.conf.json 的 version。即 version=0.1.0 时，v0.1.0 与
+#     v0.1.0-alpha1 都合法，v0.1.1-alpha1 不合法。
+#   - 带后缀的 tag 会自动加 `--prerelease`。这一步不能省：不带它，GitHub 会把
+#     alpha 当成「最新正式版」，站点下载页读的是 API 的 /releases/latest（只认
+#     非预发布、非草稿），会把测试包当成稳定版推荐出去。
+#   - 安装包文件名仍用 tauri.conf.json 的 version（Windows 的 MSI 不接受预发布
+#     版本号，Tauri 会剥掉后缀），所以 `v0.1.0-alpha1` 产出的是 `Lull_0.1.0_x64*`。
+#     想让文件名也带 alpha，就把两个 version 一起改成 `0.1.0-alpha1`。
+#
 # 产物（统一收在 artifacts/release，由 scripts/package-release.mjs 生成）：
 #   Lull_<version>_x64_en-US.msi     WiX 安装包
 #   Lull_<version>_x64-setup.exe     NSIS 安装包
@@ -152,19 +163,25 @@ jobs:
           echo "webview2 runtime: $(ls "/c/Program Files (x86)/Microsoft/EdgeWebView/Application" 2>/dev/null | tail -n 1 || echo "未预装（不影响构建）")"
 
       - name: Check tag matches app version
-        # tag 与 tauri.conf.json 的版本必须一致：安装包文件名、站点下载页、
+        # tag 与 tauri.conf.json 的版本必须对得上：安装包文件名、站点下载页、
         # Release 标题都从版本号推导，不一致会发出对不上号的包。
+        # 预发布标签只比对基版本（v0.1.0-alpha1 → 0.1.0）。
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
           version=$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('src-tauri/tauri.conf.json','utf8')).version)")
           tag="${GITHUB_REF_NAME#v}"
-          if [ "$version" != "$tag" ]; then
-            echo "::error::tag v$tag 与 src-tauri/tauri.conf.json 的 version $version 不一致"
+          base="${tag%%-*}"
+          if [ "$base" != "$version" ]; then
+            echo "::error::tag v$tag 的基版本 $base 与 src-tauri/tauri.conf.json 的 version $version 不一致"
             exit 1
           fi
-          echo "版本一致：v$version"
+          if [ "$tag" = "$version" ]; then
+            echo "版本一致：v$version（正式版）"
+          else
+            echo "版本一致：v$tag（预发布，基版本 v$version）"
+          fi
 
       - name: Install dependencies from lockfile
         run: pnpm install --frozen-lockfile
@@ -211,6 +228,12 @@ jobs:
           args=(--title "Lull ${tag}" --generate-notes)
           if [ "${DRAFT:-false}" = "true" ]; then
             args+=(--draft)
+          fi
+
+          # 带后缀的 tag 一律当预发布：不加 --prerelease 会被 GitHub 算成最新正式版，
+          # 站点 /releases/latest 就会把测试包当稳定版推给访客。
+          if [ "${tag#*-}" != "$tag" ]; then
+            args+=(--prerelease)
           fi
 
           if gh release view "$tag" >/dev/null 2>&1; then
