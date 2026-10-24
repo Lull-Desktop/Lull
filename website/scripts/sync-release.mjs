@@ -94,6 +94,8 @@ if (!offline) {
     if (release && !release.draft) {
       const assets = (release.assets ?? [])
         .filter((asset) => asset.state === "uploaded")
+        // 校验和清单不是下载项，列在下载页只会多一行「其他文件」
+        .filter((asset) => !/^SHA\d+SUMS(\.txt)?$/i.test(asset.name))
         .map((asset) => ({
           name: asset.name,
           size: asset.size,

@@ -39,6 +39,7 @@
     "fix": "biome check --write",
     "dev": "tauri dev",
     "build": "tauri build",
+    "release:package": "node scripts/package-release.mjs",
     "i18n:compile": "node scripts/i18n-compile.mjs",
     "pretest": "node scripts/i18n-compile.mjs",
     "pretypecheck": "node scripts/i18n-compile.mjs"

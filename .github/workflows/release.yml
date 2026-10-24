@@ -1,0 +1,225 @@
+# 从源码构建 Windows 安装包，并把产物发布到 GitHub Release。
+#
+# 触发方式：
+#   - push tag `v*`       → 构建 + 创建 Release（正式发布就走这条路）
+#   - workflow_dispatch   → 手动构建；勾选 publish 才发 Release，否则只留 artifact
+#
+# 产物（统一收在 artifacts/release，由 scripts/package-release.mjs 生成）：
+#   Lull_<version>_x64_en-US.msi     WiX 安装包
+#   Lull_<version>_x64-setup.exe     NSIS 安装包
+#   Lull_<version>_x64-portable.zip  便携版（exe + lull_native.dll + 许可证）
+#   SHA256SUMS.txt                   三个包各自的 sha256
+#
+# 为什么能在这台 runner 上跑通（每一环都有对应的准备步骤，别随便删）：
+#   1. `tauri build` 的 beforeBuildCommand 是 scripts/prebuild.mjs，它会调用
+#      src-tauri/native/build-shim.sh 编译 lull_native.dll。该脚本用 cl.exe 直连
+#      MSVC，并依赖 git-bash（cygpath / MSYS 转换）。windows-latest 自带
+#      VS2022(MSVC) + Windows SDK + Git for Windows，预检步骤会把它们逐个点出来，
+#      缺任何一个都在装依赖之前失败，而不是烧完十几分钟 Rust 编译才报错。
+#   2. rust-toolchain.toml 固定 stable-x86_64-pc-windows-msvc；这里显式装同一套，
+#      避免 runner 上的默认 toolchain 走到 GNU ABI（链接 DLL 时会要 dlltool）。
+#   3. pnpm 版本取自 package.json 的 packageManager，Node 版本取自 .node-version，
+#      不手写死版本；`--frozen-lockfile` 保证 CI 装的依赖与本地一致。
+#   4. msi / exe 两个安装包不需要额外装 WiX 或 NSIS：Tauri v2 CLI 会在首次 bundle 时
+#      自己下载（缓存在 %LOCALAPPDATA%\tauri）。如果哪天公司网络挡住这些下载，
+#      在这一步之前加一句 `choco install wixtoolset nsis -y` 即可。
+#   5. 发布用的是内置 GITHUB_TOKEN（见 permissions: contents: write），不需要 PAT。
+#
+# 签名：当前没有配置代码签名证书，产物是未签名的，Windows 首次运行会有 SmartScreen
+# 提示。要消除它，在 `Build bundles` 之前导入证书并导出
+# TAURI_SIGNING_PRIVATE_KEY / 或给 signtool 传 env，再在 tauri.conf.json 的
+# bundle.windows 里配 certificateThumbprint。自动更新的签名是另一套（updater），
+# 本项目没有启用 updater，不需要它。
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "构建完成后创建 GitHub Release"
+        type: boolean
+        default: false
+      draft:
+        description: "Release 存为草稿（配合 publish 使用）"
+        type: boolean
+        default: false
+
+# 发布 Release 需要写权限；读取仓库内容是最小必需。
+permissions:
+  contents: write
+
+# 同一个 ref 同时只跑一条发布流水线：tag 重推时不能有两个 job 抢着装 Release。
+# 不取消进行中的任务——已经烧掉的编译时间不该白费。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # 让 tauri/rust 的报错带回溯，CI 日志里排错用得上。
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build Windows bundles
+    # 原生宿主与 Tauri 的 Windows 打包器都只在 Windows 上有意义。
+    runs-on: windows-latest
+    # 冷缓存下 Rust release 编译约 15~25 分钟，留足余量。
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm package manager
+        # 版本来自 package.json 的 packageManager 字段（pnpm@11.x）。
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: "pnpm"
+
+      - name: Install Rust toolchain
+        # 与 rust-toolchain.toml 保持一致（stable-msvc）；components 显式写出，
+        # 免得 rustup 在编译中途才去装 rustfmt/clippy。
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build artifacts
+        # 只缓存依赖编译结果（src-tauri/target），首次跑没有缓存也能过。
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Verify Windows build prerequisites
+        # prebuild → build-shim.sh 这一串失败时，报错信息往往只是一句
+        # "cl 不是内部或外部命令"。这里提前按 build-shim.sh 的探测逻辑检查一遍，
+        # 缺什么就直接指出缺什么。
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "node: $(node --version) / pnpm: $(pnpm --version)"
+          echo "rustc: $(rustc --version)"
+
+          # ① git-bash：prebuild.mjs 用它执行 build-shim.sh（脚本里要用 cygpath）。
+          #    探测顺序与 prebuild.mjs 的 findGitBash 一致：先问 git，再退回默认安装位置。
+          git_bash=""
+          if exec_path=$(git --exec-path 2>/dev/null); then
+            git_root="${exec_path%/mingw64/libexec/git-core}"
+            if [ -x "$git_root/bin/bash.exe" ]; then
+              git_bash="$git_root/bin/bash.exe"
+            fi
+          fi
+          if [ -z "$git_bash" ] && [ -x "/c/Program Files/Git/bin/bash.exe" ]; then
+            git_bash="/c/Program Files/Git/bin/bash.exe"
+          fi
+          if [ -z "$git_bash" ]; then
+            echo "::error::找不到 git-bash，prebuild 无法编译 lull_native.dll"
+            exit 1
+          fi
+          echo "git-bash: $git_bash"
+
+          # ② MSVC：与 build-shim.sh 的 find_msvc 探测路径一致，取版本最高的一份
+          msvc=$(ls -d \
+            "/c/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/*/bin/Hostx64/x64/cl.exe \
+            "/c/Program Files (x86)/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/*/bin/Hostx64/x64/cl.exe \
+            "/d/Program Files/Microsoft Visual Studio"/*/*/VC/Tools/MSVC/*/bin/Hostx64/x64/cl.exe \
+            2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -z "$msvc" ]; then
+            echo "::error::找不到 MSVC cl.exe，runner 镜像是否缺少「使用 C++ 的桌面开发」？"
+            exit 1
+          fi
+          echo "msvc: $msvc"
+
+          # ③ Windows SDK：shim 的 INCLUDE/LIB 全靠它
+          sdk_version=$(ls "/c/Program Files (x86)/Windows Kits/10/Include" 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -z "$sdk_version" ]; then
+            echo "::error::找不到 Windows SDK（C:/Program Files (x86)/Windows Kits/10/Include）"
+            exit 1
+          fi
+          echo "windows sdk: $sdk_version"
+
+          # ④ Tauri 打包器需要 WebView2 运行时（NSIS 安装器默认在线引导安装，不阻断构建），
+          #    这里只作信息输出，方便核对镜像版本。
+          echo "webview2 runtime: $(ls "/c/Program Files (x86)/Microsoft/EdgeWebView/Application" 2>/dev/null | tail -n 1 || echo "未预装（不影响构建）")"
+
+      - name: Check tag matches app version
+        # tag 与 tauri.conf.json 的版本必须一致：安装包文件名、站点下载页、
+        # Release 标题都从版本号推导，不一致会发出对不上号的包。
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('src-tauri/tauri.conf.json','utf8')).version)")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "::error::tag v$tag 与 src-tauri/tauri.conf.json 的 version $version 不一致"
+            exit 1
+          fi
+          echo "版本一致：v$version"
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build bundles
+        # 等价于 `tauri build`：先跑 beforeBuildCommand（prebuild：编译 DLL、校验内容、
+        # Next 静态导出到 dist），再编译 Rust，最后按 bundle.targets="all" 打
+        # msi + nsis。产物落在 src-tauri/target/release 与 bundle/{msi,nsis}。
+        run: pnpm tauri build
+
+      - name: Collect release artifacts
+        # 统一命名 + 便携版 zip + SHA256SUMS；本地同样可以跑 pnpm release:package。
+        run: node scripts/package-release.mjs
+
+      - name: Show collected files
+        shell: bash
+        run: ls -lh artifacts/release
+
+      - name: Upload artifacts
+        # 无论是否发 Release 都留一份，手动触发时可以下载来验证。
+        uses: actions/upload-artifact@v4
+        with:
+          name: lull-windows-${{ github.ref_name }}
+          path: artifacts/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub release
+        # tag 推送自动发布；手动触发要显式勾 publish。
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRAFT: ${{ inputs.draft == true }}
+        run: |
+          set -euo pipefail
+          version=$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('src-tauri/tauri.conf.json','utf8')).version)")
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="v${version}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+
+          args=(--title "Lull ${tag}" --generate-notes)
+          if [ "${DRAFT:-false}" = "true" ]; then
+            args+=(--draft)
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # 重跑同一条流水线：覆盖上传，不新建 Release。
+            gh release upload "$tag" artifacts/release/* --clobber
+          else
+            # 手动触发时 tag 可能还不存在，显式指向本次提交，避免打到默认分支最新提交。
+            if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+              args+=(--target "${GITHUB_SHA:-$(git rev-parse HEAD)}")
+            fi
+            gh release create "$tag" artifacts/release/* "${args[@]}"
+          fi

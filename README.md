@@ -303,6 +303,14 @@ pnpm build
 
 `scripts/prebuild.mjs` 会依次做这些事：校验内容目录 → 编译 `lull_native.dll` → 清理 `dist/.next` → Next 静态导出 → 触碰 `lib.rs` 强制重嵌入。
 
+产物整理（msi / exe / 便携版 zip + 校验和）：
+
+```powershell
+pnpm release:package      # → artifacts/release/
+```
+
+推 `v*` tag 会触发 `.github/workflows/release.yml`：在 windows-latest 上跑 `tauri build`，再把 `Lull_<version>_x64_en-US.msi`、`Lull_<version>_x64-setup.exe`、`Lull_<version>_x64-portable.zip` 和 `SHA256SUMS.txt` 发到 GitHub Release。手动触发（Actions → Release → Run workflow）默认只留 artifact，勾 `publish` 才建 Release；tag 必须与 `src-tauri/tauri.conf.json` 的 `version` 一致，否则工作流在编译前就失败。
+
 ### 做扩展
 
 #### 新增一个官方内置场景
@@ -364,6 +372,7 @@ pnpm scenes:sdk
 | `pnpm test-mode`         | Windows 真机壁纸验收（构建 DLL、层序/命中/动画）            |
 | `pnpm build:next`        | 仅导出 Next 静态前端                              |
 | `pnpm build`             | 完整 Tauri 安装包构建                             |
+| `pnpm release:package`   | 整理 msi / exe / 便携版 zip 与 SHA256 到 `artifacts/release` |
 
 内容包、SDK 与示例：
 
