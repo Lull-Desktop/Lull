@@ -132,3 +132,28 @@ check-docs-sync    content-format 不再算缺页；仅剩 native-host、extensi
 sitemap           不含 /docs/content-format/（Astro 不把重定向页写进 sitemap）
 ```
 
+# 追加：补 `NOT_ON_SITE` 登记，修 CI 的 docs-sync 失败（2026-10-24）
+
+提交 `e2a703d` 删掉了 `extension-center` 站点页，加上更早删掉的 `native-host`、
+`extension-center-plan`，站点只剩 7 篇，但 `docs/` 仍是 10 篇老样子 —— `pnpm check` 里
+`check-docs-sync` 直接退出码 1，CI 的 Type-check 阶段挂掉。
+
+这三篇不是「合并」，只是**没上线**，所以没有塞进 `MERGED_INTO`，而是新增 `NOT_ON_SITE`
+登记（名字 → 原因），脚本连登记本身也一起校验：文件得在、站点里不能有同名页、原因不能空。
+
+| 位置 | 改动 |
+| --- | --- |
+| `scripts/check-docs-sync.mjs` | 新增 `NOT_ON_SITE`（native-host / extension-center / extension-center-plan），`--list` 打印原因 |
+| `astro.config.mjs` | 三个旧地址 redirect 到 `${base}/docs/`，线上老链接不硬 404 |
+| `README.md` | 映射表只留 7 个真实页面；新增「暂不收录」表并写明原因；登记规则补上 `NOT_ON_SITE` |
+| `src/pages/docs/index.astro` | 删掉已不用的 `total` / `columnCount` 与 `docGroups` 导入（CI 日志里的 2 个 hint）；description 去掉「扩展中心、原生宿主」 |
+
+## 验证（与 CI 同序）
+
+```text
+astro check        0 errors / 0 warnings / 0 hints（18 个文件）
+check-docs-sync    10 篇仓库文档 ↔ 7 个站点页面，一致（exit 0）
+astro build        16 个 HTML（12 页 + 4 个重定向页）
+站内链接扫描        271 条 /Lull/* 全部落地，无坏链
+sitemap           不含 content-format / native-host / extension-center / extension-center-plan
+```

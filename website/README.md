@@ -42,24 +42,34 @@ pnpm preview    # 预览构建产物
 | --- | --- | --- |
 | `/docs/getting-started/` | `README.md`（开始使用 / 本地开发） | 开始使用 |
 | `/docs/architecture/` | `docs/architecture.md` | 架构与运行时 |
-| `/docs/native-host/` | `docs/native-host.md` | 架构与运行时 |
 | `/docs/i18n-plan/` | `docs/i18n-plan.md` | 架构与运行时 |
 | `/docs/scene-sdk/` | `docs/scene-sdk.md`（含已并入的 `docs/content-format.md`） | 扩展开发 |
 | `/docs/widget-sdk/` | `docs/widget-sdk.md` | 扩展开发 |
-| `/docs/extension-center/` | `docs/extension-center.md` | 扩展中心 |
-| `/docs/extension-center-plan/` | `docs/extension-center-plan.md` | 扩展中心 |
 | `/docs/contributing/` | `docs/contributing.md` | 项目 |
 | `/docs/licensing/` | `docs/licensing.md` | 项目 |
+
+`docs/` 里还有三篇**站点暂不收录**，原文留在仓库供开发与 review，旧地址在
+`astro.config.mjs` 的 `redirects` 里跳到 `/docs/`：
+
+| 仓库源文档 | 不收录的原因 |
+| --- | --- |
+| `docs/native-host.md` | 原生宿主的内部分层说明，随实现变动 |
+| `docs/extension-center.md` | 扩展中心的设计稿，实现稳定前不对外 |
+| `docs/extension-center-plan.md` | 实施计划，天然会过期 |
 
 `packages/*/README.md` 是包自身的使用说明，仍留在仓库（站点在文档页里外链），不单独建页面。
 每次同步的差异记录在 [`docs-sync-report.md`](./docs-sync-report.md)。
 
-站点页与仓库文档默认 1:1，但允许**合并**：`docs/` 里两篇讲同一件事的文档，站点只建一页，
-把另一篇的独有内容并进来。合并要在两处登记：
+站点页与仓库文档默认 1:1，两种例外都要在脚本里登记，否则 `pnpm check` 会红：
 
-- `scripts/check-docs-sync.mjs` 的 `MERGED_INTO`（`content-format` → `scene-sdk`），
-  脚本会校验目标页存在、旧页没有残留；
-- `astro.config.mjs` 的 `redirects`，让 `/docs/content-format/` 这类旧地址跳到合并后的页面。
+- **合并**（`MERGED_INTO`）：`docs/` 里两篇讲同一件事，站点只建一页、把另一篇的内容并进来
+  （`content-format` → `scene-sdk`）。脚本会校验目标页存在、旧页没有残留。
+- **暂不收录**（`NOT_ON_SITE`）：原文只留在 `docs/`，站点不建页，必须写原因
+  （`native-host`、`extension-center`、`extension-center-plan`）。脚本会校验文件存在、
+  站点里没有同名页、原因非空。
+
+两种情况都要在 `astro.config.mjs` 的 `redirects` 里给旧地址一个去处，
+否则线上老链接会硬 404。
 
 ## 新增或更新一个文档页
 

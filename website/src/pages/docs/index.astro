@@ -1,16 +1,14 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { getCollection } from "astro:content";
-import { docGroups, groupDocs, page, repoUrl } from "../../lib/site";
+import { groupDocs, page, repoUrl } from "../../lib/site";
 
 const groups = groupDocs(await getCollection("docs"));
-const total = groups.reduce((sum, group) => sum + group.entries.length, 0);
-const columnCount = docGroups.length;
 ---
 
 <BaseLayout
   title="文档"
-  description="Lull 的文档目录：快速开始、架构与运行时、场景包与插件开发、扩展中心、原生宿主、多语言方案，以及贡献与许可。"
+  description="Lull 的文档目录：快速开始、架构与运行时、场景包与插件开发、多语言方案，以及贡献与许可。"
 >
   <section class="section">
     <div class="container">

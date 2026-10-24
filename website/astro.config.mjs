@@ -21,15 +21,20 @@ export default defineConfig({
   base,
   integrations: [sitemap()],
   /**
-   * 已合并页面的旧地址仍要能打开。
+   * 已合并 / 已下线的页面，旧地址仍要能打开。
    *
-   * `content-format` 的独有内容（清单、摘要、签名、安装器）已并入 `scene-sdk`，
-   * 站内链接都改成了 `../scene-sdk/`；这里兜住历史外链与搜索结果。
+   * - `content-format` 的独有内容（清单、摘要、签名、安装器）已并入 `scene-sdk`；
+   * - `native-host`、`extension-center`、`extension-center-plan` 站点暂不收录
+   *   （见 `scripts/check-docs-sync.mjs` 的 `NOT_ON_SITE`），原文只留在仓库 `docs/`。
+   *
    * 键写站内路径（Astro 按它生成 dist 里的文件），值必须自己带上 base——
    * 生成的 meta refresh 是原样输出，漏了 base 在 Pages 子路径下会 404。
    */
   redirects: {
     "/docs/content-format": `${basePrefix}/docs/scene-sdk/`,
+    "/docs/native-host": `${basePrefix}/docs/`,
+    "/docs/extension-center": `${basePrefix}/docs/`,
+    "/docs/extension-center-plan": `${basePrefix}/docs/`,
   },
   // 目录式输出：/features/ -> features/index.html，和 GitHub Pages 的路径一致
   trailingSlash: "always",
