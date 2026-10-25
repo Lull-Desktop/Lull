@@ -65,25 +65,16 @@ const published = formatDate(release.publishedAt);
               所有历史版本
             </a>
           </div>
-
-          {!release.hasRelease && (
-            <p class="small muted" style="margin-top:18px">
-              提示：站点通过 GitHub Release 元数据读取文件名。如果这里显示「还没有可下载的安装包」，
-              说明仓库还没有发布正式版本，或者构建时没能读到 release 信息。
-            </p>
-          )}
         </div>
 
         <aside class="panel">
           <h3>运行要求</h3>
           <ul class="plain-list">
-            <li>Windows 10 / 11（依赖 Win32 WorkerW 桌面层）</li>
-            <li>无需管理员权限，无需安装 .NET 或 Node</li>
+            <li>Windows 10 / 11</lili>
             <li>约 20–40 MB 磁盘占用</li>
-            <li>首次启动不联网也能用</li>
           </ul>
           <p class="small muted" style="margin:16px 0 0">
-            Lull 目前只支持 Windows，没有跨平台回退。
+            Lull 目前只支持 Windows
           </p>
         </aside>
       </div>
