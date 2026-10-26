@@ -8,7 +8,36 @@ can install it into several agents at once.
 - Target repo: <https://github.com/Lull-Desktop/Lull>
 - Skill instructions: [`SKILL.md`](./SKILL.md)
 - Standards: `references/extension-standard.md`, `widget-standard.md`, `scene-standard.md`
-- Runtime requirement: Node >= 20
+- Requirements: see [Prerequisites](#prerequisites) below
+
+## Prerequisites
+
+`lull-ext doctor` prints this exact list and marks which items actually block you.
+
+**Required**
+
+| Need | Why |
+| --- | --- |
+| Node.js >= 20 | compiles the SDK with tsc and runs this CLI |
+| A built SDK (`lull-ext sdk build`, default `~/.lull-skill/sdk`) | `vendor` / `new` copy from it; `validate` and `pack` work against it |
+| A shell with write access to the project directory | the CLI scaffolds files, copies `vendor/`, writes zips |
+
+The SDK comes from **one** of: a local Lull checkout (`--from <dir>`, offline), a sparse clone of
+GitHub (plain `sdk build`, needs git + network), or a directory built elsewhere (`--sdk <dir>` /
+`LULL_SDK_DIR`).
+
+**Optional / conditional**
+
+| Need | When |
+| --- | --- |
+| git | clone the SDK, or read the local HEAD sha |
+| npm | first `sdk build` only (installs `typescript` inside the package) |
+| network | `npx skills add`, `npm install`, `git clone` |
+| Lull desktop app (Windows) | install and verify on a real machine |
+| Vite / esbuild | TypeScript, React or Vue projects (templates are zero-build) |
+
+**Not needed**: Rust / Tauri toolchain, `pnpm`, or the app's own build dependencies (Next.js).
+Extensions are static web packages and never build the host.
 
 ## 1. Install (generic Agent Skills standard)
 
@@ -103,7 +132,7 @@ The installed layout matches the spec exactly - no extra marker files:
 
 | Command | Purpose |
 | --- | --- |
-| `doctor` | health check: node / git / npm / cache / SDK artefacts / skill install location / repo detection |
+| `doctor` | prerequisites check, split into required (node, built SDK) and optional (repo, git, npm, Lull app, skill install location); `--json` reports `ok` over required items only |
 | `sdk build` | fetch `packages/` and compile `@lull/widget-sdk`, `@lull/scene-sdk` |
 | `sdk info` | print the last build manifest (source commit, versions, dist digests) |
 | `new widget <dir>` | scaffold a tool extension |

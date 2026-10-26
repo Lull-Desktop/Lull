@@ -6,7 +6,7 @@
  *   exit code 0 = success, 1 = failure (validation / network / bad target directory), 2 = usage error.
  */
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { writeContentIntegrity } from "./digest.mjs";
@@ -115,13 +115,48 @@ function requirePositional(positional, index, name) {
 
 function commandDoctor(flags) {
   const checks = [];
-  const add = (name, ok, detail, hint) => checks.push({ name, ok, detail, ...(hint ? { hint } : {}) });
+  const add = (name, ok, detail, hint, required) =>
+    checks.push({ name, ok, detail, required: Boolean(required), ...(hint ? { hint } : {}) });
 
+  /* ---------------------------------------------------------- required ---- */
   const major = Number(process.versions.node.split(".")[0]);
-  add("node", major >= 20, `${process.version} · ${process.platform}/${process.arch}`, major >= 20 ? undefined : "Compiling the SDK requires Node >= 20");
+  add(
+    "node",
+    major >= 20,
+    `${process.version} · ${process.platform}/${process.arch}`,
+    major >= 20 ? undefined : "Install Node >= 20: the SDK compile and this CLI both need it",
+    true,
+  );
+
+  const cache = cacheRoot();
+  const sdkOut = resolve(String(flags.sdk ?? join(cache, "sdk")));
+  const manifestPath = join(sdkOut, "sdk-manifest.json");
+  if (isFile(manifestPath)) {
+    const manifest = readJson(manifestPath);
+    const pkgs = manifest.packages.map((item) => `${item.name}@${item.version}`).join(", ");
+    add("sdk", true, `${pkgs} · ${new Date(manifest.builtAt).toLocaleString()}`, sdkOut, true);
+  } else {
+    add("sdk", false, "not built yet", `Run lull-ext sdk build --from <repo> (writes to ${sdkOut})`, true);
+  }
+
+  /* ---------------------------------------------------------- optional ---- */
+  const cwdRepo = isFile(join(process.cwd(), "packages", "widget-sdk", "package.json"));
+  add(
+    "repo",
+    cwdRepo,
+    cwdRepo ? `current directory is the Lull repo: ${process.cwd()}` : "current directory is not the Lull repo",
+    cwdRepo ? "You can run lull-ext sdk build --from ." : "Use --from <checkout>, or let sdk build clone GitHub",
+    false,
+  );
 
   const git = hasGit();
-  add("git", git, git ? "available" : "not found", git ? undefined : "Without git you can only use --from <local checkout>");
+  add(
+    "git",
+    git,
+    git ? "available" : "not found",
+    git ? undefined : "Only needed to clone the SDK; --from <local checkout> works without it",
+    false,
+  );
 
   let npm = null;
   try {
@@ -129,19 +164,39 @@ function commandDoctor(flags) {
   } catch {
     npm = null;
   }
-  add("npm", Boolean(npm), npm ?? "not found", npm ? undefined : "The first SDK build needs npm to install typescript");
+  add(
+    "npm",
+    Boolean(npm),
+    npm ?? "not found",
+    npm ? undefined : "Only needed once, to install typescript for the first SDK build",
+    false,
+  );
 
-  const cache = cacheRoot();
-  add("cache", true, cache, existsSync(cache) ? "exists" : "created on first run");
-
-  const sdkOut = resolve(String(flags.sdk ?? join(cache, "sdk")));
-  const manifestPath = join(sdkOut, "sdk-manifest.json");
-  if (isFile(manifestPath)) {
-    const manifest = readJson(manifestPath);
-    const pkgs = manifest.packages.map((item) => `${item.name}@${item.version}`).join(", ");
-    add("sdk", true, `${pkgs} · ${new Date(manifest.builtAt).toLocaleString()}`, sdkOut);
+  // Lull desktop app: needed to install and verify on a real machine, not to build.
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA ?? "";
+    const root = appData ? join(appData, "app.lull.desktop") : "";
+    const widgets = process.env.LULL_WIDGETS_DIR || (root ? join(root, "widgets") : "");
+    const found = Boolean(root) && existsSync(root);
+    let count = 0;
+    if (found && widgets) {
+      try {
+        count = readdirSync(widgets, { withFileTypes: true }).filter((item) => item.isDirectory()).length;
+      } catch {
+        count = 0;
+      }
+    }
+    add(
+      "host",
+      found,
+      found ? `Lull app data found (${count} installed widget package(s))` : "Lull desktop app not detected",
+      found
+        ? root
+        : "Only needed to install and verify extensions on a real machine; build/validate work without it",
+      false,
+    );
   } else {
-    add("sdk", false, "not built yet", `Run lull-ext sdk build --out "${sdkOut}"`);
+    add("host", true, "not applicable (Lull ships on Windows only)", "Real-device verification needs the Lull desktop app", false);
   }
 
   // Is the skill installed into any agent's standard skill directory (Agent Skills spec; the skills CLI owns installs)
@@ -151,29 +206,37 @@ function commandDoctor(flags) {
     join(homedir(), ".claude", "skills", SKILL_NAME),
     join(homedir(), ".agents", "skills", SKILL_NAME),
   ].find((dir) => isFile(join(dir, "SKILL.md")));
-  if (installed) {
-    add("skill", true, installed);
-  } else {
-    add("skill", false, "not found in the standard locations", "npx skills add Lull-Desktop/Lull --skill lull-extension -y");
-  }
-
-  const cwdRepo = isFile(join(process.cwd(), "packages", "widget-sdk", "package.json"));
   add(
-    "repo",
-    cwdRepo,
-    cwdRepo ? `current directory is the Lull repo: ${process.cwd()}` : "current directory is not the Lull repo",
-    cwdRepo ? "You can run lull-ext sdk build --from ." : undefined,
+    "skill",
+    Boolean(installed),
+    installed ?? "not in the standard agent skill directories",
+    installed ? undefined : "npx skills add Lull-Desktop/Lull --skill lull-extension -y",
+    false,
   );
 
+  const required = checks.filter((item) => item.required);
+  const optional = checks.filter((item) => !item.required);
+  const ok = required.every((item) => item.ok);
+
   if (flags.json) {
-    log.raw(JSON.stringify({ version: VERSION, ok: checks.every((item) => item.ok), checks }, null, 2));
+    log.raw(JSON.stringify({ version: VERSION, ok, required, optional, checks }, null, 2));
     return checks;
   }
-  for (const item of checks) {
-    const tag = item.ok ? paint.green("[ok]  ") : paint.yellow("[warn]");
+
+  const render = (item) => {
+    const tag = item.ok ? paint.green("[ok]  ") : item.required ? paint.red("[fail]") : paint.yellow("[warn]");
     log.raw(`${tag} ${item.name.padEnd(6)} ${item.detail}`);
     if (item.hint) log.raw(`       ${paint.dim(item.hint)}`);
-  }
+  };
+
+  log.raw(paint.bold("Required"));
+  required.forEach(render);
+  log.raw(paint.bold("Optional"));
+  optional.forEach(render);
+  const passed = required.filter((item) => item.ok).length;
+  log.raw("");
+  log.raw(`prerequisites: ${passed}/${required.length} required, ${optional.filter((item) => item.ok).length}/${optional.length} optional available`);
+  if (!ok) log.next("Missing a required prerequisite: fix the [fail] line above before building extensions");
   return checks;
 }
 

@@ -2,7 +2,7 @@
 name: lull-extension
 description: "Builds extensions for the Lull desktop app: tool widgets (@lull/widget-sdk, sandboxed iframe + postMessage bridge) and wallpaper scene content packages (@lull/scene-sdk, static or script scenes). Covers the whole chain: fetch and compile the latest SDK from packages/ on GitHub, scaffold per the extension standard, validate the manifest and artefacts offline, and pack an installable zip; the skill itself follows the Agent Skills spec and installs into multiple agents with the generic skills CLI. Use when the user wants a Lull plugin / tool window / wallpaper / scene / content package, needs to compile or update widget-sdk / scene-sdk, is debugging why an extension will not install, is rejected by the host, shows a white screen, loses state, ignores parameter changes, or needs the extension packed as a zip."
 license: GPL-3.0-or-later
-compatibility: "Node >= 20; git and npm optional (only for remote fetches and the first SDK build); Windows, macOS, Linux."
+compatibility: "Requires Node.js >= 20 plus a built SDK (lull-ext sdk build); the SDK source comes from a local Lull checkout or from GitHub over the network. git and npm optional. The Lull desktop app is only needed to verify extensions on a real machine. No Rust, Tauri or pnpm required."
 metadata:
   version: "0.1.0"
   argument-hint: "sdk build | new widget <dir> | new scene <dir> | vendor <dir> | validate <dir> | pack <dir>"
@@ -34,15 +34,45 @@ Do not use it: editing the Lull app itself (that is `src/` / `src-tauri/`), writ
 tools (they use the compile-time contract in `src/sdk/widget`), or building third-party
 websites. Those do not follow this standard and forcing it produces wrong conclusions.
 
-## Environment
+## Prerequisites
 
-- Node >= 20 (required both to compile the SDK and to run this CLI).
-- git optional: only for "fetch the SDK from GitHub"; in-repo work with `--from .` is fully offline.
-- npm optional: used to install `typescript` when the SDK package has no `node_modules`.
-- Windows notes: quote paths or use forward slashes; package paths must always be
-  **forward-slash relative paths**.
+`lull-ext doctor` prints exactly this list, split into what blocks you and what is optional.
+Required items come first; optional ones never stop you from building.
 
-### How to invoke the CLI
+**Required**
+
+| Need | Why |
+| --- | --- |
+| Node.js >= 20 | compiles the SDK with tsc and runs this CLI |
+| A built SDK under `~/.lull-skill/sdk` | `vendor` and `new` copy from it; `validate` checks the package against it |
+| Shell with write access to the working directory | the CLI scaffolds files, copies `vendor/`, writes zips |
+
+Getting the SDK needs **one** of:
+
+- a local Lull checkout -> `sdk build --from <dir>` (offline, matches the local code);
+- network access to github.com -> plain `sdk build` (sparse clone, needs git);
+- an SDK directory produced elsewhere -> `--sdk <dir>` (or `LULL_SDK_DIR`).
+
+**Optional / conditional**
+
+| Need | When |
+| --- | --- |
+| git | only to clone the SDK or read the local HEAD sha |
+| npm | only on the first `sdk build` (installs `typescript` inside the package) |
+| network | `npx skills add`, `npm install`, `git clone` |
+| Lull desktop app (Windows) | only to install and verify an extension on a real machine |
+| Vite / esbuild | only if you want TypeScript, React or Vue; the templates are zero-build |
+
+**Not needed**
+
+- Rust / Tauri toolchain, `pnpm`, or the app's own build dependencies (Next.js). Extensions are
+  static web packages; nothing here builds the host.
+- The Lull repo itself, unless you want `--from` or expect `doctor`'s repo hint to be green.
+
+Windows notes: quote paths or use forward slashes; every package path must be a
+**forward-slash relative path** (zip entries, `entry`, digest paths).
+
+## Invoking the CLI
 
 Below, `lull-ext` means any of these equivalent forms - pick what matches the environment
 (**an installed skill has no global command**):

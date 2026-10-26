@@ -11,9 +11,24 @@
     "scene (wallpaper content package, @lull/scene-sdk)"
   ],
   "requires": {
-    "node": ">=20",
-    "git": "optional (only needed to fetch the SDK remotely)",
-    "npm": "optional (needed once to install typescript for the first SDK build)"
+    "required": {
+      "node": ">=20 (compiles the SDK and runs the CLI)",
+      "sdk": "built SDK in ~/.lull-skill/sdk, produced by `lull-ext sdk build` (or point --sdk/LULL_SDK_DIR at one)",
+      "shell": "write access to the project directory (scaffolds files, copies vendor/, writes zips)"
+    },
+    "conditional": {
+      "sdkSource": "one of: a local Lull checkout for --from, network + git to clone packages/, or a prebuilt SDK directory",
+      "git": "only to clone the SDK or read the local HEAD sha",
+      "npm": "only on the first SDK build, to install typescript",
+      "lullApp": "Windows desktop app, only to install and verify on a real machine",
+      "bundler": "Vite / esbuild, only for TypeScript, React or Vue projects"
+    },
+    "notRequired": [
+      "rust",
+      "tauri-cli",
+      "pnpm",
+      "next.js toolchain"
+    ]
   },
   "install": {
     "skills-cli": "npx skills add Lull-Desktop/Lull --skill lull-extension -y",
