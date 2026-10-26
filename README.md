@@ -311,7 +311,7 @@ pnpm release:package      # → artifacts/release/
 
 推 `v*` tag 会触发 `.github/workflows/release.yml`：在 windows-latest 上跑 `tauri build`，再把 `Lull_<version>_x64_en-US.msi`、`Lull_<version>_x64-setup.exe`、`Lull_<version>_x64-portable.zip` 和 `SHA256SUMS.txt` 发到 GitHub Release。手动触发（Actions → Release → Run workflow）默认只留 artifact，勾 `publish` 才建 Release；tag 必须与 `src-tauri/tauri.conf.json` 的 `version` 一致，否则工作流在编译前就失败。
 
-### 做扩展
+### 自定义扩展的方式
 
 #### 使用 Skill（Beta）开发组件和场景
 
