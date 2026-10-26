@@ -313,13 +313,22 @@ pnpm release:package      # → artifacts/release/
 
 ### 做扩展
 
-#### 新增一个官方内置场景
+#### 使用 Skill（Beta）开发组件和场景
 
-1. 在 `src/scenes/<id>/index.tsx` 实现一个接收 `SceneProps` 的组件。
-2. 在 `src/scenes/registry.ts` 增加 `parseSceneManifest(...)` 与 `BuiltinScene` 条目。
-3. 运行 `pnpm test`；设置页与壁纸宿主会自动读取新清单。
+[`Skill/lull-extension`](Skill/lull-extension) 把这一节的操作固化成可执行的东西：一份 `SKILL.md`（判定 widget / scene、工作流、硬约束）、一组 `lull-ext` 命令、以及清单字段与摘要规则的标准文本。它遵循 Agent Skills 规范，可以装进支持该规范的代理，也可以不装、直接当命令行工具用。
 
-#### 新增一个外部场景包
+```bash
+npx skills add Lull-Desktop/Lull --skill lull-extension -y   # 装进代理；或直接 node Skill/lull-extension/bin/lull-ext.mjs
+
+lull-ext sdk build --from .                                  # 编译当前代码对应的 @lull/*-sdk
+lull-ext new widget ./my-tool --id my-tool --name "我的工具"    # 生成骨架 + vendor
+lull-ext validate ./my-tool --strict                         # 按宿主规则离线校验
+lull-ext pack ./my-tool --out ./artifacts                    # 产出可安装 zip
+```
+
+`new` 会把 SDK 副本放进包内 `vendor/`；`validate` 校验清单、产物与沙箱约束，报错码对应宿主 Rust 侧的拒绝理由；`pack` 产出可直接安装的 zip，内容包会先重算 `integrity`。壁纸场景把 `new widget` 换成 `new scene`（加 `--static` 生成静态包）。前提、命令清单与限制见 [Skill](docs/extension-skill.md) 与 [`Skill/lull-extension/README.md`](Skill/lull-extension/README.md)。
+
+#### 新建自定义场景包
 
 静态包只要一个 `catalog.json` 加一个 HTML 入口：
 
@@ -351,7 +360,7 @@ pnpm scenes:sdk
 
 设置页会按 Manifest 的 `params` 自动渲染控件，改值后热更壁纸 URL 哈希，再由 `scene.onFrame((frame) => ...)` 把 `frame.params` 送到场景，不用重启壁纸。可以直接安装的示例有两个：[`examples/content/param-demo`](examples/content/param-demo)（参数演示）和 [`examples/content/three-scene`](examples/content/three-scene)（Three.js WebGL）。
 
-#### 写一个 Widget 插件
+#### 自定义Widget插件
 
 静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV，支持自绘窗口顶栏和透明背景，提供原生 / React / Vue 三个示例。包格式、能力声明与 SDK 接入见 [Widget SDK](docs/widget-sdk.md)，示例在 [`examples/widgets`](examples/widgets)。
 
