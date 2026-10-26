@@ -304,6 +304,27 @@ p {
   background: rgba(159, 191, 150, 0.1);
 }
 
+/* 站外条目（社区）：箭头提示会离开本站，悬停时跟着上浮一点 */
+.site-nav a[data-external] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.site-nav__external {
+  font-size: 0.78em;
+  line-height: 1;
+  color: var(--faint);
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.site-nav a[data-external]:hover .site-nav__external {
+  color: var(--green-bright);
+  transform: translate(1px, -1px);
+}
+
 .header-gh {
   display: inline-flex;
   align-items: center;
@@ -327,14 +348,41 @@ p {
 }
 
 @media (max-width: 720px) {
+  .site-header__inner {
+    gap: 10px;
+  }
+  /* 窄屏导航一行排开：不换行、放不下就横向滚动（换行会把「功能」拆成两行） */
   .site-nav {
+    gap: 2px;
     margin-left: 0;
+    flex-wrap: nowrap;
     overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .site-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .site-nav a {
+    padding: 8px;
+    font-size: 0.86rem;
+    white-space: nowrap;
   }
   .header-gh {
     margin-left: auto;
+    padding: 8px;
+  }
+  /* 只留图标：文字标签让给导航，仓库入口靠页面底部的「参与」列兜底 */
+  .header-gh span {
+    display: none;
   }
   .brand__cn {
+    display: none;
+  }
+}
+
+/* 更窄的机器（≤380px）连英文品牌也放不下，只留图标 */
+@media (max-width: 380px) {
+  .wordmark {
     display: none;
   }
 }

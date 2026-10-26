@@ -27,6 +27,12 @@ export const releasesUrl = `${repoUrl}/releases`;
 export const issuesUrl = `${repoUrl}/issues`;
 
 /**
+ * 社区站点（独立的 GitHub Pages 项目页，不在本站 base 下）。
+ * 外链不能过 `page()`，否则会被拼成 `/Lull/https://...`。
+ */
+export const communityUrl = "https://lull-desktop.github.io/Lull-Community/";
+
+/**
  * 文档分组顺序。
  *
  * 和 README 的章节归属对齐：先用（开始使用）→ 再懂（架构与运行时）→ 再做扩展
@@ -72,7 +78,9 @@ export const siteMeta = {
 } as const;
 
 export const navItems = [
-  { href: page("/features/"), label: "功能" },
-  { href: page("/docs/"), label: "文档" },
-  { href: page("/download/"), label: "下载" },
+  { href: page("/features/"), label: "功能", external: false },
+  { href: page("/docs/"), label: "文档", external: false },
+  { href: page("/download/"), label: "下载", external: false },
+  // 站外页面：顶栏里排在下载之后，新标签页打开
+  { href: communityUrl, label: "社区", external: true },
 ] as const;
