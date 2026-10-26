@@ -258,7 +258,7 @@ src-tauri/
   capabilities/            # Tauri 权限（壁纸窗口刻意不在授权列表内）
 public/content/            # 随包分发的内容目录与外部场景示例
 content/schema/            # JSON Schema
-docs/                      # 架构、SDK、扩展开发技能、内容格式、原生宿主、贡献指南
+docs/                      # 架构、SDK、Skill、内容格式、原生宿主、贡献指南
 website/                   # Astro 官网（独立 pnpm 项目，CI 发布到 GitHub Pages）
 scripts/                   # 构建、内容校验、预览、验收编排
 ```
@@ -395,7 +395,7 @@ pnpm scenes:sdk
 | 架构与模块边界 | [docs/architecture.md](docs/architecture.md)                                           |
 | 场景开发    | [Scene SDK](docs/scene-sdk.md) · [`@lull/scene-sdk`](packages/scene-sdk/README.md)     |
 | 插件开发    | [Widget SDK](docs/widget-sdk.md) · [`@lull/widget-sdk`](packages/widget-sdk/README.md) |
-| 扩展开发技能  | [docs/extension-skill.md](docs/extension-skill.md) · [`Skill/lull-extension`](Skill/lull-extension/README.md) |
+| Skill  | [docs/extension-skill.md](docs/extension-skill.md) · [`Skill/lull-extension`](Skill/lull-extension/README.md) |
 | 内容包格式   | [docs/content-format.md](docs/content-format.md)                                       |
 | 扩展中心    | [设计](docs/extension-center.md) · [实施计划](docs/extension-center-plan.md)                 |
 | 原生桌面宿主  | [docs/native-host.md](docs/native-host.md)                                             |

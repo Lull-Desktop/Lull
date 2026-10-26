@@ -1,5 +1,5 @@
 ---
-title: 扩展开发技能
+title: Skill(Beta)
 description: 用一个可被 AI 代理加载的技能，把拉取 SDK、生成骨架、离线校验与打包固化成命令。
 order: 5
 group: 扩展开发
@@ -14,7 +14,7 @@ source: docs/extension-skill.md
 扩展开发有一整套硬性标准——清单字段、能力白名单、iframe 沙箱约束、内容包摘要算法。
 从空目录手写清单、装进宿主才发现被拒绝，是最常见的返工来源。
 
-「扩展开发技能」把这条链路固化成可执行的东西，放在仓库的
+「Skill」把这条链路固化成可执行的东西，放在仓库的
 [`Skill/lull-extension`](https://github.com/Lull-Desktop/Lull/tree/master/Skill/lull-extension)：
 
 | 组成 | 内容 |
@@ -26,6 +26,21 @@ source: docs/extension-skill.md
 
 它遵循 [Agent Skills 规范](https://agentskills.io/specification)（一个含 `SKILL.md` 的目录），
 所以任何支持该规范的代理都能加载；同一份目录也是 npm 包 `lull-extension-skill`（命令 `lull-ext`）。
+
+## 使用前提
+
+`lull-ext doctor` 会把下面这份清单打出来，并区分「必需」与「可选」：
+
+| 类别 | 项 | 说明 |
+| --- | --- | --- |
+| 必需 | Node.js ≥ 20 | 编译 SDK（tsc）与运行 CLI |
+| 必需 | 已编译的 SDK | `sdk build` 产出，默认在 `~/.lull-skill/sdk`；`vendor` / `new` 从这里复制 |
+| 必需 | 可写的项目目录 + shell | CLI 要生成文件、复制 `vendor/`、写 zip |
+| 条件 | 本地 Lull 仓库 **或** 能访问 github.com | `--from .` 离线编译；不带 `--from` 时用 git 稀疏克隆 |
+| 可选 | git / npm | git 用于克隆与读 HEAD；npm 只在首次编译时装 `typescript` |
+| 可选 | Lull 桌面应用（Windows） | 只在真机安装与验收时需要 |
+| 可选 | Vite / esbuild | 想用 TypeScript / React / Vue 时；模板本身零构建 |
+| 不需要 | Rust、Tauri CLI、pnpm、Next.js 工具链 | 扩展是静态 Web 包，不构建宿主 |
 
 ## 如何使用
 
