@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>__NAME__</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app" data-state="connecting">
+      <header class="bar" data-drag-region>
+        <span class="mark" aria-hidden="true"></span>
+        <h1 class="title">__NAME__</h1>
+        <span class="conn" id="conn" role="status">Connecting</span>
+        <div class="win" id="win-actions" hidden>
+          <button type="button" class="win-btn" id="win-min" aria-label="Minimize" title="Minimize">
+            –
+          </button>
+          <button type="button" class="win-btn" id="win-close" aria-label="Close" title="Close">
+            ×
+          </button>
+        </div>
+      </header>
+
+      <section class="panel">
+        <p class="hint" id="hint">Connecting to the Lull host...</p>
+
+        <!-- Domain area: replace the sample below, keep the .value / .actions structure. -->
+        <output class="value" id="value" aria-live="polite">0</output>
+        <div class="actions">
+          <button type="button" class="btn" id="dec" aria-label="Decrease by one">-</button>
+          <button type="button" class="btn btn--primary" id="inc">Log one</button>
+          <button type="button" class="btn" id="reset">Reset</button>
+        </div>
+        <p class="meta" id="meta"></p>
+      </section>
+
+      <footer class="foot">
+        <span id="viewport" class="mono"></span>
+        <span id="cap" class="mono"></span>
+      </footer>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

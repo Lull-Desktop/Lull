@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>__NAME__</title>
+    <style>
+      /* Fill the iframe: 100% in viewport mode; in span mode the host crops from the canvas. */
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: __BG__;
+      }
+      .layer {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          60% 55% at 50% 45%,
+          var(--tint, __ACCENT__) 0%,
+          transparent 70%
+        );
+        opacity: var(--glow, 0.45);
+        filter: blur(var(--soft, 40px));
+        transform: scale(1.1);
+        animation: drift var(--period, 12s) ease-in-out infinite alternate;
+        animation-delay: var(--sync-delay, 0ms);
+      }
+      .grain {
+        position: absolute;
+        inset: 0;
+        opacity: 0.06;
+        background-image: repeating-linear-gradient(
+          115deg,
+          #fff 0 1px,
+          transparent 1px 3px
+        );
+        mix-blend-mode: overlay;
+        pointer-events: none;
+      }
+      @keyframes drift {
+        from {
+          transform: scale(1.05) translate3d(-2%, 1%, 0);
+        }
+        to {
+          transform: scale(1.16) translate3d(2%, -1%, 0);
+        }
+      }
+      /* Degrade in CSS as well: stop animation when the user asks for reduced motion. */
+      @media (prefers-reduced-motion: reduce) {
+        .layer {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layer"></div>
+    <div class="grain"></div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

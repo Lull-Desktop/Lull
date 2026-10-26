@@ -1,0 +1,31 @@
+{
+  "name": "lull-extension",
+  "displayName": "Lull extension development (tool widgets / wallpaper scenes)",
+  "version": "0.1.0",
+  "entry": "SKILL.md",
+  "kind": "development",
+  "bin": "lull-ext",
+  "homepage": "https://github.com/Lull-Desktop/Lull",
+  "targets": [
+    "widget (tool window plugin, @lull/widget-sdk)",
+    "scene (wallpaper content package, @lull/scene-sdk)"
+  ],
+  "requires": {
+    "node": ">=20",
+    "git": "optional (only needed to fetch the SDK remotely)",
+    "npm": "optional (needed once to install typescript for the first SDK build)"
+  },
+  "install": {
+    "skills-cli": "npx skills add Lull-Desktop/Lull --skill lull-extension -y",
+    "skills-cli-all": "npx skills add Lull-Desktop/Lull --skill lull-extension --all -g -y",
+    "skills-cli-local": "npx skills add ./ --skill lull-extension --copy -y -a claude-code",
+    "manual": "cp -r Skill/lull-extension .agents/skills/"
+  },
+  "spec": "https://agentskills.io/specification",
+  "produces": [
+    "SDK build artefacts (dist + .d.ts + sdk-manifest.json)",
+    "extension skeleton project",
+    "<id>-<version>.lull-widget.zip",
+    "<id>-<version>.zip (content package)"
+  ]
+}

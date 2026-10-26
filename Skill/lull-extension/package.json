@@ -1,0 +1,37 @@
+{
+  "name": "lull-extension-skill",
+  "version": "0.1.0",
+  "description": "Lull extension development skill: fetch and compile @lull/widget-sdk / @lull/scene-sdk from packages/, scaffold and validate wallpaper scenes and tool widgets against the extension standard, pack installable zips, and install as an Agent Skill.",
+  "keywords": [
+    "lull",
+    "skill",
+    "agent-skill",
+    "widget",
+    "wallpaper",
+    "scene",
+    "sdk"
+  ],
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "bin": {
+    "lull-ext": "bin/lull-ext.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "templates",
+    "references",
+    "SKILL.md",
+    "README.md",
+    "skill.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "smoke": "node scripts/self-test.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
