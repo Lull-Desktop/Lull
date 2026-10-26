@@ -309,13 +309,11 @@ pnpm build
 pnpm release:package      # → artifacts/release/
 ```
 
-推 `v*` tag 会触发 `.github/workflows/release.yml`：在 windows-latest 上跑 `tauri build`，再把 `Lull_<version>_x64_en-US.msi`、`Lull_<version>_x64-setup.exe`、`Lull_<version>_x64-portable.zip` 和 `SHA256SUMS.txt` 发到 GitHub Release。手动触发（Actions → Release → Run workflow）默认只留 artifact，勾 `publish` 才建 Release；tag 必须与 `src-tauri/tauri.conf.json` 的 `version` 一致，否则工作流在编译前就失败。
-
 ### 自定义扩展的方式
 
 #### 使用 Skill（Beta）开发组件和场景
 
-[`Skill/lull-extension`](Skill/lull-extension) 把这一节的操作固化成可执行的东西：一份 `SKILL.md`（判定 widget / scene、工作流、硬约束）、一组 `lull-ext` 命令、以及清单字段与摘要规则的标准文本。它遵循 Agent Skills 规范，可以装进支持该规范的代理，也可以不装、直接当命令行工具用。
+[`Skill/lull-extension`](Skill/lull-extension) ：是一份用于开发组件和场景的技能包，帮助你使用AI智能体完成自定义拓展开发。
 
 ```bash
 npx skills add Lull-Desktop/Lull --skill lull-extension -y   # 装进代理；或直接 node Skill/lull-extension/bin/lull-ext.mjs
@@ -325,8 +323,7 @@ lull-ext new widget ./my-tool --id my-tool --name "我的工具"    # 生成骨�
 lull-ext validate ./my-tool --strict                         # 按宿主规则离线校验
 lull-ext pack ./my-tool --out ./artifacts                    # 产出可安装 zip
 ```
-
-`new` 会把 SDK 副本放进包内 `vendor/`；`validate` 校验清单、产物与沙箱约束，报错码对应宿主 Rust 侧的拒绝理由；`pack` 产出可直接安装的 zip，内容包会先重算 `integrity`。壁纸场景把 `new widget` 换成 `new scene`（加 `--static` 生成静态包）。前提、命令清单与限制见 [Skill](docs/extension-skill.md) 与 [`Skill/lull-extension/README.md`](Skill/lull-extension/README.md)。
+详见[`Skill/lull-extension/README.md`](Skill/lull-extension/README.md)。
 
 #### 新建自定义场景包
 
@@ -417,12 +414,11 @@ pnpm scenes:sdk
 
 下面这些都是有意为之的边界，不是待修的 bug：
 
-- 只支持 Windows。依赖 Win32 的 `WorkerW` / `Progman` 桌面层，没有跨平台回退。
-- 没有在线服务。没有账号、云同步和在线市场，断网不影响壁纸、声景和番茄钟。
+- 只支持 Windows。
 - 安装是本地行为。只接受单场景包，包必须声明整包摘要，同 id 覆盖也算本地手动更新；第三方签名、在线更新和回滚都还没做。
 - 扩展不是通用插件系统。静态包不执行脚本，脚本包只能通过 Scene SDK 桥读帧，两者都拿不到宿主 DOM、原生调用和 IPC。
 - 接口还在 0.x。`@lull/widget-sdk`（`0.2.0`）和 `@lull/scene-sdk`（`0.1.0`）随仓库构建，还没发到 npm，不承诺跨版本兼容，见[扩展接口的成熟度](#扩展接口的成熟度)。
-- 发布流程还没完备。原生挂载动的是系统桌面层级，失败恢复、真机验收和日志都算产品的一部分（见[原生宿主说明](docs/native-host.md)）；安装包还没做代码签名，公开分发前要补签名和素材授权复核。
+- 发布流程还没完备。安装包还没做代码签名，公开分发前要补签名和素材授权复核。
 
 ## 许可证与归属
 
