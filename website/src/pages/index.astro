@@ -1,6 +1,12 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { page, asset, repoUrl } from "../lib/site";
+import CtaBanner from "../components/site/CtaBanner";
+import FeatureCards from "../components/site/FeatureCards";
+import HomeHero from "../components/site/HomeHero";
+import HomePrivacy from "../components/site/HomePrivacy";
+import SceneGallery from "../components/site/SceneGallery";
+import { container, section } from "../components/ui/layout";
+import { page, repoUrl } from "../lib/site";
 import { release } from "../lib/release";
 
 const scenes = [
@@ -15,185 +21,70 @@ const features = [
     title: "动态壁纸",
     body: "竹影、暮色、极光三个官方场景。每台显示器一个壁纸窗口，支持复制 / 独立 / 跨屏三种模式与跨屏同步动画。",
     tag: "Core · Win32 桌面层",
-    icon: "layers",
+    icon: "layers" as const,
   },
   {
     title: "五层声景",
     body: "雨、雷、风、海浪、篝火各自独立混音，主音量、静音与助眠定时互不干扰，关掉哪一层都不会塌。",
     tag: "白噪音",
-    icon: "wave",
+    icon: "wave" as const,
   },
   {
     title: "番茄钟",
     body: "液态时间沙漏，专注 / 短休 / 长休节奏可调，偏好自动保存，下次打开接着走。",
     tag: "专注",
-    icon: "hourglass",
+    icon: "hourglass" as const,
   },
   {
     title: "播放器",
     body: "液态黑胶浮窗，在线氛围声与本地曲目共用一套播放控制，不抢焦点、不挡视线。",
     tag: "音频",
-    icon: "disc",
+    icon: "disc" as const,
   },
   {
     title: "托盘常驻",
     body: "关闭窗口只是隐藏，只有托盘「退出」才结束进程；托盘「扩展」子菜单直接打开已启用的工具扩展。",
     tag: "窗口",
-    icon: "tray",
+    icon: "tray" as const,
   },
   {
     title: "可扩展内容",
     body: "外部场景包通过 catalog.json 被发现，支持静态 HTML/CSS 与沙箱脚本场景；zip 拖入安装，装前复核清单与整包摘要。",
     tag: "Extensions",
-    icon: "puzzle",
+    icon: "puzzle" as const,
   },
 ];
-
-const icons: Record<string, string> = {
-  layers: "M12 3 3 8l9 5 9-5-9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5",
-  wave: "M2 12c2.5 0 2.5-5 5-5s2.5 5 5 5 2.5-5 5-5 2.5 5 5 5",
-  hourglass: "M7 3h10M7 21h10M8 3v3.5l4 4 4-4V3M8 21v-3.5l4-4 4 4V21",
-  disc: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
-  tray: "M3 13h4l1 2h8l1-2h4M6 4h12l3 9v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4l3-9Z",
-  puzzle:
-    "M10 3v2a2 2 0 1 0 4 0V3h4v4h-2a2 2 0 1 0 0 4h2v4h-4v-2a2 2 0 1 0-4 0v2H6v-4h2a2 2 0 1 0 0-4H6V3h4Z",
-};
 ---
 
 <BaseLayout>
-  <section class="hero">
-    <div class="container hero__grid">
-      <div class="hero__copy">
-        <p class="eyebrow">开源 · Windows · 本地优先</p>
-        <h1 class="hero__title">
-          云栖之处<br />安然入眠
-        </h1>
-        <p class="hero__quote">一款开源的助眠与专注桌面应用。</p>
-        <p class="lead">
-          竹影、暮色、极光，在桌面上缓缓流动；雨、风、海浪、篝火、远雷，在耳边轻轻起伏。
-        </p>
-        <div class="btn-row hero__actions">
-          <a class="btn" href={page("/download/")}>
-            下载 Lull
-            <span aria-hidden="true">→</span>
-          </a>
-          <a class="btn btn--ghost" href={page("/features/")}>看看功能</a>
-        </div>
-        <div class="hero__meta">
-          <span class="chip chip--green">v{release.version}</span>
-          <span class="chip">Tauri</span>
-          <span class="chip">Web</span>
-        </div>
-      </div>
+  {/* 首屏：SplitText 逐字升起标题，唯一用 client:load 的岛 */}
+  <HomeHero version={release.version} client:load />
 
-      <div class="preview">
-        <div class="preview__frame">
-          <img
-            src={asset("images/scene-bamboo.jpg")}
-            alt="Lull 竹影壁纸在桌面上的实际效果"
-            width="1440"
-            height="810"
-            fetchpriority="high"
-          />
-        </div>
-        <div class="preview__caption">
-          <span>竹影 · 官方内置场景</span>
-          <span>桌面实机 · 16:9</span>
-        </div>
-      </div>
-    </div>
-  </section>
+  <SceneGallery scenes={scenes} client:visible />
 
-  <section class="section--tight">
-    <div class="container">
-      <div class="gallery">
-        {scenes.map((scene) => (
-          <a class="shot" href={page("/features/")}>
-            <img
-              src={asset(`images/${scene.file}`)}
-              alt={scene.alt}
-              width="1440"
-              height="900"
-              loading="lazy"
-              decoding="async"
-            />
-            <span class="shot__label">
-              {scene.name}
-              <span>{scene.note}</span>
-            </span>
-          </a>
-        ))}
-      </div>
-    </div>
-  </section>
-
-  <section class="section">
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">All in one place</p>
-        <h2>桌面上的一整套安静</h2>
-        <p class="muted">
+  <section class={section}>
+    <div class={container}>
+      <div class="mb-[clamp(32px,4vw,52px)] max-w-[60ch]">
+        <p class="mb-[18px] text-eyebrow font-medium uppercase tracking-[0.32em] text-green">All in one place</p>
+        <h2 class="mb-2.5 text-h2 leading-[1.25] text-mist">桌面上的一整套安静</h2>
+        <p class="text-muted">
           壁纸、声景、计时、播放器不是四个 App，而是同一个窗口体系里的四层。关掉任何一个都不影响其他继续工作。
         </p>
       </div>
-
-      <div class="grid-3">
-        {features.map((feature) => (
-          <article class="card">
-            <h3>
-              <svg class="card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d={icons[feature.icon]} />
-              </svg>
-              {feature.title}
-            </h3>
-            <p>{feature.body}</p>
-            <span class="card__tag">{feature.tag}</span>
-          </article>
-        ))}
-      </div>
+      <FeatureCards items={features} client:visible />
     </div>
   </section>
 
-  <section class="section--tight">
-    <div class="container">
-      <div class="cta">
-        <div>
-          <p class="eyebrow">Open source</p>
-          <h2>场景可以用 HTML + CSS 写</h2>
-          <p>
-            Lull 的桌面运行时、场景 SDK、内容格式分层解耦。第三方场景包无需改核心代码，
-            静态包只跑 CSS，脚本包可拿到宿主下发的参数、几何与同步相位。
-          </p>
-        </div>
-        <div class="btn-row">
-          <a class="btn" href={page("/docs/scene-sdk/")}>写一个场景</a>
-          <a class="btn btn--ghost" href={repoUrl} rel="noopener">看源码</a>
-        </div>
-      </div>
-    </div>
-  </section>
+  <CtaBanner
+    client:visible
+    eyebrow="Open source"
+    title="场景可以用 HTML + CSS 写"
+    body="Lull 的桌面运行时、场景 SDK、内容格式分层解耦。第三方场景包无需改核心代码，静态包只跑 CSS，脚本包可拿到宿主下发的参数、几何与同步相位。"
+    actions={[
+      { label: "写一个场景", href: page("/docs/scene-sdk/") },
+      { label: "看源码", href: repoUrl, variant: "ghost", external: true },
+    ]}
+  />
 
-  <section class="section">
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">Privacy</p>
-        <h2>隐私和安全</h2>
-      </div>
-      <div class="grid-2">
-        <article class="card">
-          <h3>本地优先</h3>
-          <p>
-            配置写在 <code>%APPDATA%\app.lull.desktop\display.json</code>，日志写在
-            <code>%TEMP%\lull\</code>
-          </p>
-        </article>
-        <article class="card">
-          <h3>网络权限是可选</h3>
-          <p>
-            用户在设计拓展功能时，有严格的权限管理，只在必要时请求网络权限，不会自动请求
-          </p>
-        </article>
-      </div>
-    </div>
-  </section>
+  <HomePrivacy />
 </BaseLayout>

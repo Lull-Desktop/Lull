@@ -1,7 +1,10 @@
 ---
 import BaseLayout from "./BaseLayout.astro";
+import DocFooter from "../components/site/DocFooter";
+import DocNav from "../components/site/DocNav";
+import { container } from "../components/ui/layout";
 import { getCollection } from "astro:content";
-import { groupDocs, page, repoUrl, sourceUrl } from "../lib/site";
+import { groupDocs, repoUrl, sourceUrl, toDocGroups } from "../lib/site";
 
 interface Props {
   title: string;
@@ -12,43 +15,29 @@ interface Props {
 
 const { title, description, source } = Astro.props;
 
-const groups = groupDocs(await getCollection("docs"));
+// 内容集合只能在 Astro 侧读：这里查好、压成纯数据，再传给 React 侧栏
+const groups = toDocGroups(groupDocs(await getCollection("docs")));
 const current = Astro.url.pathname.replace(/\/+$/, "");
 ---
 
 <BaseLayout title={title} description={description}>
-  <div class="container doc-shell">
-    <nav class="doc-nav" aria-label="文档目录">
-      <span class="doc-nav__title">文档</span>
-      {groups.map((group) => (
-        <div class="doc-nav__group">
-          <span class="doc-nav__label">{group.name}</span>
-          {group.entries.map((entry) => (
-            <a
-              href={page(`/docs/${entry.id}/`)}
-              aria-current={current.endsWith(`/docs/${entry.id}`) ? "page" : undefined}
-            >
-              {entry.data.title}
-            </a>
-          ))}
-        </div>
-      ))}
-      <a class="doc-nav__repo" href={`${repoUrl}/tree/master/docs`} rel="noopener">仓库 docs/ ↗</a>
-    </nav>
+  <div
+    class:list={[
+      container,
+      "grid grid-cols-[216px_minmax(0,1fr)] items-start gap-[clamp(28px,4vw,56px)]",
+      "pt-[clamp(36px,5vw,64px)] max-[900px]:grid-cols-1 max-[900px]:gap-7",
+    ]}
+  >
+    <DocNav groups={groups} current={current} repoUrl={repoUrl} />
 
-    <div class="doc-body">
+    <div class="min-w-0 max-w-[72ch]">
       <slot />
-      <div class="doc-footer">
-        <span>
-          文档随版本一起更新，完整说明见仓库 <code>docs/</code>
-          {source && (
-            <>
-              · 本页对应 <a href={sourceUrl(source)} rel="noopener">{source} ↗</a>
-            </>
-          )}
-        </span>
-        <a href={`${repoUrl}/issues`} rel="noopener">发现错误？提个 issue</a>
-      </div>
+      <DocFooter
+        source={source}
+        sourceHref={source ? sourceUrl(source) : undefined}
+        issuesUrl={`${repoUrl}/issues`}
+        docsTreeUrl={`${repoUrl}/tree/master/docs`}
+      />
     </div>
   </div>
 </BaseLayout>

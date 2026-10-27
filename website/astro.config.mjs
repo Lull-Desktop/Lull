@@ -1,5 +1,7 @@
 import { defineConfig } from "astro/config";
 import sitemap from "@astrojs/sitemap";
+import react from "@astrojs/react";
+import tailwindcss from "@tailwindcss/vite";
 
 /**
  * 部署目标默认是 GitHub Pages 项目页：https://lull-desktop.github.io/Lull/
@@ -19,7 +21,17 @@ const basePrefix = base.replace(/\/+$/, "");
 export default defineConfig({
   site,
   base,
-  integrations: [sitemap()],
+  /**
+   * 集成：
+   * - `sitemap()` 生成 sitemap-index.xml；
+   * - `react()` 只用于**服务端渲染** React 组件（`.astro` 里的外壳与内容管线仍归 Astro）。
+   *   页面上仅有 hero 标题与区块入场动效需要水合，其余组件不带 `client:` 指令，产物仍是静态 HTML。
+   */
+  integrations: [sitemap(), react()],
+  /** Tailwind 走 Vite 插件（v4 的官方接法），不用 PostCSS */
+  vite: {
+    plugins: [tailwindcss()],
+  },
   /**
    * 已合并 / 已下线的页面，旧地址仍要能打开。
    *

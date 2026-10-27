@@ -1,7 +1,7 @@
 ---
 import "../styles/global.css";
-import SiteHeader from "../components/SiteHeader.astro";
-import SiteFooter from "../components/SiteFooter.astro";
+import SiteHeader from "../components/site/SiteHeader";
+import SiteFooter from "../components/site/SiteFooter";
 import { siteMeta, asset } from "../lib/site";
 
 interface Props {
@@ -17,6 +17,9 @@ const { title, description = siteMeta.description, type = "website" } = Astro.pr
 const pageTitle = title ? `${title} · ${siteMeta.name}` : `${siteMeta.name} ${siteMeta.nameZh} · ${siteMeta.tagline}`;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const ogImage = new URL(asset("images/scene-bamboo.jpg"), Astro.site).href;
+
+// 顶栏高亮需要当前路径；Astro 的构建期全局进不了 React，这里算好再当 prop 传下去
+const pathname = Astro.url.pathname.replace(/\/+$/, "");
 ---
 
 <!doctype html>
@@ -40,9 +43,21 @@ const ogImage = new URL(asset("images/scene-bamboo.jpg"), Astro.site).href;
     <meta name="twitter:card" content="summary_large_image" />
 
     <link rel="sitemap" href={asset("sitemap-index.xml")} />
+
+    {/* React Bits 的 SplitText / FadeContent 在客户端点亮前会先把元素设为不可见，
+        关掉 JS 的人会看到标题和整页正文空白——这里给纯 CSS 兜底。 */}
+    <noscript>
+      <style>
+        .split-parent,
+        [data-fade-content] {
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+      </style>
+    </noscript>
   </head>
   <body>
-    <SiteHeader />
+    <SiteHeader pathname={pathname} />
     <main>
       <slot />
     </main>

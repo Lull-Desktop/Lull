@@ -13,14 +13,29 @@
     "preview": "astro preview",
     "check": "astro check && node scripts/check-docs-sync.mjs",
     "docs:check": "node scripts/check-docs-sync.mjs",
-    "sync:release": "node scripts/sync-release.mjs"
+    "sync:release": "node scripts/sync-release.mjs",
+    "ui:add": "npx shadcn@latest add @react-bits/SplitText-TS-TW"
   },
   "dependencies": {
+    "@astrojs/react": "^7.1.1",
     "@astrojs/sitemap": "^3.7.4",
-    "astro": "^7.4.2"
+    "@gsap/react": "^2.1.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "astro": "^7.4.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "gsap": "^3.15.0",
+    "lucide-react": "^1.61.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.12",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "typescript": "~5.9.3"
   }
 }

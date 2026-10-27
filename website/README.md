@@ -14,6 +14,25 @@ pnpm dev        # http://localhost:4321/Lull/
 
 需要 **Node >= 22.23.4**（Astro 7 的引擎要求；CI 里固定用 24）。
 
+### 安装 UI 组件（shadcn / React Bits）
+
+组件不是手写的，走 shadcn 注册表装进 `src/components/<Name>.tsx`：
+
+```bash
+pnpm ui:add @react-bits/SplitText-TS-TW    # 等价于 npx shadcn@latest add …
+```
+
+注册表已在 `components.json` 里配好（`@react-bits` → `https://reactbits.dev/r/{name}.json`），
+所以**只写 `@react-bits/<Name>-TS-TW`**。写成 `@//react-bits/...` 会被当成默认注册表
+（`ui.shadcn.com`）下的路径，直接报：
+
+```
+The item at https://ui.shadcn.com/r/styles/new-york-v4/@//react-bits/SplitText-TS-TW.json was not found.
+```
+
+后缀 `-TS-TW` 表示 TypeScript + Tailwind 变体，本站只装这一种。已安装：`SplitText`、`FadeContent`，
+用法与「必须带 `client:*`」的约束见下面「组件与样式」。
+
 ## 构建
 
 ```bash
@@ -101,8 +120,66 @@ pnpm preview    # 预览构建产物
   （目录式输出，`trailingSlash: "always"`）。
 - **版本号不写死**。`scripts/sync-release.mjs` 在构建前从根 `package.json` 与 GitHub Release
   读取，写进 `src/data/release.json`（不入库）。
-- **样式只有一个 `src/styles/global.css`**，原生 CSS + 自定义属性，没有 UI 框架。
+- **样式统一走 Tailwind**：令牌在 `global.css` 的 `@theme`，标记里只写工具类，
+  组件复用靠 `components/ui/*`，详见上面「组件与样式」。
+- **`.astro` 管外壳、`.tsx` 管内容**：`getCollection` / `render()` / `Astro.url` / `<slot>`
+  进不了 React，别把页面骨架搬进 `.tsx`。
 - **文档目录与 Starlight 的约定一致**（`src/content/docs/`），以后要整层迁过去只需搬目录。
+
+## 组件与样式
+
+Astro 负责外壳，React 负责内容组件，Tailwind 负责全部样式。
+
+```
+src/
+  pages/*.astro            路由与 frontmatter（必须留在 Astro：文件路由 + 构建期数据）
+  layouts/*.astro          <html>/<head>/<slot> 组合（必须留在 Astro）
+  components/
+    site/*.tsx             页面级组件：SiteHeader / HomeHero / DownloadHero / DocNav …
+    ui/*.tsx               原子件：Button / Card / Chip / Text（Eyebrow、Lead、TextLink、Code）
+    ui/layout.ts           共享工具类字符串：container / section / section-tight
+    SplitText.tsx          React Bits（shadcn 注册表安装，勿手改）
+    FadeContent.tsx        React Bits（同上）
+  styles/global.css        Tailwind 入口：@theme 令牌 + base 层 + `.prose`
+```
+
+**分工边界**：`getCollection`、`render()`、`Astro.url`、`<slot>`、页面文件都只能在 `.astro` 里。
+`.astro` 页面只给 React 组件传**可序列化的数据 props**，不要给它传 children——children 会被
+Astro 渲染成静态 HTML 再塞进组件，`<astro-slot>` 包裹会破坏布局。
+
+**样式规则**：
+
+- 色值、字体、圆角、容器宽度、阴影只写在 `global.css` 的 `@theme` 里，页面用 `bg-ink`、
+  `text-mist`、`rounded-card`、`max-w-site`、`py-section` 这类工具类，不再手写 hex 或像素。
+- 重复出现的组合收进 `components/ui/*.tsx`，不新造 CSS 类名。
+- 只有两处允许写 CSS：`@layer base`（body 背景光晕、选中色、焦点环、减少动效）与
+  `.prose`（Markdown 正文的标签由 Astro 生成，挂不上工具类）。
+- 自定义字号令牌（`--text-hero` 等）要在 `src/lib/utils.ts` 的 `extendTailwindMerge` 里登记，
+  否则 `tailwind-merge` 会把 `text-hero` 和 `text-mist` 当成同一组、互相覆盖。
+
+**动画组件**：站点只有两个动效面，都用 React Bits 实现，原先的 CSS `@keyframes rise` 已删除。
+
+| 场景 | 组件 | 水合指令 |
+| --- | --- | --- |
+| 首屏标题逐字升起 | `SplitText`（effect="rise" + mask） | `client:load`（首屏不能等滚动） |
+| 区块 / 卡片滚动入场 | `FadeContent`（stagger） | `client:visible` |
+
+> `FadeContent` 会先给容器挂 `invisible`，靠 JS 点亮。**凡是包含它的组件都必须带
+> `client:*` 指令**，否则内容永远不可见；同时要给容器加 `data-fade-content`，
+> `BaseLayout` 的 `<noscript>` 靠这个属性做无 JS 兜底。
+
+**文档页仍然是零 JS**：`/docs/*` 上没有 `client:` 指令，产物里没有 `<script>`。
+
+## 加一个 React Bits 组件
+
+```bash
+cd website
+pnpm ui:add @react-bits/<Name>-TS-TW    # 组件名从注册表里查，见「安装 UI 组件」
+```
+
+组件落到 `src/components/<Name>.tsx`，样式走 Tailwind 变体（后缀 `-TS-TW`）。
+也可以接 shadcn MCP（`npx shadcn@latest mcp`）让 AI 直接搜索并安装：见仓库根
+`components.json` 的 `registries` 字段与 `~/.workbuddy/mcp.json` 里的 `shadcn` 服务。
 
 ## 发布
 

@@ -1,17 +1,19 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
+import { Button, buttonRow } from "../components/ui/Button";
+import { section } from "../components/ui/layout";
 import { page } from "../lib/site";
 ---
 
 <BaseLayout title="页面不存在" description="这个页面不存在或已经搬家。">
-  <section class="section">
-    <div class="container" style="max-width:640px">
-      <p class="eyebrow">404</p>
-      <h1>这里很安静，因为什么也没有</h1>
-      <p class="lead">页面不存在，或者链接里的路径少了点什么。</p>
-      <div class="btn-row" style="margin-top:24px">
-        <a class="btn" href={page("/")}>回到首页</a>
-        <a class="btn btn--ghost" href={page("/docs/")}>看文档</a>
+  <section class={section}>
+    <div class="mx-auto w-full max-w-[640px] px-6">
+      <p class="mb-[18px] text-eyebrow font-medium uppercase tracking-[0.32em] text-green">404</p>
+      <h1 class="mb-2.5 text-hero leading-[1.25] tracking-[-0.02em] text-mist">这里很安静，因为什么也没有</h1>
+      <p class="max-w-[46ch] text-lead text-body">页面不存在，或者链接里的路径少了点什么。</p>
+      <div class:list={[buttonRow, "mt-6"]}>
+        <Button href={page("/")}>回到首页</Button>
+        <Button variant="ghost" href={page("/docs/")}>看文档</Button>
       </div>
     </div>
   </section>

@@ -1,36 +1,49 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { page, asset, repoUrl } from "../lib/site";
+import CtaBanner from "../components/site/CtaBanner";
+import FeatureCards from "../components/site/FeatureCards";
+import LayersList from "../components/site/LayersList";
+import Preview from "../components/site/Preview";
+import Rule from "../components/site/Rule";
+import { Button, buttonRow } from "../components/ui/Button";
+import { container, section } from "../components/ui/layout";
+import { page, repoUrl } from "../lib/site";
 
 const layers = [
-  {
-    name: "Core",
-    body: "桌面宿主、显示器拓扑、窗口生命周期、配置与 IPC。",
-  },
-  {
-    name: "Extensions",
-    body: "内容与工具SDK持续开发，原生支持TypeScript，拥抱AI生态。",
-  },
-  {
-    name: "Community",
-    body: "统一内容包格式，提供整包摘要、目录签名与校验工具，zip拖入即装，安全可控。",
-  },
-  {
-    name: "Services",
-    body: "计划中。",
-  },
+  { name: "Core", body: "桌面宿主、显示器拓扑、窗口生命周期、配置与 IPC。" },
+  { name: "Extensions", body: "内容与工具SDK持续开发，原生支持TypeScript，拥抱AI生态。" },
+  { name: "Community", body: "统一内容包格式，提供整包摘要、目录签名与校验工具，zip拖入即装，安全可控。" },
+  { name: "Services", body: "计划中。" },
 ];
 
 const modes = [
-  { name: "复制", body: "所有显示器显示同一场景、同一相位，最省心的默认。" },
-  { name: "独立", body: "每台显示器各自选场景与参数，一屏竹林一屏暮色。" },
-  { name: "跨屏", body: "把多块屏当成一块画布，场景横跨显示器连续绘制。" },
+  { title: "复制", body: "所有显示器显示同一场景、同一相位，最省心的默认。" },
+  { title: "独立", body: "每台显示器各自选场景与参数，一屏竹林一屏暮色。" },
+  { title: "跨屏", body: "把多块屏当成一块画布，场景横跨显示器连续绘制。" },
+];
+
+const workbench = [
+  { title: "以太之母", body: "雨、雷、风、海浪、篝火各有自己的推子与开关，主音量与静音是总闸，助眠定时到点淡出。" },
+  { title: "专注时钟", body: "以液态沙漏流转呈现剩余时间，专注、短休、长休三段节律自然衔接，偏好设置本地留存。" },
+  { title: "气泡音乐", body: "播放器是一只液态气泡，在线氛围声与本地曲目共用播放控制，浮在桌面上但不抢焦点。" },
 ];
 
 const capabilities = [
-  { name: "静态包", body: "只跑 HTML + CSS，在 sandbox=\"\" 的 iframe 里渲染：没有 JavaScript，没有 IPC，没有同源存储。", tag: "零风险" },
-  { name: "脚本包", body: "声明 wallpaper.script 后用 @lull/scene-sdk 读取宿主下发的帧：参数、几何、同步相位、可见性。", tag: "沙箱" },
-  { name: "Widget 插件", body: "静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV，可自绘顶栏与透明背景。", tag: "工具窗口" },
+  {
+    title: "静态包",
+    body: '只跑 HTML + CSS，在 sandbox="" 的 iframe 里渲染：没有 JavaScript，没有 IPC，没有同源存储。',
+    tag: "零风险",
+  },
+  {
+    title: "脚本包",
+    body: "声明 wallpaper.script 后用 @lull/scene-sdk 读取宿主下发的帧：参数、几何、同步相位、可见性。",
+    tag: "沙箱",
+  },
+  {
+    title: "Widget 插件",
+    body: "静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV，可自绘顶栏与透明背景。",
+    tag: "工具窗口",
+  },
 ];
 ---
 
@@ -38,134 +51,82 @@ const capabilities = [
   title="功能"
   description="Lull 的功能细节：动态壁纸三种模式、五层声景混音、番茄钟、播放器、托盘常驻，以及场景包与 Widget 插件的分层扩展体系。"
 >
-  <section class="section">
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">Features</p>
-        <h1>安静，但每件事<br />都做完整</h1>
-        <p class="lead">
+  <section class={section}>
+    <div class={container}>
+      <div class="mb-[clamp(32px,4vw,52px)] max-w-[60ch]">
+        <p class="mb-[18px] text-eyebrow font-medium uppercase tracking-[0.32em] text-green">Features</p>
+        <h1 class="mb-2.5 text-hero leading-[1.25] tracking-[-0.02em] text-mist">
+          安静，但每件事<br />都做完整
+        </h1>
+        <p class="max-w-[46ch] text-lead text-body">
           Lull 不做功能列表的堆砌。它只把桌面上的四件事——看、听、专注、计时——做成一体，然后把扩展性交给社区。
         </p>
       </div>
 
-      <div class="preview" style="max-width:960px">
-        <div class="preview__frame preview__frame--ui">
-          <img
-            src={asset("images/window-setting.jpg")}
-            alt="Lull 设置窗口：壁纸层、主题流光、窗口与工具开关"
-            width="1440"
-            height="900"
-            loading="lazy"
-          />
-        </div>
-        <div class="preview__caption">
-          <span>设置窗口 · 壁纸层 / 主题流光 / 窗口</span>
-          <span>所有开关即时生效</span>
-        </div>
+      <Preview
+        file="images/window-setting.jpg"
+        alt="Lull 设置窗口：壁纸层、主题流光、窗口与工具开关"
+        captionLeft="设置窗口 · 壁纸层 / 主题流光 / 窗口"
+        captionRight="所有开关即时生效"
+        ui
+        className="max-w-[960px]"
+      />
+    </div>
+  </section>
+
+  <Rule />
+
+  <section class={section}>
+    <div class={container}>
+      <div class="mb-[clamp(32px,4vw,52px)] max-w-[60ch]">
+        <p class="mb-[18px] text-eyebrow font-medium uppercase tracking-[0.32em] text-green">Wallpaper</p>
+        <h2 class="mb-2.5 text-h2 leading-[1.25] text-mist">纯Web壁纸实现</h2>
+        <p class="text-muted">支持静态包、脚本包、Widget 插件扩展</p>
+      </div>
+      <FeatureCards items={modes} client:visible />
+    </div>
+  </section>
+
+  <Rule />
+
+  <section class={section}>
+    <div class={container}>
+      <div class="mb-[clamp(32px,4vw,52px)] max-w-[60ch]">
+        <p class="mb-[18px] text-eyebrow font-medium uppercase tracking-[0.32em] text-green">Workbench</p>
+        <h2 class="mb-2.5 text-h2 leading-[1.25] text-mist">专注声景工作台</h2>
+      </div>
+      <FeatureCards items={workbench} client:visible />
+    </div>
+  </section>
+
+  <Rule />
+
+  <section class={section}>
+    <div class={container}>
+      <div class="mb-[clamp(32px,4vw,52px)] max-w-[60ch]">
+        <p class="mb-[18px] text-eyebrow font-medium uppercase tracking-[0.32em] text-green">Extensions</p>
+        <h2 class="mb-2.5 text-h2 leading-[1.25] text-mist">核心轻量，能力外生</h2>
+        <p class="text-muted">大家按同一套规范贡献扩展，核心保持轻量，能力不断外延。</p>
+      </div>
+
+      <FeatureCards items={capabilities} client:visible />
+
+      <div class="mt-14 max-w-[60ch]">
+        <h2 class="text-[clamp(1.3rem,2.2vw,1.6rem)] leading-[1.25] text-mist">四层架构</h2>
+      </div>
+      <LayersList items={layers} />
+
+      <div class={`${buttonRow} mt-8`}>
+        <Button variant="ghost" href={page("/docs/architecture/")}>读架构文档</Button>
+        <Button variant="ghost" href={`${repoUrl}/tree/master/docs`} rel="noopener">仓库 docs/</Button>
       </div>
     </div>
   </section>
 
-  <hr class="rule" />
-
-  <section class="section">
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">Wallpaper</p>
-        <h2>纯Web壁纸实现</h2>
-        <p class="muted">
-          支持静态包、脚本包、Widget 插件扩展
-        </p>
-      </div>
-
-      <div class="grid-3">
-        {modes.map((mode) => (
-          <article class="card">
-            <h3>{mode.name}</h3>
-            <p>{mode.body}</p>
-          </article>
-        ))}
-      </div>
-    </div>
-  </section>
-
-  <hr class="rule" />
-
-  <section class="section">
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">Workbench</p>
-        <h2>专注声景工作台</h2>
-      </div>
-      <div class="grid-3">
-        <article class="card">
-          <h3>以太之母</h3>
-          <p>雨、雷、风、海浪、篝火各有自己的推子与开关，主音量与静音是总闸，助眠定时到点淡出。</p>
-        </article>
-        <article class="card">
-          <h3>专注时钟</h3>
-          <p>以液态沙漏流转呈现剩余时间，专注、短休、长休三段节律自然衔接，偏好设置本地留存。</p>
-        </article>
-        <article class="card">
-          <h3>气泡音乐</h3>
-          <p>播放器是一只液态气泡，在线氛围声与本地曲目共用播放控制，浮在桌面上但不抢焦点。</p>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <hr class="rule" />
-
-  <section class="section">
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">Extensions</p>
-        <h2>核心轻量，能力外生</h2>
-        <p class="muted">
-          大家按同一套规范贡献扩展，核心保持轻量，能力不断外延。
-        </p>
-      </div>
-
-      <div class="grid-3">
-        {capabilities.map((item) => (
-          <article class="card">
-            <h3>{item.name}</h3>
-            <p>{item.body}</p>
-            <span class="card__tag">{item.tag}</span>
-          </article>
-        ))}
-      </div>
-
-      <div class="section-head" style="margin-top:56px">
-        <h2 style="font-size:clamp(1.3rem,2.2vw,1.6rem)">四层架构</h2>
-      </div>
-      <div class="layers">
-        {layers.map((layer) => (
-          <div class="layer">
-            <div class="layer__name"><span class="layer__dot"></span>{layer.name}</div>
-            <p>{layer.body}</p>
-          </div>
-        ))}
-      </div>
-
-      <div class="btn-row" style="margin-top:32px">
-        <a class="btn btn--ghost" href={page("/docs/architecture/")}>读架构文档</a>
-        <a class="btn btn--ghost" href={`${repoUrl}/tree/master/docs`} rel="noopener">仓库 docs/</a>
-      </div>
-    </div>
-  </section>
-
-  <section class="section--tight">
-    <div class="container">
-      <div class="cta">
-        <div>
-          <h2>先装上，再决定要不要折腾</h2>
-          <p>安装包由 GitHub Actions 从源码构建，版本号与文档同步，不维护第二份下载链接。</p>
-        </div>
-        <div class="btn-row">
-          <a class="btn" href={page("/download/")}>前往下载</a>
-        </div>
-      </div>
-    </div>
-  </section>
+  <CtaBanner
+    client:visible
+    title="先装上，再决定要不要折腾"
+    body="安装包由 GitHub Actions 从源码构建，版本号与文档同步，不维护第二份下载链接。"
+    actions={[{ label: "前往下载", href: page("/download/") }]}
+  />
 </BaseLayout>

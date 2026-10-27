@@ -69,6 +69,26 @@ export function groupDocs<T extends { data: { group: string; order: number } }>(
   }));
 }
 
+/**
+ * 把 `groupDocs()` 的结果压成纯数据，供 React 组件当 props 用。
+ *
+ * 内容集合的 entry 带着 body / filePath 这类构建期字段，没必要也不该传给组件；
+ * 这里只留侧栏与卡片真正要用的四项。
+ */
+export function toDocGroups<
+  T extends { id: string; data: { title: string; description: string; source?: string } },
+>(groups: { name: string; entries: T[] }[]) {
+  return groups.map((group) => ({
+    name: group.name,
+    items: group.entries.map((entry) => ({
+      id: entry.id,
+      title: entry.data.title,
+      description: entry.data.description,
+      source: entry.data.source,
+    })),
+  }));
+}
+
 export const siteMeta = {
   name: "Lull",
   nameZh: "云栖",
