@@ -167,6 +167,20 @@ sha256(
 - 私钥只在本机 `.keys/`（已 gitignore）或 CI secret（`LULL_CONTENT_SIGNING_KEY`）；
 - 运行时会拒绝签名不匹配的目录；未签名目录仍可加载，但会在设置页标注"未签名"。
 
+### 6.3 发布者签名（社区包，v2）
+
+目录签名回答「这份 catalog 是否随宿主发布」；发布者签名回答「这个用户包是否由
+community 发布、字节有没有被换」。两者算法、对象、信任根都不同，不要混用：
+
+- 包根 `.lull-signature.json`，JSON envelope：`schemaVersion=2`、`algorithm=ed25519`、
+  `keyId`、base64 `payload`、base64 64 字节 `signature`；
+- `payload` 解码后是规范声明：`kind/slug/id/version/digest/signedBy/releaseSeq/signedAt`，
+  **不含 zip**；签名对象是 payload 的原始字节；
+- 签名文件不参与包摘要（widget 排除点号路径；scene 摘要只覆盖 entry 目录）；
+- 宿主内置 `src-tauri/trust/publisher-keys.json`，验签后重算 digest；
+- `invalid` / `mismatch` / `revoked` 始终阻断，`unsigned` / `unknown-key` 默认警告，
+  设置页严格模式可把后两者也阻断。
+
 CI 在 `frontend-test.yml` 中执行同一 `pnpm content:check`；Vitest 还会解析随包目录，防止示例与实现漂移。
 
 ## 7. 分发与安装

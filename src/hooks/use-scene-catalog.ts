@@ -91,26 +91,28 @@ export function useSceneCatalog(): SceneCatalogState {
 
     void load();
 
-    // 安装 / 卸载后刷新场景列表（设置页与壁纸窗都跑这个 hook）。
-    let stop: (() => void) | null = null;
+    // 安装 / 卸载 / 签名策略变化后刷新场景列表（设置页与壁纸窗都跑这个 hook）。
+    const stops: (() => void)[] = [];
     let disposed = false;
     if (isDesktopWindow()) {
-      void listen("content-changed", () => {
-        void load();
-      })
-        .then((unlisten) => {
-          if (disposed) unlisten();
-          else stop = unlisten;
+      for (const event of ["content-changed", "content-trust-changed"]) {
+        void listen(event, () => {
+          void load();
         })
-        .catch(() => {
-          // 事件通道不可用不影响首屏：安装后仍有刷新按钮。
-        });
+          .then((unlisten) => {
+            if (disposed) unlisten();
+            else stops.push(unlisten);
+          })
+          .catch(() => {
+            // 事件通道不可用不影响首屏：安装后仍有刷新按钮。
+          });
+      }
     }
 
     return () => {
       alive = false;
       disposed = true;
-      stop?.();
+      for (const stop of stops) stop();
     };
   }, [builtin]);
 

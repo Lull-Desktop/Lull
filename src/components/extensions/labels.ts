@@ -1,5 +1,12 @@
 /** 扩展中心共用的文案映射：能力、状态、类型。全部走消息表，随界面语言变化。 */
+import type { SignatureInfo, SignatureStatus } from "@/lib/extensions";
 import { m } from "@/paraglide/messages";
+
+/** 兼容旧后端/旧夹具：没有签名字段时按“未验签”展示，而不是崩掉。 */
+export const UNSIGNED_SIGNATURE: SignatureInfo = {
+  status: "unsigned",
+  decision: "warn",
+};
 
 /** 能力等级：由宿主强制拦截 / 仅提示 / 基础能力。 */
 export type CapabilityLevel = "required" | "hint" | "basic";
@@ -59,6 +66,36 @@ export function statusLabel(status: string): string {
     default:
       return status;
   }
+}
+
+/** 发布者签名状态；与摘要状态分开展示，避免「已校验」歧义。 */
+export function signatureLabel(status: SignatureStatus): string {
+  switch (status) {
+    case "verified":
+      return m.ext_signature_verified();
+    case "unsigned":
+      return m.ext_signature_unsigned();
+    case "unknown-key":
+      return m.ext_signature_unknown_key();
+    case "invalid":
+      return m.ext_signature_invalid();
+    case "mismatch":
+      return m.ext_signature_mismatch();
+    case "revoked":
+      return m.ext_signature_revoked();
+    default:
+      return status;
+  }
+}
+
+export function signatureVariant(
+  status: SignatureStatus,
+): "secondary" | "outline" | "destructive" {
+  if (status === "invalid" || status === "mismatch" || status === "revoked") {
+    return "destructive";
+  }
+  if (status === "verified") return "secondary";
+  return "outline";
 }
 
 export function formatBytes(bytes: number): string {

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "source": "Lull-Community/keys/publisher-keys.json",
+  "keys": [
+    {
+      "keyId": "279aff591d2627ed",
+      "label": "Lull Community lull-community-2026-1",
+      "algorithm": "ed25519",
+      "publicKey": "uXEeCgcI7Tn16mfAA8X7JXtCsSUSsuWRjOcNEvPlCZs=",
+      "notBefore": "2026-10-28",
+      "retiredAt": null,
+      "revoked": false,
+      "fingerprint": "279aff591d2627ed6c5f78fafcdffaae1dc5362c97c9fc1d2efb71035fe22eb8"
+    }
+  ]
+}

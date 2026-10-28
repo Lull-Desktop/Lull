@@ -2,6 +2,9 @@
 
 use super::digest;
 use super::manifest::{PackageManifest, WindowSpec, HOST_API};
+use crate::content_trust::{
+  verify_installed, PackageClaim, PackageKind, SignatureDecision, SignatureInfo, TrustPolicy,
+};
 use crate::extension::install;
 use crate::extension::ExtensionError;
 use serde::{Deserialize, Serialize};
@@ -66,6 +69,8 @@ pub struct PackageInfo {
   pub verified: bool,
   /// `declared` / `computed` / `none`
   pub integrity: String,
+  /// 社区发布者签名状态；与摘要校验是两条独立的链。
+  pub signature: SignatureInfo,
   pub tampered: bool,
   pub review_required: bool,
   pub dev: bool,
@@ -169,10 +174,7 @@ pub fn load_manifest(app: &AppHandle, id: &str) -> Result<PackageManifest, Strin
     PackageManifest::load(&dir, id)?
   };
   if manifest.id != id {
-    return Err(format!(
-      "清单 id={} 与请求 id={id} 不一致",
-      manifest.id
-    ));
+    return Err(format!("清单 id={} 与请求 id={id} 不一致", manifest.id));
   }
   Ok(manifest)
 }
@@ -185,10 +187,29 @@ pub fn find(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
 pub fn ensure_package(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
   let dir = resolve_dir(app, id)?;
   let manifest = load_manifest(app, id)?;
-  // 开发包的文件本来就会被反复修改，不参与摘要锁校验。
+  // 开发包的文件本来就会被反复修改，不参与摘要锁/签名校验。
   if !crate::extension::dev::contains(app, id) {
     if let Err(error) = digest::check(&dir, &manifest.id, &manifest.version) {
       return Err(format!("内容包摘要不匹配，已阻止加载：{error}"));
+    }
+    if let Ok(computed) = digest::compute(&dir, &manifest.id, &manifest.version) {
+      let policy = crate::content_trust::policy::load(app);
+      let signature = verify_installed(
+        &dir,
+        &PackageClaim {
+          kind: PackageKind::Widget,
+          id: manifest.id.clone(),
+          version: manifest.version.clone(),
+          digest: computed,
+        },
+        &policy,
+      );
+      if signature.decision == SignatureDecision::Block {
+        let reason = signature
+          .reason
+          .unwrap_or_else(|| "发布签名未通过".to_string());
+        return Err(format!("发布签名未通过，已阻止加载：{reason}"));
+      }
     }
   }
   Ok(manifest)
@@ -228,6 +249,7 @@ pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
     return Vec::new();
   };
   let grants = load_grants(app).unwrap_or_default();
+  let policy = crate::content_trust::policy::load(app);
   let mut packages: Vec<PackageInfo> = Vec::new();
   if let Ok(entries) = std::fs::read_dir(&root) {
     for entry in entries.filter_map(Result::ok) {
@@ -249,6 +271,7 @@ pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
           grants.widgets.get(dir_name),
           running,
           false,
+          &policy,
         )),
         Err(error) => packages.push(invalid_info(dir_name, &error, false)),
       }
@@ -267,6 +290,7 @@ pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
           grants.widgets.get(&package.id),
           running,
           true,
+          &policy,
         )),
         Ok(manifest) => packages.push(invalid_info(
           &package.id,
@@ -288,15 +312,14 @@ fn info_from(
   grant: Option<&GrantRecord>,
   running: bool,
   dev: bool,
+  policy: &TrustPolicy,
 ) -> PackageInfo {
   let enabled_by_grant = grant.is_some_and(|record| record.enabled);
   // 清单在启用后变化：不加载、不建窗，等用户重新确认权限。
   let review_required = enabled_by_grant
     && grant
       .and_then(|record| record.manifest_hash.as_deref())
-      .is_some_and(|expected| {
-        digest::manifest_hash(dir).map_or(true, |actual| actual != expected)
-      });
+      .is_some_and(|expected| digest::manifest_hash(dir).map_or(true, |actual| actual != expected));
   let enabled = enabled_by_grant && !review_required;
   let granted = if enabled {
     grant
@@ -326,6 +349,24 @@ fn info_from(
   } else {
     integrity_error
   };
+  let signature = if dev {
+    // 开发包不参与发布签名，也不应被严格模式挡在门外。
+    SignatureInfo::unsigned(&TrustPolicy::default(), "dev-package")
+  } else {
+    match digest::compute(dir, &manifest.id, &manifest.version) {
+      Ok(computed) => verify_installed(
+        dir,
+        &PackageClaim {
+          kind: PackageKind::Widget,
+          id: manifest.id.clone(),
+          version: manifest.version.clone(),
+          digest: computed,
+        },
+        policy,
+      ),
+      Err(_) => SignatureInfo::unsigned(policy, "digest-unavailable"),
+    }
+  };
   PackageInfo {
     id: manifest.id.clone(),
     name: manifest.name.clone(),
@@ -341,6 +382,7 @@ fn info_from(
     running,
     verified,
     integrity,
+    signature,
     tampered,
     review_required,
     dev,
@@ -368,6 +410,7 @@ fn invalid_info(id: &str, error: &str, dev: bool) -> PackageInfo {
     running: false,
     verified: false,
     integrity: "none".to_string(),
+    signature: SignatureInfo::unsigned(&TrustPolicy::default(), "manifest-invalid"),
     tampered: false,
     review_required: false,
     dev,
@@ -457,11 +500,7 @@ pub fn set_capability(
   granted: bool,
 ) -> Result<(), String> {
   let manifest = find(app, id)?;
-  if !manifest
-    .capabilities
-    .iter()
-    .any(|item| item == capability)
-  {
+  if !manifest.capabilities.iter().any(|item| item == capability) {
     return Err(format!("插件没有声明能力：{capability}"));
   }
   if is_running(app, id) {
@@ -546,9 +585,8 @@ pub fn install_from_staged(
       format!("entry 指向的文件不存在：{}", manifest.entry),
     ));
   }
-  crate::resource::safe_join(staged.bundle(), &manifest.entry).map_err(|error| {
-    ExtensionError::new("manifest.entry-unsafe", error)
-  })?;
+  crate::resource::safe_join(staged.bundle(), &manifest.entry)
+    .map_err(|error| ExtensionError::new("manifest.entry-unsafe", error))?;
 
   match digest::check(staged.bundle(), &manifest.id, &manifest.version) {
     Ok(Some(_)) => {}
@@ -562,7 +600,14 @@ pub fn install_from_staged(
   }
 
   let target = staged.commit(root, &manifest.id)?;
-  Ok(info_from(&target, &manifest, None, false, false))
+  Ok(info_from(
+    &target,
+    &manifest,
+    None,
+    false,
+    false,
+    &TrustPolicy::default(),
+  ))
 }
 
 pub fn is_enabled(app: &AppHandle, id: &str) -> bool {
@@ -806,7 +851,14 @@ mod tests {
       let _ = std::fs::remove_dir_all(&root);
       return;
     };
-    let info = info_from(&target, &manifest, None, false, false);
+    let info = info_from(
+      &target,
+      &manifest,
+      None,
+      false,
+      false,
+      &TrustPolicy::default(),
+    );
     assert_eq!(info.status, "tampered");
     assert!(info.error.is_some());
     let _ = std::fs::remove_dir_all(&root);
@@ -835,7 +887,14 @@ mod tests {
       granted: vec!["widget.state".to_string()],
       manifest_hash: Some(hash),
     };
-    let info = info_from(&dir, &manifest, Some(&grant), false, false);
+    let info = info_from(
+      &dir,
+      &manifest,
+      Some(&grant),
+      false,
+      false,
+      &TrustPolicy::default(),
+    );
     assert_eq!(info.status, "ready");
     assert!(info.enabled);
     assert!(!info.review_required);
@@ -850,7 +909,14 @@ mod tests {
       let _ = std::fs::remove_dir_all(&root);
       return;
     };
-    let info = info_from(&dir, &manifest, Some(&grant), false, false);
+    let info = info_from(
+      &dir,
+      &manifest,
+      Some(&grant),
+      false,
+      false,
+      &TrustPolicy::default(),
+    );
     assert_eq!(info.status, "needs-review");
     assert!(!info.enabled);
     assert!(info.review_required);

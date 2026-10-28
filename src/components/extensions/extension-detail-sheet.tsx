@@ -18,9 +18,12 @@ import { Switch } from "@/components/ui/switch";
 import { m } from "@/paraglide/messages";
 import type { ExtensionInfo } from "@/lib/extensions";
 import {
+  UNSIGNED_SIGNATURE,
   capabilityLabel,
   capabilityLevel,
   kindLabel,
+  signatureLabel,
+  signatureVariant,
   statusLabel,
 } from "./labels";
 
@@ -45,6 +48,7 @@ export function ExtensionDetailSheet({
   onClose,
   onToggleCapability,
 }: Props) {
+  const signature = item?.signature ?? UNSIGNED_SIGNATURE;
   return (
     <Sheet
       open={item !== null}
@@ -96,6 +100,62 @@ export function ExtensionDetailSheet({
                   )}
                 </div>
               )}
+
+              <section className="space-y-2">
+                <h3 className="text-xs font-medium text-ink-soft">
+                  {m.ext_signature_section()}
+                </h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={signatureVariant(signature.status)}>
+                    {signatureLabel(signature.status)}
+                  </Badge>
+                  {signature.keyLabel && (
+                    <span className="text-xs text-ink-soft">
+                      {signature.keyLabel}
+                    </span>
+                  )}
+                </div>
+                <dl className="grid grid-cols-[5.5rem_1fr] gap-y-1 text-[11px]">
+                  <dt className="text-ink-faint">{m.ext_signature_publisher()}</dt>
+                  <dd className="truncate">
+                    {signature.keyLabel ?? m.ext_undeclared()}
+                  </dd>
+                  <dt className="text-ink-faint">keyId</dt>
+                  <dd className="truncate font-mono">
+                    {signature.keyId ?? "—"}
+                  </dd>
+                  <dt className="text-ink-faint">
+                    {m.ext_signature_fingerprint()}
+                  </dt>
+                  <dd className="truncate font-mono text-[10px]">
+                    {signature.keyFingerprint ?? "—"}
+                  </dd>
+                  <dt className="text-ink-faint">
+                    {m.ext_signature_signed_at()}
+                  </dt>
+                  <dd>{signature.signedAt ?? "—"}</dd>
+                  <dt className="text-ink-faint">
+                    {m.ext_signature_release_seq()}
+                  </dt>
+                  <dd>
+                    {signature.releaseSeq
+                      ? `#${String(signature.releaseSeq)}`
+                      : "—"}
+                  </dd>
+                  <dt className="text-ink-faint">{m.ext_signature_reason()}</dt>
+                  <dd>{signature.reason ?? "—"}</dd>
+                </dl>
+                {signature.status === "unsigned" && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {m.ext_signature_unsigned_hint()}
+                  </p>
+                )}
+                {signature.decision === "block" && (
+                  <p className="text-[11px] text-destructive">
+                    {m.ext_signature_blocked_hint()}
+                  </p>
+                )}
+              </section>
 
               {item.kind === "widget" && (
                 <div className="flex flex-wrap gap-2 text-xs">

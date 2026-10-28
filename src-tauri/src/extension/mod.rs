@@ -10,6 +10,9 @@ pub mod install;
 pub use error::ExtensionError;
 
 use crate::content_package;
+use crate::content_trust::{
+  self, PackageClaim, PackageKind, SignatureDecision, SignatureInfo, TrustPolicy,
+};
 use crate::package_hash;
 use crate::widget_package;
 use serde::Serialize;
@@ -44,6 +47,8 @@ pub struct ExtensionInfo {
   pub license: Option<String>,
   pub status: String,
   pub verified: String,
+  /// 社区发布者签名状态；与摘要校验是两条独立的链。
+  pub signature: SignatureInfo,
   pub dev: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<ExtensionError>,
@@ -87,6 +92,9 @@ pub struct ExtensionPreview {
   pub file_count: usize,
   pub bytes: u64,
   pub source_digest: String,
+  /// 安装器认的内容摘要；签名声明里的 digest 必须与它一致。
+  pub package_digest: String,
+  pub signature: SignatureInfo,
   pub warnings: Vec<String>,
 }
 
@@ -189,6 +197,7 @@ fn scene_info(package: content_package::store::ContentPackageInfo) -> ExtensionI
     license: package.license,
     status: status.to_string(),
     verified: if package.verified { "declared" } else { "none" }.to_string(),
+    signature: package.signature,
     dev: false,
     error,
     enabled: None,
@@ -239,6 +248,7 @@ fn widget_info(app: &AppHandle, package: widget_package::store::PackageInfo) -> 
     license: package.license,
     status: status.to_string(),
     verified: package.integrity,
+    signature: package.signature,
     dev: package.dev,
     error,
     enabled: Some(package.enabled),
@@ -275,9 +285,55 @@ fn detect_kind(bundle: &Path) -> Result<Kind, ExtensionError> {
   }
 }
 
-fn preview_from_staged(staged: &install::Staged) -> Result<ExtensionPreview, ExtensionError> {
+fn claim_for_bundle(kind: Kind, bundle: &Path) -> Result<PackageClaim, ExtensionError> {
+  match kind {
+    Kind::Widget => {
+      let manifest = widget_package::manifest::PackageManifest::from_dir(bundle)
+        .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
+      let digest = widget_package::digest::compute(bundle, &manifest.id, &manifest.version)
+        .map_err(|error| ExtensionError::new("integrity.mismatch", error))?;
+      Ok(PackageClaim {
+        kind: PackageKind::Widget,
+        id: manifest.id,
+        version: manifest.version,
+        digest,
+      })
+    }
+    Kind::Scene => {
+      let registration = content_package::manifest::parse(bundle)
+        .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
+      let package = bundle.join(&registration.package_rel);
+      let digest =
+        content_package::digest::compute(&registration.id, &registration.version, &package)
+          .map_err(|error| ExtensionError::new("integrity.mismatch", error))?;
+      Ok(PackageClaim {
+        kind: PackageKind::Scene,
+        id: registration.id,
+        version: registration.version,
+        digest,
+      })
+    }
+  }
+}
+
+fn preview_from_staged(
+  app: &AppHandle,
+  staged: &install::Staged,
+  source: &Path,
+) -> Result<ExtensionPreview, ExtensionError> {
+  let policy = content_trust::policy::load(app);
+  preview_from_staged_with_policy(staged, source, &policy)
+}
+
+fn preview_from_staged_with_policy(
+  staged: &install::Staged,
+  source: &Path,
+  policy: &TrustPolicy,
+) -> Result<ExtensionPreview, ExtensionError> {
   let kind = detect_kind(staged.bundle())?;
   let bundle = staged.bundle();
+  let claim = claim_for_bundle(kind, bundle)?;
+  let (signature, _) = content_trust::verify_source(source, bundle, &claim, policy);
   let mut warnings: Vec<String> = Vec::new();
 
   let (id, name, version, description, author, license, capabilities, network) = match kind {
@@ -351,6 +407,8 @@ fn preview_from_staged(staged: &install::Staged) -> Result<ExtensionPreview, Ext
     file_count,
     bytes,
     source_digest,
+    package_digest: claim.digest,
+    signature,
     warnings,
   })
 }
@@ -384,7 +442,7 @@ pub fn extensions_inspect(
 ) -> Result<ExtensionPreview, ExtensionError> {
   let base = staging_base(&app)?;
   let staged = install::stage(&base, Path::new(&path))?;
-  preview_from_staged(&staged)
+  preview_from_staged(&app, &staged, Path::new(&path))
 }
 
 /// 系统文件对话框选择 zip 并预览；不落盘。
@@ -398,7 +456,7 @@ pub async fn extensions_pick(app: AppHandle) -> Result<Option<PickResult>, Exten
   };
   let base = staging_base(&app)?;
   let staged = install::stage(&base, &path)?;
-  let preview = preview_from_staged(&staged)?;
+  let preview = preview_from_staged(&app, &staged, &path)?;
   Ok(Some(PickResult {
     path: path.to_string_lossy().into_owned(),
     preview,
@@ -433,7 +491,27 @@ pub fn extensions_install(
     }
   }
 
-  let info = match detect_kind(staged.bundle())? {
+  let kind = detect_kind(staged.bundle())?;
+  let claim = claim_for_bundle(kind, staged.bundle())?;
+  let policy = content_trust::policy::load(&app);
+  let (signature, persist) =
+    content_trust::verify_source(Path::new(&path), staged.bundle(), &claim, &policy);
+  if signature.decision == SignatureDecision::Block {
+    let reason = signature
+      .reason
+      .clone()
+      .unwrap_or_else(|| "未通过 community 发布签名校验".to_string());
+    return Err(ExtensionError::new(
+      "signature.blocked",
+      format!("发布签名未通过：{reason}"),
+    ));
+  }
+  if let Some(bytes) = persist {
+    content_trust::persist_sidecar(staged.bundle(), &bytes)
+      .map_err(|error| io_error(format!("写入包内签名失败：{error}")))?;
+  }
+
+  let info = match kind {
     Kind::Widget => {
       let root = widget_package::store::root(&app).map_err(io_error)?;
       let package = widget_package::store::install_from_staged(&root, &staged)?;
@@ -581,8 +659,8 @@ pub async fn extensions_dev_pick_and_add(
   let Some(path) = picked else {
     return Ok(None);
   };
-  let manifest = dev::add(&app, &path)
-    .map_err(|error| ExtensionError::new("dev.path-invalid", error))?;
+  let manifest =
+    dev::add(&app, &path).map_err(|error| ExtensionError::new("dev.path-invalid", error))?;
   emit_changed(&app);
   find_widget(&app, &manifest.id).map(Some)
 }
@@ -720,7 +798,7 @@ mod tests {
       let _ = std::fs::remove_dir_all(&root);
       return;
     };
-    let preview = preview_from_staged(&staged);
+    let preview = preview_from_staged_with_policy(&staged, &source, &TrustPolicy::default());
     assert!(
       preview.is_ok(),
       "预览失败：{}",
@@ -743,6 +821,119 @@ mod tests {
       assert_eq!(preview.file_count, 2);
       assert!(preview.bytes > 0);
     }
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn installs_signed_widget_and_keeps_signature() {
+    let Some(root) = temp_dir("signed-install") else {
+      return;
+    };
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/minimal-clock");
+    let Ok(staged) = install::stage(&root.join("staging"), &source) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let Ok(claim) = claim_for_bundle(Kind::Widget, staged.bundle()) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let policy = TrustPolicy::default();
+    let (signature, persist) =
+      content_trust::verify_source(&source, staged.bundle(), &claim, &policy);
+    assert_eq!(
+      signature.status,
+      crate::content_trust::verify::SignatureStatus::Verified
+    );
+    if let Some(bytes) = persist {
+      assert!(content_trust::persist_sidecar(staged.bundle(), &bytes).is_ok());
+    }
+    let installed = widget_package::store::install_from_staged(&root.join("widgets"), &staged);
+    let Ok(info) = installed else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    assert_eq!(
+      info.signature.status,
+      crate::content_trust::verify::SignatureStatus::Verified
+    );
+    assert!(root
+      .join("widgets")
+      .join(&info.id)
+      .join(".lull-signature.json")
+      .is_file());
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn installs_signed_scene_zip_with_embedded_signature() {
+    let Some(root) = temp_dir("signed-scene") else {
+      return;
+    };
+    let source =
+      Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/community.mist-1.0.0.zip");
+    let Ok(staged) = install::stage(&root.join("staging"), &source) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let Ok(claim) = claim_for_bundle(Kind::Scene, staged.bundle()) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let (signature, _) =
+      content_trust::verify_source(&source, staged.bundle(), &claim, &TrustPolicy::default());
+    assert_eq!(
+      signature.status,
+      crate::content_trust::verify::SignatureStatus::Verified
+    );
+    let installed = content_package::store::install_staged(&root.join("content"), &staged);
+    let Ok(info) = installed else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    assert_eq!(info.status, "ready");
+    assert_eq!(
+      info.signature.status,
+      crate::content_trust::verify::SignatureStatus::Verified
+    );
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn installs_signed_widget_zip_with_embedded_signature() {
+    let Some(root) = temp_dir("signed-zip") else {
+      return;
+    };
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("tests/fixtures/minimal-clock-1.0.0.lull-widget.zip");
+    let Ok(staged) = install::stage(&root.join("staging"), &source) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let Ok(claim) = claim_for_bundle(Kind::Widget, staged.bundle()) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let (signature, _) =
+      content_trust::verify_source(&source, staged.bundle(), &claim, &TrustPolicy::default());
+    assert_eq!(
+      signature.status,
+      crate::content_trust::verify::SignatureStatus::Verified
+    );
+    let installed = widget_package::store::install_from_staged(&root.join("widgets"), &staged);
+    let Ok(info) = installed else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    assert_eq!(
+      info.signature.status,
+      crate::content_trust::verify::SignatureStatus::Verified
+    );
+    assert!(root
+      .join("widgets")
+      .join(&info.id)
+      .join(".lull-signature.json")
+      .is_file());
     let _ = std::fs::remove_dir_all(&root);
   }
 }

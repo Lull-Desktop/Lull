@@ -28,6 +28,11 @@ import { Switch } from "@/components/ui/switch";
 import { useFlowTheme } from "@/hooks/use-flow-theme";
 import { localizeError } from "@/i18n/errors";
 import {
+  getTrustPolicy,
+  setTrustPolicy,
+  type TrustPolicy,
+} from "@/lib/content-trust";
+import {
   LOCALE_OPTIONS,
   type LocalePreference,
   localeLabel,
@@ -75,6 +80,7 @@ type FlowSwatchStyle = CSSProperties & {
 
 export default function Settings() {
   const windowPrefsSwitchId = useId();
+  const trustPolicySwitchId = useId();
   const locale = useLocale();
   const localeReady = useLocaleReady();
   const { themeId: flowThemeId, theme: flowTheme, setTheme } = useFlowTheme();
@@ -85,6 +91,8 @@ export default function Settings() {
     boolean
   > | null>(null);
   const [widgetMsg, setWidgetMsg] = useState("");
+  const [trustPolicy, setTrustPolicyState] = useState<TrustPolicy | null>(null);
+  const [trustMsg, setTrustMsg] = useState("");
   const [tab, setTab] = useState<SettingsTab>("preferences");
   // 工具窗列表在渲染期取文案：语言切换后名称与描述要跟着变。
   const toolWindows = BUILTIN_WIDGETS.map((widget) => ({
@@ -139,6 +147,30 @@ export default function Settings() {
       })
       .catch(() => {
         setWindowPrefs(null);
+      });
+  }, []);
+
+  // 发布签名策略：默认只警告；开启后由 Rust 在安装/启用时阻断未验签包。
+  useEffect(() => {
+    getTrustPolicy()
+      .then((policy) => {
+        setTrustPolicyState(policy);
+      })
+      .catch(() => {
+        setTrustPolicyState({ requireSignature: false });
+      });
+  }, []);
+
+  const updateTrustPolicy = useCallback((on: boolean): void => {
+    setTrustMsg("");
+    setTrustPolicyState({ requireSignature: on });
+    setTrustPolicy(on)
+      .then((policy) => {
+        setTrustPolicyState(policy);
+      })
+      .catch((error: unknown) => {
+        setTrustMsg(localizeError(error));
+        setTrustPolicyState({ requireSignature: !on });
       });
   }, []);
 
@@ -631,6 +663,35 @@ export default function Settings() {
       )}
       {tab === "extensions" && (
         <main className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>{m.ext_signature_strict()}</CardTitle>
+              <CardDescription>
+                {m.ext_signature_strict_hint()}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <Label htmlFor={trustPolicySwitchId} className="text-ink-soft">
+                    {m.ext_signature_strict()}
+                  </Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {m.ext_signature_strict_hint()}
+                  </p>
+                </div>
+                <Switch
+                  id={trustPolicySwitchId}
+                  checked={trustPolicy?.requireSignature === true}
+                  disabled={trustPolicy === null}
+                  onCheckedChange={updateTrustPolicy}
+                />
+              </div>
+              {trustMsg && (
+                <p className="text-xs text-destructive">{trustMsg}</p>
+              )}
+            </CardContent>
+          </Card>
           <ExtensionsPanel
             onOpenWallpaperSettings={() => setTab("wallpaper")}
           />

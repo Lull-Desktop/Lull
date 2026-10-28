@@ -15,6 +15,7 @@ import {
   Square,
   Trash2,
 } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,8 +63,11 @@ import { ExtensionDetailSheet } from "./extension-detail-sheet";
 import {
   capabilityLabel,
   capabilityLevel,
+  UNSIGNED_SIGNATURE,
   formatBytes,
   kindLabel,
+  signatureLabel,
+  signatureVariant,
   statusLabel,
 } from "./labels";
 
@@ -95,7 +99,8 @@ function canEnable(item: ExtensionInfo): boolean {
   return (
     item.status !== "invalid" &&
     item.status !== "tampered" &&
-    item.status !== "needs-review"
+    item.status !== "needs-review" &&
+    (item.signature ?? UNSIGNED_SIGNATURE).decision !== "block"
   );
 }
 
@@ -142,12 +147,36 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
     : undefined;
   const isSceneUpdate =
     preview?.preview.kind === "scene" && installedPreview !== undefined;
+  const previewSignature = preview?.preview.signature ?? UNSIGNED_SIGNATURE;
 
   useEffect(() => {
     getDevState()
       .then((state) => setDevMode(state.devMode))
       .catch(() => setDevMode(false));
   }, []);
+
+  // 严格模式切换后，签名决策会变；列表与已打开的预览都要刷新。
+  useEffect(() => {
+    if (!isDesktopWindow()) return;
+    let stop: (() => void) | null = null;
+    let disposed = false;
+    void listen("content-trust-changed", () => {
+      setPreview(null);
+      setEnableTarget(null);
+      void refresh();
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      })
+      .catch(() => {
+        // 事件通道不可用不影响手动刷新。
+      });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [refresh]);
 
   useEffect(() => {
     if (!pendingRemove) return;
@@ -525,6 +554,15 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                     <Badge variant={statusVariant(item)}>
                       {statusLabel(item.status)}
                     </Badge>
+                    <Badge
+                      variant={signatureVariant(
+                        (item.signature ?? UNSIGNED_SIGNATURE).status,
+                      )}
+                    >
+                      {signatureLabel(
+                        (item.signature ?? UNSIGNED_SIGNATURE).status,
+                      )}
+                    </Badge>
                     {item.dev && (
                       <Badge variant="outline">{m.ext_dev_badge()}</Badge>
                     )}
@@ -798,7 +836,41 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   <dd className="truncate font-mono text-[10px]">
                     {preview.preview.sourceDigest}
                   </dd>
+                  <dt className="text-ink-faint">
+                    {m.ext_field_package_digest()}
+                  </dt>
+                  <dd className="truncate font-mono text-[10px]">
+                    {preview.preview.packageDigest}
+                  </dd>
                 </dl>
+                <section className="space-y-1 rounded-lg border border-border/60 p-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xs font-medium text-ink-soft">
+                      {m.ext_signature_section()}
+                    </h3>
+                    <Badge variant={signatureVariant(previewSignature.status)}>
+                      {signatureLabel(previewSignature.status)}
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {previewSignature.keyLabel ??
+                      previewSignature.keyId ??
+                      m.ext_undeclared()}
+                    {previewSignature.signedAt
+                      ? ` · ${previewSignature.signedAt}`
+                      : ""}
+                  </p>
+                  {previewSignature.status === "unsigned" && (
+                    <p className="text-[11px] text-muted-foreground">
+                      {m.ext_signature_unsigned_hint()}
+                    </p>
+                  )}
+                  {previewSignature.decision === "block" && (
+                    <p className="text-[11px] text-destructive">
+                      {m.ext_signature_blocked_hint()}
+                    </p>
+                  )}
+                </section>
                 {preview.preview.capabilities.length > 0 && (
                   <section className="space-y-1">
                     <h3 className="text-xs font-medium text-ink-soft">
@@ -851,7 +923,11 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 >
                   {m.ext_cancel()}
                 </Button>
-                <Button type="button" onClick={confirmInstall} disabled={busy}>
+                <Button
+                  type="button"
+                  onClick={confirmInstall}
+                  disabled={busy || previewSignature.decision === "block"}
+                >
                   {busy
                     ? m.ext_installing()
                     : isSceneUpdate

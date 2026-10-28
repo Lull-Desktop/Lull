@@ -33,6 +33,11 @@ function pkg(overrides: Partial<UserContentPackage> = {}): UserContentPackage {
     entryUrl:
       "http://lullcontent.localhost/community.test/scenes/test/index.html",
     verified: true,
+    signature: {
+      status: "verified",
+      decision: "allow",
+      keyId: "279aff591d2627ed",
+    },
     manifest: manifest(),
     ...overrides,
   };

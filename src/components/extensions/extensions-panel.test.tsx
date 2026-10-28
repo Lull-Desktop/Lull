@@ -16,6 +16,12 @@ const widget: ExtensionInfo = {
   license: "MIT",
   status: "ready",
   verified: "computed",
+  signature: {
+    status: "verified",
+    decision: "allow",
+    keyId: "279aff591d2627ed",
+    keyLabel: "Lull Community",
+  },
   dev: false,
   enabled: false,
   running: false,
@@ -35,6 +41,11 @@ const scene: ExtensionInfo = {
   license: "CC-BY-4.0",
   status: "ready",
   verified: "declared",
+  signature: {
+    status: "unsigned",
+    decision: "warn",
+    reason: "signature-file-missing",
+  },
   dev: false,
   capabilities: ["wallpaper.viewport"],
   entryUrl: "/content/scenes/mist/index.html",
@@ -52,6 +63,13 @@ const preview: ExtensionPreview = {
   fileCount: 3,
   bytes: 12_345,
   sourceDigest: "a".repeat(64),
+  packageDigest: "c".repeat(64),
+  signature: {
+    status: "verified",
+    decision: "allow",
+    keyId: "279aff591d2627ed",
+    keyLabel: "Lull Community",
+  },
   warnings: [],
 };
 
@@ -66,6 +84,13 @@ const scenePreview: ExtensionPreview = {
   fileCount: 2,
   bytes: 2_048,
   sourceDigest: "b".repeat(64),
+  packageDigest: "d".repeat(64),
+  signature: {
+    status: "verified",
+    decision: "allow",
+    keyId: "279aff591d2627ed",
+    keyLabel: "Lull Community",
+  },
   warnings: [],
 };
 

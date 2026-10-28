@@ -18,6 +18,8 @@
     "core:window:allow-outer-position",
     "core:window:allow-set-position",
     "allow-content-packages",
+    "allow-content-trust-policy-get",
+    "allow-content-trust-policy-set",
     "allow-extensions-close",
     "allow-extensions-dev-pick-and-add",
     "allow-extensions-dev-reload",

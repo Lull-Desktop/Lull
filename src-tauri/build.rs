@@ -32,6 +32,8 @@ const APP_COMMANDS: &[&str] = &[
   "widget_close",
   "window_prefs_get",
   "window_prefs_set",
+  "content_trust_policy_get",
+  "content_trust_policy_set",
   "widget_package_notify",
   "widget_state_get",
   "widget_state_set",

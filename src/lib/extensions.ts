@@ -27,6 +27,28 @@ export type ExtensionFailure = {
   detail?: string;
 };
 
+/** 社区发布者签名状态；与摘要校验（`verified`）是两条独立的链。 */
+export type SignatureStatus =
+  | "verified"
+  | "unsigned"
+  | "unknown-key"
+  | "invalid"
+  | "mismatch"
+  | "revoked";
+
+export type SignatureDecision = "allow" | "warn" | "block";
+
+export type SignatureInfo = {
+  status: SignatureStatus;
+  decision: SignatureDecision;
+  keyId?: string;
+  keyLabel?: string;
+  keyFingerprint?: string;
+  signedAt?: string;
+  releaseSeq?: number;
+  reason?: string;
+};
+
 export type ExtensionInfo = {
   kind: ExtensionKind;
   id: string;
@@ -37,6 +59,7 @@ export type ExtensionInfo = {
   license?: string;
   status: ExtensionStatus;
   verified: "declared" | "computed" | "none";
+  signature: SignatureInfo;
   dev: boolean;
   error?: ExtensionFailure;
   enabled?: boolean;
@@ -64,6 +87,8 @@ export type ExtensionPreview = {
   fileCount: number;
   bytes: number;
   sourceDigest: string;
+  packageDigest: string;
+  signature: SignatureInfo;
   warnings: string[];
 };
 

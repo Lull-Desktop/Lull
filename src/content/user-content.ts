@@ -7,6 +7,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { isDesktopWindow } from "@/core/window/controls";
+import type { SignatureInfo } from "@/lib/extensions";
 import { parseSceneManifest, type SceneCatalogEntry } from "@/sdk/scene";
 
 /** 与 Rust `ContentPackageInfo` 字段一一对应（camelCase）。 */
@@ -23,6 +24,8 @@ export type UserContentPackage = {
   entryUrl: string;
   /** 是否通过整包摘要校验；手动放置且未声明摘要的包为 false。 */
   verified: boolean;
+  /** 社区发布者签名状态；与摘要校验是两条独立的链。 */
+  signature: SignatureInfo;
   /** 单条 scene 清单原文；`invalid` 时为 null。 */
   manifest: unknown;
 };
@@ -57,6 +60,17 @@ export function toUserSceneEntries(
         `内容包 ${pkg.id} 摘要不匹配，已跳过：${pkg.error ?? "内容可能被改动"}`,
       );
       continue;
+    }
+    if (pkg.signature.decision === "block") {
+      issues.push(
+        `内容包 ${pkg.id} 的发布签名未通过（${pkg.signature.reason ?? pkg.signature.status}），已跳过`,
+      );
+      continue;
+    }
+    if (pkg.signature.status !== "verified") {
+      issues.push(
+        `内容包 ${pkg.id} 未验签（${pkg.signature.status}）：不能确认它由 community 发布`,
+      );
     }
     if (!pkg.verified) {
       issues.push(`内容包 ${pkg.id} 未声明或未通过摘要校验，来源无法确认`);

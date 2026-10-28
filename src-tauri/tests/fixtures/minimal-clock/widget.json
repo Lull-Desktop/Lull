@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "type": "widget",
+  "id": "community-clock",
+  "name": "极简时钟",
+  "version": "1.0.0",
+  "description": "一台只显示时间与日期的大字时钟，玻璃质感面板，不申请任何宿主能力。",
+  "author": "Lull Community",
+  "license": "MIT",
+  "builtin": false,
+  "hostApi": 1,
+  "entry": "index.html",
+  "lifecycle": "background",
+  "capabilities": ["widget.ui"],
+  "window": {
+    "width": 480,
+    "height": 300,
+    "minWidth": 480,
+    "minHeight": 300,
+    "resizable": false,
+    "transparent": true,
+    "chrome": "host"
+  },
+  "network": []
+}

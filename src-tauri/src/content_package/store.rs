@@ -11,6 +11,9 @@
 
 use super::digest;
 use super::manifest::{self, MANIFEST_FILE};
+use crate::content_trust::{
+  verify_installed, PackageClaim, PackageKind, SignatureInfo, TrustPolicy,
+};
 use crate::extension::install;
 use serde::Serialize;
 use serde_json::Value;
@@ -32,6 +35,8 @@ pub struct ContentPackageInfo {
   pub entry_url: String,
   /// 是否通过整包摘要校验；手动放置且未声明摘要的包为 false。
   pub verified: bool,
+  /// 社区发布者签名状态；与摘要校验是两条独立的链。
+  pub signature: SignatureInfo,
   /// 单条 scene 清单原文，前端用 `parseSceneManifest()` 再校验一次。
   pub manifest: Value,
 }
@@ -68,6 +73,7 @@ pub fn list(app: &AppHandle) -> Vec<ContentPackageInfo> {
   let Ok(entries) = std::fs::read_dir(&root) else {
     return Vec::new();
   };
+  let policy = crate::content_trust::policy::load(app);
   let mut packages: Vec<ContentPackageInfo> = Vec::new();
   for entry in entries.filter_map(Result::ok) {
     let path = entry.path();
@@ -80,33 +86,49 @@ pub fn list(app: &AppHandle) -> Vec<ContentPackageInfo> {
     if dir_name.starts_with('.') || !path.join(MANIFEST_FILE).is_file() {
       continue;
     }
-    packages.push(inspect(&path, dir_name));
+    packages.push(inspect_with_policy(&path, dir_name, &policy));
   }
   packages.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
   packages
 }
 
-/// 读取单个 bundle 并校验摘要。
-fn inspect(bundle: &Path, fallback_id: &str) -> ContentPackageInfo {
+/// 读取单个 bundle 并校验摘要 + 发布签名。
+#[must_use]
+fn inspect_with_policy(
+  bundle: &Path,
+  fallback_id: &str,
+  policy: &TrustPolicy,
+) -> ContentPackageInfo {
   let registration = match manifest::parse(bundle) {
     Ok(registration) => registration,
     Err(error) => return invalid_info(fallback_id, &error),
   };
 
-  let (verified, digest_error) = match &registration.integrity {
-    Some(expected) => {
-      let package = bundle.join(&registration.package_rel);
-      match digest::compute(&registration.id, &registration.version, &package) {
-        Ok(actual) if actual == *expected => (true, None),
-        Ok(actual) => (
-          false,
-          Some(format!("内容包摘要不匹配：声明 {expected}，实际 {actual}")),
-        ),
-        Err(error) => (false, Some(error)),
-      }
-    }
+  let package = bundle.join(&registration.package_rel);
+  let computed = digest::compute(&registration.id, &registration.version, &package);
+  let (verified, digest_error) = match (&registration.integrity, &computed) {
+    (Some(expected), Ok(actual)) if actual == expected => (true, None),
+    (Some(expected), Ok(actual)) => (
+      false,
+      Some(format!("内容包摘要不匹配：声明 {expected}，实际 {actual}")),
+    ),
+    (Some(_), Err(error)) => (false, Some(error.clone())),
     // 手动放置的包允许不带摘要：可用，但标记为「未校验」。
-    None => (false, None),
+    (None, _) => (false, None),
+  };
+
+  let signature = match &computed {
+    Ok(actual) => verify_installed(
+      bundle,
+      &PackageClaim {
+        kind: PackageKind::Scene,
+        id: registration.id.clone(),
+        version: registration.version.clone(),
+        digest: actual.clone(),
+      },
+      policy,
+    ),
+    Err(_) => SignatureInfo::unsigned(policy, "digest-unavailable"),
   };
 
   let status = if verified || registration.integrity.is_none() {
@@ -126,12 +148,22 @@ fn inspect(bundle: &Path, fallback_id: &str) -> ContentPackageInfo {
     error: digest_error,
     entry_url: entry_url(&registration.id, &registration.entry),
     verified,
+    signature,
     manifest: registration.manifest,
   }
 }
 
+/// 读取单个 bundle（默认宽松策略）；安装路径由 `extension` 层先做门禁。
+#[must_use]
+fn inspect(bundle: &Path, fallback_id: &str) -> ContentPackageInfo {
+  inspect_with_policy(bundle, fallback_id, &TrustPolicy::default())
+}
+
 fn optional_string(manifest: &Value, key: &str) -> Option<String> {
-  manifest.get(key).and_then(Value::as_str).map(str::to_string)
+  manifest
+    .get(key)
+    .and_then(Value::as_str)
+    .map(str::to_string)
 }
 
 fn invalid_info(id: &str, error: &str) -> ContentPackageInfo {
@@ -146,6 +178,7 @@ fn invalid_info(id: &str, error: &str) -> ContentPackageInfo {
     error: Some(error.to_string()),
     entry_url: String::new(),
     verified: false,
+    signature: SignatureInfo::unsigned(&TrustPolicy::default(), "manifest-invalid"),
     manifest: Value::Null,
   }
 }
@@ -158,10 +191,7 @@ fn install_into(root: &Path, source: &Path) -> Result<ContentPackageInfo, String
 }
 
 /// 复用共享 staging：调用方负责 `Staged` 的生命周期。
-pub fn install_staged(
-  root: &Path,
-  staged: &install::Staged,
-) -> Result<ContentPackageInfo, String> {
+pub fn install_staged(root: &Path, staged: &install::Staged) -> Result<ContentPackageInfo, String> {
   let registration = manifest::parse(staged.bundle())?;
   let expected = registration.integrity.clone().ok_or_else(|| {
     "catalog.json 缺少 integrity 摘要：安装器只接受声明了整包摘要的内容包".to_string()
@@ -291,7 +321,10 @@ mod tests {
     assert!(target.join("scenes/test/index.html").is_file());
 
     // 改动包内容后，运行时检查必须判为 tampered。
-    let _ = std::fs::write(target.join("scenes/test/index.html"), "<html>changed</html>");
+    let _ = std::fs::write(
+      target.join("scenes/test/index.html"),
+      "<html>changed</html>",
+    );
     let inspected = inspect(&target, "community.test");
     assert_eq!(inspected.status, "tampered");
     assert!(inspected.error.is_some());
@@ -326,8 +359,8 @@ mod tests {
       assert_eq!(info.version, "1.1.0");
       assert!(info.verified);
     }
-    let installed = std::fs::read_to_string(root.join("community.up/scenes/test/index.html"))
-      .unwrap_or_default();
+    let installed =
+      std::fs::read_to_string(root.join("community.up/scenes/test/index.html")).unwrap_or_default();
     assert!(installed.contains("v2"));
 
     let leftovers = std::fs::read_dir(&root)
@@ -526,7 +559,9 @@ mod tests {
       assert_eq!(info.id, "community.zipped");
       assert!(info.verified);
     }
-    assert!(root.join("community.zipped/scenes/test/index.html").is_file());
+    assert!(root
+      .join("community.zipped/scenes/test/index.html")
+      .is_file());
     let _ = std::fs::remove_dir_all(&root);
   }
 
@@ -578,9 +613,7 @@ mod tests {
     };
     let mut writer = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default();
-    if writer.start_file("../escaped.txt", options).is_err()
-      || writer.write_all(b"nope").is_err()
-    {
+    if writer.start_file("../escaped.txt", options).is_err() || writer.write_all(b"nope").is_err() {
       let _ = std::fs::remove_dir_all(&root);
       return;
     }

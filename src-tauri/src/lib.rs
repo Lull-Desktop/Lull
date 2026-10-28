@@ -8,6 +8,7 @@ use tauri::Manager;
 
 mod config;
 mod content_package;
+mod content_trust;
 mod extension;
 mod i18n;
 mod package_hash;
@@ -58,6 +59,8 @@ pub fn run() {
       extension::extensions_dev_reload,
       window_host::prefs::window_prefs_get,
       window_host::prefs::window_prefs_set,
+      content_trust::policy::content_trust_policy_get,
+      content_trust::policy::content_trust_policy_set,
       i18n::i18n_boot,
       i18n::i18n_set_locale,
       widget_package::widget_package_notify,
