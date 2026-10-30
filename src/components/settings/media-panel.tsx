@@ -145,9 +145,28 @@ export function MediaPanel() {
 
   const config = view.config;
   const selected = assets.find((asset) => asset.id === config.assetId);
-  const backendLabel = view.capabilities.nativeTextureStream
-    ? m.media_backend_native()
-    : m.media_backend_html();
+  // 能力探测只说明“可以尝试原生”，不代表当前 attach 成功；标签必须以实际
+  // session/surface backend 为准，避免出现“原生纹理共享 + 原生 0/回退 1”。
+  const session =
+    stats?.sessionViews.find((item) => item.assetId === config.assetId) ??
+    stats?.sessionViews[0];
+  const hasNativeSurface =
+    session?.surfaces.some((surface) => surface.backend === "native-texture") ??
+    session?.backend === "native-texture";
+  const hasHtmlSurface =
+    session?.surfaces.some((surface) => surface.backend === "html-video") ??
+    session?.backend === "html-video";
+  const backendLabel =
+    hasNativeSurface && hasHtmlSurface
+      ? m.media_backend_mixed()
+      : hasNativeSurface
+        ? m.media_backend_native()
+        : hasHtmlSurface
+          ? m.media_backend_html()
+          : view.capabilities.nativeTextureStream
+            ? m.media_backend_native()
+            : m.media_backend_html();
+  const backendReason = session?.lastError ?? view.capabilities.reason;
 
   return (
     <div className="space-y-3 border-t border-border/50 pt-4">
@@ -318,8 +337,8 @@ export function MediaPanel() {
 
       <p className="text-xs text-muted-foreground">
         {backendLabel}
-        {view.capabilities.reason
-          ? ` · ${m.media_fallback_reason({ reason: view.capabilities.reason })}`
+        {backendReason
+          ? ` · ${m.media_fallback_reason({ reason: backendReason })}`
           : ""}
       </p>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}

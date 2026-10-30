@@ -263,6 +263,11 @@ WebView2 预发布接口只从固定版 SDK 提取最小头文件，不手写猜
   `cargo test --features native-media --test media_native_smoke -- --ignored`；
   本轮 `decodes_a_file_to_d3d11_frames` 与 `tee_attaches_first_branch_before_run`
   各解码 44 帧，验证了“Tee 在 `pipeline.run()` 之前挂首个显示分支”的实际路径；
+- 真机验收模式已支持原生预览：
+  `pnpm test-mode -NativeMedia` 会设置 FFmpeg/libclang、重建含 `lull_media_*` 的
+  DLL、复制 FFmpeg DLL，并以 `tauri dev --features native-media` 启动；
+  `-RequireNative` 会在没有成功原生 attach 时返回非 0。当前机器会记录
+  `CreateTextureStream 0x80070032` 并回退，默认不会因此判失败；
 - 双屏实际启动：两个壁纸 WebView 都尝试原生 attach，因上述 `0x80070032`
   回退 HTML；应用不崩溃、配置/日志可读；
 - HTML 路径：选择本地 MP4 → 壁纸播放；循环、fit/position、静音、重建后保留；

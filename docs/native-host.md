@@ -158,9 +158,12 @@ tauri-runtime-wry 用 `size.to_logical(window.scale_factor())` 计算 WebView bo
 
 ```powershell
 pnpm test-mode
+# 原生媒体预览：自动准备 FFmpeg/libclang、重建 DLL，并以 native-media feature 启动
+pnpm test-mode -NativeMedia
+pnpm test-mode -NativeMedia -RequireNative
 ```
 
-流程：构建 DLL → `LULL_WALLPAPER=1 pnpm tauri dev` → 等 `attach rc=0` → 层序 + 命中双视角 + 动画差分 → 关闭 → 等待桌面还原。
+流程：构建 DLL → `LULL_WALLPAPER=1 pnpm tauri dev` → 等 `attach rc=0` → 层序 + 命中双视角 + 动画差分 → 关闭 → 等待桌面还原。`-NativeMedia` 时额外等待 `media: native attach` 日志；本机 `CreateTextureStream 0x80070032` 会回退 HTML，只有 `-RequireNative` 才判失败。
 
 手动检查：
 

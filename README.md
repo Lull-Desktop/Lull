@@ -291,7 +291,14 @@ pnpm dev
 ```powershell
 pnpm test-mode            # 构建 DLL → 启动 → 层序/命中/动画验收 → 退出并还原桌面
 pnpm test-mode -SkipVerify -HoldSeconds 30
+
+# 用 media-pp 原生后端启动（需要 FFmpeg 8.0.1 + libclang；脚本会重建含
+# lull_media_* 的 DLL，并自动从 %LOCALAPPDATA%\lull-media-deps 查找依赖）
+pnpm test-mode -NativeMedia
+pnpm test-mode -NativeMedia -RequireNative   # 没有原生 attach 成功时退出码非 0
 ```
+
+`-NativeMedia` 会把 `tauri dev` 切到 `--features native-media`，并把 FFmpeg DLL 复制到 `src-tauri\target\debug`。当前机器 WebView2 `CreateTextureStream` 返回 `0x80070032` 时会自动回退 HTML；只有 `-RequireNative` 才会把这种情况判为失败。选择视频场景/素材后才会触发 `media_attach`，日志里可看到 `media: native attach ...` 的结果；`-RequireNative` 要求启动时已经是视频场景并成功 attach。
 
 > 验收脚本需要 Pillow。本机 Python 没装的话，只要 PATH 里有 `uv` 就会自动准备临时环境；也可以用 `LULL_PYTHON` 指定一个装了 Pillow 的解释器。
 

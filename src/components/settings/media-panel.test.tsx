@@ -67,4 +67,48 @@ describe("MediaPanel", () => {
     render(<MediaPanel />);
     expect(await screen.findByText(/壁纸运行时未启动/)).toBeTruthy();
   });
+
+  test("shows the attached backend instead of the probe capability", async () => {
+    mocks.getMediaConfig.mockResolvedValue({
+      config: { ...DEFAULT_MEDIA_CONFIG, assetId: "m_1" },
+      asset,
+      assetUrl: "http://asset.localhost/night.mp4",
+      capabilities: {
+        nativeTextureStream: true,
+        hardwareDecode: true,
+        reason: null,
+        runtimeVersion: null,
+        adapterLuid: 1,
+        htmlFallback: true,
+      },
+    });
+    mocks.getMediaStats.mockResolvedValue({
+      sessions: 1,
+      nativeSessions: 0,
+      fallbackSessions: 1,
+      decoderInstances: 0,
+      cpuReadbackBytes: 0,
+      capabilities: {
+        nativeTextureStream: true,
+        hardwareDecode: true,
+        reason: null,
+        runtimeVersion: null,
+        adapterLuid: 1,
+        htmlFallback: true,
+      },
+      sessionViews: [
+        {
+          sessionId: "media-1",
+          assetId: "m_1",
+          backend: "html-video",
+          state: "playing",
+          surfaces: [{ backend: "html-video" }],
+        },
+      ],
+    });
+    render(<MediaPanel />);
+    expect(await screen.findByText("视频壁纸")).toBeTruthy();
+    expect(screen.getAllByText(/HTML 视频回退/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("原生纹理共享")).toBeNull();
+  });
 });
