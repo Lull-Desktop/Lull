@@ -193,7 +193,7 @@ pnpm content:pack ./my-scene --out artifacts
 
 ## 参考
 
-- 可直接安装的示例：[`examples/content/param-demo`](https://github.com/Lull-Desktop/Lull/tree/master/examples/content/param-demo)（参数演示）、
-  [`examples/content/three-scene`](https://github.com/Lull-Desktop/Lull/tree/master/examples/content/three-scene)（Three.js WebGL）。
+- 可直接安装的示例：[`examples/scenes/param-demo`](https://github.com/Lull-Desktop/Lull/tree/master/examples/scenes/param-demo)（参数演示）、
+  [`examples/scenes/three-scene`](https://github.com/Lull-Desktop/Lull/tree/master/examples/scenes/three-scene)（Three.js WebGL）。
 - 字段级规范：[Scene SDK](https://github.com/Lull-Desktop/Lull/blob/master/docs/scene-sdk.md) ·
   [内容包格式](https://github.com/Lull-Desktop/Lull/blob/master/docs/content-format.md)（清单、摘要、签名与安装器的完整定义）。

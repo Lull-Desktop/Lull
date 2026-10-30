@@ -2,7 +2,7 @@
 /**
  * 把内容包目录打成可安装的 `.zip`。
  *
- *   pnpm content:pack examples/content/param-demo --out artifacts
+ *   pnpm content:pack examples/scenes/param-demo --out artifacts
  *   node scripts/pack-content.mjs ./my-scene --out artifacts
  *
  * 只打包 `catalog.json` + entry 所在目录，条目名统一正斜杠、UTF-8。

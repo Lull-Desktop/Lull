@@ -255,9 +255,9 @@ scene.onFrame((frame) => {
   桥推送 `frame`，不需要重启壁纸。
 
 完整可安装示例：
-- [`examples/content/param-demo`](../examples/content/param-demo)：`glow / tint / pulse`，
+- [`examples/scenes/param-demo`](../examples/scenes/param-demo)：`glow / tint / pulse`，
   1.1.0 新增 `blur / hue / ring`，可验证覆盖更新；
-- [`examples/content/three-scene`](../examples/content/three-scene)：Three.js / WebGL，
+- [`examples/scenes/three-scene`](../examples/scenes/three-scene)：Three.js / WebGL，
   `speed / particles / tint / wireframe / tilt` 参数热更。
 
 ### 4.4 画布与 iframe

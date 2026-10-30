@@ -239,7 +239,7 @@ src/
 packages/widget-sdk/       # 第三方插件侧 SDK：TypeScript 源码 → dist + .d.ts
 packages/scene-sdk/        # 场景侧 SDK：参数/几何/同步/可见性桥
 examples/widgets/          # 原生 / React / Vue 三个 TypeScript 插件包示例
-examples/content/          # 可安装内容包示例（静态 / 脚本场景）
+examples/scenes/           # 可安装内容包示例（静态 / 脚本场景）
 src-tauri/
   src/
     lib.rs                 # 只做插件/命令/生命周期接线
@@ -355,7 +355,7 @@ pnpm scenes:sdk
 # 在场景工程里用 esbuild / Vite 把 main.ts 打成包内 main.js
 ```
 
-设置页会按 Manifest 的 `params` 自动渲染控件，改值后热更壁纸 URL 哈希，再由 `scene.onFrame((frame) => ...)` 把 `frame.params` 送到场景，不用重启壁纸。可以直接安装的示例有两个：[`examples/content/param-demo`](examples/content/param-demo)（参数演示）和 [`examples/content/three-scene`](examples/content/three-scene)（Three.js WebGL）。
+设置页会按 Manifest 的 `params` 自动渲染控件，改值后热更壁纸 URL 哈希，再由 `scene.onFrame((frame) => ...)` 把 `frame.params` 送到场景，不用重启壁纸。可以直接安装的示例有两个：[`examples/scenes/param-demo`](examples/scenes/param-demo)（参数演示）和 [`examples/scenes/three-scene`](examples/scenes/three-scene)（Three.js WebGL）。
 
 #### 自定义Widget插件
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 构建脚本场景示例：把 `examples/content/<name>/src/main.ts` 用 esbuild 打成
+ * 构建脚本场景示例：把 `examples/scenes/<name>/src/main.ts` 用 esbuild 打成
  * 包内单文件 ESM（`scenes/<name>/main.js`）。
  *
  * 示例按包名导入 `@lull/scene-sdk`，优先取 dist，未构建时回落到 TS 源码，
@@ -42,7 +42,7 @@ const SAMPLES = [
 
 let built = 0;
 for (const sample of SAMPLES) {
-  const sampleDir = join(root, "examples", "content", sample.dir);
+  const sampleDir = join(root, "examples", "scenes", sample.dir);
   const entry = join(sampleDir, sample.entry);
   const outfile = join(sampleDir, "scenes", sample.dir, "main.js");
   if (!existsSync(entry)) {

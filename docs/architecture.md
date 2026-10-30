@@ -103,7 +103,7 @@ app/(widgets)/embed ──► components/widget-plugin-shell ──► iframe（
 packages/widget-sdk ──► 插件侧客户端 + React/Vue 适配
 packages/scene-sdk ──► 场景侧客户端（参数 / 几何 / 同步 / 可见性）
 examples/widgets/* ──► 静态插件包样例（TypeScript 源码，esbuild 构建）
-examples/content/* ──► 内容包样例（静态 CSS / Scene SDK 脚本场景）
+examples/scenes/* ──► 内容包样例（静态 CSS / Scene SDK 脚本场景）
 ```
 
 ### 3.2 Rust 模块图

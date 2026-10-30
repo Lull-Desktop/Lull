@@ -30,7 +30,7 @@ Lull 采用分层许可：
 | class-variance-authority | Apache-2.0 |
 | clsx | MIT |
 | tailwind-merge | MIT |
-| `three` / `@types/three` | MIT | 仅用于构建 `examples/content/three-scene` 示例场景；不进入应用安装包，示例包内附 `THIRD_PARTY_NOTICES.md` |
+| `three` / `@types/three` | MIT | 仅用于构建 `examples/scenes/three-scene` 示例场景；不进入应用安装包，示例包内附 `THIRD_PARTY_NOTICES.md` |
 
 完整依赖树以 `pnpm-lock.yaml` 为准；发布安装包前建议生成 SBOM，或使用
 `pnpm licenses list` 复核。

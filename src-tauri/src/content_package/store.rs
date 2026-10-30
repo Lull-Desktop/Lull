@@ -459,7 +459,7 @@ mod tests {
       return;
     };
     let source = root.join("three-scene");
-    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/content/three-scene");
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/scenes/three-scene");
     if copy_dir_all(&example, &source).is_err() {
       let _ = std::fs::remove_dir_all(&root);
       return;
@@ -481,7 +481,7 @@ mod tests {
       return;
     };
     let source = root.join("param-demo");
-    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/content/param-demo");
+    let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/scenes/param-demo");
     if copy_dir_all(&example, &source).is_err() {
       let _ = std::fs::remove_dir_all(&root);
       return;

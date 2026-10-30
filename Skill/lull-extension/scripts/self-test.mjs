@@ -42,7 +42,7 @@ function assert(condition, message) {
 
 // 1) Digest cross-check against the official param-demo 1.1.0 digest
 check("digest algorithm matches the repo", () => {
-  const bundle = join(REPO, "examples/content/param-demo");
+  const bundle = join(REPO, "examples/scenes/param-demo");
   const catalog = readJson(join(bundle, "catalog.json"));
   const scene = catalog.scenes[0];
   const digest = contentPackageDigest({
@@ -56,7 +56,7 @@ check("digest algorithm matches the repo", () => {
 
 // 2) Packages shipped in the repo must pass validation
 check("example: script scene param-demo", () => {
-  const report = validatePackage(join(REPO, "examples/content/param-demo"));
+  const report = validatePackage(join(REPO, "examples/scenes/param-demo"));
   assert(report.ok, `${report.errors.length} error(s):\n${report.errors.map((e) => `${e.code} ${e.message}`).join("\n")}`);
   return `${report.id}@${report.version}, ${report.warnings.length} warning(s)`;
 });
