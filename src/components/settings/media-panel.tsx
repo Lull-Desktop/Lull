@@ -1,19 +1,21 @@
 "use client";
 
 /**
- * 设置页「视频壁纸」面板。
+ * 设置页「媒体壁纸」面板。
  *
  * 只在场景为 `lull.video` 时由 WallpaperPanel 渲染；配置写入走
  * `media_config_set` / `media_activate`，壁纸窗口通过 `media-config-changed` 热更。
  */
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { MediaDiagnostics } from "@/components/settings/media-diagnostics";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -28,12 +30,14 @@ import {
   setMediaConfig,
 } from "@/core/media/media-api";
 import { onMediaConfigChanged } from "@/core/media/media-events";
+import { onMediaQuality } from "@/core/media/media-quality";
 import type {
   HardwareDecode,
   MediaAsset,
   MediaConfig,
   MediaConfigView,
   MediaFit,
+  MediaPlaybackQuality,
   MediaPosition,
   MediaShare,
   MediaStats,
@@ -50,6 +54,9 @@ export function MediaPanel() {
   const [view, setView] = useState<MediaConfigView | null>(null);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [stats, setStats] = useState<MediaStats | null>(null);
+  const [quality, setQuality] = useState<
+    ReadonlyMap<string, MediaPlaybackQuality>
+  >(() => new Map());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -70,6 +77,18 @@ export function MediaPanel() {
       void refresh();
     });
   }, [refresh]);
+
+  useEffect(
+    () =>
+      onMediaQuality((sample) => {
+        setQuality((current) => {
+          const next = new Map(current);
+          next.set(sample.label, sample);
+          return next;
+        });
+      }),
+    [],
+  );
 
   const update = useCallback(
     (patch: Partial<MediaConfig>): void => {
@@ -145,6 +164,9 @@ export function MediaPanel() {
 
   const config = view.config;
   const selected = assets.find((asset) => asset.id === config.assetId);
+  const isImage = selected?.kind === "image";
+  const images = assets.filter((asset) => asset.kind === "image");
+  const videos = assets.filter((asset) => asset.kind !== "image");
   // 能力探测只说明“可以尝试原生”，不代表当前 attach 成功；标签必须以实际
   // session/surface backend 为准，避免出现“原生纹理共享 + 原生 0/回退 1”。
   const session =
@@ -156,8 +178,9 @@ export function MediaPanel() {
   const hasHtmlSurface =
     session?.surfaces.some((surface) => surface.backend === "html-video") ??
     session?.backend === "html-video";
-  const backendLabel =
-    hasNativeSurface && hasHtmlSurface
+  const backendLabel = isImage
+    ? m.media_backend_image()
+    : hasNativeSurface && hasHtmlSurface
       ? m.media_backend_mixed()
       : hasNativeSurface
         ? m.media_backend_native()
@@ -166,7 +189,28 @@ export function MediaPanel() {
           : view.capabilities.nativeTextureStream
             ? m.media_backend_native()
             : m.media_backend_html();
-  const backendReason = session?.lastError ?? view.capabilities.reason;
+  const backendReason = isImage
+    ? null
+    : (session?.lastError ?? view.capabilities.reason);
+
+  const qualitySamples = [...quality.values()].filter(
+    (sample) => sample.total > 0,
+  );
+  const qualityFrames = qualitySamples.reduce(
+    (sum, sample) => sum + sample.total,
+    0,
+  );
+  const qualityDropped = qualitySamples.reduce(
+    (sum, sample) => sum + sample.dropped,
+    0,
+  );
+
+  const assetOption = (asset: MediaAsset): ReactNode => (
+    <SelectItem key={asset.id} value={asset.id}>
+      {asset.name}
+      {asset.available ? "" : " (!)"}
+    </SelectItem>
+  );
 
   return (
     <div className="space-y-3 border-t border-border/50 pt-4">
@@ -189,12 +233,18 @@ export function MediaPanel() {
               <SelectValue placeholder={m.media_asset_empty()} />
             </SelectTrigger>
             <SelectContent>
-              {assets.map((asset) => (
-                <SelectItem key={asset.id} value={asset.id}>
-                  {asset.name}
-                  {asset.available ? "" : " (!)"}
-                </SelectItem>
-              ))}
+              {images.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>{m.media_kind_image()}</SelectLabel>
+                  {images.map(assetOption)}
+                </SelectGroup>
+              ) : null}
+              {videos.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>{m.media_kind_video()}</SelectLabel>
+                  {videos.map(assetOption)}
+                </SelectGroup>
+              ) : null}
             </SelectContent>
           </Select>
           <Button
@@ -222,14 +272,16 @@ export function MediaPanel() {
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <div className="flex items-center justify-between gap-3">
-          <Label className="text-ink-soft">{m.media_loop()}</Label>
-          <Switch
-            checked={config.loop}
-            disabled={busy}
-            onCheckedChange={(loop) => update({ loop })}
-          />
-        </div>
+        {!isImage ? (
+          <div className="flex items-center justify-between gap-3">
+            <Label className="text-ink-soft">{m.media_loop()}</Label>
+            <Switch
+              checked={config.loop}
+              disabled={busy}
+              onCheckedChange={(loop) => update({ loop })}
+            />
+          </div>
+        ) : null}
         <div className="flex items-center justify-between gap-3">
           <Label className="text-ink-soft">{m.media_fit()}</Label>
           <Select
@@ -272,67 +324,73 @@ export function MediaPanel() {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex items-center justify-between gap-3">
-          <Label className="text-ink-soft">{m.media_fps()}</Label>
-          <Select
-            value={String(config.preferredFps)}
-            onValueChange={(value) =>
-              update({ preferredFps: Number(value) as 24 | 30 | 60 })
-            }
-            disabled={busy}
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="24">24</SelectItem>
-              <SelectItem value="30">30</SelectItem>
-              <SelectItem value="60">60</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <Label className="text-ink-soft">{m.media_hardware()}</Label>
-          <Select
-            value={config.hardwareDecode}
-            onValueChange={(value) =>
-              update({ hardwareDecode: value as HardwareDecode })
-            }
-            disabled={busy}
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">{m.media_hardware_auto()}</SelectItem>
-              <SelectItem value="required">
-                {m.media_hardware_required()}
-              </SelectItem>
-              <SelectItem value="disabled">
-                {m.media_hardware_disabled()}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <Label className="text-ink-soft">{m.media_share()}</Label>
-          <Select
-            value={config.share}
-            onValueChange={(value) => update({ share: value as MediaShare })}
-            disabled={busy}
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">{m.media_share_auto()}</SelectItem>
-              <SelectItem value="shared">{m.media_share_shared()}</SelectItem>
-              <SelectItem value="independent">
-                {m.media_share_independent()}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        {!isImage ? (
+          <div className="flex items-center justify-between gap-3">
+            <Label className="text-ink-soft">{m.media_fps()}</Label>
+            <Select
+              value={String(config.preferredFps)}
+              onValueChange={(value) =>
+                update({ preferredFps: Number(value) as 24 | 30 | 60 })
+              }
+              disabled={busy}
+            >
+              <SelectTrigger size="sm" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="24">24</SelectItem>
+                <SelectItem value="30">30</SelectItem>
+                <SelectItem value="60">60</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+        {!isImage ? (
+          <div className="flex items-center justify-between gap-3">
+            <Label className="text-ink-soft">{m.media_hardware()}</Label>
+            <Select
+              value={config.hardwareDecode}
+              onValueChange={(value) =>
+                update({ hardwareDecode: value as HardwareDecode })
+              }
+              disabled={busy}
+            >
+              <SelectTrigger size="sm" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{m.media_hardware_auto()}</SelectItem>
+                <SelectItem value="required">
+                  {m.media_hardware_required()}
+                </SelectItem>
+                <SelectItem value="disabled">
+                  {m.media_hardware_disabled()}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+        {!isImage ? (
+          <div className="flex items-center justify-between gap-3">
+            <Label className="text-ink-soft">{m.media_share()}</Label>
+            <Select
+              value={config.share}
+              onValueChange={(value) => update({ share: value as MediaShare })}
+              disabled={busy}
+            >
+              <SelectTrigger size="sm" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{m.media_share_auto()}</SelectItem>
+                <SelectItem value="shared">{m.media_share_shared()}</SelectItem>
+                <SelectItem value="independent">
+                  {m.media_share_independent()}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -342,6 +400,15 @@ export function MediaPanel() {
           : ""}
       </p>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      {qualitySamples.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {m.media_quality({
+            dropped: qualityDropped,
+            total: qualityFrames,
+            screens: qualitySamples.length,
+          })}
+        </p>
+      ) : null}
       <MediaDiagnostics stats={stats} />
     </div>
   );

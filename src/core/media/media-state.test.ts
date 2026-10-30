@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   decideNativeAttempt,
   formatBytes,
+  mediaKindFromUrl,
   mediaObjectPosition,
 } from "@/core/media/media-state";
 import type { MediaCapabilities } from "@/core/media/types";
@@ -40,5 +41,16 @@ describe("media state", () => {
     expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(1024)).toBe("1.0 KB");
     expect(formatBytes(1024 * 1024 * 2.5)).toBe("2.5 MB");
+  });
+
+  test("mediaKindFromUrl infers image/video from the encoded asset URL", () => {
+    expect(mediaKindFromUrl("http://asset.localhost/C%3A%5Cwall.PNG")).toBe(
+      "image",
+    );
+    expect(mediaKindFromUrl("http://asset.localhost/C%3A%5Cclip.mp4")).toBe(
+      "video",
+    );
+    expect(mediaKindFromUrl("http://asset.localhost/notes.txt")).toBeNull();
+    expect(mediaKindFromUrl("")).toBeNull();
   });
 });

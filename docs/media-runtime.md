@@ -77,6 +77,7 @@ MediaSurface (src/scenes/media-surface.tsx)
       "id": "m_7f3a...",
       "path": "D:\\Videos\\night.mp4",
       "name": "night.mp4",
+      "kind": "video",
       "sizeBytes": 12345678,
       "addedAt": 0
     }
@@ -84,7 +85,12 @@ MediaSurface (src/scenes/media-surface.tsx)
 }
 ```
 
-不复制视频；文件移动/删除后前端显示“需要重新选择”。
+不复制素材；文件移动/删除后前端显示“需要重新选择”。`kind` 由扩展名判定：
+
+- 图片：`png/jpg/jpeg/gif/webp/avif/bmp`，直接 `<img src=assetUrl>`，**不创建 MediaSession**；
+- 视频：`mp4/m4v/webm/mov`，走原生或 HTML 播放。
+
+旧库没有 `kind` 时按 `path` 扩展名补算，不提升 `MEDIA_STORE_VERSION`，避免整库回退空库。
 
 ### 2.3 安全边界
 
@@ -113,6 +119,19 @@ MediaSurface (src/scenes/media-surface.tsx)
 | 应用退出 | `media::shutdown()` → 停 Session、清 token |
 
 `Display Detach` 不等于 `Session Destroy`；但**切到非视频场景等于释放**。这是为了避免离开视频后仍持有解码线程/纹理流/HTML 解码器。
+
+### 3.1 HTML 回退的相位对齐
+
+HTML 回退由每个壁纸窗独立解码，因此需要场景层同步：
+
+- 目标相位 = `(Date.now()/1000 × rate) % duration`，所有壁纸窗共享同一墙钟；
+- `loadedmetadata` 后按 0.5s 容差 seek 一次，再 `play()`；
+- 恢复可见时按 2s 容差重新对齐；
+- 每 60s 做一次“偏差 > 2s 才纠正”的兜底，正常播放不触发；
+- `loop=false` 或图片素材不参与相位对齐；
+- 原生 `srcObject` 是实时流，**不 seek**；原生时间轴由共享 Session/PTS 负责。
+
+实现见 `src/core/media/phase.ts` 与 `src/scenes/media-surface.tsx`。
 
 ## 4. 原生后端实现
 
@@ -287,12 +306,15 @@ G1 的前置条件不是代码，而是运行环境：`CreateTextureStream` 必�
 ## 6. 已知边界
 
 - 首版无音频；`muted` 恒为 true；
-- 首版一个全局视频源，无每屏独立素材；
+- 一个全局媒体源（图片或视频），无每屏独立素材；图片不创建 Session；
 - 原生分支尚未实现 `FrameThrottle`，`preferredFps` 在原生路径暂不生效；
 - 外部内容包视频未开放（包体积/摘要/透明 iframe/CSP 都需单独设计）；
 - HTML 回退由每个 WebView 自行解码，不承诺单解码器；
+- HTML 回退的同步是墙钟近似（起播/恢复 seek，60s 兜底），不保证逐帧对齐；
+- 图片走 asset 协议的 `<img>`，需要 CSP `img-src` 放行 `asset:` /
+  `http://asset.localhost`；
 - 原生组件崩溃无法被 Rust 完全捕获；提供 `LULL_MEDIA_DISABLE=1` /
   `LULL_MEDIA_FORCE_FALLBACK=1` 安全开关；
-- 视频文件只登记不复制，移动/删除后需重新选择；
+- 素材只登记不复制，移动/删除后需重新选择；
 - HTML 回退只登记浏览器可播放的容器（`mp4/m4v/webm/mov`）；`mkv/avi` 等要等原生
   路径在支持 TextureStream 的运行时上通过门禁。

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { DEFAULT_MEDIA_CONFIG } from "@/core/media/types";
 import { MediaSurface } from "./media-surface";
@@ -31,6 +31,7 @@ vi.mock("@/core/media/media-events", () => ({
 const asset = {
   id: "m_1",
   name: "night.mp4",
+  kind: "video",
   sizeBytes: 1024,
   addedAt: 0,
   available: true,
@@ -130,5 +131,60 @@ describe("MediaSurface", () => {
     expect(video.getAttribute("src")).toBeNull();
     expect(video.srcObject).toBeNull();
     unmount();
+  });
+
+  test("renders images without opening a media session", async () => {
+    const image = {
+      id: "m_img",
+      name: "wall.png",
+      kind: "image",
+      sizeBytes: 2048,
+      addedAt: 0,
+      available: true,
+    };
+    mocks.getMediaConfig.mockResolvedValue({
+      config: { ...DEFAULT_MEDIA_CONFIG, assetId: "m_img" },
+      asset: image,
+      assetUrl: "http://asset.localhost/wall.png",
+      capabilities,
+    });
+
+    render(<MediaSurface />);
+    await waitFor(() => {
+      expect(screen.getByTestId("media-image").getAttribute("src")).toBe(
+        "http://asset.localhost/wall.png",
+      );
+    });
+    expect(
+      screen.getByTestId("media-surface").getAttribute("data-backend"),
+    ).toBe("image");
+    expect(screen.queryByTestId("media-video")).toBeNull();
+    expect(mocks.openMediaSession).not.toHaveBeenCalled();
+    expect(mocks.attachMediaSession).not.toHaveBeenCalled();
+  });
+
+  test("HTML video aligns to wall-clock phase on metadata when sync is on", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(12_345);
+    render(<MediaSurface syncEnabled />);
+    await waitFor(() => {
+      expect(screen.getByTestId("media-video").getAttribute("src")).toBe(
+        "http://asset.localhost/night.mp4",
+      );
+    });
+
+    const video = screen.getByTestId("media-video") as HTMLVideoElement;
+    Object.defineProperty(video, "duration", {
+      value: 10,
+      configurable: true,
+    });
+    Object.defineProperty(video, "readyState", {
+      value: 0,
+      configurable: true,
+    });
+    fireEvent.loadedMetadata(video);
+
+    // 12.345s 在 10s 循环里的相位是 2.345s。
+    expect(video.currentTime).toBeCloseTo(2.345, 2);
+    now.mockRestore();
   });
 });

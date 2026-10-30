@@ -30,6 +30,7 @@ vi.mock("@/core/media/media-events", () => ({
 const asset = {
   id: "m_1",
   name: "night.mp4",
+  kind: "video",
   sizeBytes: 1024,
   addedAt: 0,
   available: true,
@@ -57,9 +58,10 @@ beforeEach(() => {
 describe("MediaPanel", () => {
   test("shows the selected video and fallback backend", async () => {
     render(<MediaPanel />);
-    expect(await screen.findByText("视频壁纸")).toBeTruthy();
+    expect(await screen.findByText("媒体壁纸")).toBeTruthy();
     expect(screen.getByText("night.mp4")).toBeTruthy();
     expect(screen.getAllByText(/HTML 视频回退/).length).toBeGreaterThan(0);
+    expect(screen.getByText("循环")).toBeTruthy();
   });
 
   test("explains when the wallpaper runtime is not running", async () => {
@@ -107,8 +109,40 @@ describe("MediaPanel", () => {
       ],
     });
     render(<MediaPanel />);
-    expect(await screen.findByText("视频壁纸")).toBeTruthy();
+    expect(await screen.findByText("媒体壁纸")).toBeTruthy();
     expect(screen.getAllByText(/HTML 视频回退/).length).toBeGreaterThan(0);
     expect(screen.queryByText("原生纹理共享")).toBeNull();
+  });
+
+  test("image asset hides video-only controls and shows still-image backend", async () => {
+    const image = {
+      id: "m_img",
+      name: "wall.png",
+      kind: "image",
+      sizeBytes: 2048,
+      addedAt: 0,
+      available: true,
+    };
+    mocks.getMediaConfig.mockResolvedValue({
+      config: { ...DEFAULT_MEDIA_CONFIG, assetId: "m_img" },
+      asset: image,
+      assetUrl: "http://asset.localhost/wall.png",
+      capabilities: {
+        nativeTextureStream: false,
+        hardwareDecode: false,
+        reason: "native disabled",
+        runtimeVersion: null,
+        adapterLuid: null,
+        htmlFallback: true,
+      },
+    });
+    mocks.listMediaAssets.mockResolvedValue([image]);
+
+    render(<MediaPanel />);
+    expect(await screen.findByText("静态图片")).toBeTruthy();
+    expect(screen.getByText("wall.png")).toBeTruthy();
+    expect(screen.queryByText("循环")).toBeNull();
+    expect(screen.queryByText("目标帧率")).toBeNull();
+    expect(screen.queryByText("共享解码")).toBeNull();
   });
 });

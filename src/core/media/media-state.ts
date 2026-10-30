@@ -3,8 +3,42 @@ import type {
   MediaBackend,
   MediaCapabilities,
   MediaFit,
+  MediaKind,
   MediaPosition,
 } from "./types";
+
+const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "avif",
+  "bmp",
+]);
+const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "webm", "mov"]);
+
+/** 从 asset URL 兜底推断素材类型；Rust 返回的 `kind` 优先。 */
+export function mediaKindFromUrl(source: string): MediaKind | null {
+  if (!source) return null;
+  let path = source;
+  try {
+    path = new URL(source).pathname;
+  } catch {
+    // 相对路径或测试桩：按原串取扩展名。
+  }
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // 非法百分号序列：保留原串。
+  }
+  const dot = path.lastIndexOf(".");
+  if (dot < 0) return null;
+  const extension = path.slice(dot + 1).toLowerCase();
+  if (VIDEO_EXTENSIONS.has(extension)) return "video";
+  if (IMAGE_EXTENSIONS.has(extension)) return "image";
+  return null;
+}
 
 export type NativeAttempt = {
   attempt: boolean;

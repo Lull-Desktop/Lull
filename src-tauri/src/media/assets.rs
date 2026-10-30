@@ -1,7 +1,7 @@
-//! 本地视频素材库。
+//! 本地媒体素材库（图片 / 视频）。
 //!
 //! 素材文件不复制，只登记用户通过系统文件对话框选中的绝对路径。前端永远拿不到
-//! 任意路径，只能拿 `assetId`；真正的文件读取由 Rust 完成，HTML 回退则通过
+//! 任意路径，只能拿 `assetId`；真正的文件读取由 Rust 完成，HTML 渲染则通过
 //! Tauri asset protocol（支持 Range）把文件交给 WebView。
 //!
 //! 存储：`%APPDATA%\\app.lull.desktop\\media.json`。文件损坏/缺失只回退空库，
@@ -18,7 +18,26 @@ use crate::wallpaper::wlog;
 
 pub const MEDIA_STORE_VERSION: u32 = 1;
 const STORE_FILE: &str = "media.json";
-const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "webm", "mov"];
+/// 图片白名单：WebView2 的 `<img>` 能直接解码的格式。
+pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp"];
+/// 视频白名单：HTML `<video>` 在 WebView2 里保证可播的容器。
+pub const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "webm", "mov"];
+
+/// 扩展名 → `image` / `video`；不在白名单里返回 None。
+#[must_use]
+pub fn media_kind(path: &Path) -> Option<&'static str> {
+  let extension = path
+    .extension()
+    .and_then(|extension| extension.to_str())
+    .map(str::to_ascii_lowercase)?;
+  if IMAGE_EXTENSIONS.contains(&extension.as_str()) {
+    return Some("image");
+  }
+  if VIDEO_EXTENSIONS.contains(&extension.as_str()) {
+    return Some("video");
+  }
+  None
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +45,9 @@ pub struct MediaAssetFile {
   pub id: String,
   pub path: String,
   pub name: String,
+  /// `image` / `video`；旧库可能没有该字段，读取时按扩展名补算。
+  #[serde(default)]
+  pub kind: String,
   pub size_bytes: u64,
   pub added_at: u64,
 }
@@ -36,6 +58,8 @@ pub struct MediaAssetFile {
 pub struct MediaAssetView {
   pub id: String,
   pub name: String,
+  /// `image` / `video`；前端据此选择 `<img>` 或 `<video>`。
+  pub kind: String,
   pub size_bytes: u64,
   pub added_at: u64,
   pub available: bool,
@@ -121,10 +145,21 @@ fn save_data(app: &tauri::AppHandle, data: &MediaStoreData) -> Result<(), String
   }
 }
 
+/// 素材类型；旧库 `kind` 为空时按扩展名补算。
+#[must_use]
+pub fn kind_of(asset: &MediaAssetFile) -> &str {
+  if asset.kind.is_empty() {
+    media_kind(Path::new(&asset.path)).unwrap_or("video")
+  } else {
+    &asset.kind
+  }
+}
+
 fn view(asset: &MediaAssetFile) -> MediaAssetView {
   MediaAssetView {
     id: asset.id.clone(),
     name: asset.name.clone(),
+    kind: kind_of(asset).to_string(),
     size_bytes: asset.size_bytes,
     added_at: asset.added_at,
     available: Path::new(&asset.path).is_file(),
@@ -154,17 +189,15 @@ pub fn add_from_path(app: &tauri::AppHandle, path: &Path) -> Result<MediaAssetVi
     .and_then(|ext| ext.to_str())
     .map(str::to_ascii_lowercase)
     .unwrap_or_default();
-  if !VIDEO_EXTENSIONS.contains(&extension.as_str()) {
-    return Err(format!("不支持的视频扩展名: .{extension}"));
-  }
+  let kind = media_kind(&path).ok_or_else(|| format!("不支持的素材扩展名: .{extension}"))?;
   let path_text = path
     .to_str()
-    .ok_or_else(|| "视频路径不是合法 UTF-8".to_string())?
+    .ok_or_else(|| "素材路径不是合法 UTF-8".to_string())?
     .to_string();
   let name = path
     .file_name()
     .and_then(|name| name.to_str())
-    .unwrap_or("video")
+    .unwrap_or("media")
     .to_string();
   let size_bytes = std::fs::metadata(&path)
     .map_err(|error| error.to_string())?
@@ -183,6 +216,7 @@ pub fn add_from_path(app: &tauri::AppHandle, path: &Path) -> Result<MediaAssetVi
     id,
     path: path_text,
     name,
+    kind: kind.to_string(),
     size_bytes,
     added_at,
   };
@@ -242,5 +276,31 @@ mod tests {
     let data = MediaStoreData::default();
     assert_eq!(data.version, MEDIA_STORE_VERSION);
     assert!(data.assets.is_empty());
+  }
+
+  #[test]
+  fn media_kind_matches_extension_whitelist() {
+    assert_eq!(media_kind(Path::new("a.JPG")), Some("image"));
+    assert_eq!(media_kind(Path::new("a.webp")), Some("image"));
+    assert_eq!(media_kind(Path::new("a.bmp")), Some("image"));
+    assert_eq!(media_kind(Path::new("a.MP4")), Some("video"));
+    assert_eq!(media_kind(Path::new("a.mov")), Some("video"));
+    // 不在白名单的格式不给前端“能选不能播”的假象。
+    assert_eq!(media_kind(Path::new("a.mkv")), None);
+    assert_eq!(media_kind(Path::new("a.svg")), None);
+    assert_eq!(media_kind(Path::new("a")), None);
+  }
+
+  #[test]
+  fn legacy_asset_without_kind_is_inferred_from_path() {
+    let asset = MediaAssetFile {
+      id: "m_1".into(),
+      path: r"C:\Pictures\wall.png".into(),
+      name: "wall.png".into(),
+      kind: String::new(),
+      size_bytes: 1,
+      added_at: 0,
+    };
+    assert_eq!(kind_of(&asset), "image");
   }
 }

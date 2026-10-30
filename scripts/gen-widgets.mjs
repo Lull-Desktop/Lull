@@ -366,6 +366,8 @@ const wallpaperCapability = {
   permissions: [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    // 媒体播放质量采样由壁纸窗 emit，设置页 listen。
+    "core:event:allow-emit",
     "allow-content-packages",
     // 媒体命令只够壁纸顶层页面使用；外部 iframe 另由顶层帧 token 拦截。
     "allow-media-capabilities",

@@ -93,7 +93,8 @@ pub async fn media_asset_pick(
   ensure_settings(webview.label())?;
   let picked = tauri::async_runtime::spawn_blocking(|| {
     rfd::FileDialog::new()
-      .add_filter("Video", &["mp4", "m4v", "webm", "mov"])
+      .add_filter("图片", assets::IMAGE_EXTENSIONS)
+      .add_filter("视频", assets::VIDEO_EXTENSIONS)
       .pick_file()
   })
   .await
@@ -195,7 +196,7 @@ pub fn media_activate(
   ensure_settings(webview.label())?;
   let asset = assets::find(&app, &asset_id).ok_or_else(|| "素材不存在".to_string())?;
   if !std::path::Path::new(&asset.path).is_file() {
-    return Err("视频文件不存在或已被移动".to_string());
+    return Err("素材文件不存在或已被移动".to_string());
   }
   {
     let mut guard = runtime::config()?;
@@ -228,10 +229,13 @@ pub fn media_open(
     .media
     .asset_id
     .clone()
-    .ok_or_else(|| "尚未选择视频素材".to_string())?;
-  let asset = assets::find(&app, &asset_id).ok_or_else(|| "视频素材不存在".to_string())?;
+    .ok_or_else(|| "尚未选择媒体素材".to_string())?;
+  let asset = assets::find(&app, &asset_id).ok_or_else(|| "媒体素材不存在".to_string())?;
   if !std::path::Path::new(&asset.path).is_file() {
-    return Err("视频文件不存在或已被移动".to_string());
+    return Err("素材文件不存在或已被移动".to_string());
+  }
+  if assets::kind_of(&asset) == "image" {
+    return Err("图片素材不需要媒体会话".to_string());
   }
   assets::allow_asset(&app, &asset.path);
   let asset_url = assets::asset_url(&webview, &asset.path)?;
@@ -302,8 +306,23 @@ fn attach_native(
   engine().attach_native(session_id, label, device, stream, context)
 }
 
+#[cfg(feature = "native-media")]
+async fn attach_native_off_main(
+  webview: WebviewWindow,
+  session_id: String,
+  label: String,
+  device: Option<String>,
+  origin: String,
+) -> Result<MediaAttachResult, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    attach_native(&webview, &session_id, &label, device.as_deref(), &origin)
+  })
+  .await
+  .map_err(|error| format!("等待原生 attach 线程失败: {error}"))?
+}
+
 #[tauri::command]
-pub fn media_attach(
+pub async fn media_attach(
   app: AppHandle,
   webview: WebviewWindow,
   token: Option<String>,
@@ -316,7 +335,15 @@ pub fn media_attach(
   let device = lifecycle::device_for_label(&label);
   #[cfg(feature = "native-media")]
   let result = if engine().capabilities().native_texture_stream {
-    match attach_native(&webview, &session_id, &label, device.as_deref(), &origin) {
+    match attach_native_off_main(
+      webview.clone(),
+      session_id.clone(),
+      label.clone(),
+      device.clone(),
+      origin.clone(),
+    )
+    .await
+    {
       Ok(result) => {
         crate::wallpaper::wlog(&format!(
           "media: native attach {label} session={session_id} stream={:?}",
@@ -430,4 +457,16 @@ pub fn media_status(webview: WebviewWindow) -> Result<Vec<MediaSessionView>, Str
 pub fn media_stats(webview: WebviewWindow) -> Result<MediaStats, String> {
   ensure_settings(webview.label())?;
   Ok(engine().stats())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  /// `media_attach` 用 spawn_blocking 把原生探针移出主线程，闭包要求 Send。
+  #[test]
+  fn webview_window_is_send() {
+    fn assert_send<T: Send>() {}
+    assert_send::<WebviewWindow>();
+  }
 }

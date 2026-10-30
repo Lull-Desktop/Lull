@@ -7,6 +7,9 @@
 
 export type MediaBackend = "native-texture" | "html-video";
 
+/** 素材类型：图片走 `<img>`，不创建媒体会话；视频走原生/HTML 播放。 */
+export type MediaKind = "image" | "video";
+
 export type MediaSessionState =
   | "starting"
   | "playing"
@@ -51,6 +54,8 @@ export const DEFAULT_MEDIA_CONFIG: MediaConfig = {
 export type MediaAsset = {
   id: string;
   name: string;
+  /** image / video；由 Rust 素材库按扩展名判定。 */
+  kind: MediaKind;
   sizeBytes: number;
   addedAt: number;
   /** 文件被移动/删除后为 false。 */
@@ -136,6 +141,15 @@ export type MediaDegradedEvent = {
   sessionId: string;
   assetUrl: string;
   reason: string;
+};
+
+/** 壁纸窗每 5s 上报的 HTML 播放质量；原生路径由 media_stats 提供。 */
+export type MediaPlaybackQuality = {
+  label: string;
+  total: number;
+  dropped: number;
+  readyState: number;
+  at: number;
 };
 
 export type MediaConfigChangedEvent = Record<string, never>;
