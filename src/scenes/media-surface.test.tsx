@@ -58,6 +58,7 @@ function configView(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
   mocks.getMediaConfig.mockResolvedValue(configView());
   mocks.openMediaSession.mockResolvedValue({
@@ -115,5 +116,19 @@ describe("MediaSurface", () => {
         "http://asset.localhost/night.mp4",
       );
     });
+  });
+
+  test("releases the video source on pagehide", async () => {
+    const { unmount } = render(<MediaSurface />);
+    await waitFor(() => {
+      expect(screen.getByTestId("media-video").getAttribute("src")).toBe(
+        "http://asset.localhost/night.mp4",
+      );
+    });
+    const video = screen.getByTestId("media-video") as HTMLVideoElement;
+    window.dispatchEvent(new Event("pagehide"));
+    expect(video.getAttribute("src")).toBeNull();
+    expect(video.srcObject).toBeNull();
+    unmount();
   });
 });

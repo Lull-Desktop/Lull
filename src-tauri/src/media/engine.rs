@@ -373,6 +373,44 @@ impl MediaEngine {
     state.surfaces.clear();
   }
 
+  /// 只保留仍有呈现面位于视频显示器上的会话。
+  ///
+  /// 用于场景切换：切到非视频场景的显示器会释放自己的会话；其它仍处于
+  /// `lull.video` 的显示器（independent 模式）继续复用原解码器/纹理流。没有
+  /// surface 的会话在这次配置变化中一并回收，避免留下后台解码线程。
+  pub fn retain_video_devices(&self, video_devices: &BTreeSet<String>) {
+    let mut state = self.lock();
+    let active_sessions: BTreeSet<String> = state
+      .surfaces
+      .values()
+      .filter(|surface| {
+        surface
+          .device
+          .as_ref()
+          .is_some_and(|device| video_devices.contains(device))
+      })
+      .map(|surface| surface.session_id.clone())
+      .collect();
+    let stale_sessions: Vec<String> = state
+      .sessions
+      .keys()
+      .filter(|session_id| !active_sessions.contains(*session_id))
+      .cloned()
+      .collect();
+    for session_id in stale_sessions {
+      if let Some(_session) = state.sessions.remove(&session_id) {
+        #[cfg(feature = "native-media")]
+        if let Some(native) = &_session.native {
+          native.stop();
+        }
+      }
+    }
+    let live_sessions: BTreeSet<String> = state.sessions.keys().cloned().collect();
+    state
+      .surfaces
+      .retain(|_, surface| live_sessions.contains(&surface.session_id));
+  }
+
   pub fn set_master_visible(&self, visible: bool) {
     let mut state = self.lock();
     state.master_visible = visible;
@@ -664,5 +702,54 @@ mod tests {
     engine.detach("wallpaper-0");
     assert_eq!(engine.status().len(), 1, "detach 不应销毁会话");
     assert_eq!(engine.status()[0].state, MediaSessionState::Paused);
+  }
+
+  #[test]
+  fn retain_video_devices_releases_only_switched_displays() {
+    let engine = MediaEngine {
+      state: Mutex::new(EngineState {
+        sessions: BTreeMap::new(),
+        surfaces: BTreeMap::new(),
+        master_visible: true,
+      }),
+      capabilities: MediaCapabilities::default(),
+    };
+    let one = engine.open(
+      "lull.video",
+      "m_1",
+      "a.mp4",
+      "http://asset.localhost/a.mp4",
+      std::path::Path::new("a.mp4"),
+      &config(),
+      Some("\\\\.\\DISPLAY1"),
+      false,
+    );
+    let two = engine.open(
+      "lull.video",
+      "m_1",
+      "a.mp4",
+      "http://asset.localhost/a.mp4",
+      std::path::Path::new("a.mp4"),
+      &config(),
+      Some("\\\\.\\DISPLAY2"),
+      false,
+    );
+    engine
+      .attach(&one.session_id, "wallpaper-0", Some("\\\\.\\DISPLAY1"))
+      .unwrap();
+    engine
+      .attach(&two.session_id, "wallpaper-1", Some("\\\\.\\DISPLAY2"))
+      .unwrap();
+
+    let mut only_first = BTreeSet::new();
+    only_first.insert("\\\\.\\DISPLAY1".to_string());
+    engine.retain_video_devices(&only_first);
+    let views = engine.status();
+    assert_eq!(views.len(), 1, "切走的显示器应释放会话");
+    assert_eq!(views[0].session_id, one.session_id);
+    assert_eq!(views[0].surfaces.len(), 1);
+
+    engine.retain_video_devices(&BTreeSet::new());
+    assert!(engine.status().is_empty(), "没有视频显示器时不得留会话");
   }
 }

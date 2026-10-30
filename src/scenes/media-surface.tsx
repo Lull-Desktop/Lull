@@ -248,6 +248,26 @@ export function MediaSurface({
     };
   }, [clearNativeTimer, load, reloadKey, stopNativeTrack]);
 
+  // WebView 重载/场景切走时 React cleanup 不一定先跑完：pagehide 里同步释放
+  // 轨道和 <video> 的 src，避免旧页面在卸载阶段继续解码。
+  useEffect(() => {
+    const release = (): void => {
+      clearNativeTimer();
+      stopNativeTrack();
+      const video = videoRef.current;
+      if (!video) return;
+      try {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      } catch {
+        // 已销毁的 WebView
+      }
+    };
+    window.addEventListener("pagehide", release);
+    return () => window.removeEventListener("pagehide", release);
+  }, [clearNativeTimer, stopNativeTrack]);
+
   useEffect(() => {
     return onMediaConfigChanged(() => setReloadKey((key) => key + 1));
   }, []);

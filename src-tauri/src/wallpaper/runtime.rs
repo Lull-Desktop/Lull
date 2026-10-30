@@ -3,7 +3,7 @@
 //! 本模块是壁纸子系统的唯一门面；窗口创建/重建在 `windows`，看门狗在
 //! `watchdog`，几何与 ABI 分别在 `topology` / `ffi`。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -42,6 +42,21 @@ pub(crate) fn scene_in_use(scene: &str) -> bool {
       .monitors
       .values()
       .any(|monitor| monitor.scene.as_deref() == Some(scene))
+}
+
+/// 当前仍解析到视频场景的显示器设备名。
+///
+/// `independent` 模式下每个显示器可覆盖场景；这里按实际壁纸窗口的 device 解析，
+/// 供媒体生命周期只释放切走的显示器，避免误停仍在播放的屏幕。
+pub(crate) fn video_devices() -> BTreeSet<String> {
+  let Ok(state) = config() else {
+    return BTreeSet::new();
+  };
+  snapshot_targets()
+    .into_iter()
+    .filter(|(_, _, device)| state.data.resolved_scene(device) == crate::media::VIDEO_SCENE)
+    .map(|(_, _, device)| device)
+    .collect()
 }
 
 pub(crate) struct Target {
@@ -314,16 +329,23 @@ pub async fn wallpaper_set_display(
   sync: Option<bool>,
   scene: Option<String>,
 ) -> Result<(), String> {
-  {
+  let layout_changed = {
     let mut config = config()?;
     let old = config.data.display.clone();
+    let changed =
+      mode.is_some_and(|next| next != old.mode) || sync.is_some_and(|next| next != old.sync);
     config.data.display.apply_patch(mode, sync, scene);
     if let Err(error) = config.data.save(&config.path) {
       config.data.display = old;
       return Err(format!("保存配置失败: {error}"));
     }
+    changed
+  };
+  if layout_changed {
+    crate::media::lifecycle::on_display_layout_changed();
+  } else {
+    crate::media::lifecycle::on_display_config_changed();
   }
-  crate::media::lifecycle::on_display_config_changed();
   windows::reapply_display(&app)
 }
 

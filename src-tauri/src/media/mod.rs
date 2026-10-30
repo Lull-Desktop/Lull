@@ -19,6 +19,9 @@ mod native_bridge;
 
 use engine::engine;
 
+/// 视频场景 id；生命周期用它判断“是否仍在视频模式”。
+pub(crate) const VIDEO_SCENE: &str = "lull.video";
+
 /// 启动媒体运行时。纯内存初始化；依赖/后端的失败不得阻断应用启动。
 pub fn init() {
   let _ = engine();

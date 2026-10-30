@@ -356,8 +356,8 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 42 个测试文件（228 项，含 packages/{widget-sdk,scene-sdk}、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
-cargo test             Rust 137 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 媒体会话与配置）
+pnpm test              前端 42 个测试文件（229 项，含 packages/{widget-sdk,scene-sdk}、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
+cargo test             Rust 138 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 媒体会话、配置与场景释放）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名

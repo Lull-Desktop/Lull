@@ -58,8 +58,17 @@ pub fn set_master_visible(visible: bool) {
   engine().set_master_visible(visible);
 }
 
-/// 场景/显示配置变化：前端会按新 hash 重新挂载，旧会话先停掉，避免持有旧资源。
+/// 场景/显示配置变化：只保留仍在视频显示器上的会话。
+///
+/// 切换单屏到非视频场景时，其它显示器如果仍是 `lull.video`，不能被误停；
+/// 反过来，切走的显示器必须释放解码器/纹理流，不能留下后台播放开销。
 pub fn on_display_config_changed() {
+  let devices = crate::wallpaper::runtime::video_devices();
+  engine().retain_video_devices(&devices);
+}
+
+/// 显示模式/同步拓扑变化：共享分组已变，全部会话重新建立。
+pub fn on_display_layout_changed() {
   engine().stop_all();
 }
 

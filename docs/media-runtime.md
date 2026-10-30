@@ -105,11 +105,14 @@ MediaSurface (src/scenes/media-surface.tsx)
 | Explorer 重启 / 拓扑重建 | `on_topology_rebuild()`：只解绑 Surface；新窗口重新 attach，不重开解码 |
 | 全局隐藏壁纸 | Session 置 Paused；原生 `pipeline.pause()`；HTML video 暂停 |
 | 全局显示 | Session 恢复；原生 `pipeline.resume()`；HTML video 重新播放 |
-| 场景/配置切换 | `on_display_config_changed()` 停掉旧 Session；前端按新 hash 重挂载 |
+| 切到非视频场景（全局或单屏） | `retain_video_devices(video_devices)`：只保留仍有 surface 落在视频显示器上的 Session；切走的屏幕停 native pipeline、释放 TextureStream/解码器，HTML `<video>` 在组件卸载 + `pagehide` 中清 `src`/轨道 |
+| 仍留在视频的其它屏幕 | 不重建 Session/解码器；independent 模式互不误停 |
+| 显示模式/同步变化 | `on_display_layout_changed()` 全停并按新共享分组重建 |
+| 场景参数变化（仍在视频） | Session 保留，不因无关参数触发重新解码 |
 | 页面重载 | `on_page_loaded(label)` 清旧 Surface；新页面重新 attach |
 | 应用退出 | `media::shutdown()` → 停 Session、清 token |
 
-`Display Detach` 不等于 `Session Destroy`，这是当前实现与原生实现的共同约束。
+`Display Detach` 不等于 `Session Destroy`；但**切到非视频场景等于释放**。这是为了避免离开视频后仍持有解码线程/纹理流/HTML 解码器。
 
 ## 4. 原生后端实现
 
