@@ -2,8 +2,9 @@
  * 顶栏测试：验证锁定只切换拖拽区/窗口缩放、关闭隐藏窗口、锁定状态持久化，
  * 以及最小化按钮随窗口的 minimizable 能力出现。
  */
-import { renderToString } from "react-dom/server";
+
 import { fireEvent, render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { beforeEach, expect, test, vi } from "vitest";
 import { WindowTopbar } from "./window-topbar";
 

@@ -74,6 +74,9 @@ scenes/<name>/
   [`@lull/scene-sdk`](../packages/scene-sdk/README.md) 读取参数/几何/同步相位；
   资源协议会下发 nonce CSP，只允许包内资源；
 - 所有资源使用相对路径；CSP 默认阻止远程脚本、字体、图片与音频；
+- **视频文件暂不允许作为内容包素材**：安装器单文件上限 8 MiB、整包 64 MiB，
+  且整包摘要会扫描全部字节；视频壁纸首版使用设置页登记的本地素材库，
+  不经过内容包安装/摘要管线。见 [Media Runtime](media-runtime.md)；
 - 静态包不访问 `window.parent`；脚本包只通过 Scene SDK 的 postMessage 桥与宿主通信，
   不直接读取宿主 DOM、存储或 Tauri API；
 - 声明 `params` 时必须声明 `wallpaper.params`；外部场景使用 `wallpaper.params` 或

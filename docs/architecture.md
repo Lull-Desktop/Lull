@@ -37,11 +37,13 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
 - 工具窗口 label 固定为 `settings` / `player` / `pomodoro` / `noise`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。
 - 第三方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
-- 壁纸窗口只有一条**只读** capability（`window-wallpaper`：`content_packages` + 事件订阅）：
+- 壁纸窗口只有一条**只读** capability 基础（`window-wallpaper`：`content_packages` +
+  事件订阅 + 视频会话命令）：
   场景切换走 `location.hash`（不重载页面），壁纸窗必须自己解析场景 id，因此要读得到用户内容包目录；
-  除此之外没有任何窗口/壁纸/插件命令。外部静态场景跑在 `sandbox=""` 的 iframe 里（不执行 JS）；
+  媒体命令只够顶层页面打开/绑定视频会话，且必须带 Rust 注入的 per-window token；
+  外部静态场景跑在 `sandbox=""` 的 iframe 里（不执行 JS）；
   声明 `wallpaper.script` 的外部场景跑在 `sandbox="allow-scripts"` 的 opaque-origin iframe 里，
-  只通过 `@lull/scene-sdk` 的 postMessage 桥读取参数/几何/相位。
+  只通过 `@lull/scene-sdk` 的 postMessage 桥读取参数/几何/相位，不能读取父页面媒体 token。
 
 ### 2.2 壁纸画面协议
 
@@ -66,7 +68,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 
 | 层 | 目录 | 允许依赖 | 禁止 |
 | --- | --- | --- | --- |
-| **Core** | `src/core/**`、`src-tauri/src/{config,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
+| **Core** | `src/core/**`、`src-tauri/src/{config,media,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
 | **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/{widget-sdk,scene-sdk}/**`、`examples/widgets/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
 | **Community** | `content/**`、`public/content/**`、`scripts/*-content.mjs`、`src-tauri/src/content_package/**` | 清单格式、静态 HTML/CSS、受限沙箱脚本、用户内容目录读写 | 修改核心 / 创建系统窗口 / 越权访问宿主 |
 | **Extension Center** | `src-tauri/src/extension/**`、`src-tauri/src/package_hash.rs`、`src/components/extensions/**`、`src/lib/extensions.ts`、`src/hooks/use-extensions.ts` | `content_package` / `widget_package` 的校验与运行时；共享安装管线 | 拥有包格式 / 直接执行包内代码 |
@@ -88,9 +90,11 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 app/(wallpaper) ──► scenes/host ──► hooks/use-scene-catalog ──► content/catalog
        │                │                    │
        │                ├──► scenes/registry ─┴──► sdk/scene ──► core/wallpaper
+       │                ├──► scenes/media-surface ──► core/media（会话/配置/asset URL）
        │                └──► scenes/external-scene ──► scene-bridge ──► postMessage（脚本场景）
        │
 app/(control) ──► components/settings ──► widgets/registry ──► widgets/manifests/*.json
+       │                └──► components/settings/media-panel ──► core/media
        │
 app/(widgets) ──► components/{liquid-player,liquid-pomodoro,ether-bubbles}
                          │
@@ -136,17 +140,26 @@ lib.rs
  │    └─ protocol.rs（lullwidget:// 资源协议 + 逐插件 CSP）
  ├─ build.rs（校验 widgets/manifests，生成 $OUT_DIR/widget_specs.rs）
  ├─ window_frame.rs（原子 SetWindowPos）
- ├─ config（display.json 模型 / 迁移 / 原子写盘）
- └─ wallpaper
-      ├─ runtime.rs（状态 + 命令 + autostart）
-      ├─ windows.rs（创建 / 销毁 / 重建 / 热更新）
-      ├─ watchdog.rs（ensure / 拓扑 / WorkerW）
-      ├─ protocol.rs（URL 哈希）
-      ├─ topology.rs（显示器解析 / 几何）
-      └─ ffi.rs（DLL 加载 / C ABI / 日志）
+ ├─ config（display.json 模型 / 迁移 / 原子写盘；含 display.media）
+ ├─ media（Lull Media Runtime）
+ │    ├─ engine.rs（SessionKey → Session、Surface 映射；默认 HTML，可切 native）
+ │    ├─ backends/media_pp.rs（可选 `native-media`：media-pp 管线 / Tee / 按 LUID 建 Device）
+ │    ├─ assets.rs（media.json 素材库 + asset protocol URL）
+ │    ├─ commands.rs / events.rs（IPC / media-changed）
+ │    ├─ lifecycle.rs（窗口/拓扑/显隐/token）
+ │    ├─ diagnostics.rs（Session/Surface/统计 DTO）
+ │    ├─ native_bridge.rs（可选 `native-media`：lull_native.dll 的 lull_media_* FFI）
+ │    └─ config.rs（MediaConfig 归一化）
+ ├─ wallpaper
+ │    ├─ runtime.rs（状态 + 命令 + autostart）
+ │    ├─ windows.rs（创建 / 销毁 / 重建 / 热更新）
+ │    ├─ watchdog.rs（ensure / 拓扑 / WorkerW）
+ │    ├─ protocol.rs（URL 哈希）
+ │    ├─ topology.rs（显示器解析 / 几何）
+ │    └─ ffi.rs（DLL 加载 / C ABI / 日志）
 ```
 
-依赖方向：`runtime → windows → protocol/topology → ffi`；`watchdog → ffi + windows`；`config` 不依赖任何壁纸模块。
+依赖方向：`runtime → windows → protocol/topology → ffi`；`watchdog → ffi + windows`；`config` 不依赖任何壁纸模块；`media` 只通过 `wallpaper::runtime` 的配置/目标快照与 `windows` 生命周期钩子交互，不直接操作窗口。
 
 ## 4. IPC 合约
 
@@ -193,6 +206,12 @@ lib.rs
 | `wallpaper_display_get` | — | `DisplayConfig` | `wallpaper::runtime` |
 | `wallpaper_set_display` | `mode?,sync?,scene?` | `()` | `wallpaper::runtime` |
 | `wallpaper_set_monitor_scene` | `device,scene` | `()` | `wallpaper::runtime` |
+| `media_capabilities` | — | `MediaCapabilities` | `media::commands` |
+| `media_assets` / `media_asset_pick` / `media_asset_remove` | `id` | `MediaAsset[]` / `MediaAsset \| null` / `()` | `media`（settings） |
+| `media_config_get` / `media_config_set` / `media_activate` | `config` / `assetId` | `MediaConfigView` | `media` |
+| `media_open` / `media_attach` / `media_detach` / `media_degrade` | `sceneId,sessionId,origin` | `MediaOpenResult` / `MediaAttachResult` | `media`（壁纸需顶层 token） |
+| `media_play` / `media_pause` / `media_seek` / `media_set_loop` | `sessionId,...` | `()` | `media`（settings） |
+| `media_status` / `media_stats` | — | `MediaSessionView[]` / `MediaStats` | `media`（settings） |
 | `content_packages` | — | `ContentPackageInfo[]` | `content_package`（壁纸窗只读） |
 
 所有会写配置的命令遵循同一事务模型：**先改内存 → 写盘 → 失败回滚内存 → 返回错误**。写盘使用临时文件 + 原子替换。
@@ -209,6 +228,9 @@ lib.rs
 | `flow-theme-changed` | 前端（跨窗口） | 设置 / 播放器 / 番茄钟 / 白噪音 |
 | `content-changed` | Rust（内容包安装 / 卸载） | 设置页与壁纸窗的场景目录 |
 | `extensions-changed` | Rust（安装 / 卸载 / 启用 / 改权限） | 扩展中心、托盘；兼容期同时发 `content-changed` |
+| `media-changed` / `media-config-changed` | Rust（会话/配置） | 设置页、壁纸媒体面板 |
+| `media-master-visible` | Rust（全局壁纸显隐） | 壁纸 MediaSurface 暂停/恢复 HTML video |
+| `media-degraded` | Rust（原生路径失败） | 壁纸 MediaSurface 切换 HTML 回退 |
 
 ### 4.3 Widget 上下文注入
 
@@ -233,11 +255,12 @@ lib.rs
 - `scripts/gen-widgets.mjs` 为每个窗口生成一份 `src-tauri/capabilities/window-<label>.json`：
   - `settings`：`core` 窗口权限 + 全部自定义命令（宿主控制面）；
   - `player` / `pomodoro` / `noise`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
-  - 壁纸窗口 `wallpaper-*`：只有 `core:event` 的 listen/unlisten + `allow-content-packages`（解析场景 id 用），
-    没有窗口、壁纸、插件或内容包安装命令；
+  - 壁纸窗口 `wallpaper-*`：`core:event` 的 listen/unlisten + `allow-content-packages`（解析场景 id 用）
+    + `allow-media-capabilities/config-get/open/attach/detach/degrade`；媒体命令还必须带 Rust
+    在建窗时注入顶层帧的 `__LULL_MEDIA_TOKEN__`，没有窗口、壁纸、插件或内容包安装命令；
   - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten（主题跟随）+ `allow-widget-state-*` + `allow-widget-package-notify` + `allow-widget-set-transparent`，**没有 `core:default`**、**没有 event.emit**，不能调用包管理、壁纸或偏好命令。
 - 构建期 `tauri-build` 会校验 capability 引用的权限是否存在；权限名或命令改名漏同步会直接编译失败。
-- 已知限制：WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。但 ACL 只授予上表里的最小命令，且状态命令按窗口 label 推导插件 id；不要把它当成插件 API，宿主桥仍是唯一受支持入口。
+- 已知限制：WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。壁纸媒体命令靠**顶层帧 token** 兜底：注入脚本只在 `window.top === window` 时写 token，sandbox iframe 读不到父 DOM；不要把它当成插件 API，宿主桥仍是唯一受支持入口。
 
 ### 4.5 WebView CSP
 
@@ -247,7 +270,7 @@ lib.rs
 default-src 'self';
 connect-src 'self' ipc: http://ipc.localhost;
 img-src 'self' data: blob:;
-media-src 'self' blob: data:;
+media-src 'self' blob: data: asset: http://asset.localhost https://asset.localhost;
 font-src 'self' data:;
 style-src 'self' 'unsafe-inline';
 script-src 'self' 'unsafe-inline';
@@ -261,7 +284,7 @@ form-action 'none'
 - `connect-src` 必须包含 `ipc:` 与 `http://ipc.localhost`，否则所有 Tauri IPC 失效；已通过调试端口实测。
 - `tauri-build` 会给 HTML 里的内联脚本与所有 JS 资源追加 `sha256`，运行时补进 `script-src`；`'unsafe-inline'` 只是兜底。
 - `devCsp` 额外允许 `http://localhost:3000`、`ws://localhost:3000` 与 `'unsafe-eval'`，避免破坏 Next HMR / React 开发模式。
-- `frame-src 'self' http://lullwidget.localhost lullwidget:` 覆盖外部场景 iframe 与第三方插件 iframe；`media-src blob:` 覆盖播放器的本地文件 object URL。
+- `frame-src 'self' http://lullwidget.localhost lullwidget:` 覆盖外部场景 iframe 与第三方插件 iframe；`media-src blob:` 覆盖播放器的本地文件 object URL；`media-src asset: http://asset.localhost` 覆盖视频壁纸的 HTML 回退（Tauri asset protocol 支持 Range）。
 
 ## 5. 配置模型
 
@@ -274,7 +297,18 @@ form-action 'none'
   "display": {
     "mode": "mirror",
     "sync": true,
-    "scene": "lull.bamboo"
+    "scene": "lull.video",
+    "media": {
+      "assetId": "m_7f3a...",
+      "loop": true,
+      "muted": true,
+      "rate": 1.0,
+      "fit": "cover",
+      "position": "center",
+      "preferredFps": 30,
+      "hardwareDecode": "auto",
+      "share": "auto"
+    }
   },
   "monitors": {
     "\\\\.\\DISPLAY1": { "enabled": true, "scene": "lull.aurora" }
@@ -282,7 +316,7 @@ form-action 'none'
 }
 ```
 
-版本必须等于 `2`；不兼容版本回退默认值并记录警告，不覆盖原文件。旧版 `wallpaper.json` 不读取、不迁移。
+版本必须等于 `2`；不兼容版本回退默认值并记录警告，不覆盖原文件。旧版 `wallpaper.json` 不读取、不迁移。`display.media` 默认值不落盘，旧配置无需迁移；视频素材库单独存 `%APPDATA%\app.lull.desktop\media.json`，只登记路径，不复制大文件。详见 [Media Runtime](media-runtime.md)。
 
 第三方插件相关路径：
 
@@ -317,11 +351,13 @@ form-action 'none'
 
 错误码与细节见 [原生宿主](native-host.md)。
 
+媒体桥（`lull_media_probe/stream_create/submit_*`）已编入同一 `lull_native.dll`；Rust 侧仅在 `native-media` feature 下加载。默认构建走 HTML 回退。本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，因此即使启用 feature 也会在运行时回退；契约与实测见 [Media Runtime](media-runtime.md)。
+
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 38 个测试文件（213 项，含 packages/{widget-sdk,scene-sdk}、场景桥、参数滑条、zip 打包、更新安装与扩展中心）
-cargo test             Rust 100 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线）
+pnpm test              前端 42 个测试文件（228 项，含 packages/{widget-sdk,scene-sdk}、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
+cargo test             Rust 137 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 媒体会话与配置）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
@@ -360,3 +396,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
    不联网。scene 支持同 id 本地覆盖安装（旧目录备份后替换，壁纸按版本重建 iframe）；
    没有自动更新、版本比较与回滚；安装目录由用户自行维护，卸载即删目录。
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
+9. **视频壁纸的边界**：默认构建走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/WebView2 TextureStream 共享解码在可选 `native-media` feature 下实现，但本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，运行时自动回退。能力探测、构建依赖与验收门见 [Media Runtime](media-runtime.md)。不要把 HTML 回退描述成“单解码器”，也不要把“feature 已实现”描述成“原生已交付”。

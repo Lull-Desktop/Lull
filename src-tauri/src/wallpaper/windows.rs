@@ -42,6 +42,9 @@ pub(crate) fn create_one(
   show: bool,
 ) -> Result<(), String> {
   let label = format!("wallpaper-{index}");
+  // 媒体 token：只注入顶层帧，外部 sandbox iframe 不能读取父 DOM，也就拿不到它。
+  let media_token = crate::media::lifecycle::register_window(&label);
+  let media_token_json = serde_json::to_string(&media_token).unwrap_or_else(|_| "\"\"".to_string());
   // 创建路径只从非主线程调用（async 命令 / async 任务 / ensure 线程）；
   // autostart 虽在主线程，但处于事件循环启动前，等价于 tauri.conf 的建窗时机。
   ffi::wlog(&format!(
@@ -76,6 +79,7 @@ pub(crate) fn create_one(
   let loaded_for_load = Arc::clone(&loaded);
   let raw_for_load = Arc::clone(&raw_slot);
   let device_for_load = device.to_string();
+  let label_for_load = label.clone();
   let set_visible = host.set_visible;
   let allow_show = show;
   let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
@@ -90,7 +94,7 @@ pub(crate) fn create_one(
     .skip_taskbar(true)
     // 壁纸窗也要按当前语言渲染（时钟、场景内的文字），与其它窗口同一注入点。
     .initialization_script(format!(
-      "window.__LULL_LOCALE__ = {};",
+      "window.__LULL_LOCALE__ = {}; if (window.top === window) {{ window.__LULL_MEDIA_TOKEN__ = {media_token_json}; }}",
       serde_json::to_string(&crate::i18n::current()).unwrap_or_else(|_| "\"zh-CN\"".to_string())
     ))
     .devtools(crate::window_host::devtools_enabled())
@@ -98,6 +102,7 @@ pub(crate) fn create_one(
       if !matches!(payload.event(), PageLoadEvent::Finished) {
         return;
       }
+      crate::media::lifecycle::on_page_loaded(&label_for_load);
       loaded_for_load.store(true, Ordering::Release);
       if !allow_show
         || !attached_for_load.load(Ordering::Acquire)
@@ -113,7 +118,13 @@ pub(crate) fn create_one(
     .build()
     .map_err(|error| format!("创建 {label} 失败: {error}"))?;
   ffi::wlog(&format!("{label}: 窗口+WebView 已建 ({url})"));
-  let raw = window.hwnd().map_err(|error| error.to_string())?.0;
+  let raw = match window.hwnd() {
+    Ok(hwnd) => hwnd.0,
+    Err(error) => {
+      crate::media::lifecycle::remove_window(&label);
+      return Err(error.to_string());
+    }
+  };
   raw_slot.store(raw as isize, Ordering::Release);
   let drc = unsafe { (host.disable_dwm_frame)(raw) };
   ffi::wlog(&format!("{label}: disable_dwm_frame rc={drc}"));
@@ -124,6 +135,7 @@ pub(crate) fn create_one(
     ffi::status_line(host, raw)
   ));
   if rc != 0 {
+    crate::media::lifecycle::remove_window(&label);
     let _ = window.destroy();
     return Err(format!("{label} attach rc={rc}"));
   }
@@ -259,6 +271,7 @@ pub(crate) fn apply_monitor_visibility(
     }
   } else if let Some((label, raw, _)) = existing {
     remove_target(&label);
+    crate::media::lifecycle::remove_window(&label);
     unsafe {
       (host.detach)(raw as *mut c_void);
     }
@@ -272,8 +285,11 @@ pub(crate) fn apply_monitor_visibility(
 /// 拓扑变化后的全量重建；由看门狗在 async 运行时调用（非主线程）。
 pub(crate) fn rebuild(app: &AppHandle) -> Result<(), String> {
   let host = ffi::host()?;
+  // 拓扑重建只解绑媒体 surface，保留 Session；新窗口会重新 attach。
+  crate::media::lifecycle::on_topology_rebuild();
   let old = take_targets();
   for target in &old {
+    crate::media::lifecycle::remove_window(&target.label);
     unsafe {
       (host.detach)(target.raw as *mut c_void);
     }

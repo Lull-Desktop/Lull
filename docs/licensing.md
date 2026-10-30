@@ -99,6 +99,13 @@ cargo deny check licenses
 - 与 GPL-3.0 不兼容且会被链接进应用的许可；
 - 未声明许可的字体、图片、音频。
 
+> 默认安装包不启用 `native-media`，因此未捆绑 `media-pp` 或 FFmpeg。构建
+> `--features native-media` 并分发时必须同步补充 `THIRD_PARTY_NOTICES.md`、FFmpeg
+> 实际构建的 `COPYING`/`LICENSE`、源码提供说明，并复核 H.264/HEVC 专利与 WebView2
+> 预发布 SDK 头文件的再分发条款。`src-tauri/native/lull_media/webview2_texture_stream.h`
+> 是从 Microsoft.Web.WebView2 1.0.4312-prerelease 提取的最小接口声明，随该 SDK
+> 的许可使用。
+
 ## 9. 常见问题
 
 **可以把 Lull 用在公司内部吗？**

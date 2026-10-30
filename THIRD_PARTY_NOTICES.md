@@ -43,8 +43,16 @@ Lull 采用分层许可：
 | serde / serde_json | MIT / Apache-2.0 |
 | libloading | ISC |
 | windows（微软 `windows-rs`） | MIT / Apache-2.0 |
+| media-pp（仅 `native-media` feature） | MIT / Apache-2.0 |
 
 完整列表见 `src-tauri/Cargo.lock`。
+
+> **原生视频后端（`native-media`，默认不启用）**：`media-pp`（MIT / Apache-2.0）只在
+> `--features native-media` 时编译；FFmpeg 8.0.1 DLL 不随默认安装包分发。分发原生
+> 预览构建时，必须同时纳入 FFmpeg DLL、FFmpeg 的实际许可证文本、源码提供说明与
+> WebView2 预发布头文件声明；`native/lull_media/webview2_texture_stream.h` 是从
+> Microsoft.Web.WebView2 1.0.4312-prerelease 提取的最小接口声明。细节见
+> [`docs/media-runtime.md`](docs/media-runtime.md) 与 [`docs/licensing.md`](docs/licensing.md)。
 
 ## 4. 字体
 

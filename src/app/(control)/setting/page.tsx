@@ -28,11 +28,6 @@ import { Switch } from "@/components/ui/switch";
 import { useFlowTheme } from "@/hooks/use-flow-theme";
 import { localizeError } from "@/i18n/errors";
 import {
-  getTrustPolicy,
-  setTrustPolicy,
-  type TrustPolicy,
-} from "@/lib/content-trust";
-import {
   LOCALE_OPTIONS,
   type LocalePreference,
   localeLabel,
@@ -41,6 +36,11 @@ import {
   useLocale,
 } from "@/i18n/locale";
 import { useLocaleReady } from "@/i18n/provider";
+import {
+  getTrustPolicy,
+  setTrustPolicy,
+  type TrustPolicy,
+} from "@/lib/content-trust";
 import { FLOW_THEMES } from "@/lib/flow-theme";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
@@ -284,6 +284,7 @@ export default function Settings() {
                 aria-label={m.settings_language_title()}
                 className="flex flex-wrap gap-2"
               >
+                {/* biome-ignore lint/a11y/useSemanticElements: language pills intentionally use ARIA radio semantics with custom styling */}
                 <button
                   type="button"
                   role="radio"
@@ -299,6 +300,7 @@ export default function Settings() {
                   {m.settings_language_follow_system()}
                 </button>
                 {LOCALE_OPTIONS.map((option) => (
+                  // biome-ignore lint/a11y/useSemanticElements: language pills intentionally use ARIA radio semantics with custom styling
                   <button
                     key={option}
                     type="button"
@@ -332,7 +334,9 @@ export default function Settings() {
                 <Sparkles className="h-5 w-5 text-bamboo" />
                 {m.settings_theme_title()}
               </CardTitle>
-              <CardDescription>{m.settings_theme_description()}</CardDescription>
+              <CardDescription>
+                {m.settings_theme_description()}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-2.5 border-0 p-0">
@@ -666,14 +670,15 @@ export default function Settings() {
           <Card>
             <CardHeader>
               <CardTitle>{m.ext_signature_strict()}</CardTitle>
-              <CardDescription>
-                {m.ext_signature_strict_hint()}
-              </CardDescription>
+              <CardDescription>{m.ext_signature_strict_hint()}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <Label htmlFor={trustPolicySwitchId} className="text-ink-soft">
+                  <Label
+                    htmlFor={trustPolicySwitchId}
+                    className="text-ink-soft"
+                  >
                     {m.ext_signature_strict()}
                   </Label>
                   <p className="mt-1 text-xs text-muted-foreground">

@@ -8,6 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Monitor } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { SceneParamFields } from "@/components/scene-params";
+import { MediaPanel } from "@/components/settings/media-panel";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -213,7 +214,7 @@ export function WallpaperPanel() {
         })
         .catch((err: unknown) => {
           setWallpaperError(localizeError(err));
-          refreshWallpaper();
+          void refreshWallpaper();
         });
     },
     [refreshWallpaper],
@@ -271,7 +272,9 @@ export function WallpaperPanel() {
             <ToggleGroupItem value="independent">
               {m.wallpaper_mode_independent()}
             </ToggleGroupItem>
-            <ToggleGroupItem value="span">{m.wallpaper_mode_span()}</ToggleGroupItem>
+            <ToggleGroupItem value="span">
+              {m.wallpaper_mode_span()}
+            </ToggleGroupItem>
           </ToggleGroup>
         </div>
         <div className="flex items-center justify-between">
@@ -361,6 +364,10 @@ export function WallpaperPanel() {
               )}
           </>
         )}
+        {activeScene?.manifest.id === "lull.video" ||
+        sortedMonitors?.some((monitor) => monitor.scene === "lull.video") ? (
+          <MediaPanel />
+        ) : null}
         {sceneCatalogError && (
           <p className="text-xs text-muted-foreground">
             {m.wallpaper_catalog_error({ reason: sceneCatalogError })}

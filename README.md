@@ -38,7 +38,7 @@
 
 ### 桌面壁纸
 
-目前有三个官方场景：竹影（默认）、暮色、极光，动画都走慢节奏、低干扰的路子。每台显示器各开一个壁纸窗口，互不影响。展开方式有复制、独立、跨屏三种，跨屏时可以让动画相位对齐（见[壁纸与多屏](#壁纸与多屏)）。设置里改场景参数是实时生效的，不用重启。
+目前有四个官方场景：竹影（默认）、暮色、极光、视频。动画都走慢节奏、低干扰的路子。每台显示器各开一个壁纸窗口，互不影响。展开方式有复制、独立、跨屏三种，跨屏时可以让动画相位对齐（见[壁纸与多屏](#壁纸与多屏)）。设置里改场景参数是实时生效的，不用重启。视频壁纸默认走 HTML `<video>`；原生 media-pp/TextureStream 共享解码已作为可选的 `native-media` feature 实现，但需要 FFmpeg 8.0.1 与运行环境支持，默认安装包不启用。本地视频只登记路径，不复制大文件，技术边界见[Media Runtime](docs/media-runtime.md)。
 
 ### 声景与专注
 
@@ -405,6 +405,7 @@ pnpm scenes:sdk
 | 内容包格式   | [docs/content-format.md](docs/content-format.md)                                       |
 | 扩展中心    | [设计](docs/extension-center.md) · [实施计划](docs/extension-center-plan.md)                 |
 | 原生桌面宿主  | [docs/native-host.md](docs/native-host.md)                                             |
+| 媒体运行时   | [docs/media-runtime.md](docs/media-runtime.md)                                         |
 | 多语言方案   | [docs/i18n-plan.md](docs/i18n-plan.md)                                                 |
 | 参与贡献    | [docs/contributing.md](docs/contributing.md)                                           |
 | 许可与合规   | [docs/licensing.md](docs/licensing.md)                                                 |
@@ -415,6 +416,7 @@ pnpm scenes:sdk
 下面这些都是有意为之的边界，不是待修的 bug：
 
 - 只支持 Windows。
+- 视频壁纸默认走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/TextureStream 共享解码是可选 `native-media` feature，依赖与验收门见 [Media Runtime](docs/media-runtime.md)。当前目标机器实测 WebView2 `CreateTextureStream` 返回 `0x80070032`，因此预览构建也自动回退。
 - 安装是本地行为。只接受单场景包，包必须声明整包摘要，同 id 覆盖也算本地手动更新；社区包内 `.lull-signature.json` 的发布者验签已落地（默认只警告，`invalid`/`mismatch`/`revoked` 阻断），在线更新和回滚还没做。
 - 扩展不是通用插件系统。静态包不执行脚本，脚本包只能通过 Scene SDK 桥读帧，两者都拿不到宿主 DOM、原生调用和 IPC。
 - 接口还在 0.x。`@lull/widget-sdk`（`0.2.0`）和 `@lull/scene-sdk`（`0.1.0`）随仓库构建，还没发到 npm，不承诺跨版本兼容，见[扩展接口的成熟度](#扩展接口的成熟度)。

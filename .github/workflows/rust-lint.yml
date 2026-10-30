@@ -27,7 +27,8 @@ jobs:
           cache: true
 
       - name: Run lint
-        run: cargo clippy --all-targets --all-features
+        # 默认不启用 native-media：它需要 FFmpeg/libclang，见 docs/media-runtime.md。
+        run: cargo clippy --all-targets
         working-directory: src-tauri
 
       - name: Run format check

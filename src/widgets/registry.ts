@@ -52,7 +52,6 @@ export function widgetDisplayDescription(widget: WidgetManifest): string {
   return DISPLAY_DESCRIPTION[widget.id]?.() ?? widget.description ?? "";
 }
 
-
 export function widgetById(id: string): WidgetManifest | null {
   return BUILTIN_WIDGETS.find((widget) => widget.id === id) ?? null;
 }

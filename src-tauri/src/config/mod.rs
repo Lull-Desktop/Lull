@@ -8,6 +8,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::media::config::MediaConfig;
+
 /// 当前配置 schema 版本。v2 = Lull 命名空间。
 pub const CURRENT_VERSION: u32 = 2;
 
@@ -32,7 +34,7 @@ impl Default for MonitorConfig {
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WallpaperConfig {
   pub version: u32,
   #[serde(default = "default_true")]
@@ -76,7 +78,7 @@ impl<'de> serde::Deserialize<'de> for DisplayMode {
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DisplayConfig {
   #[serde(default)]
   pub mode: DisplayMode,
@@ -91,6 +93,9 @@ pub struct DisplayConfig {
     rename = "sceneParams"
   )]
   pub scene_params: BTreeMap<String, BTreeMap<String, String>>,
+  /// 视频壁纸配置；默认值不落盘，旧配置无需迁移。
+  #[serde(default, skip_serializing_if = "MediaConfig::is_default")]
+  pub media: MediaConfig,
 }
 
 impl Default for DisplayConfig {
@@ -100,6 +105,7 @@ impl Default for DisplayConfig {
       sync: true,
       scene: default_scene(),
       scene_params: BTreeMap::new(),
+      media: MediaConfig::default(),
     }
   }
 }
@@ -197,10 +203,13 @@ impl WallpaperConfig {
     }
 
     match serde_json::from_value::<Self>(value) {
-      Ok(config) => LoadOutcome {
-        config,
-        warning: None,
-      },
+      Ok(mut config) => {
+        config.display.media = config.display.media.normalized();
+        LoadOutcome {
+          config,
+          warning: None,
+        }
+      }
       Err(error) => fallback(format!("配置字段不合法，已回退默认值: {error}")),
     }
   }
@@ -414,6 +423,41 @@ mod tests {
       WallpaperConfig::load_outcome(&path).config.display,
       c.display
     );
+  }
+
+  #[test]
+  fn media_config_roundtrips_and_omits_default() {
+    let path = temp_path("display_media");
+    let mut c = WallpaperConfig::default();
+    c.display.media.asset_id = Some("m_abc".into());
+    c.display.media.fit = "contain".into();
+    c.display.media.loop_playback = false;
+    c.save(&path).unwrap();
+    let loaded = WallpaperConfig::load_outcome(&path).config;
+    assert_eq!(loaded.display.media.asset_id.as_deref(), Some("m_abc"));
+    assert_eq!(loaded.display.media.fit, "contain");
+    assert!(!loaded.display.media.loop_playback);
+
+    let default_path = temp_path("display_media_default");
+    WallpaperConfig::default().save(&default_path).unwrap();
+    let raw = std::fs::read_to_string(&default_path).unwrap();
+    assert!(!raw.contains("\"media\""), "默认媒体配置不应落盘: {raw}");
+  }
+
+  #[test]
+  fn invalid_media_field_falls_back_without_dropping_display() {
+    let path = temp_path("display_media_invalid");
+    std::fs::write(
+      &path,
+      r#"{"version":2,"display":{"scene":"lull.video","media":{"fit":"bogus","preferredFps":12,"rate":9.0,"assetId":" m_1 "}}}"#,
+    )
+    .unwrap();
+    let loaded = WallpaperConfig::load_outcome(&path).config;
+    assert_eq!(loaded.display.scene, "lull.video");
+    assert_eq!(loaded.display.media.asset_id.as_deref(), Some("m_1"));
+    assert_eq!(loaded.display.media.fit, "cover");
+    assert_eq!(loaded.display.media.preferred_fps, 30);
+    assert_eq!(loaded.display.media.rate, 4.0);
   }
 
   #[test]

@@ -28,5 +28,7 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: cargo test --all --all-features
+        # 原生 media-pp 后端是可选 feature（需要 FFmpeg 8.0.1 + libclang），
+        # 默认 CI 不带它；预览构建用 --features native-media 单独验证。
+        run: cargo test --all
         working-directory: src-tauri

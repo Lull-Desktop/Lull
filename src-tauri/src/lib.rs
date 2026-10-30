@@ -11,6 +11,7 @@ mod content_package;
 mod content_trust;
 mod extension;
 mod i18n;
+mod media;
 mod package_hash;
 mod resource;
 pub(crate) mod tray;
@@ -78,11 +79,29 @@ pub fn run() {
       wallpaper::runtime::wallpaper_set_display,
       wallpaper::runtime::wallpaper_set_scene_params,
       wallpaper::runtime::wallpaper_set_monitor_scene,
+      media::commands::media_capabilities,
+      media::commands::media_assets,
+      media::commands::media_asset_pick,
+      media::commands::media_asset_remove,
+      media::commands::media_config_get,
+      media::commands::media_config_set,
+      media::commands::media_activate,
+      media::commands::media_open,
+      media::commands::media_attach,
+      media::commands::media_detach,
+      media::commands::media_degrade,
+      media::commands::media_play,
+      media::commands::media_pause,
+      media::commands::media_seek,
+      media::commands::media_set_loop,
+      media::commands::media_status,
+      media::commands::media_stats,
       content_package::content_packages
     ])
     .setup(|app| {
       // 语言必须在建窗与建托盘之前定下来，否则系统托盘会先出基准语言再跳变。
       i18n::init(app.handle());
+      media::init();
       tray::init(app)?;
       if wallpaper::enabled() {
         // 产品主路径：壁纸窗常驻（release 默认；dev 需要 LULL_WALLPAPER=1 / pnpm test-mode）。
@@ -120,6 +139,7 @@ pub fn run() {
     .expect("error while building tauri application")
     .run(|_app, event| {
       if let tauri::RunEvent::Exit = event {
+        media::shutdown();
         wallpaper::shutdown();
       }
     });

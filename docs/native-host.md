@@ -80,6 +80,14 @@ dumpbin /exports src-tauri/native/lull_native.dll
 
 `monitor_index = -1` 表示铺满整个宿主客户区（单窗跨屏兜底）；`>= 0` 表示只占该显示器矩形。
 
+### 3.1 媒体桥（`native-media` feature）
+
+同一 DLL 已追加 `lull_media_*` 导出（D3D11 Device/LUID 校验、WebView2 TextureStream、
+目标纹理池、NV12 复制与 Present）。默认构建不编译 Rust 侧 media-pp 后端，也不加载
+这些导出；`--features native-media` 时才走原生管线。本轮目标机器 WebView2
+`CreateTextureStream` 返回 `0x80070032`，因此原生 attach 仍会回退 HTML。ABI、
+FFmpeg 8.0.1 依赖与实测证据见 [Media Runtime](media-runtime.md)。
+
 ## 4. 挂载流程
 
 1. Rust 以无边框、`shadow(false)`、隐藏状态创建 `WebviewWindow`；初始 `inner_size` 用目标显示器的物理矩形（按主屏 DPI 折算成逻辑尺寸），避免 Tauri 默认 800×600 让 WebView2 先按小视口加载/绘制；

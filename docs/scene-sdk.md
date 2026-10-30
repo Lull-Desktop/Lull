@@ -10,6 +10,7 @@
 | 类型 | 注册方式 | 运行位置 | 首版 |
 | --- | --- | --- | --- |
 | 内置场景（built-in） | `src/scenes/registry.ts` | Next.js 客户端组件 | ✅ |
+| 内置视频场景 | `src/scenes/video` + `lull.video` | 宿主 MediaSurface（HTML `<video>` 回退，后续接原生纹理） | ✅ |
 | 外部静态场景 | `catalog.json`（随包或用户内容目录） | `sandbox=""` iframe（仅 HTML/CSS） | ✅ |
 | 外部脚本场景 | `catalog.json` + `wallpaper.script` | `sandbox="allow-scripts"` iframe + Scene SDK 桥 | ✅ |
 | 任意代码插件（可访问宿主 DOM/原生） | 未定义 | — | ❌ |
@@ -355,6 +356,7 @@ Vitest 还会解析随包目录与示例场景，防止文档与实现漂移。
 - 不允许场景创建/管理窗口；
 - 不允许场景修改全局配置；
 - 不允许场景在首版访问麦克风、文件系统或网络；
+- 不允许外部场景使用 `MediaSurface`、视频会话命令或读取宿主媒体 token；首版视频壁纸是内置 `lull.video`，本地素材由设置页登记，细节见 [Media Runtime](media-runtime.md)；
 - 不把 React 组件直接分发给第三方；外部场景用静态 HTML/CSS 或 `@lull/scene-sdk` 的
   沙箱脚本包，不能直接复用内置 React 组件。
 

@@ -5,6 +5,7 @@
  *
  * 安装与授权分离：安装只落盘，启用才授予能力；打开才创建窗口。
  */
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   FolderOpen,
@@ -15,7 +16,6 @@ import {
   Square,
   Trash2,
 } from "lucide-react";
-import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { isDesktopWindow } from "@/core/window/controls";
 import { useExtensions } from "@/hooks/use-extensions";
+import { useLocale } from "@/i18n/locale";
 import {
   closeExtension,
   type ExtensionInfo,
@@ -57,18 +58,17 @@ import {
   stopExtension,
   toExtensionFailure,
 } from "@/lib/extensions";
-import { useLocale } from "@/i18n/locale";
 import { m } from "@/paraglide/messages";
 import { ExtensionDetailSheet } from "./extension-detail-sheet";
 import {
   capabilityLabel,
   capabilityLevel,
-  UNSIGNED_SIGNATURE,
   formatBytes,
   kindLabel,
   signatureLabel,
   signatureVariant,
   statusLabel,
+  UNSIGNED_SIGNATURE,
 } from "./labels";
 
 const REMOVE_CONFIRM_MS = 5000;
@@ -267,7 +267,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         })
         .catch((error: unknown) => {
           setMessage(
-            m.ext_error_dev_toggle({ reason: toExtensionFailure(error).message }),
+            m.ext_error_dev_toggle({
+              reason: toExtensionFailure(error).message,
+            }),
           );
         })
         .finally(() => {
@@ -408,7 +410,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         })
         .catch((error: unknown) => {
           setMessage(
-            m.ext_error_uninstall({ reason: toExtensionFailure(error).message }),
+            m.ext_error_uninstall({
+              reason: toExtensionFailure(error).message,
+            }),
           );
         })
         .finally(() => {
@@ -605,7 +609,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                             size="sm"
                             variant="outline"
                             disabled={busy}
-                            aria-label={m.ext_aria_action({ action: m.ext_action_close(), name: item.name })}
+                            aria-label={m.ext_aria_action({
+                              action: m.ext_action_close(),
+                              name: item.name,
+                            })}
                             onClick={() =>
                               runAction(
                                 () => closeExtension(item.id),
@@ -620,7 +627,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                             type="button"
                             size="sm"
                             disabled={busy || !item.enabled}
-                            aria-label={m.ext_aria_action({ action: m.ext_action_open(), name: item.name })}
+                            aria-label={m.ext_aria_action({
+                              action: m.ext_action_open(),
+                              name: item.name,
+                            })}
                             onClick={() =>
                               runAction(
                                 () => openExtension("widget", item.id),
@@ -637,7 +647,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                             size="sm"
                             variant="ghost"
                             disabled={busy}
-                            aria-label={m.ext_aria_action({ action: m.ext_action_stop(), name: item.name })}
+                            aria-label={m.ext_aria_action({
+                              action: m.ext_action_stop(),
+                              name: item.name,
+                            })}
                             onClick={() =>
                               runAction(
                                 () => stopExtension(item.id),
@@ -653,7 +666,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                           size="sm"
                           variant="outline"
                           disabled={busy}
-                          aria-label={m.ext_aria_action({ action: m.ext_action_disable(), name: item.name })}
+                          aria-label={m.ext_aria_action({
+                            action: m.ext_action_disable(),
+                            name: item.name,
+                          })}
                           onClick={() =>
                             runAction(
                               () => setExtensionEnabled(item.id, false),
@@ -669,7 +685,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                         type="button"
                         size="sm"
                         disabled={busy || !canEnable(item)}
-                        aria-label={m.ext_aria_action({ action: m.ext_action_enable(), name: item.name })}
+                        aria-label={m.ext_aria_action({
+                          action: m.ext_action_enable(),
+                          name: item.name,
+                        })}
                         onClick={() => {
                           setMessage("");
                           setEnableTarget(item);
@@ -697,7 +716,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                       size="sm"
                       variant="outline"
                       disabled={busy || !item.enabled}
-                      aria-label={m.ext_aria_action({ action: m.ext_action_reload(), name: item.name })}
+                      aria-label={m.ext_aria_action({
+                        action: m.ext_action_reload(),
+                        name: item.name,
+                      })}
                       onClick={() =>
                         runAction(
                           () => reloadDevPackage(item.id),
@@ -713,7 +735,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    aria-label={m.ext_aria_action({ action: m.ext_action_details(), name: item.name })}
+                    aria-label={m.ext_aria_action({
+                      action: m.ext_action_details(),
+                      name: item.name,
+                    })}
                     onClick={() => setDetail(item)}
                   >
                     {m.ext_action_details()}
@@ -793,7 +818,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
             <>
               <SheetHeader>
                 <SheetTitle>
-                  {isSceneUpdate ? m.ext_confirm_update() : m.ext_confirm_install()}{" "}
+                  {isSceneUpdate
+                    ? m.ext_confirm_update()
+                    : m.ext_confirm_install()}{" "}
                   {preview.preview.name}
                 </SheetTitle>
                 <SheetDescription>
@@ -819,13 +846,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   <dt className="text-ink-faint">ID</dt>
                   <dd className="truncate font-mono">{preview.preview.id}</dd>
                   <dt className="text-ink-faint">{m.ext_field_author()}</dt>
-                  <dd>
-                    {preview.preview.author ?? m.ext_undeclared()}
-                  </dd>
+                  <dd>{preview.preview.author ?? m.ext_undeclared()}</dd>
                   <dt className="text-ink-faint">{m.ext_field_license()}</dt>
-                  <dd>
-                    {preview.preview.license ?? m.ext_undeclared()}
-                  </dd>
+                  <dd>{preview.preview.license ?? m.ext_undeclared()}</dd>
                   <dt className="text-ink-faint">{m.ext_field_files()}</dt>
                   <dd>
                     {m.ext_file_count({

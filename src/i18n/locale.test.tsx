@@ -38,9 +38,9 @@ test("normalizeLocale 把地区与字形收敛到受支持语言", () => {
 test("localizeError 兼容字符串、结构化错误与未知值", () => {
   expect(localizeError("原始错误")).toBe("原始错误");
   expect(localizeError(new Error("boom"))).toBe("boom");
-  expect(
-    localizeError({ code: "不存在的键", fallback: "回退文案" }),
-  ).toBe("回退文案");
+  expect(localizeError({ code: "不存在的键", fallback: "回退文案" })).toBe(
+    "回退文案",
+  );
   expect(localizeError({ code: "不存在的键" })).toBe("不存在的键");
   expect(localizeError(42)).toBe("42");
 });

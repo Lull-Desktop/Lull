@@ -8,6 +8,7 @@ import { DEFAULT_SCENE_ID } from "@/core/wallpaper/params";
 import { AuroraScene } from "@/scenes/aurora";
 import { BambooScene } from "@/scenes/bamboo";
 import { DuskScene } from "@/scenes/dusk";
+import { VideoScene } from "@/scenes/video";
 import {
   type BuiltinScene,
   parseSceneManifest,
@@ -76,12 +77,28 @@ const DUSK_MANIFEST = parseSceneManifest({
   compatibility: { hostApi: 1, platforms: ["windows"] },
 });
 
+const VIDEO_MANIFEST = parseSceneManifest({
+  schemaVersion: 1,
+  type: "scene",
+  id: "lull.video",
+  name: "视频",
+  version: "1.0.0",
+  description: "本地视频壁纸；播放参数在下方媒体面板中设置。",
+  author: "Lull",
+  license: "GPL-3.0-or-later",
+  capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
+  theme: { background: "#050a10", accent: "#8fb7c9" },
+  performance: { tier: "medium", targetFps: 30 },
+  compatibility: { hostApi: 1, platforms: ["windows"] },
+});
+
 export { DEFAULT_SCENE_ID };
 
 export const BUILTIN_SCENES: readonly BuiltinScene[] = [
   { source: "builtin", manifest: BAMBOO_MANIFEST, component: BambooScene },
   { source: "builtin", manifest: AURORA_MANIFEST, component: AuroraScene },
   { source: "builtin", manifest: DUSK_MANIFEST, component: DuskScene },
+  { source: "builtin", manifest: VIDEO_MANIFEST, component: VideoScene },
 ];
 
 const BY_ID = new Map(

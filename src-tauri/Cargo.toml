@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 serde_json = "1"
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "unstable"] }
+tauri = { version = "2", features = ["tray-icon", "unstable", "protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
@@ -35,9 +35,29 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std", "f
 base64 = "0.22"
 rfd = { version = "0.16", default-features = false }
 
+[features]
+default = []
+# 原生共享解码是预览能力：需要 FFmpeg 8.0.1 + libclang + lull_native.dll 的
+# TextureStream 导出，且运行环境必须支持 CreateTextureStream。默认构建保持
+# HTML <video>，不让普通用户/CI 被 100MB 级依赖卡住。
+native-media = ["dep:media-pp"]
+
 [target.'cfg(windows)'.dependencies]
+# 原生视频后端：media-pp 0.4.1 + FFmpeg 8.0.1 + D3D11/WebView2 TextureStream。
+# 只在 `--features native-media` 时编译；构建需要 FFMPEG_DIR（8.0.x 头文件/
+# 导入库）与 LIBCLANG_PATH（bindgen）；运行期需要 FFmpeg DLL 与 lull.exe 同目录。
+# 接入与验收见 docs/media-runtime.md。
+media-pp = { version = "=0.4.1", features = ["d3d11"], optional = true }
 # 无边框窗口用一次 SetWindowPos 同时改位置和尺寸，避免两帧之间闪烁。
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Globalization"] }
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Globalization",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+] }
 
 [lints.rust]
 # FFI 与 Win32 调用集中在 wallpaper/ffi.rs、wallpaper/windows.rs 等模块，

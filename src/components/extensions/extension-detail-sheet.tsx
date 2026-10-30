@@ -15,16 +15,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { m } from "@/paraglide/messages";
 import type { ExtensionInfo } from "@/lib/extensions";
+import { m } from "@/paraglide/messages";
 import {
-  UNSIGNED_SIGNATURE,
   capabilityLabel,
   capabilityLevel,
   kindLabel,
   signatureLabel,
   signatureVariant,
   statusLabel,
+  UNSIGNED_SIGNATURE,
 } from "./labels";
 
 type Props = {
@@ -116,7 +116,9 @@ export function ExtensionDetailSheet({
                   )}
                 </div>
                 <dl className="grid grid-cols-[5.5rem_1fr] gap-y-1 text-[11px]">
-                  <dt className="text-ink-faint">{m.ext_signature_publisher()}</dt>
+                  <dt className="text-ink-faint">
+                    {m.ext_signature_publisher()}
+                  </dt>
                   <dd className="truncate">
                     {signature.keyLabel ?? m.ext_undeclared()}
                   </dd>
@@ -160,7 +162,9 @@ export function ExtensionDetailSheet({
               {item.kind === "widget" && (
                 <div className="flex flex-wrap gap-2 text-xs">
                   <Badge variant={item.enabled ? "secondary" : "outline"}>
-                    {item.enabled ? m.ext_state_enabled() : m.ext_state_disabled()}
+                    {item.enabled
+                      ? m.ext_state_enabled()
+                      : m.ext_state_disabled()}
                   </Badge>
                   {item.running && (
                     <Badge variant="secondary">

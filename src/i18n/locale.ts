@@ -17,8 +17,8 @@ import { isDesktopWindow } from "@/core/window/controls";
 import {
   baseLocale,
   isLocale,
-  overwriteGetLocale,
   type Locale,
+  overwriteGetLocale,
 } from "@/paraglide/runtime";
 
 /** Rust 广播的语言变更事件。 */

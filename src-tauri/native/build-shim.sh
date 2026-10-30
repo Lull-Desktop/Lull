@@ -69,6 +69,12 @@ if [ ! -f "$LULL_WP/wallpaper_host.h" ]; then
   exit 1
 fi
 
+LULL_MEDIA="$ROOT/lull_media"
+if [ ! -f "$LULL_MEDIA/media_bridge.cpp" ]; then
+  echo "缺少 $LULL_MEDIA/media_bridge.cpp（本地副本被删了？）" >&2
+  exit 1
+fi
+
 echo "MSVC: $W_MSVC"
 echo "Windows SDK: $W_SDK ($SDKVER)"
 
@@ -77,10 +83,12 @@ cl /nologo /utf-8 /std:c++17 /Zc:__cplusplus /O2 /W3 /EHsc /MT /LD \
   /DNOMINMAX \
   /I "$(cygpath -w "$ROOT")" \
   /I "$(cygpath -w "$LULL_WP")" \
+  /I "$(cygpath -w "$LULL_MEDIA")" \
   /Fo:"$(cygpath -w "$ROOT")\\" \
   /Fe:"$(cygpath -w "$ROOT/lull_native.dll")" \
   lull_native_shim.cpp \
-  user32.lib shell32.lib gdi32.lib advapi32.lib
+  lull_media/media_bridge.cpp \
+  user32.lib shell32.lib gdi32.lib advapi32.lib d3d11.lib dxgi.lib ole32.lib
 
 echo "built: $ROOT/lull_native.dll"
 ls -la "$ROOT/lull_native.dll"

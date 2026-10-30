@@ -323,6 +323,7 @@ pub async fn wallpaper_set_display(
       return Err(format!("保存配置失败: {error}"));
     }
   }
+  crate::media::lifecycle::on_display_config_changed();
   windows::reapply_display(&app)
 }
 
@@ -346,6 +347,7 @@ pub async fn wallpaper_set_scene_params(
       return Err(format!("保存配置失败: {error}"));
     }
   }
+  crate::media::lifecycle::on_display_config_changed();
   windows::reapply_display(&app)
 }
 
@@ -369,6 +371,7 @@ pub async fn wallpaper_set_monitor_scene(
       return Err(format!("保存配置失败: {error}"));
     }
   }
+  crate::media::lifecycle::on_display_config_changed();
   windows::reapply_display(&app)
 }
 
@@ -389,8 +392,23 @@ pub fn wallpaper_set_visible(app: AppHandle, visible: bool) -> Result<bool, Stri
       (host.set_visible)(raw as *mut std::ffi::c_void, if visible { 1 } else { 0 });
     }
   }
+  crate::media::lifecycle::set_master_visible(visible);
+  crate::media::events::emit_master_visible(&app, visible);
   emit_changed(&app);
   Ok(visible)
+}
+
+/// 供媒体子系统在配置写盘后热更壁纸参数哈希。
+pub(crate) fn reapply(app: &AppHandle) -> Result<(), String> {
+  windows::reapply_display(app)
+}
+
+/// 当前壁纸窗口对应的显示器设备名（媒体子系统用）。
+pub(crate) fn device_for_label(label: &str) -> Option<String> {
+  snapshot_targets()
+    .into_iter()
+    .find(|(target_label, _, _)| target_label == label)
+    .map(|(_, _, device)| device)
 }
 
 /// 总开关当前状态（持久化的期望值，而非逐窗现场查询）。
