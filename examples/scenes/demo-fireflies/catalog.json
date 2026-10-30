@@ -14,7 +14,7 @@
         "wallpaper.viewport",
         "wallpaper.canvas"
       ],
-      "entry": "scenes/fireflies/index.html",
+      "entry": "scenes/demo-fireflies/index.html",
       "theme": {
         "background": "#04120f",
         "accent": "#f2c98a"
@@ -32,7 +32,7 @@
       "integrity": {
         "algorithm": "sha256",
         "scope": "package",
-        "digest": "024ff77b4ac03738696e03743c3c90530f86491e6f264aad115b35637c478d79"
+        "digest": "eb5191cae4175bf40e582e86352cdd5844ce1c9c7114a5eca5fc6cca88a59647"
       }
     }
   ]
