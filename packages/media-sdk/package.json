@@ -1,0 +1,67 @@
+{
+  "name": "@lull/media-sdk",
+  "version": "0.1.0",
+  "description": "Lull Media SDK：音乐资料库、播放队列与白噪音的统一 TypeScript 客户端。",
+  "keywords": [
+    "lull",
+    "media",
+    "music",
+    "library",
+    "sdk",
+    "typescript"
+  ],
+  "type": "module",
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "default": "./dist/react.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.check.json"
+  },
+  "peerDependencies": {
+    "@tauri-apps/api": ">=2",
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "@tauri-apps/api": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2.12.2",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.14",
+    "react": "^19.2.4",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -144,12 +144,13 @@ test("Page renders in browser mode (no tauri)", () => {
   expect(screen.getByRole("main")).toBeDefined();
 });
 
-test("设置页签按 偏好 / 壁纸 / 扩展 排列，壁纸层只在壁纸页签", () => {
+test("设置页签按 偏好 / 壁纸 / 音乐库 / 扩展 排列，壁纸层只在壁纸页签", () => {
   render(<Page />);
 
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
     "偏好",
     "壁纸",
+    "音乐库",
     "扩展",
   ]);
   expect(

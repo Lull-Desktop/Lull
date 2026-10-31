@@ -334,9 +334,7 @@ impl MediaEngine {
   pub fn detach(&self, label: &str, expected_stream_id: Option<&str>) {
     let mut state = self.lock();
     let matches = state.surfaces.get(label).is_some_and(|surface| {
-      expected_stream_id.map_or(true, |expected| {
-        surface.stream_id.as_deref() == Some(expected)
-      })
+      expected_stream_id.is_none_or(|expected| surface.stream_id.as_deref() == Some(expected))
     });
     if !matches {
       return;

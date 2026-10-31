@@ -4,9 +4,9 @@
 
 use tauri::{AppHandle, Emitter};
 
-use super::diagnostics::{MediaChangedEvent, MediaDegradedEvent};
 #[cfg(feature = "native-media")]
 use super::diagnostics::MediaStreamStalledEvent;
+use super::diagnostics::{MediaChangedEvent, MediaDegradedEvent};
 
 pub const MEDIA_CHANGED: &str = "media-changed";
 pub const MEDIA_CONFIG_CHANGED: &str = "media-config-changed";

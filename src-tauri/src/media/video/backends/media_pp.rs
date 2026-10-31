@@ -141,12 +141,7 @@ struct WebViewStreamRenderer {
 }
 
 impl WebViewStreamRenderer {
-  fn new(
-    gpu: D3d11Gpu,
-    stream: Arc<NativeStream>,
-    session_id: String,
-    label: String,
-  ) -> Self {
+  fn new(gpu: D3d11Gpu, stream: Arc<NativeStream>, session_id: String, label: String) -> Self {
     Self {
       gpu,
       stream,
@@ -239,7 +234,7 @@ impl WebViewStreamRenderer {
         stats.since_last_present_ms
       ));
     }
-    crate::media::report_stream_stalled(
+    crate::media::video::report_stream_stalled(
       &self.session_id,
       &self.label,
       self.stream.id(),

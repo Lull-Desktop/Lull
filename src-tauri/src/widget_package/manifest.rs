@@ -135,8 +135,7 @@ impl PackageManifest {
     let path = dir.join("widget.json");
     let text = std::fs::read_to_string(&path)
       .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
-    serde_json::from_str(&text)
-      .map_err(|error| format!("解析 {} 失败：{error}", path.display()))
+    serde_json::from_str(&text).map_err(|error| format!("解析 {} 失败：{error}", path.display()))
   }
 
   fn validate(&self, dir_name: Option<&str>) -> Result<(), String> {
@@ -300,10 +299,7 @@ fn safe_icon(icon: &str) -> bool {
     && !icon.contains('\\')
     && !icon.contains('%')
     && icon.split('/').all(|segment| {
-      !segment.is_empty()
-        && segment != "."
-        && segment != ".."
-        && !segment.starts_with('.')
+      !segment.is_empty() && segment != "." && segment != ".." && !segment.starts_with('.')
     })
 }
 
@@ -372,7 +368,10 @@ mod tests {
     for entry in ["../index.html", "/index.html", "a\\b.html", "index.js"] {
       let mut manifest = base();
       manifest.entry = entry.to_string();
-      assert!(manifest.validate(Some("community-pomodoro")).is_err(), "{entry}");
+      assert!(
+        manifest.validate(Some("community-pomodoro")).is_err(),
+        "{entry}"
+      );
     }
   }
 
@@ -415,7 +414,10 @@ mod tests {
     for id in ["Community", "a", "a_b", "a.b"] {
       let mut manifest = base();
       manifest.id = id.to_string();
-      assert!(manifest.validate(Some("community-pomodoro")).is_err(), "{id}");
+      assert!(
+        manifest.validate(Some("community-pomodoro")).is_err(),
+        "{id}"
+      );
     }
   }
 }

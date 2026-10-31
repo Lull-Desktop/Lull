@@ -83,6 +83,7 @@ const APP_COMMANDS: &[&str] = &[
   "media_set_loop",
   "media_status",
   "media_stats",
+  "media_call",
   "content_packages",
   "i18n_boot",
   "i18n_set_locale",

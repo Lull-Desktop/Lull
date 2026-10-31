@@ -544,11 +544,7 @@ mod tests {
       assert!(
         manifest.is_ok(),
         "{relative}: 清单校验失败 {}",
-        manifest
-          .as_ref()
-          .err()
-          .cloned()
-          .unwrap_or_default()
+        manifest.as_ref().err().cloned().unwrap_or_default()
       );
       let Ok(manifest) = manifest else {
         continue;

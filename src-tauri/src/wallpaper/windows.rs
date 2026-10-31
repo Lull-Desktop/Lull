@@ -42,7 +42,7 @@ pub(crate) fn create_one(
 ) -> Result<(), String> {
   let label = format!("wallpaper-{index}");
   // 媒体 token：只注入顶层帧，外部 sandbox iframe 不能读取父 DOM，也就拿不到它。
-  let media_token = crate::media::lifecycle::register_window(&label);
+  let media_token = crate::media::video::lifecycle::register_window(&label);
   let media_token_json = serde_json::to_string(&media_token).unwrap_or_else(|_| "\"\"".to_string());
   // 创建路径只从非主线程调用（async 命令 / async 任务 / ensure 线程）；
   // autostart 虽在主线程，但处于事件循环启动前，等价于 tauri.conf 的建窗时机。
@@ -98,13 +98,13 @@ pub(crate) fn create_one(
     ))
     .devtools(crate::window_host::devtools_enabled());
   #[cfg(feature = "native-media")]
-  let builder = builder.additional_browser_args(crate::media::NATIVE_MEDIA_BROWSER_ARGS);
+  let builder = builder.additional_browser_args(crate::media::video::NATIVE_MEDIA_BROWSER_ARGS);
   let window = builder
     .on_page_load(move |_window, payload| {
       if !matches!(payload.event(), PageLoadEvent::Finished) {
         return;
       }
-      crate::media::lifecycle::on_page_loaded(&label_for_load);
+      crate::media::video::lifecycle::on_page_loaded(&label_for_load);
       loaded_for_load.store(true, Ordering::Release);
       if !allow_show
         || !attached_for_load.load(Ordering::Acquire)
@@ -123,7 +123,7 @@ pub(crate) fn create_one(
   let raw = match window.hwnd() {
     Ok(hwnd) => hwnd.0,
     Err(error) => {
-      crate::media::lifecycle::remove_window(&label);
+      crate::media::video::lifecycle::remove_window(&label);
       return Err(error.to_string());
     }
   };
@@ -137,7 +137,7 @@ pub(crate) fn create_one(
     ffi::status_line(host, raw)
   ));
   if rc != 0 {
-    crate::media::lifecycle::remove_window(&label);
+    crate::media::video::lifecycle::remove_window(&label);
     let _ = window.destroy();
     return Err(format!("{label} attach rc={rc}"));
   }
@@ -277,7 +277,7 @@ pub(crate) fn apply_monitor_visibility(
     // 分段计时就是为了把这种“关一屏、另一屏黑”定位到具体哪一步。
     let started = std::time::Instant::now();
     remove_target(&label);
-    crate::media::lifecycle::remove_window(&label);
+    crate::media::video::lifecycle::remove_window(&label);
     let after_detach = started.elapsed();
     unsafe {
       (host.detach)(raw as *mut c_void);
@@ -301,10 +301,10 @@ pub(crate) fn rebuild(app: &AppHandle) -> Result<(), String> {
   let host = ffi::host()?;
   // 拓扑重建先解绑全部 media surface；重建结束后再按新 target 回收 Session。
   // 不能只 detach 后保留 pause 的 Session：显示器重新接入时 resume 可能不再出帧。
-  crate::media::lifecycle::on_topology_rebuild();
+  crate::media::video::lifecycle::on_topology_rebuild();
   let old = take_targets();
   for target in &old {
-    crate::media::lifecycle::remove_window(&target.label);
+    crate::media::video::lifecycle::remove_window(&target.label);
     unsafe {
       (host.detach)(target.raw as *mut c_void);
     }
@@ -340,7 +340,7 @@ pub(crate) fn rebuild(app: &AppHandle) -> Result<(), String> {
   }
   // 旧 Surface 已全部 detach；此时按新窗口/场景回收无归属 Session，
   // 新页面加载后会重新 media_open + native attach。
-  crate::media::lifecycle::on_display_config_changed();
+  crate::media::video::lifecycle::on_display_config_changed();
   emit_changed(app);
   Ok(())
 }

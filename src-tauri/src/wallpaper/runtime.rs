@@ -56,7 +56,7 @@ pub(crate) fn video_devices() -> BTreeSet<String> {
     .into_iter()
     .filter(|(_, _, device)| {
       // 必须与 monitor_url 用同一套解析：mirror/span 下每屏覆盖不生效。
-      state.data.effective_scene(device) == crate::media::VIDEO_SCENE
+      state.data.effective_scene(device) == crate::media::video::VIDEO_SCENE
     })
     .map(|(_, _, device)| device)
     .collect()
@@ -317,7 +317,7 @@ pub async fn wallpaper_set_monitor_visible(
     // 显示器开关会销毁/重建壁纸窗：让媒体生命周期回收已无 video Surface 的
     // Session。否则 independent 下两个屏都关闭后，Session 会被 pause 并保留，
     // 再次打开时 resume 可能不再出帧，表现为黑屏；回收后重开走新建 Session。
-    crate::media::lifecycle::on_display_config_changed();
+    crate::media::video::lifecycle::on_display_config_changed();
   }
   // 成功要让设置页刷新；失败也要（点击后的乐观跳动要回正）。
   emit_changed(&app);
@@ -351,9 +351,9 @@ pub async fn wallpaper_set_display(
     changed
   };
   if layout_changed {
-    crate::media::lifecycle::on_display_layout_changed();
+    crate::media::video::lifecycle::on_display_layout_changed();
   } else {
-    crate::media::lifecycle::on_display_config_changed();
+    crate::media::video::lifecycle::on_display_config_changed();
   }
   windows::reapply_display(&app)
 }
@@ -378,7 +378,7 @@ pub async fn wallpaper_set_scene_params(
       return Err(format!("保存配置失败: {error}"));
     }
   }
-  crate::media::lifecycle::on_display_config_changed();
+  crate::media::video::lifecycle::on_display_config_changed();
   windows::reapply_display(&app)
 }
 
@@ -402,7 +402,7 @@ pub async fn wallpaper_set_monitor_scene(
       return Err(format!("保存配置失败: {error}"));
     }
   }
-  crate::media::lifecycle::on_display_config_changed();
+  crate::media::video::lifecycle::on_display_config_changed();
   windows::reapply_display(&app)
 }
 
@@ -423,8 +423,8 @@ pub fn wallpaper_set_visible(app: AppHandle, visible: bool) -> Result<bool, Stri
       (host.set_visible)(raw as *mut std::ffi::c_void, if visible { 1 } else { 0 });
     }
   }
-  crate::media::lifecycle::set_master_visible(visible);
-  crate::media::events::emit_master_visible(&app, visible);
+  crate::media::video::lifecycle::set_master_visible(visible);
+  crate::media::video::events::emit_master_visible(&app, visible);
   emit_changed(&app);
   Ok(visible)
 }

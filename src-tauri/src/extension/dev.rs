@@ -103,7 +103,10 @@ pub fn enabled(app: &AppHandle) -> bool {
 }
 
 pub fn contains(app: &AppHandle, id: &str) -> bool {
-  load(app).dev_packages.iter().any(|package| package.id == id)
+  load(app)
+    .dev_packages
+    .iter()
+    .any(|package| package.id == id)
 }
 
 pub fn packages(app: &AppHandle) -> Vec<DevPackage> {
@@ -148,8 +151,7 @@ pub fn add(app: &AppHandle, path: &Path) -> Result<PackageManifest, String> {
   if !enabled(app) {
     return Err("开发模式未开启".to_string());
   }
-  let dir = std::fs::canonicalize(path)
-    .map_err(|error| format!("本地目录不可用：{error}"))?;
+  let dir = std::fs::canonicalize(path).map_err(|error| format!("本地目录不可用：{error}"))?;
   if !dir.is_dir() {
     return Err("只能挂载目录".to_string());
   }

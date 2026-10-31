@@ -43,13 +43,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     true,
     None::<&str>,
   )?;
-  let quit = MenuItem::with_id(
-    app,
-    "quit",
-    crate::i18n::t("tray_quit"),
-    true,
-    None::<&str>,
-  )?;
+  let quit = MenuItem::with_id(app, "quit", crate::i18n::t("tray_quit"), true, None::<&str>)?;
 
   // 工具菜单项由 widget 清单生成：新增内置工具只需加 manifest，不再改托盘代码。
   let mut tool_items: Vec<MenuItem<Wry>> = Vec::new();
@@ -72,12 +66,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
   let submenu = if enabled.is_empty() {
     None
   } else {
-    let menu = Submenu::with_id(
-      app,
-      "extensions",
-      crate::i18n::t("tray_extensions"),
-      true,
-    )?;
+    let menu = Submenu::with_id(app, "extensions", crate::i18n::t("tray_extensions"), true)?;
     for package in &enabled {
       let item = MenuItem::with_id(
         app,

@@ -66,9 +66,7 @@ pub fn valid_id(id: &str) -> bool {
     return false;
   }
   bytes.iter().all(|byte| {
-    byte.is_ascii_lowercase()
-      || byte.is_ascii_digit()
-      || matches!(byte, b'.' | b'_' | b'-')
+    byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
   })
 }
 
@@ -332,8 +330,8 @@ mod tests {
     assert!(write_catalog(&bundle, &missing_file).is_ok());
     assert!(parse(&bundle).is_err());
 
-    let no_license =
-      scene_json("community.test", "scenes/test/index.html").replace("\"license\": \"CC-BY-4.0\",", "");
+    let no_license = scene_json("community.test", "scenes/test/index.html")
+      .replace("\"license\": \"CC-BY-4.0\",", "");
     assert!(write_catalog(&bundle, &no_license).is_ok());
     assert!(parse(&bundle).is_err());
 

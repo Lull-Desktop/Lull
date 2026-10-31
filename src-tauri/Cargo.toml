@@ -34,6 +34,25 @@ sha2 = "0.10"
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "fast"] }
 base64 = "0.22"
 rfd = { version = "0.16", default-features = false }
+# 本地音乐资料库：SQLite + 迁移。SQLx 只使用运行时查询（不用 query! 宏），
+# 避免构建期依赖 DATABASE_URL；SQLite 由 crate 自带。
+sqlx = { version = "0.8", default-features = false, features = [
+  "runtime-tokio",
+  "sqlite",
+  "migrate",
+  "macros",
+] }
+# 音频标签 / 时长 / 内嵌封面 / 内嵌歌词读取；只读，不写回用户文件。
+lofty = "0.25"
+# 目录扫描与 Windows 路径规范化。
+walkdir = "2"
+dunce = "1"
+# 侧车歌词的 GBK / UTF-16 兜底解码。
+encoding_rs = "0.8"
+# 稳定实体 ID（UUIDv7 按时间有序）。
+uuid = { version = "1", features = ["v4", "v7"] }
+# 艺术家/专辑名称规范化；与 SQLite 的 lower() 不同，CJK/重音字符也稳定。
+unicode-normalization = "0.1"
 
 [features]
 default = []

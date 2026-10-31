@@ -43,6 +43,7 @@
     "allow-media-asset-remove",
     "allow-media-assets",
     "allow-media-attach",
+    "allow-media-call",
     "allow-media-capabilities",
     "allow-media-config-get",
     "allow-media-config-set",

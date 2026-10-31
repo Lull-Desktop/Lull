@@ -26,8 +26,7 @@ pub fn safe_join(root: &Path, relative: &str) -> Result<PathBuf, String> {
   }
   let canonical_root =
     std::fs::canonicalize(root).map_err(|error| format!("内容目录不可用：{error}"))?;
-  let canonical = std::fs::canonicalize(&path)
-    .map_err(|error| format!("资源不存在：{error}"))?;
+  let canonical = std::fs::canonicalize(&path).map_err(|error| format!("资源不存在：{error}"))?;
   if !canonical.starts_with(&canonical_root) {
     return Err("路径逃逸出包目录".to_string());
   }

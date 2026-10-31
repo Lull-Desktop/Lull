@@ -41,7 +41,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Type-check SDK packages
-        run: pnpm widgets:sdk:check && pnpm scenes:sdk:check
+        run: pnpm widgets:sdk:check && pnpm scenes:sdk:check && pnpm media:sdk:check
 
       - name: Run tests
         run: pnpm test

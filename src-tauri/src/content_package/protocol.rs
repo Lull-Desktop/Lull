@@ -30,8 +30,8 @@ fn serve(app: &AppHandle, request: &Request<Vec<u8>>) -> Result<Response<Vec<u8>
   if rest.is_empty() {
     return Err((StatusCode::NOT_FOUND, "missing asset path".to_string()));
   }
-  let dir = store::package_dir(app, id)
-    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+  let dir =
+    store::package_dir(app, id).map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
   let path = safe_join(&dir, rest).map_err(|error| {
     let status = if error.contains("逃逸") {
       StatusCode::FORBIDDEN

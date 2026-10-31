@@ -1,5 +1,5 @@
 /**
- * 设置窗口页面：偏好（主题 / 窗口 / 关于）、壁纸与扩展三个页签。
+ * 设置窗口页面：偏好（主题 / 窗口 / 关于）、壁纸、音乐库与扩展页签。
  * 壁纸层的显示与场景配置在 WallpaperPanel，本页只保留全局偏好卡片。
  */
 "use client";
@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
+import { MusicLibraryPanel } from "@/components/settings/music-library-panel";
 import { WallpaperPanel } from "@/components/settings/wallpaper-panel";
 import {
   Card,
@@ -62,13 +63,19 @@ type WidgetState = {
 };
 
 /** 设置页签，顺序即展示顺序：偏好 → 壁纸 → 扩展。文案在渲染时按当前语言取。 */
-const SETTINGS_TABS = ["preferences", "wallpaper", "extensions"] as const;
+const SETTINGS_TABS = [
+  "preferences",
+  "wallpaper",
+  "library",
+  "extensions",
+] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const TAB_LABELS: Record<SettingsTab, () => string> = {
   preferences: m.settings_tab_preferences,
   wallpaper: m.settings_tab_wallpaper,
+  library: m.settings_tab_library,
   extensions: m.settings_tab_extensions,
 };
 
@@ -663,6 +670,11 @@ export default function Settings() {
       {tab === "wallpaper" && (
         <main className="space-y-6">
           <WallpaperPanel />
+        </main>
+      )}
+      {tab === "library" && (
+        <main className="space-y-6">
+          <MusicLibraryPanel />
         </main>
       )}
       {tab === "extensions" && (

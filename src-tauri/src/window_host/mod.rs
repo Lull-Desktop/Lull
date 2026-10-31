@@ -104,7 +104,7 @@ pub fn open(app: &AppHandle, spec: &WidgetSpec) {
   // WebView2 environment options 必须与壁纸窗一致；否则后建设置/工具窗可能
   // 返回 0x8007139F（组或资源状态不正确），表现为“设置面板无法弹出”。
   #[cfg(feature = "native-media")]
-  let builder = builder.additional_browser_args(crate::media::NATIVE_MEDIA_BROWSER_ARGS);
+  let builder = builder.additional_browser_args(crate::media::video::NATIVE_MEDIA_BROWSER_ARGS);
   let mut builder = builder;
 
   if spec.transparent {

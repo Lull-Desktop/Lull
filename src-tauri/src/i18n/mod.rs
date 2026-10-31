@@ -29,14 +29,8 @@ const VERSION: u32 = 1;
 ///
 /// 新增语言时这里要同步加一行（数组长度是类型的一部分，编译期强制）。
 const SOURCES: [(&str, &str); 2] = [
-  (
-    "zh-CN",
-    include_str!("../../../i18n/messages/zh-CN.json"),
-  ),
-  (
-    "en-US",
-    include_str!("../../../i18n/messages/en-US.json"),
-  ),
+  ("zh-CN", include_str!("../../../i18n/messages/zh-CN.json")),
+  ("en-US", include_str!("../../../i18n/messages/en-US.json")),
 ];
 
 /// 语言偏好。`explicit = false` 表示跟随系统，每次启动重新探测。
@@ -136,11 +130,7 @@ fn catalog() -> &'static HashMap<&'static str, HashMap<String, String>> {
           .unwrap_or_default()
           .into_iter()
           .filter(|(key, _)| !key.starts_with('$'))
-          .filter_map(|(key, value)| {
-            value
-              .as_str()
-              .map(|text| (key, text.to_string()))
-          })
+          .filter_map(|(key, value)| value.as_str().map(|text| (key, text.to_string())))
           .collect::<HashMap<String, String>>();
         (*locale, parsed)
       })
@@ -287,7 +277,10 @@ pub fn i18n_set_locale(app: AppHandle, locale: String) -> Result<LocaleState, St
   }
 
   let Some(normalized) = normalize(&locale) else {
-    return Err(t_args("settings_language_unsupported", &[("locale", &locale)]));
+    return Err(t_args(
+      "settings_language_unsupported",
+      &[("locale", &locale)],
+    ));
   };
 
   let pref = Preferences::of(&normalized, true);

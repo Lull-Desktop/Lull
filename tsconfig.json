@@ -26,7 +26,10 @@
       "@lull/widget-sdk/vue": ["./packages/widget-sdk/src/vue.ts"],
       "@lull/widget-sdk/testing": ["./packages/widget-sdk/src/testing.ts"],
       "@lull/scene-sdk": ["./packages/scene-sdk/src/index.ts"],
-      "@lull/scene-sdk/testing": ["./packages/scene-sdk/src/testing.ts"]
+      "@lull/scene-sdk/testing": ["./packages/scene-sdk/src/testing.ts"],
+      "@lull/media-sdk": ["./packages/media-sdk/src/index.ts"],
+      "@lull/media-sdk/react": ["./packages/media-sdk/src/react.tsx"],
+      "@lull/media-sdk/testing": ["./packages/media-sdk/src/testing.ts"]
     }
   },
   "include": [

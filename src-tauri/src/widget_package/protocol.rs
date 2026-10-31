@@ -86,7 +86,10 @@ fn plugin_csp(manifest: &PackageManifest, nonce: &str, granted: &[String]) -> St
   let origin = "lullwidget://localhost";
   let mut connect = origin.to_string();
   // 只有实际授予 widget.network 才放开清单声明的源；撤销后下一次响应即收紧。
-  if granted.iter().any(|capability| capability == "widget.network") {
+  if granted
+    .iter()
+    .any(|capability| capability == "widget.network")
+  {
     for source in &manifest.network {
       connect.push(' ');
       connect.push_str(source);

@@ -3,8 +3,8 @@
 //! 与内置工具（`window_host`）分开：插件窗口 label 固定为 `widget-<id>`，
 //! 只获得 `core` 窗口权限与状态命令；包管理命令只有设置窗能调用。
 
-pub mod manifest;
 pub(crate) mod digest;
+pub mod manifest;
 mod protocol;
 pub(crate) mod store;
 
@@ -197,7 +197,7 @@ fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
       plugin_context_json(app, &manifest)
     ));
   #[cfg(feature = "native-media")]
-  let builder = builder.additional_browser_args(crate::media::NATIVE_MEDIA_BROWSER_ARGS);
+  let builder = builder.additional_browser_args(crate::media::video::NATIVE_MEDIA_BROWSER_ARGS);
   let mut builder = builder;
   // 插件窗口始终用透明 WebView 创建，初始背景由清单的 window.transparent 决定；
   // 运行时可通过 widget_set_transparent 在透明/不透明之间切换。

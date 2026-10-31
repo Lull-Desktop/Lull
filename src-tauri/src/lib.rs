@@ -79,24 +79,25 @@ pub fn run() {
       wallpaper::runtime::wallpaper_set_display,
       wallpaper::runtime::wallpaper_set_scene_params,
       wallpaper::runtime::wallpaper_set_monitor_scene,
-      media::commands::media_capabilities,
-      media::commands::media_assets,
-      media::commands::media_asset_pick,
-      media::commands::media_asset_remove,
-      media::commands::media_config_get,
-      media::commands::media_config_set,
-      media::commands::media_activate,
-      media::commands::media_open,
-      media::commands::media_attach,
-      media::commands::media_detach,
-      media::commands::media_degrade,
-      media::commands::media_play,
-      media::commands::media_pause,
-      media::commands::media_seek,
-      media::commands::media_resync,
-      media::commands::media_set_loop,
-      media::commands::media_status,
-      media::commands::media_stats,
+      media::video::commands::media_capabilities,
+      media::video::commands::media_assets,
+      media::video::commands::media_asset_pick,
+      media::video::commands::media_asset_remove,
+      media::video::commands::media_config_get,
+      media::video::commands::media_config_set,
+      media::video::commands::media_activate,
+      media::video::commands::media_open,
+      media::video::commands::media_attach,
+      media::video::commands::media_detach,
+      media::video::commands::media_degrade,
+      media::video::commands::media_play,
+      media::video::commands::media_pause,
+      media::video::commands::media_seek,
+      media::video::commands::media_resync,
+      media::video::commands::media_set_loop,
+      media::video::commands::media_status,
+      media::video::commands::media_stats,
+      media::api::commands::media_call,
       content_package::content_packages
     ])
     .setup(|app| {
@@ -143,7 +144,9 @@ pub fn run() {
       // 托盘应用必须靠 tray 的显式 app.exit(0) 退出，不能被 last-window-close
       // 默认行为带走，否则再次打开显示器时进程已经没了。程序化 exit 的
       // code 是 Some(_)，用户关窗/系统请求是 None。
-      tauri::RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+      tauri::RunEvent::ExitRequested {
+        code: None, api, ..
+      } => api.prevent_exit(),
       tauri::RunEvent::Exit => {
         media::shutdown();
         wallpaper::shutdown();

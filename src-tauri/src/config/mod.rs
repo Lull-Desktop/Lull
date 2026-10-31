@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::media::config::MediaConfig;
+use crate::media::video::config::MediaConfig;
 
 /// 当前配置 schema 版本。v2 = Lull 命名空间。
 pub const CURRENT_VERSION: u32 = 2;

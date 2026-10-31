@@ -74,6 +74,19 @@
   },
   "overrides": [
     {
+      "includes": [
+        "src/components/settings/music-library-panel.tsx",
+        "src/components/settings/music-library-panel.test.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["examples/**/*.ts", "examples/**/*.tsx"],
       "linter": {
         "rules": {
