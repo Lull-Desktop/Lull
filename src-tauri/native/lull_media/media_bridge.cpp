@@ -31,6 +31,41 @@ constexpr int kStateStopped = 2;
 constexpr int kStateError = 3;
 constexpr int kStateAdapterLost = 4;
 
+// WebView2 clears every texture it handed out when the stream stops, so the
+// host must drop its references and register them again after the next
+// `StartRequested`. Keeping more than a handful of 4K NV12 targets alive is
+// never useful: the renderer only needs one per in-flight composition.
+constexpr uint32_t kMaxTextures = 8;
+// A local D3D11/WebView2 call can fail once while the compositor is between
+// states. Treating the first failure as fatal killed the stream until a new
+// `getTextureStream`; a short run of failures is a real break.
+constexpr uint32_t kMaxConsecutiveLocalErrors = 30;
+constexpr uint64_t kDropLogIntervalMs = 5'000;
+// COREWEBVIEW2_TEXTURE_STREAM_ERROR_KIND values (int-sized enum).
+constexpr int kErrorBufferNotFound = 2;
+constexpr int kErrorBufferInUse = 3;
+
+/** 记录一次可能在 WebView2 UI 线程上阻塞的调用；超过阈值才写日志。 */
+class SlowCallLog {
+public:
+	SlowCallLog(const char *what, DWORD threshold_ms)
+			: what_(what), threshold_(threshold_ms), start_(GetTickCount()) {}
+	~SlowCallLog() {
+		const DWORD elapsed = GetTickCount() - start_;
+		if (elapsed > threshold_) {
+			fprintf(stderr, "lull_media: %s took %lu ms\n", what_,
+					static_cast<unsigned long>(elapsed));
+		}
+	}
+	SlowCallLog(const SlowCallLog &) = delete;
+	SlowCallLog &operator=(const SlowCallLog &) = delete;
+
+private:
+	const char *what_;
+	DWORD threshold_;
+	DWORD start_;
+};
+
 void EnsureComInitialized() {
 	thread_local const bool initialized = []() {
 		CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -194,19 +229,39 @@ public:
 	}
 
 	void OnStarted() {
-		fprintf(stderr, "lull_media: StartRequested\n");
-		state_.store(kStateStarted, std::memory_order_release);
+		const int previous = state_.exchange(kStateStarted, std::memory_order_acq_rel);
+		if (previous == kStateCreated) {
+			fprintf(stderr, "lull_media: StartRequested\n");
+		} else {
+			// The page called getTextureStream again after a stop: the browser
+			// has already dropped every texture we registered.
+			fprintf(stderr, "lull_media: StartRequested again (was state=%d)\n", previous);
+			textures_stale_.store(true, std::memory_order_release);
+		}
+		not_started_logged_.store(false, std::memory_order_release);
 	}
 
 	void OnStopped() {
-		fprintf(stderr, "lull_media: Stopped\n");
+		fprintf(stderr, "lull_media: Stopped (state=%d)\n", State());
+		// Everything WebView2 handed out is gone; re-register after a restart.
+		textures_stale_.store(true, std::memory_order_release);
 		state_.store(kStateStopped, std::memory_order_release);
 	}
 
-	void OnError(HRESULT hr) {
-		fprintf(stderr, "lull_media: stream error hr=0x%08lx\n",
-				static_cast<unsigned long>(hr));
-		last_error_.store(hr, std::memory_order_release);
+	/**
+	 * Async `ErrorReceived`. The SDK defines buffer-not-found and
+	 * buffer-in-use as transient conditions of the presentation queue, not as
+	 * stream failures; treating them as fatal is what left the wallpaper black
+	 * until the page re-attached.
+	 */
+	void OnErrorKind(int kind) {
+		last_error_kind_.store(static_cast<uint32_t>(kind), std::memory_order_release);
+		if (kind == kErrorBufferNotFound || kind == kErrorBufferInUse) {
+			transient_errors_.fetch_add(1, std::memory_order_relaxed);
+			return;
+		}
+		fprintf(stderr, "lull_media: stream error kind=%d\n", kind);
+		last_error_.store(E_FAIL, std::memory_order_release);
 		state_.store(kStateError, std::memory_order_release);
 	}
 
@@ -227,6 +282,7 @@ public:
 		if (stream_ && state_.load(std::memory_order_acquire) == kStateStarted) {
 			stream_->Stop();
 		}
+		textures_stale_.store(true, std::memory_order_release);
 		state_.store(kStateStopped, std::memory_order_release);
 	}
 
@@ -260,16 +316,22 @@ public:
 		dispatch_thread_id_ = GetCurrentThreadId();
 	}
 
-	/** 必须在 WebView2 UI 线程调用。 */
+	/**
+	 * 必须在 WebView2 UI 线程调用。
+	 *
+	 * Returns 0 presented, 1 stream not started (JS has not asked yet, or the
+	 * browser stopped it), 2 no writable target this frame (all textures in
+	 * use, or the keyed mutex was busy), negative HRESULT on a local failure.
+	 * The source texture is borrowed for this call only.
+	 */
 	int SubmitNV12OnUi(
 			ID3D11Texture2D *source,
 			uint32_t array_index,
 			uint32_t width,
 			uint32_t height,
 			uint64_t timestamp_us) {
-
-	// Returns 0 for presented-or-intentionally-dropped, negative HRESULT on a
-	// real failure. The source texture is borrowed for this call only.
+		// 解码线程在等这一次调用；它一旦慢，另一屏也会跟着停帧。
+		SlowCallLog slow("submit_nv12_on_ui", 30);
 		if (source == nullptr || width == 0 || height == 0) {
 			return E_INVALIDARG;
 		}
@@ -277,10 +339,21 @@ public:
 		if (!stream_ || !context_) {
 			return E_HANDLE;
 		}
+		// After a stop the browser has dropped every texture it handed out.
+		// Reusing those COM refs after a restart presents nothing.
+		if (textures_stale_.exchange(false, std::memory_order_acq_rel)) {
+			textures_.clear();
+			texture_count_.store(0, std::memory_order_relaxed);
+			width_ = 0;
+			height_ = 0;
+			started_logged_ = false;
+		}
 		if (state_.load(std::memory_order_acquire) != kStateStarted) {
-			if (!not_started_logged_) {
-				not_started_logged_ = true;
-				fprintf(stderr, "lull_media: frame before StartRequested (dropped)\n");
+			dropped_not_started_.fetch_add(1, std::memory_order_relaxed);
+			if (!not_started_logged_.exchange(true, std::memory_order_acq_rel)) {
+				fprintf(stderr,
+						"lull_media: frame while stream state=%d (dropped)\n",
+						State());
 			}
 			return 1; // JS has not requested the stream yet; drop this frame.
 		}
@@ -303,29 +376,43 @@ public:
 			hr = E_FAIL;
 		}
 		if (FAILED(hr)) {
+			if (texture_count_.load(std::memory_order_relaxed) >= kMaxTextures) {
+				// The renderer has not returned a texture, so it is not
+				// compositing (hidden/occluded window, stalled renderer).
+				// Allocating another 4K NV12 target every frame is what turns
+				// that pause into GPU memory pressure.
+				dropped_no_texture_.fetch_add(1, std::memory_order_relaxed);
+				LogDropLocked("no available texture", texture_count_.load(std::memory_order_relaxed));
+				return 2;
+			}
 			hr = stream_->CreateTexture(width, height, &target);
 			if (FAILED(hr)) {
-				OnError(hr);
-				return hr;
+				if (hr == static_cast<HRESULT>(HRESULT_FROM_WIN32(ERROR_NO_MORE_ITEMS))) {
+					dropped_no_texture_.fetch_add(1, std::memory_order_relaxed);
+					return 2;
+				}
+				return LocalFailureLocked(hr);
 			}
 			textures_.push_back(target);
+			texture_count_.store(static_cast<uint32_t>(textures_.size()), std::memory_order_relaxed);
+			created_textures_.fetch_add(1, std::memory_order_relaxed);
+			if (static_cast<uint32_t>(textures_.size()) > 3u) {
+				LogDropLocked("texture pool grew", texture_count_.load(std::memory_order_relaxed));
+			}
 			if (!TextureMatches(target.Get(), width, height)) {
-				OnError(E_FAIL);
-				return E_FAIL;
+				return LocalFailureLocked(E_FAIL);
 			}
 		}
 
 		ComPtr<IUnknown> resource;
 		hr = target->get_Resource(&resource);
 		if (FAILED(hr)) {
-			OnError(hr);
-			return hr;
+			return LocalFailureLocked(hr);
 		}
 		ComPtr<ID3D11Texture2D> destination;
 		hr = resource.As(&destination);
 		if (FAILED(hr)) {
-			OnError(hr);
-			return hr;
+			return LocalFailureLocked(hr);
 		}
 		ComPtr<IDXGIKeyedMutex> keyed_mutex;
 		const bool has_keyed_mutex =
@@ -333,11 +420,11 @@ public:
 		if (has_keyed_mutex) {
 			hr = keyed_mutex->AcquireSync(0, 16);
 			if (hr == static_cast<HRESULT>(WAIT_TIMEOUT)) {
-				return 1; // browser 正在使用纹理；丢这一帧，下一帧再试。
+				dropped_no_texture_.fetch_add(1, std::memory_order_relaxed);
+				return 2; // browser 正在使用纹理；丢这一帧，下一帧再试。
 			}
 			if (FAILED(hr)) {
-				OnError(hr);
-				return hr;
+				return LocalFailureLocked(hr);
 			}
 		}
 		context_->CopySubresourceRegion(
@@ -357,17 +444,39 @@ public:
 		if (has_keyed_mutex) keyed_mutex->ReleaseSync(0);
 		hr = target->put_Timestamp(timestamp_us);
 		if (FAILED(hr)) {
-			OnError(hr);
-			return hr;
+			return LocalFailureLocked(hr);
 		}
 		hr = stream_->PresentTexture(target.Get());
 		if (FAILED(hr)) {
-			OnError(hr);
-			return hr;
+			return LocalFailureLocked(hr);
 		}
 		last_timestamp_ = timestamp_us;
 		++submitted_frames_;
+		consecutive_local_errors_ = 0;
+		presented_.fetch_add(1, std::memory_order_relaxed);
+		last_present_tick_ms_.store(GetTickCount64(), std::memory_order_relaxed);
 		return 0;
+	}
+
+	/** Copy of the counters, safe from any thread. */
+	void Stats(struct lull_media_stream_stats *out) const {
+		if (out == nullptr) {
+			return;
+		}
+		out->abi_version = kAbiVersion;
+		out->state = state_.load(std::memory_order_acquire);
+		out->texture_count = texture_count_.load(std::memory_order_relaxed);
+		out->last_error_kind = last_error_kind_.load(std::memory_order_relaxed);
+		out->presented = presented_.load(std::memory_order_relaxed);
+		out->dropped_not_started = dropped_not_started_.load(std::memory_order_relaxed);
+		out->dropped_no_texture = dropped_no_texture_.load(std::memory_order_relaxed);
+		out->created_textures = created_textures_.load(std::memory_order_relaxed);
+		out->transient_errors = transient_errors_.load(std::memory_order_relaxed);
+		const uint64_t last_present = last_present_tick_ms_.load(std::memory_order_relaxed);
+		out->last_present_tick_ms = last_present;
+		const uint64_t now = GetTickCount64();
+		out->since_last_present_ms =
+				(last_present != 0 && now > last_present) ? (now - last_present) : 0;
 	}
 
 	int SubmitNV12(
@@ -404,7 +513,15 @@ public:
 				delete request;
 				return E_FAIL;
 			}
+			const DWORD wait_started = GetTickCount();
 			const DWORD wait = WaitForSingleObject(request->done, INFINITE);
+			const DWORD waited_ms = GetTickCount() - wait_started;
+			if (waited_ms > 50) {
+				// 解码线程被 UI 线程（窗口销毁 / WebView2 关闭）挡住：这就是
+				// “关一屏、另一屏黑”最可能的传导路径。
+				fprintf(stderr, "lull_media: submit waited %lu ms on UI thread\n",
+						static_cast<unsigned long>(waited_ms));
+			}
 			if (wait != WAIT_OBJECT_0) {
 				fprintf(stderr, "lull_media: submit wait failed %lu\n",
 						static_cast<unsigned long>(wait));
@@ -440,6 +557,7 @@ public:
 
 	/** 必须在 WebView2 UI 线程调用。 */
 	void ShutdownOnUi() {
+		SlowCallLog slow("stream_shutdown_on_ui", 50);
 		std::lock_guard<std::mutex> lock(mutex_);
 		if (stream_) {
 			const int state = state_.load(std::memory_order_acquire);
@@ -482,12 +600,58 @@ private:
 	void CloseTexturesLocked() {
 		if (!stream_) {
 			textures_.clear();
+			texture_count_.store(0, std::memory_order_relaxed);
 			return;
 		}
 		for (const auto &texture : textures_) {
 			if (texture) stream_->CloseTexture(texture.Get());
 		}
 		textures_.clear();
+		texture_count_.store(0, std::memory_order_relaxed);
+	}
+
+	/**
+	 * A single local D3D11/WebView2 failure is not a dead stream: the
+	 * compositor can be between states for a frame. Only a sustained run of
+	 * failures marks the stream dead, which is what makes the Rust side
+	 * re-attach instead of leaving a black surface.
+	 */
+	int LocalFailureLocked(HRESULT hr) {
+		++consecutive_local_errors_;
+		const uint32_t failures = consecutive_local_errors_;
+		if (failures >= kMaxConsecutiveLocalErrors) {
+			fprintf(stderr,
+					"lull_media: %u consecutive local failures hr=0x%08lx; stream dead\n",
+					failures,
+					static_cast<unsigned long>(hr));
+			last_error_.store(hr, std::memory_order_release);
+			last_error_kind_.store(0xFFFF'FFFFu, std::memory_order_relaxed);
+			state_.store(kStateError, std::memory_order_release);
+		}
+		return hr;
+	}
+
+	/** Rate-limited: a stalled stream drops every frame, which must not spam. */
+	void LogDropLocked(const char *reason, uint32_t pool) {
+		const uint64_t now = GetTickCount64();
+		const uint64_t last = last_drop_log_ms_.load(std::memory_order_relaxed);
+		if (now - last < kDropLogIntervalMs) {
+			return;
+		}
+		last_drop_log_ms_.store(now, std::memory_order_relaxed);
+		fprintf(stderr,
+				"lull_media: %s (state=%d pool=%u presented=%llu not_started=%llu "
+				"no_texture=%llu created=%llu)\n",
+				reason,
+				State(),
+				pool,
+				static_cast<unsigned long long>(presented_.load(std::memory_order_relaxed)),
+				static_cast<unsigned long long>(
+						dropped_not_started_.load(std::memory_order_relaxed)),
+				static_cast<unsigned long long>(
+						dropped_no_texture_.load(std::memory_order_relaxed)),
+				static_cast<unsigned long long>(
+						created_textures_.load(std::memory_order_relaxed)));
 	}
 
 	std::mutex mutex_;
@@ -506,9 +670,20 @@ private:
 	uint64_t last_timestamp_ = 0;
 	std::atomic<int> state_{kStateCreated};
 	std::atomic<long> last_error_{S_OK};
-	bool not_started_logged_ = false;
-	bool started_logged_ = false;
-	int submitted_frames_ = 0;
+	std::atomic<uint32_t> last_error_kind_{0};
+	std::atomic<bool> textures_stale_{false};
+	std::atomic<bool> not_started_logged_{false};
+	bool started_logged_ = false; // guarded by mutex_
+	int submitted_frames_ = 0;    // guarded by mutex_
+	uint32_t consecutive_local_errors_ = 0; // guarded by mutex_
+	std::atomic<uint32_t> texture_count_{0};
+	std::atomic<uint64_t> presented_{0};
+	std::atomic<uint64_t> dropped_not_started_{0};
+	std::atomic<uint64_t> dropped_no_texture_{0};
+	std::atomic<uint64_t> created_textures_{0};
+	std::atomic<uint64_t> transient_errors_{0};
+	std::atomic<uint64_t> last_present_tick_ms_{0};
+	std::atomic<uint64_t> last_drop_log_ms_{0};
 	HWND dispatch_hwnd_ = nullptr;
 	DWORD dispatch_thread_id_ = 0;
 };
@@ -554,8 +729,12 @@ HRESULT STDMETHODCALLTYPE StopHandler::Invoke(
 
 HRESULT STDMETHODCALLTYPE ErrorHandler::Invoke(
 		ICoreWebView2ExperimentalTextureStream *,
-		ICoreWebView2ExperimentalTextureStreamErrorReceivedEventArgs *) {
-	if (auto state = state_.lock()) state->OnError(E_FAIL);
+		ICoreWebView2ExperimentalTextureStreamErrorReceivedEventArgs *args) {
+	int kind = -1;
+	if (args != nullptr) {
+		args->get_Kind(&kind);
+	}
+	if (auto state = state_.lock()) state->OnErrorKind(kind);
 	return S_OK;
 }
 
@@ -633,6 +812,17 @@ __declspec(dllexport) int lull_media_stream_state(lull_media_stream_t stream) {
 	EnsureComInitialized();
 	auto state = Lookup(stream);
 	return state ? state->State() : -1;
+}
+
+__declspec(dllexport) int lull_media_stream_stats(
+		lull_media_stream_t stream, struct lull_media_stream_stats *out) {
+	EnsureComInitialized();
+	if (out == nullptr) return -1;
+	*out = {};
+	auto state = Lookup(stream);
+	if (!state) return -1;
+	state->Stats(out);
+	return 0;
 }
 
 __declspec(dllexport) int lull_media_stream_take_error(lull_media_stream_t stream, int *code) {

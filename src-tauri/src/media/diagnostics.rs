@@ -153,3 +153,22 @@ pub struct MediaDegradedEvent {
   pub asset_url: String,
   pub reason: String,
 }
+
+/// `media-stream-stalled` 事件载荷。
+///
+/// 原生 TextureStream 一旦离开 `Started`（浏览器停止、渲染侧错误、适配器丢失）
+/// 就不会自己恢复：之后每一帧都会被静默丢弃，画面保持最后一帧或全黑。Rust 在
+/// 丢帧路径上发现这种状态时发这个事件，壁纸页立刻重建纹理流，而不是等 5 秒的
+/// `requestVideoFrameCallback` 看门狗。
+#[cfg(feature = "native-media")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaStreamStalledEvent {
+  pub session_id: String,
+  pub stream_id: String,
+  pub label: String,
+  pub reason: String,
+  pub state: i32,
+  pub presented: u64,
+  pub dropped: u64,
+}

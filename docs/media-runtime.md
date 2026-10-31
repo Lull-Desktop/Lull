@@ -120,6 +120,13 @@ MediaSurface (src/scenes/media-surface.tsx)
 
 `Display Detach` 不等于 `Session Destroy`；但**切到非视频场景等于释放**。这是为了避免离开视频后仍持有解码线程/纹理流/HTML 解码器。
 
+> **场景解析必须与 `monitor_url` 同源**：判断“这块屏还在不在视频场景”要用
+> `WallpaperConfig::effective_scene`——只有 independent 模式消费每屏覆盖，
+> mirror / span 一律用全局场景。2026-10-31 修复的“关一屏、另一屏黑屏”就是
+> 这里用了 `resolved_scene`：mirror 下 DISPLAY1 残留了 `lull.aurora` 覆盖，
+> 关掉 DISPLAY2 后它被判成非视频屏，正在放视频的共享 Session 被整条回收；
+> 另一屏随后由 5 秒 rVFC 看门狗重新 attach（新解码器），表现为不可预测的黑屏。
+
 ### 3.1 HTML 回退的相位对齐
 
 HTML 回退由每个壁纸窗独立解码，因此需要场景层同步：
@@ -280,6 +287,10 @@ WebView2 预发布接口只从固定版 SDK 提取最小头文件，不手写猜
   首帧失败做一次重新 attach + 取流再降级，避免一次竞态就永久回退 HTML；
 - 首帧之后仍用 `requestVideoFrameCallback` 做健康检查：超过 5 秒没有新呈现帧
   就重挂一次，连续两次无帧才降级 HTML；浏览器不支持 rVFC 时不启用该检查；
+- **流离开 `Started` 后不会再自己出帧**：浏览器触发 `Stopped`、渲染侧报错或
+  适配器丢失之后，`PresentTexture` 一律失败，C++ 桥此前把每一帧都返回成
+  “已丢弃”，Rust 当成成功，只能等 5 秒 rVFC 看门狗重挂。现在分原因返回并
+  由 Rust 立刻发 `media-stream-stalled`，见 4.8；
 - 未 `StartRequested` 前释放 TextureStream 也会触发同一断言；页面
   StrictMode/重载产生的旧 detach 以 stream id 校验，不能误删新 Surface；
 - 本轮实测（2026-10-31）：
@@ -311,6 +322,49 @@ WebView2 预发布接口只从固定版 SDK 提取最小头文件，不手写猜
 这样不区分 mirror / independent / 共享 / 独立解码，所有显示器都从同一起点重新开始；
 原生流本身不能由 JS seek，所以原生路径以 Rust 端 seek 为准。
 
+### 4.8 流生命周期与自愈
+
+多屏“共享”的只有解码器与 D3D11 设备，**不是一块跨窗口的渲染目标**：
+
+```text
+一次解码 → Tee → 每屏一条分支 → 每屏自己的 D3D11Renderer
+        → 每屏自己的 WebView2 TextureStream（浏览器持有纹理池）
+```
+
+宿主只往浏览器给的目标纹理里写，`keyed mutex` 负责互斥、`put_Timestamp` 负责
+顺序。它没有“两个窗口内容必须一致才能共享”的约束：independent 模式下两屏本就
+可以播不同相位，各自出帧互不影响。所以“双方播放内容不同步导致无法共享”不是
+黑屏的成因。
+
+真正的黑屏来自流的**终态**——浏览器停止（`Stopped`）、渲染侧
+`ErrorReceived`、适配器丢失之后，TextureStream 不会自己回到 `Started`，之后
+每次提交都不再产生画面。此前 C++ 把这些帧统一返回 `1`，Rust 记一个 `dropped`
+就继续，壁纸页只能靠 5 秒一轮的 rVFC 看门狗发现“很久没有新帧”，恢复时间因此
+不可预测。当前实现：
+
+- `lull_media_stream_stats` 暴露 `state` / `presented` / `dropped_not_started` /
+  `dropped_no_texture` / `created_textures` / 瞬时错误数，Rust 侧用于判活；
+- `submit_nv12` 区分返回码：`0` 呈现、`1` 流未启动、`2` 本轮没有可写目标；
+- Rust 在“已经出过帧、现在连续丢帧且 state 是 stopped / error / adapter-lost”
+  时立刻发 `media-stream-stalled`，壁纸页收到即走同一套重挂流程（新 stream id
+  并重新 `getTextureStream`），连续两次救不回来才降级 HTML；
+- 目标纹理由 `GetAvailableTexture` 复用；只有池未满时才 `CreateTexture`，
+  上限 8 张（4K NV12 约 12.4 MiB/张）。此前池满时每帧新建一张，窗口被遮挡或
+  首帧门期间会把显存堆到不可预测的量级，表现为卡顿、掉帧乃至设备丢失；
+- `ErrorReceived` 按 kind 区分：`BUFFER_NOT_FOUND` / `BUFFER_IN_USE` 是渲染队列
+  的瞬时状态，只计数不杀流；只有真正的流错误才进入 `Error`；
+- 暂停/恢复不会把暂停时长算成“渲染侧不消费”：持续 3 秒没有可用目标纹理才
+  判定渲染侧停摆。
+
+本地真机验证（2026-10-31，双屏 4K）：连续播放 150 秒、约 9000 帧呈现、丢帧 1 次；
+关闭壁纸窗口时浏览器触发 `Stopped`，Rust 在下一帧即记录并上报（前端已卸载，
+不会重挂）。日志形如：
+
+```text
+media: native stream stats stream=... abi=1 state=2 textures=0 created=4 transient=0 ...
+media: native stream stalled stream=... session=media-... label=wallpaper-0 reason=stopped state=2 presented=9022 dropped=1
+```
+
 ## 5. 验收
 
 ### 5.1 已通过
@@ -339,7 +393,9 @@ WebView2 预发布接口只从固定版 SDK 提取最小头文件，不手写猜
 - G1：单屏原生首帧成功（已观察到 `native first frame ... 3840x2160`）；
   `media_stats.cpuReadbackBytes` 字段尚未接线，不能作为验收证据；
 - G2：双屏 mirror 共享同一 Session/解码器，两个 Surface 均 attach 成功；
-  `decoderInstances` 与逐 Surface 丢帧仍待仪表接线后复验；
+  逐 Surface `presented`/`dropped` 已由 `lull_media_stream_stats` 接线到
+  `media_stats`（`dropped` = `dropped_not_started + dropped_no_texture`），
+  150 秒连续播放实测约 9000 帧呈现、1 次丢弃；
 - G3：4K/30 分钟 soak、多 GPU 不匹配屏自动 HTML、无界队列检查仍待执行。
 
 原生路径的前置条件已经从“运行时拒绝”变为“运行时开启

@@ -272,14 +272,26 @@ pub(crate) fn apply_monitor_visibility(
       )?;
     }
   } else if let Some((label, raw, _)) = existing {
+    // 关一屏会销毁一个 WebView2 窗口，而所有壁纸窗共用同一个 UI 线程：
+    // WebView2 的销毁只要卡住主线程，另一屏的 TextureStream 提交就会跟着停。
+    // 分段计时就是为了把这种“关一屏、另一屏黑”定位到具体哪一步。
+    let started = std::time::Instant::now();
     remove_target(&label);
     crate::media::lifecycle::remove_window(&label);
+    let after_detach = started.elapsed();
     unsafe {
       (host.detach)(raw as *mut c_void);
     }
+    let after_host = started.elapsed();
     if let Some(window) = app.get_webview_window(&label) {
       let _ = window.destroy();
     }
+    ffi::wlog(&format!(
+      "apply: {label} 关闭用时 detach={:?} host_detach={:?} destroy={:?}",
+      after_detach,
+      after_host.saturating_sub(after_detach),
+      started.elapsed().saturating_sub(after_host)
+    ));
   }
   Ok(())
 }

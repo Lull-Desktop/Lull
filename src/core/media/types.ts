@@ -143,6 +143,23 @@ export type MediaDegradedEvent = {
   reason: string;
 };
 
+/**
+ * 原生 TextureStream 已经无法继续呈现：浏览器停止、渲染侧错误或适配器丢失。
+ *
+ * 这种流不会自己恢复，之后每一帧都会被丢弃。壁纸页收到后应立刻重挂纹理流，
+ * 不能等 `requestVideoFrameCallback` 的 5 秒看门狗。
+ */
+export type MediaStreamStalledEvent = {
+  sessionId: string;
+  streamId: string;
+  label: string;
+  /** stopped / error / adapter-lost / not-compositing */
+  reason: string;
+  state: number;
+  presented: number;
+  dropped: number;
+};
+
 /** 壁纸窗每 5s 上报的 HTML 播放质量；原生路径由 media_stats 提供。 */
 export type MediaPlaybackQuality = {
   label: string;

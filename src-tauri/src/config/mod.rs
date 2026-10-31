@@ -256,12 +256,28 @@ impl WallpaperConfig {
   }
 
   /// 该屏生效的场景：每屏覆盖 → 全局回退。
+  ///
+  /// 注意：这是**原始解析**，不区分显示模式。mirror / span 下每屏覆盖不参与
+  /// 渲染，判断“这块屏实际在放什么”必须用 [`Self::effective_scene`]。
   pub fn resolved_scene(&self, device: &str) -> String {
     self
       .monitors
       .get(device)
       .and_then(|m| m.scene.clone())
       .unwrap_or_else(|| self.display.scene.clone())
+  }
+
+  /// 该屏**实际渲染**的场景，与 `wallpaper::protocol::monitor_url` 同一套解析：
+  /// 只有 independent 模式消费每屏覆盖，mirror / span 一律用全局场景。
+  ///
+  /// 媒体生命周期靠它判断“这块屏还在不在视频场景”。用错解析会让一块正在放
+  /// 视频的屏被判成非视频屏，从而在关闭别的屏时被连带回收、黑屏。
+  pub fn effective_scene(&self, device: &str) -> String {
+    if self.display.mode == DisplayMode::Independent {
+      self.resolved_scene(device)
+    } else {
+      self.display.scene.clone()
+    }
   }
 }
 
@@ -489,6 +505,27 @@ mod tests {
     assert_eq!(d.mode, DisplayMode::Independent);
     assert!(!d.sync);
     assert_eq!(d.scene, "lull.aurora");
+  }
+
+  #[test]
+  fn effective_scene_ignores_overrides_outside_independent_mode() {
+    // 回归：DISPLAY1 残留 lull.aurora 覆盖、全局场景是 lull.video、模式是 mirror。
+    // 关闭 DISPLAY2 时 video_devices() 曾用 resolved_scene 把 DISPLAY1 判成非视频屏，
+    // 连带回收仍在放视频的会话，表现为“关一屏、另一屏黑屏”。
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Mirror;
+    c.display.scene = "lull.video".into();
+    c.set_monitor_scene(D1, Some("lull.aurora".into()));
+    assert_eq!(c.resolved_scene(D1), "lull.aurora");
+    assert_eq!(c.effective_scene(D1), "lull.video");
+    assert_eq!(c.effective_scene(D2), "lull.video");
+
+    c.display.mode = DisplayMode::Span;
+    assert_eq!(c.effective_scene(D1), "lull.video");
+
+    c.display.mode = DisplayMode::Independent;
+    assert_eq!(c.effective_scene(D1), "lull.aurora");
+    assert_eq!(c.effective_scene(D2), "lull.video");
   }
 
   #[test]

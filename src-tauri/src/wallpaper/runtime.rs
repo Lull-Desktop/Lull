@@ -54,7 +54,10 @@ pub(crate) fn video_devices() -> BTreeSet<String> {
   };
   snapshot_targets()
     .into_iter()
-    .filter(|(_, _, device)| state.data.resolved_scene(device) == crate::media::VIDEO_SCENE)
+    .filter(|(_, _, device)| {
+      // 必须与 monitor_url 用同一套解析：mirror/span 下每屏覆盖不生效。
+      state.data.effective_scene(device) == crate::media::VIDEO_SCENE
+    })
     .map(|(_, _, device)| device)
     .collect()
 }
@@ -270,7 +273,8 @@ pub fn wallpaper_monitors() -> Result<Vec<MonitorView>, String> {
         let monitor = result.ok()?;
         Some(MonitorView {
           enabled: config.data.monitor_enabled(&monitor.device),
-          scene: config.data.resolved_scene(&monitor.device),
+          // 生效场景：mirror/span 用全局，independent 才看每屏覆盖。
+          scene: config.data.effective_scene(&monitor.device),
           device: monitor.device,
           index,
           x: monitor.x,

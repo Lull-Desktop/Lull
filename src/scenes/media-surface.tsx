@@ -25,6 +25,7 @@ import {
   onMediaDegraded,
   onMediaMasterVisible,
   onMediaResync,
+  onMediaStreamStalled,
 } from "@/core/media/media-events";
 import { reportMediaQuality } from "@/core/media/media-quality";
 import {
@@ -115,6 +116,8 @@ export function MediaSurface({
   const nativeFrameCallbackRef = useRef<number | null>(null);
   const nativeFrameWatchSupportedRef = useRef(false);
   const nativeRecoveriesRef = useRef(0);
+  // Rust 的“流已死”事件与本地重挂之间的去抖，避免同一帧收到两次事件。
+  const lastStallAtRef = useRef(0);
   const masterVisibleRef = useRef(true);
   const [state, setState] = useState<SurfaceState>(INITIAL_STATE);
   const [reloadKey, setReloadKey] = useState(0);
@@ -466,6 +469,47 @@ export function MediaSurface({
     }, 2_000);
     return () => window.clearInterval(timer);
   }, [state.backend, state.view?.assetUrl, state.config, switchToHtmlFallback]);
+
+  // 原生流本身已经不可能再出帧（浏览器 Stopped、渲染侧 Error、适配器丢失，
+  // 或渲染侧长时间不归还目标纹理）。Rust 在丢帧路径上直接发事件，这里立刻重挂，
+  // 不再等上面 5 秒一轮的 rVFC 看门狗——那 5 秒正是“黑屏慢慢恢复”的来源。
+  // 连续两次都救不回来才降级 HTML，与看门狗共用同一个恢复计数。
+  useEffect(() => {
+    return onMediaStreamStalled((event) => {
+      if (disposedRef.current) return;
+      if (!streamIdRef.current || event.streamId !== streamIdRef.current)
+        return;
+      const video = videoRef.current;
+      // 已经切 HTML / 正在卸载时 srcObject 已清空：这条通知是旧流的尾声，
+      // 再重挂会把刚降级好的页面又拉回原生。
+      if (!video || video.paused || !video.srcObject) return;
+      const now = performance.now();
+      if (now - lastStallAtRef.current < 2_000) return;
+      lastStallAtRef.current = now;
+      const sessionId = sessionRef.current;
+      const config = configRef.current;
+      const assetUrl = state.view?.assetUrl;
+      if (!sessionId || !config || !assetUrl) return;
+      nativeFrameAtRef.current = now;
+      if (nativeRecoveriesRef.current >= 2) {
+        void degradeMediaSession(
+          sessionId,
+          `原生纹理流已停止（${event.reason}）`,
+        ).then(() => {
+          const current = configRef.current;
+          if (disposedRef.current || !current) return;
+          switchToHtmlFallback(
+            assetUrl,
+            current,
+            `原生纹理流已停止（${event.reason}），已回退 HTML`,
+          );
+        });
+        return;
+      }
+      nativeRecoveriesRef.current += 1;
+      setReloadKey((key) => key + 1);
+    });
+  }, [state.view?.assetUrl, switchToHtmlFallback]);
 
   // WebView 重载/场景切走时 React cleanup 不一定先跑完：pagehide 里同步释放
   // 轨道和 <video> 的 src，避免旧页面在卸载阶段继续解码。

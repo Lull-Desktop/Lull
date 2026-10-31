@@ -133,8 +133,16 @@ fn load() -> Result<NativeHost, String> {
 }
 
 /// 壁纸子系统的日志：release 无控制台，同时落盘到 `%TEMP%\lull\app.log`。
+/// 行首带进程内相对时间，排查“黑屏多久才恢复”这类时序问题时不用再猜。
 pub(crate) fn wlog(msg: &str) {
-  println!("[wallpaper] {msg}");
+  static LOG_EPOCH: OnceLock<std::time::Instant> = OnceLock::new();
+  let elapsed = LOG_EPOCH.get_or_init(std::time::Instant::now).elapsed();
+  let line = format!(
+    "[+{:>5}.{:03}s] [wallpaper] {msg}",
+    elapsed.as_secs(),
+    elapsed.subsec_millis()
+  );
+  println!("{line}");
   let Some(dir) = std::env::var_os("TEMP") else {
     return;
   };
@@ -148,7 +156,7 @@ pub(crate) fn wlog(msg: &str) {
     .open(&path)
   {
     use std::io::Write;
-    let _ = writeln!(file, "[wallpaper] {msg}");
+    let _ = writeln!(file, "{line}");
   }
 }
 

@@ -5,12 +5,16 @@
 use tauri::{AppHandle, Emitter};
 
 use super::diagnostics::{MediaChangedEvent, MediaDegradedEvent};
+#[cfg(feature = "native-media")]
+use super::diagnostics::MediaStreamStalledEvent;
 
 pub const MEDIA_CHANGED: &str = "media-changed";
 pub const MEDIA_CONFIG_CHANGED: &str = "media-config-changed";
 pub const MEDIA_DEGRADED: &str = "media-degraded";
 pub const MEDIA_MASTER_VISIBLE: &str = "media-master-visible";
 pub const MEDIA_RESYNC: &str = "media-resync";
+#[cfg(feature = "native-media")]
+pub const MEDIA_STREAM_STALLED: &str = "media-stream-stalled";
 
 pub fn emit_resync(app: &AppHandle, position_ms: u64) {
   let _ = app.emit(MEDIA_RESYNC, position_ms);
@@ -37,4 +41,9 @@ pub fn emit_degraded(app: &AppHandle, session_id: &str, asset_url: &str, reason:
       reason: reason.to_string(),
     },
   );
+}
+
+#[cfg(feature = "native-media")]
+pub fn emit_stream_stalled(app: &AppHandle, event: &MediaStreamStalledEvent) {
+  let _ = app.emit(MEDIA_STREAM_STALLED, event);
 }

@@ -1,7 +1,7 @@
 /** 媒体事件订阅：浏览器预览/测试下为空操作。 */
 import { listen } from "@tauri-apps/api/event";
 import { isMediaDesktop } from "./media-api";
-import type { MediaDegradedEvent } from "./types";
+import type { MediaDegradedEvent, MediaStreamStalledEvent } from "./types";
 
 export function onMediaChanged(handler: () => void): () => void {
   if (!isMediaDesktop()) return () => {};
@@ -44,6 +44,28 @@ export function onMediaDegraded(
   let stop: (() => void) | null = null;
   let disposed = false;
   void listen<MediaDegradedEvent>("media-degraded", (event) => {
+    if (event.payload) handler(event.payload);
+  })
+    .then((unlisten) => {
+      if (disposed) unlisten();
+      else stop = unlisten;
+    })
+    .catch(() => {});
+  return () => {
+    disposed = true;
+    stop?.();
+    stop = null;
+  };
+}
+
+/** 原生流已死：壁纸页应立即重挂纹理流（不必等 rVFC 看门狗）。 */
+export function onMediaStreamStalled(
+  handler: (event: MediaStreamStalledEvent) => void,
+): () => void {
+  if (!isMediaDesktop()) return () => {};
+  let stop: (() => void) | null = null;
+  let disposed = false;
+  void listen<MediaStreamStalledEvent>("media-stream-stalled", (event) => {
     if (event.payload) handler(event.payload);
   })
     .then((unlisten) => {

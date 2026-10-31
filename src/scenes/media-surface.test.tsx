@@ -27,6 +27,7 @@ vi.mock("@/core/media/media-events", () => ({
   onMediaDegraded: () => () => {},
   onMediaMasterVisible: () => () => {},
   onMediaResync: () => () => {},
+  onMediaStreamStalled: () => () => {},
 }));
 
 const asset = {

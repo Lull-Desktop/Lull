@@ -67,11 +67,8 @@ pub(crate) fn monitor_url(
     .and_then(|result| result.as_ref().ok())
     .ok_or_else(|| format!("显示器下标 {index} 无效"))?;
   let canvas = virtual_bounds_from(infos).ok_or_else(|| "没有可用显示器".to_string())?;
-  let scene = if config.display.mode == DisplayMode::Independent {
-    config.resolved_scene(&monitor.device)
-  } else {
-    config.display.scene.clone()
-  };
+  // 唯一事实源：媒体生命周期判断“这屏还在不在视频”也用 effective_scene。
+  let scene = config.effective_scene(&monitor.device);
   let params = config.display.params_for_scene(&scene);
   Ok(format!(
     "/{}",

@@ -283,6 +283,7 @@ impl MediaEngine {
           context,
           Arc::clone(&stream),
           label,
+          session_id,
         )?;
         session.decode_path = Some(native.decode_path().to_string());
         session.native = Some(Arc::new(native));
@@ -404,6 +405,19 @@ impl MediaEngine {
       })
       .map(|surface| surface.session_id.clone())
       .collect();
+    // 关一屏后另一个窗口黑屏：先看这里到底把哪些 surface/device 算成了“不在视频屏”。
+    crate::wallpaper::wlog(&format!(
+      "media: retain devices={video_devices:?} surfaces={:?}",
+      state
+        .surfaces
+        .values()
+        .map(|surface| (
+          surface.label.clone(),
+          surface.device.clone(),
+          surface.session_id.clone()
+        ))
+        .collect::<Vec<_>>()
+    ));
     let stale_sessions: Vec<String> = state
       .sessions
       .keys()
@@ -565,18 +579,36 @@ impl MediaEngine {
         .surfaces
         .values()
         .filter(|surface| surface.session_id == session.session_id)
-        .map(|surface| MediaSurfaceView {
-          label: surface.label.clone(),
-          device: surface.device.clone(),
-          backend: surface.backend,
-          started: surface.started,
-          presented: surface.presented,
-          dropped: surface.dropped,
-          last_media_pts_us: surface.last_media_pts_us,
-          last_presented_at_ms: surface.last_presented_at_ms.or_else(|| {
-            Some(u64::try_from(surface.attached_at.elapsed().as_millis()).unwrap_or(u64::MAX))
-          }),
-          adapter_luid: surface.adapter_luid,
+        .map(|surface| {
+          // 原生 surface 的计数来自 C++ 桥；引擎自身不逐帧提交，不能凭空统计。
+          #[cfg(feature = "native-media")]
+          let (presented, dropped) = session
+            .native
+            .as_ref()
+            .and_then(|native| native.surface_stats(&surface.label))
+            .map_or((surface.presented, surface.dropped), |stats| {
+              (
+                stats.presented,
+                stats
+                  .dropped_not_started
+                  .saturating_add(stats.dropped_no_texture),
+              )
+            });
+          #[cfg(not(feature = "native-media"))]
+          let (presented, dropped) = (surface.presented, surface.dropped);
+          MediaSurfaceView {
+            label: surface.label.clone(),
+            device: surface.device.clone(),
+            backend: surface.backend,
+            started: surface.started,
+            presented,
+            dropped,
+            last_media_pts_us: surface.last_media_pts_us,
+            last_presented_at_ms: surface.last_presented_at_ms.or_else(|| {
+              Some(u64::try_from(surface.attached_at.elapsed().as_millis()).unwrap_or(u64::MAX))
+            }),
+            adapter_luid: surface.adapter_luid,
+          }
         })
         .collect();
       views.push(MediaSessionView {

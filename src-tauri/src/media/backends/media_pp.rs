@@ -29,7 +29,15 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIAdapter, IDXGIFactory1};
 
 use super::super::config::MediaConfig;
-use super::super::native_bridge::NativeStream;
+use super::super::native_bridge::{
+  NativeStream, STREAM_STATE_ADAPTER_LOST, STREAM_STATE_ERROR, STREAM_STATE_STOPPED,
+};
+
+/// 同一个流连续这么久没有可用目标纹理，说明渲染侧根本没有在消费帧
+/// （窗口隐藏/被遮挡、合成器停摆），继续复制只是往显存里堆 4K 纹理。
+const NO_TEXTURE_STALL_MS: u64 = 3_000;
+/// 同一个 surface 的“流已死”报告间隔，避免解码线程每帧都发事件。
+const STALL_REPORT_COOLDOWN_MS: u64 = 5_000;
 
 /// One D3D11 device per WebView2 render adapter LUID. media-pp says one
 /// `D3d11Gpu` per pipeline (or per process); cloning shares the device/lock.
@@ -116,21 +124,42 @@ impl NativeContext {
 struct WebViewStreamRenderer {
   gpu: D3d11Gpu,
   stream: Arc<NativeStream>,
+  session_id: String,
+  label: String,
   start: Instant,
   last_timestamp: AtomicU64,
   presented: AtomicU64,
   dropped: AtomicU64,
+  /// 上一次真正呈现的帧（相对 `start` 的毫秒）；0 表示还没有首帧。
+  last_present_ms: AtomicU64,
+  /// 上一次提交（呈现或丢弃）的时间点，用来识别暂停造成的空档。
+  last_submit_ms: AtomicU64,
+  /// 开始拿不到目标纹理的时间点；有帧呈现时清零。
+  no_texture_since_ms: AtomicU64,
+  /// 上一次上报“流已死”的时间点。
+  last_stall_report_ms: AtomicU64,
 }
 
 impl WebViewStreamRenderer {
-  fn new(gpu: D3d11Gpu, stream: Arc<NativeStream>) -> Self {
+  fn new(
+    gpu: D3d11Gpu,
+    stream: Arc<NativeStream>,
+    session_id: String,
+    label: String,
+  ) -> Self {
     Self {
       gpu,
       stream,
+      session_id,
+      label,
       start: Instant::now(),
       last_timestamp: AtomicU64::new(0),
       presented: AtomicU64::new(0),
       dropped: AtomicU64::new(0),
+      last_present_ms: AtomicU64::new(0),
+      last_submit_ms: AtomicU64::new(0),
+      no_texture_since_ms: AtomicU64::new(0),
+      last_stall_report_ms: AtomicU64::new(0),
     }
   }
 
@@ -140,6 +169,85 @@ impl WebViewStreamRenderer {
     let next = elapsed.max(last.saturating_add(1));
     self.last_timestamp.store(next, Ordering::Relaxed);
     next
+  }
+
+  fn now_ms(&self) -> u64 {
+    u64::try_from(self.start.elapsed().as_millis()).unwrap_or(u64::MAX)
+  }
+
+  /// 流离开 `Started` 后不会再自己回来：之后每一帧都是“dropped”，必须让页面
+  /// 重新取流。这里只报告一次，重建流程失败时由前端计数决定是否降级。
+  fn check_dead_stream(&self) {
+    if self.presented.load(Ordering::Relaxed) == 0 {
+      return;
+    }
+    let Some(state) = self.stream.state() else {
+      return;
+    };
+    let reason = match state {
+      STREAM_STATE_STOPPED => "stopped",
+      STREAM_STATE_ERROR => "error",
+      STREAM_STATE_ADAPTER_LOST => "adapter-lost",
+      _ => return,
+    };
+    self.report_stall(reason, state);
+  }
+
+  /// 有帧在提交、但渲染侧持续不归还目标纹理：画面不会前进，且继续
+  /// `CreateTexture` 会把 4K NV12 纹理堆到显存耗尽。
+  ///
+  /// `previous_submit_ms` 用来识别暂停：管线停了一段时间后第一帧再拿不到纹理，
+  /// 不能把暂停的时长算进“渲染侧不消费”的窗口。
+  fn check_starved(&self, previous_submit_ms: u64) {
+    if self.last_present_ms.load(Ordering::Relaxed) == 0 {
+      return;
+    }
+    let now = self.now_ms();
+    let since = self.no_texture_since_ms.load(Ordering::Relaxed);
+    if since == 0 || now.saturating_sub(previous_submit_ms) > 1_000 {
+      self.no_texture_since_ms.store(now, Ordering::Relaxed);
+      return;
+    }
+    if now.saturating_sub(since) < NO_TEXTURE_STALL_MS {
+      return;
+    }
+    // 重新计时：即使事件丢了，下一轮还会再报告。
+    self.no_texture_since_ms.store(now, Ordering::Relaxed);
+    let state = self.stream.state().unwrap_or(-1);
+    self.report_stall("not-compositing", state);
+  }
+
+  fn report_stall(&self, reason: &str, state: i32) {
+    let now = self.now_ms();
+    let last = self.last_stall_report_ms.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < STALL_REPORT_COOLDOWN_MS {
+      return;
+    }
+    self.last_stall_report_ms.store(now, Ordering::Relaxed);
+    if let Some(stats) = self.stream.stats() {
+      crate::wallpaper::wlog(&format!(
+        "media: native stream stats stream={} abi={} state={} textures={} created={} \
+         transient={} err_kind={} last_present_tick={} since_last_present={}ms",
+        self.stream.id(),
+        stats.abi_version,
+        stats.state,
+        stats.texture_count,
+        stats.created_textures,
+        stats.transient_errors,
+        stats.last_error_kind,
+        stats.last_present_tick_ms,
+        stats.since_last_present_ms
+      ));
+    }
+    crate::media::report_stream_stalled(
+      &self.session_id,
+      &self.label,
+      self.stream.id(),
+      reason,
+      state,
+      self.presented.load(Ordering::Relaxed),
+      self.dropped.load(Ordering::Relaxed),
+    );
   }
 }
 
@@ -167,6 +275,8 @@ impl D3d11FrameRenderer for WebViewStreamRenderer {
     height: u32,
     _color: media_pp::color::ColorDescription,
   ) -> Result<(), media_pp::elements::SubmitError> {
+    let now = self.now_ms();
+    let previous_submit = self.last_submit_ms.swap(now, Ordering::Relaxed);
     let timestamp = self.next_timestamp();
     let rc = self
       .stream
@@ -174,6 +284,8 @@ impl D3d11FrameRenderer for WebViewStreamRenderer {
     match rc {
       0 => {
         let presented = self.presented.fetch_add(1, Ordering::Relaxed);
+        let previous = self.last_present_ms.swap(now, Ordering::Relaxed);
+        self.no_texture_since_ms.store(0, Ordering::Relaxed);
         if presented == 0 {
           crate::wallpaper::wlog(&format!(
             "media: native first frame stream={} {}x{} ts={timestamp}",
@@ -181,11 +293,26 @@ impl D3d11FrameRenderer for WebViewStreamRenderer {
             width,
             height
           ));
+        } else if previous > 0 && now.saturating_sub(previous) > 1_000 {
+          crate::wallpaper::wlog(&format!(
+            "media: native stream resumed stream={} gap={}ms",
+            self.stream.id(),
+            now.saturating_sub(previous)
+          ));
         }
         Ok(())
       }
       1 => {
+        // 流还停在 Created（JS 尚未取流）或已经 Stopped/Error：两种都是
+        // “这一帧不会被呈现”，但只有后者不可自愈，需要通知页面重建。
         self.dropped.fetch_add(1, Ordering::Relaxed);
+        self.check_dead_stream();
+        Ok(())
+      }
+      2 => {
+        // 没有可写目标纹理 / keyed mutex 忙：渲染侧没有在消费。
+        self.dropped.fetch_add(1, Ordering::Relaxed);
+        self.check_starved(previous_submit);
         Ok(())
       }
       _ => {
@@ -205,9 +332,12 @@ pub(crate) struct NativeSession {
   pipeline: Arc<Pipeline>,
   tee: TeeHandle,
   branches: Mutex<HashMap<String, media_pp::graph::BranchId>>,
+  /// label → 该窗口的 TextureStream；只用于读诊断计数。
+  streams: Mutex<HashMap<String, Arc<NativeStream>>>,
   decode_path: String,
   demux: FileDemuxerHandle,
   luid: u64,
+  session_id: String,
 }
 
 impl NativeSession {
@@ -217,6 +347,7 @@ impl NativeSession {
     context: Arc<NativeContext>,
     first_stream: Arc<NativeStream>,
     first_label: &str,
+    session_id: &str,
   ) -> Result<Self, String> {
     let (source, _streams) =
       FileDemuxer::open("lull-demux", path).map_err(|error| format!("打开视频失败: {error}"))?;
@@ -247,6 +378,8 @@ impl NativeSession {
     let gpu = context.gpu();
     let label = first_label.to_string();
     let stream = Arc::clone(&first_stream);
+    let session_id = session_id.to_string();
+    let pipeline_session = session_id.clone();
 
     let (pipeline, (tee, first_branch, decode_path)) =
       Pipeline::new("lull-media", source, move |source, ctx| {
@@ -259,8 +392,15 @@ impl NativeSession {
           .to_branch(tee_branch)?;
         ctx.attach(source, video_index, branch)?;
 
-        let renderer =
-          D3d11Renderer::new("display", Box::new(WebViewStreamRenderer::new(gpu, stream)));
+        let renderer = D3d11Renderer::new(
+          "display",
+          Box::new(WebViewStreamRenderer::new(
+            gpu,
+            stream,
+            pipeline_session,
+            label.clone(),
+          )),
+        );
         let branch = tee
           .branch()?
           .queue_with_policy(format!("display-{label}"), 2, OverflowPolicy::DropNewest)
@@ -276,13 +416,17 @@ impl NativeSession {
 
     let mut branches = HashMap::new();
     branches.insert(first_label.to_string(), first_branch);
+    let mut streams = HashMap::new();
+    streams.insert(first_label.to_string(), Arc::clone(&first_stream));
     Ok(Self {
       pipeline,
       tee,
       branches: Mutex::new(branches),
+      streams: Mutex::new(streams),
       decode_path,
       demux,
       luid: context.luid(),
+      session_id,
     })
   }
 
@@ -296,7 +440,17 @@ impl NativeSession {
     stream: Arc<NativeStream>,
     gpu: D3d11Gpu,
   ) -> Result<(), String> {
-    let renderer = D3d11Renderer::new("display", Box::new(WebViewStreamRenderer::new(gpu, stream)));
+    // 同一窗口重挂：旧流最后一次出帧距今多久，决定这次重挂是不是必要的。
+    self.log_surface_stats(label, "re-attach");
+    let renderer = D3d11Renderer::new(
+      "display",
+      Box::new(WebViewStreamRenderer::new(
+        gpu,
+        Arc::clone(&stream),
+        self.session_id.clone(),
+        label.to_string(),
+      )),
+    );
     let branch = self
       .tee
       .branch()
@@ -321,23 +475,66 @@ impl NativeSession {
       }
       branches.insert(label.to_string(), branch_id);
     }
+    if let Ok(mut streams) = self.streams.lock() {
+      streams.insert(label.to_string(), stream);
+    }
     self.pipeline.resume();
     Ok(())
   }
 
   pub(crate) fn remove_surface(&self, label: &str) {
+    // 关一屏前先记下这一路“距上次出帧多久”：>1s 说明画面本来就停了（看门狗重挂
+    // 合理），接近 0 说明帧一直在走、黑屏是重建本身造成的。
+    self.log_surface_stats(label, "detach");
+    if let Ok(mut streams) = self.streams.lock() {
+      streams.remove(label);
+    }
     let Ok(mut branches) = self.branches.lock() else {
       return;
     };
     let Some(branch_id) = branches.remove(label) else {
       return;
     };
+    let started = Instant::now();
     if let Err(error) = self.tee.detach(branch_id) {
       eprintln!("[media] detach {label} failed: {error}");
     }
-    if branches.is_empty() {
+    let detach = started.elapsed();
+    let left = branches.len();
+    if left == 0 {
       self.pipeline.pause();
     }
+    if detach.as_millis() > 50 {
+      crate::wallpaper::wlog(&format!(
+        "media: detach branch {label} 用时 {detach:?}（剩余分支 {left}）"
+      ));
+    }
+  }
+
+  /// 该窗口 TextureStream 的计数器；没有原生 surface 时为 `None`。
+  #[must_use]
+  pub(crate) fn surface_stats(
+    &self,
+    label: &str,
+  ) -> Option<super::super::native_bridge::StreamStats> {
+    let stream = self.streams.lock().ok()?.get(label).cloned()?;
+    stream.stats()
+  }
+
+  /// 把某个 surface 的计数器写进日志；没有原生流时静默。
+  fn log_surface_stats(&self, label: &str, why: &str) {
+    let Some(stats) = self.surface_stats(label) else {
+      return;
+    };
+    crate::wallpaper::wlog(&format!(
+      "media: {why} {label} state={} presented={} dropped={} since_last_present={}ms",
+      stats.state,
+      stats.presented,
+      stats
+        .dropped_not_started
+        .saturating_add(stats.dropped_no_texture),
+      stats.since_last_present_ms
+    ));
   }
 
   pub(crate) fn pause(&self) {

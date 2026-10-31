@@ -17,6 +17,8 @@ type ProbeFn = unsafe extern "C" fn(*mut c_void, *mut ProbeResult) -> i32;
 type CreateFn =
   unsafe extern "C" fn(*mut c_void, *mut c_void, *const u16, *const u16, *mut i32) -> u64;
 type TakeErrorFn = unsafe extern "C" fn(u64, *mut i32) -> i32;
+type StateFn = unsafe extern "C" fn(u64) -> i32;
+type StatsFn = unsafe extern "C" fn(u64, *mut StreamStats) -> i32;
 type SubmitNv12Fn = unsafe extern "C" fn(u64, *mut c_void, u32, u32, u32, u64) -> i32;
 type DestroyFn = unsafe extern "C" fn(u64);
 
@@ -28,10 +30,34 @@ struct ProbeResult {
   adapter_luid: u64,
 }
 
+/// Mirrors `lull_media_stream_stats` in `media_bridge.h`.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct StreamStats {
+  pub abi_version: u32,
+  pub state: i32,
+  pub texture_count: u32,
+  pub last_error_kind: u32,
+  pub presented: u64,
+  pub dropped_not_started: u64,
+  pub dropped_no_texture: u64,
+  pub created_textures: u64,
+  pub transient_errors: u64,
+  pub last_present_tick_ms: u64,
+  pub since_last_present_ms: u64,
+}
+
+/// TextureStream states, shared with the C++ bridge.
+pub(crate) const STREAM_STATE_STOPPED: i32 = 2;
+pub(crate) const STREAM_STATE_ERROR: i32 = 3;
+pub(crate) const STREAM_STATE_ADAPTER_LOST: i32 = 4;
+
 struct MediaApi {
   probe: ProbeFn,
   create: CreateFn,
   take_error: TakeErrorFn,
+  state: Option<StateFn>,
+  stats: Option<StatsFn>,
   submit_nv12: SubmitNv12Fn,
   destroy: DestroyFn,
   _lib: libloading::Library,
@@ -74,11 +100,23 @@ fn load() -> Result<MediaApi, String> {
       let take_error = lib.get::<TakeErrorFn>(b"lull_media_stream_take_error\0");
       let submit_nv12 = lib.get::<SubmitNv12Fn>(b"lull_media_stream_submit_nv12\0");
       let destroy = lib.get::<DestroyFn>(b"lull_media_stream_destroy\0");
+      // `state`/`stats` are diagnostics: an older DLL without them must still
+      // serve frames, so they stay optional instead of failing the whole load.
+      let state = lib
+        .get::<StateFn>(b"lull_media_stream_state\0")
+        .ok()
+        .map(|function| *function);
+      let stats = lib
+        .get::<StatsFn>(b"lull_media_stream_stats\0")
+        .ok()
+        .map(|function| *function);
       match (probe, create, take_error, submit_nv12, destroy) {
         (Ok(probe), Ok(create), Ok(take_error), Ok(submit_nv12), Ok(destroy)) => Some(MediaApi {
           probe: *probe,
           create: *create,
           take_error: *take_error,
+          state,
+          stats,
           submit_nv12: *submit_nv12,
           destroy: *destroy,
           _lib: lib,
@@ -209,6 +247,22 @@ impl NativeStream {
     let mut code = 0i32;
     let rc = unsafe { (api.take_error)(self.handle, &mut code) };
     (rc == 0 && code < 0).then_some(code)
+  }
+
+  /// 0 created, 1 started, 2 stopped, 3 error, 4 adapter lost.
+  #[must_use]
+  pub(crate) fn state(&self) -> Option<i32> {
+    let api = api().ok()?;
+    api.state.map(|function| unsafe { function(self.handle) })
+  }
+
+  #[must_use]
+  pub(crate) fn stats(&self) -> Option<StreamStats> {
+    let api = api().ok()?;
+    let function = api.stats?;
+    let mut out = StreamStats::default();
+    let rc = unsafe { function(self.handle, &mut out) };
+    (rc == 0).then_some(out)
   }
 }
 

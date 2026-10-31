@@ -21,6 +21,26 @@ struct lull_media_probe_result {
 	uint64_t adapter_luid;
 };
 
+// Per-stream counters. The Rust side polls `state` while frames are being
+// dropped: a stream that has left `Started` never comes back on its own, and
+// the only recovery is a new `getTextureStream` from the page. Without these
+// counters that condition is indistinguishable from a healthy pipeline.
+struct lull_media_stream_stats {
+	uint32_t abi_version;
+	int32_t state; // 0 created, 1 started, 2 stopped, 3 error, 4 adapter lost
+	uint32_t texture_count;
+	uint32_t last_error_kind;
+	uint64_t presented;
+	uint64_t dropped_not_started;
+	uint64_t dropped_no_texture;
+	uint64_t created_textures;
+	uint64_t transient_errors;
+	uint64_t last_present_tick_ms;
+	// 距离上一次真正呈现已经过去多久；0 表示从未呈现。用来判断一次
+	// 重建是“画面早就停了”还是“帧一直在走、只是被上层误判”。
+	uint64_t since_last_present_ms;
+};
+
 // Called with Tauri's ICoreWebView2Environment as `environment` (IUnknown*).
 // Returns S_OK when Environment12 is available; flags describe what worked.
 __declspec(dllexport) int lull_media_probe(void *environment, struct lull_media_probe_result *out);
@@ -37,6 +57,11 @@ __declspec(dllexport) lull_media_stream_t lull_media_stream_create(
 
 // 0 created, 1 started, 2 stopped, 3 error, 4 adapter lost, -1 invalid handle.
 __declspec(dllexport) int lull_media_stream_state(lull_media_stream_t stream);
+
+// Copies the per-stream counters. Returns 0 on success, -1 for an invalid
+// handle or a null out pointer. Cheap enough to poll from the decode thread.
+__declspec(dllexport) int lull_media_stream_stats(
+		lull_media_stream_t stream, struct lull_media_stream_stats *out);
 
 // Copies the last error HRESULT; returns 0 on success, -1 for invalid handle.
 __declspec(dllexport) int lull_media_stream_take_error(lull_media_stream_t stream, int *code);
