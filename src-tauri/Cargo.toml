@@ -27,13 +27,13 @@ tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 原生桌面宿主（lull_native.dll）通过 libloading 进程内加载。
-libloading = "0.8"
-zip = { version = "8", default-features = false, features = ["deflate"] }
-sha2 = "0.10"
+libloading = "0.9"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+sha2 = "0.11"
 # 社区发布者签名：Ed25519 + 标准 base64。只做验签，不生成密钥。
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "fast"] }
-base64 = "0.22"
-rfd = { version = "0.16", default-features = false }
+base64 = "0.23"
+rfd = { version = "0.17", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # 无边框窗口用一次 SetWindowPos 同时改位置和尺寸，避免两帧之间闪烁。
