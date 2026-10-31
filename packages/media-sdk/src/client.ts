@@ -53,10 +53,13 @@ export interface LullMediaClient {
     addSource(): Promise<SourceView | null>;
     removeSource(sourceId: string): Promise<boolean>;
     startScan(sourceId: string): Promise<ScanJobView>;
+    cancelScan(sourceId: string): Promise<boolean>;
     listTracks(query?: TrackQuery): Promise<Page<TrackSummary>>;
     getTrack(trackId: string): Promise<TrackDetail>;
+    getCoverUrl(trackId: string): Promise<string | null>;
     listArtists(): Promise<ArtistSummary[]>;
     listAlbums(): Promise<AlbumSummary[]>;
+    listGenres(): Promise<string[]>;
   };
   player: {
     getState(): Promise<PlayerState>;
@@ -207,12 +210,29 @@ export function createMediaClient(
     },
     startScan: (sourceId: string) =>
       call<ScanJobView>("library", "startScan", { sourceId }),
+    cancelScan: async (sourceId: string) => {
+      const result = await call<{ cancelled: boolean }>(
+        "library",
+        "cancelScan",
+        { sourceId },
+      );
+      return result.cancelled;
+    },
     listTracks: (query: TrackQuery = {}) =>
       call<Page<TrackSummary>>("library", "listTracks", query),
     getTrack: (trackId: string) =>
       call<TrackDetail>("library", "getTrack", { trackId }),
+    getCoverUrl: async (trackId: string) => {
+      const result = await call<{ url: string | null }>(
+        "library",
+        "getCoverUrl",
+        { trackId },
+      );
+      return result.url;
+    },
     listArtists: () => call<ArtistSummary[]>("library", "listArtists"),
     listAlbums: () => call<AlbumSummary[]>("library", "listAlbums"),
+    listGenres: () => call<string[]>("library", "listGenres"),
   };
 
   const player = {

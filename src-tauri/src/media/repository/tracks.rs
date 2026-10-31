@@ -13,6 +13,7 @@ pub struct TrackRow {
   pub title: String,
   pub duration_ms: Option<i64>,
   pub year: Option<i64>,
+  pub genre: Option<String>,
   pub kind: String,
   #[allow(dead_code)]
   pub status: String,
@@ -43,6 +44,15 @@ pub struct TrackMetadataRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
+pub struct LyricsRow {
+  pub format: String,
+  pub source: String,
+  pub content: String,
+  pub offset_ms: i64,
+  pub language: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
 pub struct ArtistRow {
   pub id: String,
   pub name: String,
@@ -63,7 +73,7 @@ pub struct AlbumRow {
 }
 
 const TRACK_SELECT: &str = "\
-SELECT t.id, t.title, t.duration_ms, t.year, t.kind, t.status, \
+SELECT t.id, t.title, t.duration_ms, t.year, t.genre, t.kind, t.status, \
   (SELECT group_concat(a.name, char(31)) \
      FROM music_track_artists ta JOIN music_artists a ON a.id = ta.artist_id \
     WHERE ta.track_id = t.id AND ta.role IN ('primary', 'featured')) AS artist_names, \
@@ -147,6 +157,70 @@ fn push_filters(builder: &mut QueryBuilder<'_, Sqlite>, query: &TrackQuery) {
     builder.push(")");
   }
 
+  if let Some(artist_id) = query
+    .artist_id
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  {
+    builder
+      .push(
+        " AND EXISTS (SELECT 1 FROM music_track_artists ta \
+             WHERE ta.track_id = t.id AND ta.artist_id = ",
+      )
+      .push_bind(artist_id.to_string())
+      .push(")");
+  }
+
+  if let Some(album_id) = query
+    .album_id
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  {
+    builder
+      .push(
+        " AND EXISTS (SELECT 1 FROM music_track_albums taa \
+             WHERE taa.track_id = t.id AND taa.album_id = ",
+      )
+      .push_bind(album_id.to_string())
+      .push(")");
+  }
+
+  if let Some(genre) = query
+    .genre
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  {
+    builder
+      .push(" AND t.genre = ")
+      .push_bind(genre.to_string())
+      .push(" COLLATE NOCASE");
+  }
+
+  if let Some(format) = query
+    .format
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  {
+    builder
+      .push(" AND EXISTS (SELECT 1 FROM music_files f WHERE f.track_id = t.id AND f.format = ")
+      .push_bind(format.to_ascii_lowercase())
+      .push(" COLLATE NOCASE)");
+  }
+
+  if let Some(year) = query.year {
+    builder.push(" AND t.year = ").push_bind(year);
+  }
+  if let Some(year_from) = query.year_from {
+    builder.push(" AND t.year >= ").push_bind(year_from);
+  }
+  if let Some(year_to) = query.year_to {
+    builder.push(" AND t.year <= ").push_bind(year_to);
+  }
+
   if !query.include_unavailable.unwrap_or(false) {
     builder.push(
       " AND (t.kind = 'builtin' OR EXISTS \
@@ -160,6 +234,7 @@ fn sort_clause(query: &TrackQuery) -> (&'static str, &'static str) {
     Some("addedAt" | "added_at") => "t.added_at",
     Some("year") => "t.year",
     Some("duration" | "durationMs") => "t.duration_ms",
+    Some("genre") => "t.genre",
     Some("artist") => "artist_names",
     _ => "t.title",
   };
@@ -239,6 +314,29 @@ pub async fn metadata(
   .fetch_optional(pool)
   .await
   .map_err(|error| MediaError::internal(format!("读取曲目元数据失败：{error}")))
+}
+
+pub async fn lyrics(pool: &SqlitePool, track_id: &str) -> Result<Option<LyricsRow>, MediaError> {
+  sqlx::query_as::<_, LyricsRow>(
+    "SELECT format, source, content, offset_ms, language \
+     FROM music_lyrics WHERE track_id = ? \
+     ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
+  )
+  .bind(track_id)
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取歌词失败：{error}")))
+}
+
+pub async fn list_genres(pool: &SqlitePool) -> Result<Vec<String>, MediaError> {
+  sqlx::query_scalar(
+    "SELECT DISTINCT genre FROM music_tracks \
+     WHERE genre IS NOT NULL AND trim(genre) <> '' \
+     ORDER BY genre COLLATE NOCASE",
+  )
+  .fetch_all(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取流派失败：{error}")))
 }
 
 pub async fn list_artists(pool: &SqlitePool) -> Result<Vec<ArtistRow>, MediaError> {

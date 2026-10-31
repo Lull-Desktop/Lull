@@ -213,6 +213,7 @@ export function LiquidPlayer(): React.ReactElement {
   const [pulseKey, setPulseKey] = useState(0);
   const [canMinimize, setCanMinimize] = useState(false);
   const [themeReady, setThemeReady] = useState(false);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
 
   const session = usePlayerSession();
   const remoteTracks = useMemo(
@@ -283,6 +284,27 @@ export function LiquidPlayer(): React.ReactElement {
   const listLength =
     current?.source === "online" ? onlineTracks.length : tracks.length;
   const canSkip = current !== null && listLength > 1;
+
+  useEffect(() => {
+    const trackId = current?.id;
+    if (!trackId) {
+      setCoverUrl(null);
+      return;
+    }
+    setCoverUrl(null);
+    let alive = true;
+    void session
+      .getCoverUrl(trackId)
+      .then((url) => {
+        if (alive) setCoverUrl(url);
+      })
+      .catch(() => {
+        if (alive) setCoverUrl(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [current?.id, session.getCoverUrl]);
 
   const rootStyle = {
     "--accent": palette.accent,
@@ -1175,6 +1197,7 @@ export function LiquidPlayer(): React.ReactElement {
                     <span className={styles.orbCoverLayer} key={currentId}>
                       <CoverArt
                         tone={currentTone}
+                        imageUrl={coverUrl}
                         className={styles.orbCover}
                       />
                     </span>

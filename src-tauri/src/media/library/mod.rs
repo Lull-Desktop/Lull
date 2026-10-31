@@ -2,14 +2,19 @@
 //!
 //! P1 先提供只读查询与扫描；歌单、喜欢、标签、实体编辑按阶段加入。
 
+pub mod assets;
 pub mod catalog;
+pub mod events;
 pub mod metadata;
 pub mod scanner;
 
-use std::path::Path;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
-use tauri::Emitter;
+use tauri::Manager;
 
 use super::api::dto::{
   AlbumSummary, ArtistSummary, Page, ScanJobView, SourceView, TrackDetailView, TrackFileView,
@@ -21,12 +26,57 @@ use crate::media::api::protocol::MediaResponse;
 
 static POOL: OnceLock<sqlx::SqlitePool> = OnceLock::new();
 static INIT_ERROR: OnceLock<String> = OnceLock::new();
+static SCAN_CANCELS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+
+fn scan_cancels() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
+  SCAN_CANCELS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn assets_dir(app: &tauri::AppHandle) -> PathBuf {
+  let root = db::database_path(app)
+    .ok()
+    .and_then(|path| path.parent().map(Path::to_path_buf))
+    .unwrap_or_else(|| {
+      app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("app.lull.desktop"))
+        .join("music")
+    });
+  let dir = root.join("assets");
+  let _ = std::fs::create_dir_all(&dir);
+  dir
+}
 
 /// 启动资料库：异步打开/迁移数据库；失败只记录状态，不阻断应用启动。
 pub fn init(app: tauri::AppHandle) {
   tauri::async_runtime::spawn(async move {
     match db::open(&app).await {
       Ok(pool) => {
+        if let Ok(Some(value)) =
+          sqlx::query_scalar::<_, String>("SELECT value FROM app_meta WHERE key = 'revision'")
+            .fetch_optional(&pool)
+            .await
+        {
+          if let Ok(revision) = value.parse::<u64>() {
+            events::set_revision(revision);
+          }
+        }
+        // 上次进程退出时未完成的扫描不能永久卡在 scanning。
+        let now = now_ms();
+        let _ = sqlx::query(
+          "UPDATE music_scan_runs SET status = 'interrupted', finished_at = ? \
+           WHERE status = 'running'",
+        )
+        .bind(now)
+        .execute(&pool)
+        .await;
+        let _ = sqlx::query(
+          "UPDATE music_sources SET status = 'active', last_scan_error = '上次扫描未完成' \
+           WHERE status = 'scanning'",
+        )
+        .execute(&pool)
+        .await;
         if let Err(error) = catalog::seed(&pool).await {
           crate::wallpaper::wlog(&format!("内置曲目 seed 失败：{error}"));
         }
@@ -96,13 +146,13 @@ pub async fn add_source(app: tauri::AppHandle) -> Result<Option<SourceView>, Med
     .to_str()
     .ok_or_else(|| MediaError::invalid("目录路径不是合法 UTF-8"))?;
   let row = sources::insert_local(pool()?, &name, path_text).await?;
-  let _ = app.emit("library-changed", ());
+  events::changed(&app);
   Ok(Some(SourceView::from(row)))
 }
 
 pub async fn remove_source(app: tauri::AppHandle, source_id: &str) -> Result<bool, MediaError> {
   let removed = sources::remove(pool()?, source_id).await?;
-  let _ = app.emit("library-changed", ());
+  events::changed(&app);
   Ok(removed)
 }
 
@@ -139,45 +189,141 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
   };
   let source_for_task = source.clone();
   let job_for_task = job_id.clone();
+  let assets = assets_dir(&app);
+  let cancel = Arc::new(AtomicBool::new(false));
+  if let Ok(mut map) = scan_cancels().lock() {
+    map.insert(source.id.clone(), cancel.clone());
+  }
   tauri::async_runtime::spawn(async move {
-    let result = scanner::scan_source(pool, &source_for_task, &job_for_task).await;
+    events::emit(
+      &app,
+      "library.scan.started",
+      serde_json::json!({
+        "jobId": job_for_task.clone(),
+        "sourceId": source_for_task.id.clone(),
+      }),
+    );
+    let progress_app = app.clone();
+    let progress_job = job_for_task.clone();
+    let progress_source = source_for_task.id.clone();
+    let last_emit = Mutex::new(Instant::now() - Duration::from_secs(1));
+    let progress = move |progress: scanner::ScanProgress| {
+      let should_emit = progress.processed == progress.total
+        || last_emit.lock().is_ok_and(|mut at| {
+          if at.elapsed() < Duration::from_millis(200) {
+            false
+          } else {
+            *at = Instant::now();
+            true
+          }
+        });
+      if should_emit {
+        events::emit_ephemeral(
+          &progress_app,
+          "library.scan.progress",
+          serde_json::json!({
+            "jobId": progress_job,
+            "sourceId": progress_source,
+            "processed": progress.processed,
+            "total": progress.total,
+            "added": progress.added,
+            "updated": progress.updated,
+          }),
+        );
+      }
+    };
+    let control = scanner::ScanControl {
+      assets_dir: &assets,
+      cancel: Some(cancel.as_ref()),
+      on_progress: Some(&progress),
+    };
+    let result = scanner::scan_source(pool, &source_for_task, &job_for_task, &control).await;
+    if let Ok(mut map) = scan_cancels().lock() {
+      map.remove(&source_for_task.id);
+    }
     let now = now_ms();
-    match result {
+    let (status, added, updated, removed, errors) = match result {
       Ok(outcome) => {
         let errors = serde_json::to_string(&outcome.errors).unwrap_or_else(|_| "[]".to_string());
+        let status = if outcome.cancelled {
+          "cancelled"
+        } else {
+          "completed"
+        };
         let _ = sqlx::query(
-          "UPDATE music_scan_runs SET status = 'completed', finished_at = ?, \
+          "UPDATE music_scan_runs SET status = ?, finished_at = ?, \
            added = ?, updated = ?, removed = ?, errors_json = ? WHERE id = ?",
         )
+        .bind(status)
         .bind(now)
         .bind(outcome.added)
         .bind(outcome.updated)
         .bind(outcome.removed)
-        .bind(errors)
+        .bind(&errors)
         .bind(&job_for_task)
         .execute(pool)
         .await;
-        let _ = sources::mark_scanned(pool, &source_for_task.id).await;
+        if outcome.cancelled {
+          let _ = sources::set_status(pool, &source_for_task.id, "active", None).await;
+        } else {
+          let _ = sources::mark_scanned(pool, &source_for_task.id).await;
+        }
+        (
+          status,
+          outcome.added,
+          outcome.updated,
+          outcome.removed,
+          errors,
+        )
       }
       Err(error) => {
         let message = error.to_string();
         crate::wallpaper::wlog(&format!("音乐扫描失败：{message}"));
+        let errors = serde_json::json!([message]).to_string();
         let _ = sqlx::query(
           "UPDATE music_scan_runs SET status = 'failed', finished_at = ?, errors_json = ? \
            WHERE id = ?",
         )
         .bind(now)
-        .bind(serde_json::json!([message]).to_string())
+        .bind(&errors)
         .bind(&job_for_task)
         .execute(pool)
         .await;
         let _ = sources::set_status(pool, &source_for_task.id, "error", Some(&message)).await;
+        ("failed", 0, 0, 0, errors)
       }
-    }
-    let _ = app.emit("library-changed", ());
+    };
+    events::emit(
+      &app,
+      "library.scan.finished",
+      serde_json::json!({
+        "jobId": job_for_task,
+        "sourceId": source_for_task.id,
+        "status": status,
+        "added": added,
+        "updated": updated,
+        "removed": removed,
+        "errors": serde_json::from_str::<serde_json::Value>(&errors).unwrap_or_default(),
+      }),
+    );
+    events::changed(&app);
   });
 
   Ok(job)
+}
+
+/// 取消正在运行的扫描；找不到任务时返回 false，调用方可继续轮询状态。
+pub fn cancel_scan(source_id: &str) -> bool {
+  let token = scan_cancels()
+    .lock()
+    .ok()
+    .and_then(|map| map.get(source_id).cloned());
+  if let Some(token) = token {
+    token.store(true, Ordering::SeqCst);
+    true
+  } else {
+    false
+  }
 }
 
 pub async fn list_tracks(query: &TrackQuery) -> Result<Page<TrackSummary>, MediaError> {
@@ -219,11 +365,55 @@ pub async fn get_track(track_id: &str) -> Result<TrackDetailView, MediaError> {
       })
     });
 
+  let lyrics =
+    tracks::lyrics(pool, track_id)
+      .await?
+      .map(|lyrics| super::api::dto::TrackLyricsView {
+        format: lyrics.format,
+        source: lyrics.source,
+        content: lyrics.content,
+        offset_ms: lyrics.offset_ms,
+        language: lyrics.language,
+      });
+
   Ok(TrackDetailView {
     summary: TrackSummary::from(row),
     metadata,
     files,
+    lyrics,
   })
+}
+
+pub async fn get_cover_url(
+  app: &tauri::AppHandle,
+  window: &tauri::WebviewWindow,
+  track_id: &str,
+) -> Result<Option<String>, MediaError> {
+  let storage_key: Option<String> = sqlx::query_scalar(
+    "SELECT ma.storage_key FROM music_track_assets mta \
+     JOIN music_assets ma ON ma.id = mta.asset_id \
+     WHERE mta.track_id = ? AND mta.role = 'cover' AND mta.is_primary = 1 LIMIT 1",
+  )
+  .bind(track_id)
+  .fetch_optional(pool()?)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取封面失败：{error}")))?
+  .flatten();
+  let Some(storage_key) = storage_key else {
+    return Ok(None);
+  };
+  let path = assets_dir(app).join(storage_key);
+  if !path.is_file() {
+    return Ok(None);
+  }
+  app
+    .asset_protocol_scope()
+    .allow_file(&path)
+    .map_err(|error| MediaError::internal(format!("封面资源授权失败：{error}")))?;
+  window
+    .convert_file_src(&path, None)
+    .map(Some)
+    .map_err(|error| MediaError::internal(format!("封面资源 URL 生成失败：{error}")))
 }
 
 pub async fn list_artists() -> Result<Vec<ArtistSummary>, MediaError> {
@@ -240,6 +430,10 @@ pub async fn list_artists() -> Result<Vec<ArtistSummary>, MediaError> {
       })
       .collect(),
   )
+}
+
+pub async fn list_genres() -> Result<Vec<String>, MediaError> {
+  tracks::list_genres(pool()?).await
 }
 
 pub async fn list_albums() -> Result<Vec<AlbumSummary>, MediaError> {
@@ -280,17 +474,25 @@ pub async fn scan_path(
   .execute(pool)
   .await
   .map_err(|error| MediaError::internal(format!("创建扫描任务失败：{error}")))?;
-  scanner::scan_source(pool, &row, &run_id).await
+  let assets = path.join("assets");
+  let _ = std::fs::create_dir_all(&assets);
+  let control = scanner::ScanControl {
+    assets_dir: &assets,
+    cancel: None,
+    on_progress: None,
+  };
+  scanner::scan_source(pool, &row, &run_id, &control).await
 }
 
 /// 设置窗等 host 窗口调用 media API 时的统一响应包装。
 pub async fn call_media(
-  app: tauri::AppHandle,
+  window: tauri::WebviewWindow,
   request_id: &str,
   namespace: &str,
   method: &str,
   args: &serde_json::Value,
 ) -> MediaResponse {
+  let app = window.app_handle().clone();
   let result = match (namespace, method) {
     ("library", "listSources") => list_sources().await.map(|rows| serde_json::json!(rows)),
     ("library", "addSource") => add_source(app)
@@ -318,6 +520,16 @@ pub async fn call_media(
         Err(error) => Err(error),
       }
     }
+    ("library", "cancelScan") => {
+      let id = args
+        .get("sourceId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| MediaError::invalid("缺少 sourceId"));
+      match id {
+        Ok(id) => Ok(serde_json::json!({ "cancelled": cancel_scan(id) })),
+        Err(error) => Err(error),
+      }
+    }
     ("library", "listTracks") => {
       let query = serde_json::from_value::<TrackQuery>(args.clone())
         .map_err(|error| MediaError::invalid(format!("曲目查询参数无效：{error}")));
@@ -338,18 +550,32 @@ pub async fn call_media(
         Err(error) => Err(error),
       }
     }
+    ("library", "getCoverUrl") => {
+      let id = args
+        .get("trackId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| MediaError::invalid("缺少 trackId"));
+      match id {
+        Ok(id) => get_cover_url(&app, &window, id)
+          .await
+          .map(|url| serde_json::json!({ "url": url })),
+        Err(error) => Err(error),
+      }
+    }
     ("library", "listArtists") => list_artists()
       .await
       .map(|artists| serde_json::json!(artists)),
     ("library", "listAlbums") => list_albums().await.map(|albums| serde_json::json!(albums)),
+    ("library", "listGenres") => list_genres().await.map(|genres| serde_json::json!(genres)),
     _ => Err(MediaError::new(
       "method.unknown",
       format!("不支持的媒体方法：{namespace}.{method}"),
     )),
   };
 
+  let revision = events::revision();
   match result {
-    Ok(value) => MediaResponse::ok(request_id, value, 0),
-    Err(error) => MediaResponse::error(request_id, &error, 0),
+    Ok(value) => MediaResponse::ok(request_id, value, revision),
+    Err(error) => MediaResponse::error(request_id, &error, revision),
   }
 }

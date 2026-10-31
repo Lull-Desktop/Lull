@@ -11,12 +11,19 @@ use lofty::read_from_path;
 
 use crate::media::repository::artists::split_artists;
 
+#[derive(Debug, Clone)]
+pub struct EmbeddedCover {
+  pub bytes: Vec<u8>,
+  pub mime: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ParsedMetadata {
   pub title: Option<String>,
   pub artists: Vec<String>,
   pub album: Option<String>,
   pub album_artist: Option<String>,
+  pub genre: Option<String>,
   pub year: Option<i64>,
   pub track_number: Option<i64>,
   pub disc_number: Option<i64>,
@@ -25,6 +32,7 @@ pub struct ParsedMetadata {
   pub sample_rate: Option<i64>,
   pub channels: Option<i64>,
   pub lyrics: Option<String>,
+  pub cover: Option<EmbeddedCover>,
   pub raw: serde_json::Value,
 }
 
@@ -95,6 +103,9 @@ pub fn parse_file(path: &Path) -> Result<ParsedMetadata, String> {
     if let Some(album) = non_empty(tag.album()) {
       parsed.album = Some(album);
     }
+    if let Some(genre) = non_empty(tag.genre()) {
+      parsed.genre = Some(genre);
+    }
     if let Some(album_artist) = tag
       .get_string(ItemKey::AlbumArtist)
       .map(str::to_string)
@@ -112,6 +123,13 @@ pub fn parse_file(path: &Path) -> Result<ParsedMetadata, String> {
       .get_string(ItemKey::Lyrics)
       .map(str::to_string)
       .filter(|value| !value.trim().is_empty());
+    parsed.cover = tag.pictures().first().map(|picture| EmbeddedCover {
+      bytes: picture.data().to_vec(),
+      mime: picture.mime_type().map_or_else(
+        || "image/jpeg".to_string(),
+        |mime| mime.as_str().to_string(),
+      ),
+    });
   }
 
   let properties = tagged.properties();
@@ -124,6 +142,7 @@ pub fn parse_file(path: &Path) -> Result<ParsedMetadata, String> {
     "artists": parsed.artists,
     "album": parsed.album,
     "albumArtist": parsed.album_artist,
+    "genre": parsed.genre,
     "year": parsed.year,
     "trackNumber": parsed.track_number,
     "discNumber": parsed.disc_number,

@@ -11,6 +11,7 @@ import {
   createMediaClient,
   type LullMediaClient,
   type SourceView,
+  type TrackQuery,
   type TrackSummary,
 } from "@lull/media-sdk";
 import { FolderPlus, Library, Music, RefreshCw, Search } from "lucide-react";
@@ -40,6 +41,37 @@ function formatDuration(durationMs?: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+type LibraryFilters = {
+  artistId: string;
+  albumId: string;
+  genre: string;
+  format: string;
+  year: string;
+};
+
+const EMPTY_FILTERS: LibraryFilters = {
+  artistId: "",
+  albumId: "",
+  genre: "",
+  format: "",
+  year: "",
+};
+
+const FORMATS = ["mp3", "flac", "m4a", "aac", "wav", "ogg", "opus", "aiff"];
+
+function toTrackQuery(keyword: string, filters: LibraryFilters): TrackQuery {
+  const year = Number.parseInt(filters.year, 10);
+  return {
+    keyword: keyword.trim() || undefined,
+    artistId: filters.artistId || undefined,
+    albumId: filters.albumId || undefined,
+    genre: filters.genre.trim() || undefined,
+    format: filters.format || undefined,
+    year: Number.isFinite(year) ? year : undefined,
+    pageSize: 50,
+  };
+}
+
 function sourceStatusLabel(status: SourceView["status"]): string {
   switch (status) {
     case "scanning":
@@ -65,27 +97,41 @@ export function MusicLibraryPanel({
   const [total, setTotal] = useState(0);
   const [artists, setArtists] = useState<ArtistSummary[]>([]);
   const [albums, setAlbums] = useState<AlbumSummary[]>([]);
+  const [genres, setGenres] = useState<string[]>([]);
   const [keyword, setKeyword] = useState("");
   const [appliedKeyword, setAppliedKeyword] = useState("");
+  const [filters, setFilters] = useState<LibraryFilters>(EMPTY_FILTERS);
+  const [appliedFilters, setAppliedFilters] =
+    useState<LibraryFilters>(EMPTY_FILTERS);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scanProgress, setScanProgress] = useState<
+    Record<string, { processed: number; total: number }>
+  >({});
 
-  const refresh = useCallback(async (target: LullMediaClient, search = "") => {
-    const [nextSources, page, nextArtists, nextAlbums] = await Promise.all([
-      target.library.listSources(),
-      target.library.listTracks({
-        keyword: search.trim() || undefined,
-        pageSize: 50,
-      }),
-      target.library.listArtists(),
-      target.library.listAlbums(),
-    ]);
-    setSources(nextSources);
-    setTracks(page.items);
-    setTotal(page.total);
-    setArtists(nextArtists);
-    setAlbums(nextAlbums);
-  }, []);
+  const refresh = useCallback(
+    async (
+      target: LullMediaClient,
+      search = "",
+      nextFilters: LibraryFilters = EMPTY_FILTERS,
+    ) => {
+      const [nextSources, page, nextArtists, nextAlbums, nextGenres] =
+        await Promise.all([
+          target.library.listSources(),
+          target.library.listTracks(toTrackQuery(search, nextFilters)),
+          target.library.listArtists(),
+          target.library.listAlbums(),
+          target.library.listGenres(),
+        ]);
+      setSources(nextSources);
+      setTracks(page.items);
+      setTotal(page.total);
+      setArtists(nextArtists);
+      setAlbums(nextAlbums);
+      setGenres(nextGenres);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (providedClient) {
@@ -110,10 +156,48 @@ export function MusicLibraryPanel({
 
   useEffect(() => {
     if (!client) return;
-    void refresh(client, appliedKeyword).catch((reason: unknown) => {
-      setError(errorText(reason));
+    const stop = client.events.on((event) => {
+      if (event.topic === "library.scan.started") {
+        void refresh(client, appliedKeyword, appliedFilters).catch(
+          (reason: unknown) => {
+            setError(errorText(reason));
+          },
+        );
+      } else if (event.topic === "library.scan.progress") {
+        const payload = event.payload as {
+          sourceId?: string;
+          processed?: number;
+          total?: number;
+        };
+        if (!payload.sourceId) return;
+        setScanProgress((previous) => ({
+          ...previous,
+          [payload.sourceId as string]: {
+            processed: payload.processed ?? 0,
+            total: payload.total ?? 0,
+          },
+        }));
+      } else if (event.topic === "library.scan.finished") {
+        setScanProgress({});
+      } else if (event.topic === "library.changed") {
+        void refresh(client, appliedKeyword, appliedFilters).catch(
+          (reason: unknown) => {
+            setError(errorText(reason));
+          },
+        );
+      }
     });
-  }, [appliedKeyword, client, refresh]);
+    return stop;
+  }, [appliedFilters, appliedKeyword, client, refresh]);
+
+  useEffect(() => {
+    if (!client) return;
+    void refresh(client, appliedKeyword, appliedFilters).catch(
+      (reason: unknown) => {
+        setError(errorText(reason));
+      },
+    );
+  }, [appliedFilters, appliedKeyword, client, refresh]);
 
   const hasScanning = useMemo(
     () => sources.some((source) => source.status === "scanning"),
@@ -123,12 +207,14 @@ export function MusicLibraryPanel({
   useEffect(() => {
     if (!client || !hasScanning) return;
     const timer = window.setInterval(() => {
-      void refresh(client, appliedKeyword).catch((reason: unknown) => {
-        setError(errorText(reason));
-      });
+      void refresh(client, appliedKeyword, appliedFilters).catch(
+        (reason: unknown) => {
+          setError(errorText(reason));
+        },
+      );
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [appliedKeyword, client, hasScanning, refresh]);
+  }, [appliedFilters, appliedKeyword, client, hasScanning, refresh]);
 
   const run = useCallback(
     async (label: string, action: () => Promise<void>) => {
@@ -151,37 +237,72 @@ export function MusicLibraryPanel({
       const added = await client.library.addSource();
       if (added) {
         await client.library.startScan(added.id);
-        await refresh(client, appliedKeyword);
+        await refresh(client, appliedKeyword, appliedFilters);
       }
     });
-  }, [appliedKeyword, client, refresh, run]);
+  }, [appliedFilters, appliedKeyword, client, refresh, run]);
 
   const scan = useCallback(
     (source: SourceView) => {
       if (!client) return;
       void run(`scan:${source.id}`, async () => {
         await client.library.startScan(source.id);
-        await refresh(client, appliedKeyword);
+        await refresh(client, appliedKeyword, appliedFilters);
       });
     },
-    [appliedKeyword, client, refresh, run],
+    [appliedFilters, appliedKeyword, client, refresh, run],
+  );
+
+  const cancelScan = useCallback(
+    (source: SourceView) => {
+      if (!client) return;
+      void run(`cancel:${source.id}`, async () => {
+        await client.library.cancelScan(source.id);
+      });
+    },
+    [client, run],
   );
 
   const refreshSources = useCallback(() => {
     if (!client) return;
     void run("refresh", async () => {
-      await refresh(client, appliedKeyword);
+      await refresh(client, appliedKeyword, appliedFilters);
     });
-  }, [appliedKeyword, client, refresh, run]);
+  }, [appliedFilters, appliedKeyword, client, refresh, run]);
+
+  const applyFilters = useCallback(
+    (next: LibraryFilters) => {
+      if (!client) return;
+      setAppliedFilters(next);
+      void run("filter", async () => {
+        await refresh(client, appliedKeyword, next);
+      });
+    },
+    [appliedKeyword, client, refresh, run],
+  );
+
+  const updateFilter = useCallback(
+    (key: keyof LibraryFilters, value: string) => {
+      const next = { ...filters, [key]: value };
+      setFilters(next);
+      applyFilters(next);
+    },
+    [applyFilters, filters],
+  );
+
+  const resetFilters = useCallback(() => {
+    setFilters(EMPTY_FILTERS);
+    applyFilters(EMPTY_FILTERS);
+  }, [applyFilters]);
 
   const submitSearch = useCallback(() => {
     if (!client) return;
     const next = keyword.trim();
     setAppliedKeyword(next);
     void run("search", async () => {
-      await refresh(client, next);
+      await refresh(client, next, appliedFilters);
     });
-  }, [client, keyword, refresh, run]);
+  }, [appliedFilters, client, keyword, refresh, run]);
 
   return (
     <Card className="w-full" data-testid="music-library-panel">
@@ -248,19 +369,43 @@ export function MusicLibraryPanel({
                     )}
                   </div>
                   {source.kind === "local" && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={
-                        !client || busy !== null || source.status === "scanning"
-                      }
-                      onClick={() => scan(source)}
-                    >
-                      {source.status === "scanning"
-                        ? m.settings_library_scanning()
-                        : m.settings_library_scan()}
-                    </Button>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      {source.status === "scanning" &&
+                        scanProgress[source.id] && (
+                          <span className="text-xs tabular-nums text-muted-foreground">
+                            {scanProgress[source.id]?.processed ?? 0}/
+                            {scanProgress[source.id]?.total ?? 0}
+                          </span>
+                        )}
+                      <div className="flex gap-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={
+                            !client ||
+                            busy !== null ||
+                            source.status === "scanning"
+                          }
+                          onClick={() => scan(source)}
+                        >
+                          {source.status === "scanning"
+                            ? m.settings_library_scanning()
+                            : m.settings_library_scan()}
+                        </Button>
+                        {source.status === "scanning" && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={!client || busy !== null}
+                            onClick={() => cancelScan(source)}
+                          >
+                            {m.settings_library_cancel_scan()}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </li>
               ))}
@@ -293,6 +438,79 @@ export function MusicLibraryPanel({
             {m.settings_library_search()}
           </Button>
         </form>
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <select
+            aria-label={m.settings_library_filter_artist()}
+            value={filters.artistId}
+            onChange={(event) => updateFilter("artistId", event.target.value)}
+            className="h-9 min-w-0 rounded-lg border border-border/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
+          >
+            <option value="">{m.settings_library_filter_artist()}</option>
+            {artists.map((artist) => (
+              <option key={artist.id} value={artist.id}>
+                {artist.name}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={m.settings_library_filter_album()}
+            value={filters.albumId}
+            onChange={(event) => updateFilter("albumId", event.target.value)}
+            className="h-9 min-w-0 rounded-lg border border-border/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
+          >
+            <option value="">{m.settings_library_filter_album()}</option>
+            {albums.map((album) => (
+              <option key={album.id} value={album.id}>
+                {album.title}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={m.settings_library_filter_genre()}
+            value={filters.genre}
+            onChange={(event) => updateFilter("genre", event.target.value)}
+            className="h-9 min-w-0 rounded-lg border border-border/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
+          >
+            <option value="">{m.settings_library_filter_genre()}</option>
+            {genres.map((genre) => (
+              <option key={genre} value={genre}>
+                {genre}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={m.settings_library_filter_format()}
+            value={filters.format}
+            onChange={(event) => updateFilter("format", event.target.value)}
+            className="h-9 min-w-0 rounded-lg border border-border/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
+          >
+            <option value="">{m.settings_library_filter_format()}</option>
+            {FORMATS.map((format) => (
+              <option key={format} value={format}>
+                {format.toUpperCase()}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number"
+            inputMode="numeric"
+            aria-label={m.settings_library_filter_year()}
+            placeholder={m.settings_library_filter_year()}
+            value={filters.year}
+            onChange={(event) => updateFilter("year", event.target.value)}
+            className="h-9 min-w-0 rounded-lg border border-border/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!client || busy !== null}
+            onClick={resetFilters}
+          >
+            {m.settings_library_filter_reset()}
+          </Button>
+        </div>
 
         <div className="grid grid-cols-3 gap-2 text-center">
           <div className="rounded-xl bg-paper-warm/60 px-2 py-2">
@@ -345,6 +563,7 @@ export function MusicLibraryPanel({
                     <p className="truncate text-xs text-muted-foreground">
                       {track.artists.join(" / ") || "—"}
                       {track.album ? ` · ${track.album}` : ""}
+                      {track.genre ? ` · ${track.genre}` : ""}
                       {track.available ? "" : " · unavailable"}
                     </p>
                   </div>

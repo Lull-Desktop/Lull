@@ -34,6 +34,7 @@ export type {
   SourceView,
   TrackDetail,
   TrackFileView,
+  TrackLyrics,
   TrackQuery,
   TrackSummary,
 } from "./types";

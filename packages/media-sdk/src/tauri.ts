@@ -1,12 +1,11 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-import {
-  MEDIA_PROTOCOL,
-  type MediaConnectRequest,
-  type MediaEvent,
-  type MediaRequest,
-  type MediaResponse,
+import type {
+  MediaConnectRequest,
+  MediaEvent,
+  MediaRequest,
+  MediaResponse,
 } from "./protocol";
 import type { MediaTransport } from "./transport";
 
@@ -23,39 +22,21 @@ export function createTauriTransport(): MediaTransport {
       await invoke("media_disconnect");
     },
     subscribe(listener: (event: MediaEvent) => void): () => void {
-      let stopMedia: (() => void) | null = null;
-      let stopLibrary: (() => void) | null = null;
+      let stop: (() => void) | null = null;
       let disposed = false;
       void listen<MediaEvent>("media:event", (event) => {
         listener(event.payload);
       })
         .then((unlisten) => {
           if (disposed) unlisten();
-          else stopMedia = unlisten;
+          else stop = unlisten;
         })
         .catch(() => {
           // 事件订阅失败不影响命令调用；P2 会补连接状态。
         });
-      // 资料库事件是 P1 的独立事件；映射到统一 MediaEvent，避免播放器直接
-      // 依赖 Tauri 的 event 名字。
-      void listen("library-changed", () => {
-        listener({
-          protocol: MEDIA_PROTOCOL,
-          topic: "library.changed",
-          revision: 0,
-          at: Date.now(),
-          payload: null,
-        });
-      })
-        .then((unlisten) => {
-          if (disposed) unlisten();
-          else stopLibrary = unlisten;
-        })
-        .catch(() => {});
       return () => {
         disposed = true;
-        stopMedia?.();
-        stopLibrary?.();
+        stop?.();
       };
     },
   };

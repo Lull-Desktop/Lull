@@ -63,6 +63,25 @@ describe("media client", () => {
     expect(transport.requests[0]?.args).toEqual({ sourceId: "src_1" });
   });
 
+  test("routes cover URL and genre reads", async () => {
+    const transport = createMemoryTransport((request) => {
+      if (request.method === "getCoverUrl") {
+        return { url: "asset://localhost/cover.jpg" };
+      }
+      return ["Ambient", "Jazz"];
+    });
+    const media = createMediaClient({ transport });
+
+    await expect(media.library.getCoverUrl("trk_1")).resolves.toBe(
+      "asset://localhost/cover.jpg",
+    );
+    await expect(media.library.listGenres()).resolves.toEqual([
+      "Ambient",
+      "Jazz",
+    ]);
+    expect(transport.requests[0]?.args).toEqual({ trackId: "trk_1" });
+  });
+
   test("routes player, queue and noise methods with the expected args", async () => {
     const transport = createMemoryTransport((request) => {
       if (request.namespace === "player") {

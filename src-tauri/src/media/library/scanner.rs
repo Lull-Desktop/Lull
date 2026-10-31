@@ -5,11 +5,13 @@
 //! 把本次未看到的文件标记不可用。文件本身只读，不写标签、不移动、不删除。
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use walkdir::WalkDir;
 
+use super::assets::{self, CoverSource};
 use super::metadata::{self, ParsedMetadata};
 use crate::media::api::errors::MediaError;
 use crate::media::repository::artists::{ensure_album, ensure_artist, normalize_name};
@@ -26,6 +28,22 @@ pub struct ScanOutcome {
   pub updated: i64,
   pub removed: i64,
   pub errors: Vec<String>,
+  pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ScanProgress {
+  pub processed: u64,
+  pub total: u64,
+  pub added: i64,
+  pub updated: i64,
+}
+
+/// 扫描所需的宿主上下文；测试可传空的取消/进度。
+pub struct ScanControl<'a> {
+  pub assets_dir: &'a Path,
+  pub cancel: Option<&'a AtomicBool>,
+  pub on_progress: Option<&'a (dyn Fn(ScanProgress) + Send + Sync)>,
 }
 
 #[derive(Debug)]
@@ -74,6 +92,7 @@ pub async fn scan_source(
   pool: &SqlitePool,
   source: &SourceRow,
   run_id: &str,
+  control: &ScanControl<'_>,
 ) -> Result<ScanOutcome, MediaError> {
   let root = source
     .root_path
@@ -85,11 +104,18 @@ pub async fn scan_source(
   if !root.is_dir() {
     return Err(MediaError::unavailable("音乐目录不存在"));
   }
+  let assets_dir = control.assets_dir;
 
   let mut outcome = ScanOutcome::default();
-  let mut seen = 0_i64;
-
+  let mut files = Vec::new();
   for entry in WalkDir::new(&root).follow_links(false) {
+    if control
+      .cancel
+      .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
+    {
+      outcome.cancelled = true;
+      return Ok(outcome);
+    }
     let entry = match entry {
       Ok(entry) => entry,
       Err(error) => {
@@ -99,21 +125,43 @@ pub async fn scan_source(
         continue;
       }
     };
-    if !entry.file_type().is_file() || !is_audio(entry.path()) {
-      continue;
+    if entry.file_type().is_file() && is_audio(entry.path()) {
+      files.push(entry.into_path());
     }
-    seen += 1;
-    match upsert_file(pool, source, run_id, entry.path(), &root).await {
+  }
+
+  let total = u64::try_from(files.len()).unwrap_or(u64::MAX);
+  for (index, path) in files.iter().enumerate() {
+    if control
+      .cancel
+      .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
+    {
+      outcome.cancelled = true;
+      break;
+    }
+    match upsert_file(pool, source, run_id, path, &root, assets_dir).await {
       Ok(UpsertResult::Added) => outcome.added += 1,
       Ok(UpsertResult::Updated) => outcome.updated += 1,
       Err(error) => {
         if outcome.errors.len() < 100 {
           outcome
             .errors
-            .push(format!("{}（{}）", collection_error(entry.path()), error));
+            .push(format!("{}（{}）", collection_error(path), error));
         }
       }
     }
+    if let Some(progress) = control.on_progress {
+      progress(ScanProgress {
+        processed: u64::try_from(index + 1).unwrap_or(u64::MAX),
+        total,
+        added: outcome.added,
+        updated: outcome.updated,
+      });
+    }
+  }
+
+  if outcome.cancelled {
+    return Ok(outcome);
   }
 
   let now = now_ms();
@@ -147,7 +195,7 @@ pub async fn scan_source(
   .await
   .map_err(|error| MediaError::internal(format!("更新曲目状态失败：{error}")))?;
 
-  if seen == 0 && outcome.errors.is_empty() {
+  if total == 0 && outcome.errors.is_empty() {
     outcome
       .errors
       .push("目录中没有找到可识别的音频文件".to_string());
@@ -162,6 +210,7 @@ async fn upsert_file(
   run_id: &str,
   path: &Path,
   root: &Path,
+  assets_dir: &Path,
 ) -> Result<UpsertResult, MediaError> {
   let canonical = dunce::canonicalize(path)
     .map_err(|error| MediaError::unavailable(format!("文件不可用：{error}")))?;
@@ -236,12 +285,13 @@ async fn upsert_file(
   let track_id = match existing_track {
     Some(track_id) => {
       sqlx::query(
-        "UPDATE music_tracks SET title = ?, duration_ms = ?, year = ?, status = 'active', \
+        "UPDATE music_tracks SET title = ?, duration_ms = ?, year = ?, genre = ?, status = 'active', \
          updated_at = ?, version = version + 1 WHERE id = ?",
       )
       .bind(&title)
       .bind(parsed.duration_ms)
       .bind(parsed.year)
+      .bind(&parsed.genre)
       .bind(now)
       .bind(&track_id)
       .execute(&mut *tx)
@@ -253,14 +303,15 @@ async fn upsert_file(
       let track_id = new_id("trk");
       sqlx::query(
         "INSERT INTO music_tracks \
-         (id, kind, title, sort_title, duration_ms, year, status, added_at, updated_at) \
-         VALUES (?, 'file', ?, ?, ?, ?, 'active', ?, ?)",
+         (id, kind, title, sort_title, duration_ms, year, genre, status, added_at, updated_at) \
+         VALUES (?, 'file', ?, ?, ?, ?, ?, 'active', ?, ?)",
       )
       .bind(&track_id)
       .bind(&title)
       .bind(normalize_name(&title))
       .bind(parsed.duration_ms)
       .bind(parsed.year)
+      .bind(&parsed.genre)
       .bind(now)
       .bind(now)
       .execute(&mut *tx)
@@ -309,6 +360,7 @@ async fn upsert_file(
     "artists": artists,
     "album": album,
     "albumArtist": album_artist_name,
+    "genre": parsed.genre,
     "year": parsed.year,
     "trackNumber": parsed.track_number,
     "discNumber": parsed.disc_number,
@@ -411,6 +463,27 @@ async fn upsert_file(
   .await
   .map_err(|error| MediaError::internal(format!("更新搜索文本失败：{error}")))?;
 
+  let folder = if parsed.cover.is_none() {
+    assets::folder_cover(&canonical)
+  } else {
+    None
+  };
+  let (cover, cover_source) = match (&parsed.cover, &folder) {
+    (Some(cover), _) => (Some(cover), CoverSource::Embedded),
+    (None, Some(cover)) => (Some(cover), CoverSource::Folder),
+    _ => (None, CoverSource::Embedded),
+  };
+  assets::ingest_cover(&mut tx, assets_dir, &track_id, cover, cover_source, now).await?;
+  let sidecar = assets::sidecar_lyrics(&canonical);
+  assets::ingest_lyrics(
+    &mut tx,
+    &track_id,
+    parsed.lyrics.as_deref(),
+    sidecar.as_deref(),
+    now,
+  )
+  .await?;
+
   tx.commit()
     .await
     .map_err(|error| MediaError::internal(format!("提交扫描事务失败：{error}")))?;
@@ -461,6 +534,12 @@ mod tests {
     let root = std::env::temp_dir().join(format!("lull-scan-test-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).expect("create scan dir");
     write_silence_wav(&root.join("Artist - Tree.wav"));
+    std::fs::write(root.join("cover.png"), b"\x89PNG\r\n\x1a\ncover").expect("cover");
+    std::fs::write(
+      root.join("Artist - Tree.lrc"),
+      "[00:00.00]树影\n[00:04.00]风",
+    )
+    .expect("lyrics");
     let db_path = root.join("music.db");
 
     tauri::async_runtime::block_on(async {
@@ -491,10 +570,100 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("count search rows");
+      let covers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_track_assets")
+        .fetch_one(&pool)
+        .await
+        .expect("count cover relations");
+      let lyrics: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_lyrics")
+        .fetch_one(&pool)
+        .await
+        .expect("count lyrics");
+      let storage_key: String = sqlx::query_scalar("SELECT storage_key FROM music_assets LIMIT 1")
+        .fetch_one(&pool)
+        .await
+        .expect("cover storage key");
+
+      sqlx::query("UPDATE music_tracks SET genre = 'Ambient', year = 2024")
+        .execute(&pool)
+        .await
+        .expect("set genre");
+      let (filtered, total) = crate::media::repository::tracks::list(
+        &pool,
+        &crate::media::api::dto::TrackQuery {
+          genre: Some("ambient".to_string()),
+          format: Some("wav".to_string()),
+          year: Some(2024),
+          ..Default::default()
+        },
+      )
+      .await
+      .expect("filter tracks");
+      let genres = crate::media::repository::tracks::list_genres(&pool)
+        .await
+        .expect("genres");
       crate::media::repository::db::close(&pool).await;
+      assert_eq!(genres, vec!["Ambient".to_string()]);
       assert_eq!(tracks, 1);
       assert_eq!(files, 1);
       assert_eq!(search, 1);
+      assert_eq!(covers, 1);
+      assert_eq!(lyrics, 1);
+      assert!(root.join("assets").join(storage_key).is_file());
+      assert_eq!(total, 1);
+      assert_eq!(filtered.len(), 1);
+    });
+
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn scan_reports_progress_and_can_be_cancelled_before_work() {
+    let root = std::env::temp_dir().join(format!("lull-scan-control-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).expect("create scan dir");
+    write_silence_wav(&root.join("one.wav"));
+    write_silence_wav(&root.join("two.wav"));
+    let assets = root.join("assets");
+    std::fs::create_dir_all(&assets).expect("assets");
+    let db_path = root.join("music.db");
+
+    tauri::async_runtime::block_on(async {
+      let pool = crate::media::repository::db::open_at(&db_path)
+        .await
+        .expect("open db");
+      let source = crate::media::repository::sources::insert_local(
+        &pool,
+        "测试音乐",
+        root.to_str().expect("root utf8"),
+      )
+      .await
+      .expect("source");
+      let processed = std::sync::atomic::AtomicU64::new(0);
+      let on_progress = |progress: ScanProgress| {
+        processed.store(progress.processed, Ordering::SeqCst);
+      };
+      let control = ScanControl {
+        assets_dir: &assets,
+        cancel: None,
+        on_progress: Some(&on_progress),
+      };
+      let outcome = scan_source(&pool, &source, "run-progress", &control)
+        .await
+        .expect("scan progress");
+      assert_eq!(outcome.added, 2);
+      assert_eq!(processed.load(Ordering::SeqCst), 2);
+
+      let cancel = AtomicBool::new(true);
+      let control = ScanControl {
+        assets_dir: &assets,
+        cancel: Some(&cancel),
+        on_progress: None,
+      };
+      let outcome = scan_source(&pool, &source, "run-cancel", &control)
+        .await
+        .expect("scan cancel");
+      assert!(outcome.cancelled);
+      assert_eq!(outcome.added, 0);
+      crate::media::repository::db::close(&pool).await;
     });
 
     let _ = std::fs::remove_dir_all(&root);

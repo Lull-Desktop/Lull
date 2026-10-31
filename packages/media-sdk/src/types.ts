@@ -21,9 +21,16 @@ export interface SourceView {
 export interface TrackQuery {
   keyword?: string;
   sourceIds?: string[];
+  artistId?: string;
+  albumId?: string;
+  genre?: string;
+  format?: string;
+  year?: number;
+  yearFrom?: number;
+  yearTo?: number;
   page?: number;
   pageSize?: number;
-  sortBy?: "title" | "addedAt" | "year" | "duration" | "artist";
+  sortBy?: "title" | "addedAt" | "year" | "duration" | "artist" | "genre";
   sortOrder?: "asc" | "desc";
   includeUnavailable?: boolean;
 }
@@ -36,6 +43,7 @@ export interface TrackSummary {
   albumId?: string;
   durationMs?: number;
   year?: number;
+  genre?: string;
   trackNumber?: number;
   discNumber?: number;
   source: "local" | "online";
@@ -59,9 +67,18 @@ export interface TrackFileView {
   available: boolean;
 }
 
+export interface TrackLyrics {
+  format: string;
+  source: string;
+  content: string;
+  offsetMs: number;
+  language?: string;
+}
+
 export interface TrackDetail extends TrackSummary {
   metadata: Record<string, unknown> | null;
   files: TrackFileView[];
+  lyrics?: TrackLyrics;
 }
 
 export interface ArtistSummary {

@@ -50,6 +50,7 @@ export type MediaEventTopic =
   | "noise.state"
   | "noise.level"
   | "library.changed"
+  | "library.scan.started"
   | "library.scan.progress"
   | "library.scan.finished"
   | "playlists.changed"

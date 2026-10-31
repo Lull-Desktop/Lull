@@ -25,7 +25,7 @@ fn host_only(namespace: &str, method: &str, label: &str) -> Result<(), MediaErro
     // 播放器/白噪音只需要曲目读取；来源列表含 rootPath，扫描/增删只属于 host。
     if !matches!(
       method,
-      "listTracks" | "getTrack" | "listArtists" | "listAlbums"
+      "listTracks" | "getTrack" | "getCoverUrl" | "listArtists" | "listAlbums"
     ) {
       return Err(MediaError::new(
         "capability.denied",
@@ -56,7 +56,7 @@ pub async fn media_call(window: WebviewWindow, request: MediaRequest) -> MediaRe
 
   if request.namespace == "library" {
     return library::call_media(
-      window.app_handle().clone(),
+      window.clone(),
       &request_id,
       &request.namespace,
       &request.method,
@@ -132,7 +132,13 @@ mod tests {
 
   #[test]
   fn non_host_windows_only_read_track_views() {
-    for method in ["listTracks", "getTrack", "listArtists", "listAlbums"] {
+    for method in [
+      "listTracks",
+      "getTrack",
+      "getCoverUrl",
+      "listArtists",
+      "listAlbums",
+    ] {
       assert!(host_only("library", method, "player").is_ok());
     }
     for method in ["listSources", "addSource", "removeSource", "startScan"] {

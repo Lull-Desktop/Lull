@@ -28,6 +28,7 @@ export type PlayerSession = {
   queue: QueueState | null;
   tracks: TrackSummary[];
   levelRef: React.RefObject<number>;
+  getCoverUrl(trackId: string): Promise<string | null>;
   actions: PlayerActions;
 };
 
@@ -66,6 +67,19 @@ export function usePlayerSession(): PlayerSession {
       // 资料库暂时不可用时保留当前列表。
     }
   }, []);
+
+  const getCoverUrl = useCallback(
+    async (trackId: string): Promise<string | null> => {
+      const client = clientRef.current;
+      if (!client) return null;
+      try {
+        return await client.library.getCoverUrl(trackId);
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const client = clientRef.current;
@@ -209,5 +223,5 @@ export function usePlayerSession(): PlayerSession {
       }
     : EMPTY_ACTIONS;
 
-  return { player, queue, tracks, levelRef, actions };
+  return { player, queue, tracks, levelRef, getCoverUrl, actions };
 }

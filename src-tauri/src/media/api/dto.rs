@@ -48,6 +48,20 @@ pub struct TrackQuery {
   #[serde(default)]
   pub source_ids: Option<Vec<String>>,
   #[serde(default)]
+  pub artist_id: Option<String>,
+  #[serde(default)]
+  pub album_id: Option<String>,
+  #[serde(default)]
+  pub genre: Option<String>,
+  #[serde(default)]
+  pub format: Option<String>,
+  #[serde(default)]
+  pub year: Option<i64>,
+  #[serde(default)]
+  pub year_from: Option<i64>,
+  #[serde(default)]
+  pub year_to: Option<i64>,
+  #[serde(default)]
   pub page: Option<u32>,
   #[serde(default)]
   pub page_size: Option<u32>,
@@ -86,6 +100,8 @@ pub struct TrackSummary {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub year: Option<i64>,
   #[serde(skip_serializing_if = "Option::is_none")]
+  pub genre: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub track_number: Option<i64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub disc_number: Option<i64>,
@@ -104,6 +120,7 @@ impl From<TrackRow> for TrackSummary {
       album_id: row.album_id,
       duration_ms: row.duration_ms,
       year: row.year,
+      genre: row.genre,
       track_number: row.track_number,
       disc_number: row.disc_number,
       source: if row.kind == "builtin" {
@@ -167,11 +184,24 @@ pub struct TrackFileView {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TrackLyricsView {
+  pub format: String,
+  pub source: String,
+  pub content: String,
+  pub offset_ms: i64,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub language: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TrackDetailView {
   #[serde(flatten)]
   pub summary: TrackSummary,
   pub metadata: serde_json::Value,
   pub files: Vec<TrackFileView>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub lyrics: Option<TrackLyricsView>,
 }
 
 #[derive(Debug, Clone, Serialize)]

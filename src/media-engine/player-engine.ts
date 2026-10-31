@@ -15,6 +15,11 @@ export class PlayerEngine {
   private readonly timer: number;
   private ambient: AmbientStream | null = null;
   private audio: HTMLAudioElement | null = null;
+  private localContext: AudioContext | null = null;
+  private localAnalyser: AnalyserNode | null = null;
+  private localSource: MediaStreamAudioSourceNode | null = null;
+  private localStream: MediaStream | null = null;
+  private localSamples: Uint8Array<ArrayBuffer> | null = null;
   private source: PlaybackSource | null = null;
   private loadId = "";
   private durationMs: number | null = null;
@@ -60,6 +65,7 @@ export class PlayerEngine {
     audio.src = command.source.url;
     audio.volume = this.effectiveVolume();
     audio.addEventListener("loadedmetadata", () => {
+      if (!this.localAnalyser) this.attachLocalLevel(audio);
       if (Number.isFinite(audio.duration) && audio.duration > 0) {
         this.durationMs = Math.round(audio.duration * 1000);
       }
@@ -91,6 +97,7 @@ export class PlayerEngine {
       this.emitError("player.load-failed", "本地音频加载失败");
     });
     this.audio = audio;
+    this.attachLocalLevel(audio);
     audio.load();
   }
 
@@ -154,14 +161,58 @@ export class PlayerEngine {
   level(): number {
     if (!this.playing || this.muted) return 0;
     if (this.ambient) return this.ambient.level();
-    return Math.min(1, 0.42 * this.volume);
+    const analyser = this.localAnalyser;
+    if (!analyser) return Math.min(1, 0.42 * this.volume);
+    if (!this.localSamples || this.localSamples.length !== analyser.fftSize) {
+      this.localSamples = new Uint8Array(analyser.fftSize);
+    }
+    analyser.getByteTimeDomainData(this.localSamples);
+    let sum = 0;
+    for (const sample of this.localSamples) {
+      const value = (sample - 128) / 128;
+      sum += value * value;
+    }
+    const level = Math.min(
+      1,
+      Math.sqrt(sum / this.localSamples.length) * 7.5 * this.volume,
+    );
+    return level > 0.001 ? level : Math.min(1, 0.42 * this.volume);
   }
 
   dispose(): void {
     window.clearInterval(this.timer);
     this.stopInternal();
+    const context = this.localContext;
+    this.localContext = null;
+    if (context) void context.close().catch(() => {});
     this.ambient?.dispose();
     this.ambient = null;
+  }
+
+  private attachLocalLevel(audio: HTMLAudioElement): void {
+    const capture = (
+      audio as HTMLAudioElement & { captureStream?: () => MediaStream }
+    ).captureStream;
+    if (typeof capture !== "function") return;
+    try {
+      this.localContext ??= new AudioContext();
+      const context = this.localContext;
+      const stream = capture.call(audio);
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 128;
+      analyser.smoothingTimeConstant = 0.82;
+      source.connect(analyser);
+      this.localSource = source;
+      this.localStream = stream;
+      this.localAnalyser = analyser;
+      void context.resume().catch(() => {});
+    } catch {
+      // 本地音频仍可直接播放；失败时退回稳定的占位电平。
+      this.localSource = null;
+      this.localStream = null;
+      this.localAnalyser = null;
+    }
   }
 
   private effectiveVolume(): number {
@@ -200,6 +251,12 @@ export class PlayerEngine {
   private stopInternal(): void {
     this.playing = false;
     this.ambient?.stop();
+    this.localSource?.disconnect();
+    this.localSource = null;
+    this.localAnalyser = null;
+    this.localSamples = null;
+    for (const track of this.localStream?.getTracks() ?? []) track.stop();
+    this.localStream = null;
     if (this.audio) {
       this.audio.pause();
       this.audio.removeAttribute("src");

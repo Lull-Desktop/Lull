@@ -51,12 +51,24 @@ function safeId(value: string): string {
 export function CoverArt({
   tone,
   className,
+  imageUrl,
 }: {
   tone: number;
   className?: string;
+  imageUrl?: string | null;
 }): React.ReactElement {
   const rawId = useId();
   const uid = safeId(rawId);
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt=""
+        className={className}
+        style={{ objectFit: "cover" }}
+      />
+    );
+  }
   const palette: CoverPalette = coverPalette(tone);
   const scene = SCENES[Math.abs(Math.trunc(tone)) % SCENES.length] ?? SCENES[0];
   const skyId = `sky-${uid}`;
