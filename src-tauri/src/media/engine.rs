@@ -2,10 +2,13 @@
 //!
 //! 引擎是宿主受信任代码，不是可替换 Widget；业务状态仍由 Rust 持有。所有命令
 //! 通过定向事件发送，页面通过 `media_engine_event` 上报。
+//!
+//! Engine protocol v2：Music 与 Noise 共用同一个 `AudioGraph`（musicBus /
+//! noiseBus / master / limiter），Rust 只描述期望状态，不接触 PCM。
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -13,7 +16,7 @@ static CREATING: AtomicBool = AtomicBool::new(false);
 
 pub const ENGINE_LABEL: &str = "media-engine";
 pub const COMMAND_EVENT: &str = "media-engine-command";
-pub const MEDIA_EVENT: &str = "media:event";
+pub const ENGINE_PROTOCOL: u32 = 2;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(
@@ -92,8 +95,11 @@ pub fn ensure_window(app: &AppHandle) {
   });
 }
 
-/// 发送一条引擎命令；窗口不存在时忽略，ready 后会重新全量同步。
+/// 发送一条引擎命令；窗口不存在时静默忽略，ready 后会重新全量同步。
 pub fn send(app: &AppHandle, command: Value) {
+  if app.get_webview_window(ENGINE_LABEL).is_none() {
+    return;
+  }
   if let Err(error) = app.emit_to(ENGINE_LABEL, COMMAND_EVENT, command) {
     crate::wallpaper::wlog(&format!("media engine 命令发送失败：{error}"));
   }
@@ -108,7 +114,7 @@ pub fn player_load(
   autoplay: bool,
 ) -> Value {
   json!({
-    "v": 1,
+    "v": ENGINE_PROTOCOL,
     "type": "player.load",
     "loadId": load_id,
     "source": source,
@@ -120,28 +126,29 @@ pub fn player_load(
 
 #[must_use]
 pub fn player_control(kind: &str) -> Value {
-  json!({ "v": 1, "type": kind })
+  json!({ "v": ENGINE_PROTOCOL, "type": kind })
 }
 
 #[must_use]
 pub fn player_seek(position_ms: i64) -> Value {
-  json!({ "v": 1, "type": "player.seek", "positionMs": position_ms })
+  json!({ "v": ENGINE_PROTOCOL, "type": "player.seek", "positionMs": position_ms })
 }
 
 #[must_use]
 pub fn player_volume(volume: f64, muted: bool) -> Value {
-  json!({ "v": 1, "type": "player.volume", "volume": volume, "muted": muted })
+  json!({ "v": ENGINE_PROTOCOL, "type": "player.volume", "volume": volume, "muted": muted })
 }
 
 #[must_use]
-pub fn noise_sync(
-  active: bool,
-  master: f64,
-  muted: bool,
-  layers: &[crate::media::playback::model::NoiseLayerView],
-) -> Value {
+pub fn output_volume(volume: f64, muted: bool) -> Value {
+  json!({ "v": ENGINE_PROTOCOL, "type": "output.volume", "volume": volume, "muted": muted })
+}
+
+/// Noise 同步：N1 仍是 legacy 5 层视图；N2 会替换为 Session/Track。
+#[must_use]
+pub fn noise_sync<T: Serialize>(active: bool, master: f64, muted: bool, layers: &[T]) -> Value {
   json!({
-    "v": 1,
+    "v": ENGINE_PROTOCOL,
     "type": "noise.sync",
     "active": active,
     "master": master,
@@ -153,12 +160,17 @@ pub fn noise_sync(
 #[must_use]
 pub fn meters(player: bool, noise: bool, interval_ms: u64) -> Value {
   json!({
-    "v": 1,
+    "v": ENGINE_PROTOCOL,
     "type": "meters",
     "player": player,
     "noise": noise,
     "intervalMs": interval_ms,
   })
+}
+
+#[must_use]
+pub fn shutdown() -> Value {
+  json!({ "v": ENGINE_PROTOCOL, "type": "engine.shutdown" })
 }
 
 #[cfg(test)]
@@ -213,12 +225,19 @@ mod tests {
       Some(200),
       true,
     );
+    assert_eq!(command["v"], json!(ENGINE_PROTOCOL));
     assert_eq!(command["type"], "player.load");
     assert_eq!(command["loadId"], "load-2");
     assert_eq!(command["autoplay"], true);
     assert_eq!(player_control("player.pause")["type"], "player.pause");
     assert_eq!(player_seek(500)["positionMs"], 500);
     assert_eq!(player_volume(0.5, true)["muted"], true);
+    assert_eq!(output_volume(0.8, false)["type"], "output.volume");
     assert_eq!(meters(true, false, 500)["intervalMs"], 500);
+    assert_eq!(shutdown()["type"], "engine.shutdown");
+    assert_eq!(
+      noise_sync(true, 0.5, false, &[json!({ "soundId": "rain" })])["v"],
+      json!(ENGINE_PROTOCOL)
+    );
   }
 }

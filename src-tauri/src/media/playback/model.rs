@@ -1,7 +1,5 @@
 //! P2 播放 / 队列 / 白噪音的公开 DTO 与内部状态。
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::media::api::dto::TrackSummary;
@@ -58,41 +56,6 @@ pub struct NoiseStateView {
   pub layers: Vec<NoiseLayerView>,
   pub sleep: NoiseSleepView,
   pub revision: u64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaybackSnapshot {
-  pub protocol: u32,
-  pub revision: u64,
-  pub player: PlayerStateView,
-  pub queue: QueueStateView,
-  pub noise: NoiseStateView,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectRequest {
-  #[serde(default)]
-  pub topics: Vec<String>,
-  #[serde(default)]
-  pub progress_ms: Option<u64>,
-  #[serde(default)]
-  pub levels: Option<bool>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Subscription {
-  pub topics: BTreeMap<String, bool>,
-  pub progress_ms: u64,
-  pub levels: bool,
-}
-
-impl Subscription {
-  #[must_use]
-  pub fn wants(&self, topic: &str) -> bool {
-    self.topics.contains_key(topic)
-  }
 }
 
 #[derive(Debug, Clone, Serialize)]

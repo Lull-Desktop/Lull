@@ -139,13 +139,13 @@ pub fn run() {
           let _ = window.hide();
           // 工具窗/插件窗被 Alt+F4 隐藏后，通知设置页刷新显示开关。
           window_host::notify_changed(window.app_handle());
-        } else if window.label() == media::playback::engine::ENGINE_LABEL {
+        } else if window.label() == media::engine::ENGINE_LABEL {
           api.prevent_close();
           let _ = window.hide();
         }
       }
       tauri::WindowEvent::Destroyed => {
-        media::playback::on_window_destroyed(window.app_handle(), window.label());
+        media::on_window_destroyed(window.app_handle(), window.label());
       }
       _ => {}
     })
@@ -160,7 +160,7 @@ pub fn run() {
         code: None, api, ..
       } => api.prevent_exit(),
       tauri::RunEvent::Exit => {
-        media::shutdown();
+        media::shutdown(_app);
         wallpaper::shutdown();
       }
       _ => {}

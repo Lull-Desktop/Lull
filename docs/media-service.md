@@ -1,6 +1,6 @@
 # Lull Media Service 与音乐资料库
 
-> 状态：P0 + P1 + P2 已落地（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列/白噪音、官方播放器与白噪音迁移）。歌单/喜欢/历史、标签实体、第三方开放按阶段推进。
+> 状态：P0 + P1 + P2 + N1 已落地（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列/白噪音、官方播放器与白噪音迁移、Shared AudioGraph/engine protocol v2/全局输出音量、订阅与快照基础）。歌单/喜欢/历史、标签实体、Noise 业务域、第三方开放按阶段推进；Noise 决策见 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
 
 ## 1. 边界
 
@@ -14,10 +14,13 @@ Media API（protocol 1，media_call）
 Media Service（Rust）
  ├─ library：来源 / 文件 / 曲目 / 艺术家 / 专辑 / 扫描
  ├─ repository：SQLx + SQLite
- ├─ playback / queue / noise（P2 已落地）
+ ├─ playback / queue / noise（P2 旧 5 层）
+ ├─ output：全局输出音量
+ ├─ events / snapshot：订阅、revision 与组合快照
+ ├─ noise：Asset / Track / Session / Preset（N2+）
  └─ playlists / favorites / history / tags（P3/P4）
         │
-        └─ Media Engine（隐藏 media-engine WebView：AmbientStream / <audio> / 噪声混音）
+        └─ Media Engine（隐藏 media-engine WebView：Shared AudioGraph = musicBus + noiseBus + master + limiter）
 ```
 
 - **Music Library 与 Playback 分离**：关闭播放器不影响曲库；P1 的曲库先独立可用。
@@ -30,8 +33,9 @@ Media Service（Rust）
 
 - 路径：`%APPDATA%\app.lull.desktop\music\music.db`；`LULL_MUSIC_DIR` 可覆盖。
 - SQLite WAL、`foreign_keys=ON`、`busy_timeout=5s`；SQLx migration 编译期嵌入。
-- 迁移：`0001_library.sql`、`0002_search_fts.sql`、`0003_playback.sql`、`0004_library_filters.sql`。
-- 播放状态：`player_state`（当前曲目/进度/音量/模式）、`player_queue`（Track 引用顺序）、`noise_state`（五层/主音量/睡眠）。进度每 250ms 只走内存与事件，暂停/停止/切歌/退出才落盘。
+- 迁移：`0001_library.sql`、`0002_search_fts.sql`、`0003_playback.sql`、`0004_library_filters.sql`、`0005_media_output.sql`。
+- 播放状态：`player_state`（当前曲目/进度/音量/模式）、`player_queue`（Track 引用顺序）、`noise_state`（旧五层/主音量/睡眠，兼容期保留）。进度每 250ms 只走内存与事件，暂停/停止/切歌/退出才落盘。
+- 输出音量：`media_output` 单行表保存 Music + Noise 共享的 master output volume；与 `player.volume`、Noise master、Windows 系统音量分离。
 - 封面/歌词：`music/assets/` 下按 SHA-256 内容寻址保存二进制；`music_assets.storage_key` 只存文件名，`music_track_assets` 关联主封面，`music_lyrics` 存内嵌/同名 `.lrc` 文本。扫描只读用户文件，资产是 Lull 副本。
 - 核心表：
   - `music_sources`：本地/内置来源；`root_path` 不返回第三方。
@@ -79,23 +83,25 @@ Media Service（Rust）
 | `player.setVolume` / `setMuted` / `setMode` | `volume`, `muted`, `mode` | `PlayerState` |
 | `queue.get` / `add` / `remove` / `clear` / `move` / `playAt` | `trackId`, `index` | `QueueState` / `PlayerState` |
 | `noise.getState` / `getSounds` / `activate` / `setLayer` / `setMaster` / `setMuted` / `setSleepTimer` / `reset` | `soundId`, `enabled`, `volume`, `minutes` | `NoiseState` |
-| `system.snapshot` | `{}` | `PlaybackSnapshot` |
+| `system.snapshot` | `{}` | `PlaybackSnapshot`（含 `output`） |
+| `system.getOutput` / `setOutput` | `volume?`, `muted?` | `MediaOutput` |
 
 约定：
 
 - 结果不含 `path/storage_key` 之外的文件系统细节；`rootPath` 只给 host 设置窗。
 - 错误用 `{code,message,details?}`；前端按 `code` 分支。
-- `media_connect({topics,progressMs,levels})` 原子注册订阅并返回 `PlaybackSnapshot`；事件 envelope 为 `{protocol,topic,revision,at,payload}`。
+- `media_connect({topics,progressMs,levels})` 原子注册订阅并返回 `PlaybackSnapshot`；事件 envelope 为 `{protocol,topic,revision,at,eventId,payload}`。
 - 资料库事件也走 `media:event`：`library.changed`、`library.scan.started`、`library.scan.progress`、`library.scan.finished`；`app_meta.revision` 持久化，列表响应同时带 revision。
 - 播放状态事件发完整 `PlayerState`；进度/电平只发给订阅窗口；音频电平最高 20Hz。
-- 引擎窗口只接收 `media-engine-command`，通过 `media_engine_ready/event` 上报；命令携带 `loadId`，旧加载事件被丢弃。
+- 引擎窗口只接收 `media-engine-command`，通过 `media_engine_ready/event` 上报；命令携带 `loadId`，旧加载事件被丢弃。N1 起 engine protocol 为 v2，Music 与 Noise 共用 `AudioGraph`（musicBus/noiseBus/master/limiter），并支持 `output.volume` 与 `engine.shutdown`。
+- 本地音频经 Tauri asset protocol 进入引擎；`<audio>` 必须设置 `crossOrigin="anonymous"`，asset protocol 返回的 `Access-Control-Allow-Origin` 才能让 `MediaElementAudioSourceNode` 输出非静音。缺少 CORS opt-in 时元素可直出，但接入 Web Audio 后会静音。
 
 ## 4. 前端 SDK
 
 `packages/media-sdk`（Apache-2.0）：
 
 - `createMediaClient({ transport? })`：Tauri 环境自动使用 `media_call` / `media_connect`；测试传内存 transport。
-- `library.*`（含 scan progress/cancel、cover URL、genre/filter 参数）、`player.*`、`queue.*`、`noise.*`、`connect/disconnect`、`events.on`。
+- `library.*`（含 scan progress/cancel、cover URL、genre/filter 参数）、`player.*`、`queue.*`、`noise.*`、`system.getOutput/setOutput`、`connect/disconnect`、`events.on`。
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient`。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
 - 设置页音乐库面板、官方播放器与白噪音都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。
@@ -116,7 +122,9 @@ P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公�
 - 扫描每个文件一个小事务；取消只在文件之间生效，大文件解析期间不会立即中断。
 - 已接入内嵌/文件夹封面与内嵌/同名 `.lrc` 歌词；歌词 UI、文件移动检测、`.lullignore` 尚未接入。
 - `library.listTracks` 已支持艺术家/专辑/流派(genre)/格式/年份筛选；完整标签实体、多值标签与 P4 元数据编辑仍在后续。
-- 播放/队列/白噪音已迁移到 Media Service；本地音频优先用 `captureStream` 分析电平，浏览器不支持时回退占位值；播放器队列 UI 尚未暴露。
+- 播放/队列/白噪音已迁移到 Media Service；N1 起统一走共享 `AudioGraph`（本地音频 `MediaElementAudioSource`、内置曲 `AmbientStream`、Noise `noiseBus`），不再各自建 `AudioContext`；播放器队列 UI 尚未暴露。
+- Noise 仍是 P2 的固定 5 层模型；N2 才引入 Asset/Track/Session/Preset，并通过兼容门面保留旧 `noise.*`。
+- 设备切换依赖 `devicechange` 重载引擎页 + Rust 全量 resync；多设备选择、独占模式、SMTC 尚未接入。
 - 没有第三方媒体权限；`media:event` 只对官方窗口开放。
 - 扫描错误最多保留 100 条，写入 `music_scan_runs.errors_json`。
 - 多设备音频输出切换、独占模式、系统媒体控制（SMTC）尚未接入。
@@ -128,10 +136,17 @@ P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公�
 | P0 | `media/video` 迁移、SQLx/lofty 依赖、迁移骨架 | 已完成基础 |
 | P1 | 来源/文件/Track/艺术家/专辑、扫描、只读 API、SDK 基础、设置面板 | 已完成（含资产、筛选、扫描进度/取消、revision/事件） |
 | P2 | Playback/Queue/Noise 服务、隐藏音频引擎、官方播放器/白噪音迁移 | 已完成，待长稳/多设备验收 |
+| N1（P2.5） | Shared AudioGraph、engine protocol v2、全局输出音量、订阅/快照基础 | 代码已落地，待长稳/设备验收 |
 | P3 | 歌单/喜欢/历史、M3U、资料库窗口 | 未开始 |
+| N2 | Noise Core：Session/Track、内置 procedural Asset、旧 API 兼容门面 | 未开始 |
+| N3 | Noise Library：导入、分类、标签、收藏、搜索 | 未开始 |
+| N4 | Noise Presets：保存/加载/导入/导出/缺失映射 | 未开始 |
 | P4 | 元数据编辑、标签、实体合并/拆分、智能歌单 | 未开始 |
-| P5 | 公开 SDK、Widget 桥、权限、示例 | 未开始 |
+| N5/P5 | 公开 Media SDK、Widget 桥、媒体权限、示例 | 未开始 |
+| N6 | 官方 Noise Mixer/Library/Preset UI | 未开始 |
 | P6 | 在线元数据、歌词格式、监听、缩略图、备份 | 未开始 |
+
+推荐顺序：`N1 → P3 → N2 → N3 → N4 → N5/P5 → N6 → P4 → P6`。N1 必须先于 Noise；P3 与 N2 可互换；N5/P5 必须等 P3 与 N4。
 
 ## 8. 设计参考
 

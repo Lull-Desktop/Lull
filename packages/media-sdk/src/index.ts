@@ -19,6 +19,7 @@ export type {
   ArtistSummary,
   ConnectOptions,
   MediaErrorBody,
+  MediaOutput,
   NoiseLayer,
   NoiseSound,
   NoiseState,

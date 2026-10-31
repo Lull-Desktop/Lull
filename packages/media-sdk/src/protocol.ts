@@ -49,6 +49,7 @@ export type MediaEventTopic =
   | "queue.changed"
   | "noise.state"
   | "noise.level"
+  | "output.changed"
   | "library.changed"
   | "library.scan.started"
   | "library.scan.progress"
@@ -63,5 +64,6 @@ export interface MediaEvent<T = unknown> {
   topic: MediaEventTopic;
   revision: number;
   at: number;
+  eventId?: string;
   payload: T;
 }

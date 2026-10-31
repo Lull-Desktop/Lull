@@ -5,19 +5,8 @@
  * 四小节和弦循环 + 低音 + 稀疏铃音 + 空气底噪，全部经过一段程序生成的混响。
  * 这样列表里的曲目在不联网时也能真正播放，并且持续提供主球频响涟漪所需的电平。
  */
+import type { AudioGraph } from "./audio-graph";
 import type { AmbientPreset } from "./preset";
-
-type BrowserAudioContext = typeof AudioContext;
-
-function resolveAudioContextCtor(): BrowserAudioContext | null {
-  if (typeof window === "undefined") return null;
-  return (
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: BrowserAudioContext })
-      .webkitAudioContext ??
-    null
-  );
-}
 
 function midiToFrequency(midi: number): number {
   return 440 * 2 ** ((midi - 69) / 12);
@@ -56,36 +45,26 @@ function createAirBuffer(context: AudioContext): AudioBuffer {
 }
 
 export class AmbientStream {
-  private context: AudioContext | null = null;
-  private input: GainNode | null = null;
-  private master: GainNode | null = null;
-  private analyser: AnalyserNode | null = null;
+  private context: AudioContext;
+  private input: GainNode;
+  private master: GainNode;
   private noiseGain: GainNode | null = null;
   private noiseSource: AudioBufferSourceNode | null = null;
   private sources = new Set<AudioScheduledSourceNode>();
   private timer: number | null = null;
   private preset: AmbientPreset | null = null;
   private running = false;
-  private volume = 78;
   private barDuration = 4;
   private nextBarIndex = 0;
   private nextBarTime = 0;
   private seedState = 1;
-  private smoothedLevel = 0;
-  private frequencyData: Uint8Array<ArrayBuffer> | null = null;
 
-  private ensureContext(): AudioContext {
-    if (this.context) return this.context;
-    const Ctor = resolveAudioContextCtor();
-    if (!Ctor) throw new Error("当前环境不支持 Web Audio");
-    const context = new Ctor();
+  constructor(graph: AudioGraph) {
+    const context = graph.ensure();
     const input = context.createGain();
     input.gain.value = 1;
     const master = context.createGain();
     master.gain.value = 0.0001;
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 128;
-    analyser.smoothingTimeConstant = 0.84;
 
     const dry = context.createGain();
     dry.gain.value = 0.72;
@@ -99,15 +78,12 @@ export class AmbientStream {
     input.connect(convolver);
     convolver.connect(wet);
     wet.connect(master);
-    master.connect(analyser);
-    analyser.connect(context.destination);
+    master.connect(graph.musicBus);
 
     this.context = context;
     this.input = input;
     this.master = master;
-    this.analyser = analyser;
     this.startAir();
-    return context;
   }
 
   private startAir(): void {
@@ -128,10 +104,6 @@ export class AmbientStream {
     source.start();
     this.noiseSource = source;
     this.noiseGain = gain;
-  }
-
-  private targetGain(): number {
-    return this.volume <= 0 ? 0.0001 : 0.92 * (this.volume / 100);
   }
 
   private random(): number {
@@ -263,8 +235,7 @@ export class AmbientStream {
   }
 
   private stopSources(): void {
-    const context = this.context;
-    const when = (context?.currentTime ?? 0) + 0.07;
+    const when = this.context.currentTime + 0.07;
     for (const source of this.sources) {
       try {
         source.stop(when);
@@ -277,7 +248,7 @@ export class AmbientStream {
 
   /** 开始或跳转到 offset 秒；重复调用会重置当前调度。 */
   start(preset: AmbientPreset, offset = 0): void {
-    const context = this.ensureContext();
+    const context = this.context;
     if (context.state === "suspended") {
       void context.resume().catch(() => {
         // 自动播放策略可能拒绝 resume；播放按钮状态会由组件兜底。
@@ -290,8 +261,8 @@ export class AmbientStream {
     this.running = true;
 
     const now = context.currentTime;
-    this.master?.gain.cancelScheduledValues(now);
-    this.master?.gain.setTargetAtTime(this.targetGain(), now, 0.18);
+    this.master.gain.cancelScheduledValues(now);
+    this.master.gain.setTargetAtTime(0.92, now, 0.18);
     this.noiseGain?.gain.setTargetAtTime(0.012 + preset.air * 0.02, now, 0.4);
 
     const safeOffset = Math.max(0, offset);
@@ -313,65 +284,18 @@ export class AmbientStream {
       window.clearInterval(this.timer);
       this.timer = null;
     }
-    const context = this.context;
-    if (context) {
-      const now = context.currentTime;
-      this.master?.gain.cancelScheduledValues(now);
-      this.master?.gain.setTargetAtTime(0.0001, now, 0.05);
+    if (this.context.state !== "closed") {
+      const now = this.context.currentTime;
+      this.master.gain.cancelScheduledValues(now);
+      this.master.gain.setTargetAtTime(0.0001, now, 0.05);
       this.noiseGain?.gain.setTargetAtTime(0.0001, now, 0.08);
     }
     this.stopSources();
-    this.smoothedLevel = 0;
-  }
-
-  setVolume(volume: number): void {
-    this.volume = volume;
-    const context = this.context;
-    if (!context) return;
-    this.master?.gain.setTargetAtTime(
-      this.running ? this.targetGain() : 0.0001,
-      context.currentTime,
-      0.08,
-    );
-  }
-
-  /** 0–1 的平滑电平，用于主球内壁频响涟漪。 */
-  level(): number {
-    const analyser = this.analyser;
-    if (!this.running || !analyser) return 0;
-    if (
-      !this.frequencyData ||
-      this.frequencyData.length !== analyser.frequencyBinCount
-    ) {
-      this.frequencyData = new Uint8Array(analyser.frequencyBinCount);
-    }
-    analyser.getByteFrequencyData(this.frequencyData);
-    const limit = Math.min(this.frequencyData.length, 44);
-    let sum = 0;
-    for (let index = 1; index < limit; index += 1) {
-      sum += this.frequencyData[index] ?? 0;
-    }
-    const average = sum / Math.max(1, (limit - 1) * 255);
-    const target = Math.min(1, average * 2.1);
-    this.smoothedLevel = this.smoothedLevel * 0.74 + target * 0.26;
-    return this.smoothedLevel;
   }
 
   dispose(): void {
     this.stop();
-    const context = this.context;
-    this.context = null;
-    this.input = null;
-    this.master = null;
-    this.analyser = null;
-    this.noiseGain = null;
-    this.noiseSource = null;
     this.preset = null;
-    this.frequencyData = null;
-    if (context) {
-      void context.close().catch(() => {
-        // 窗口关闭阶段上下文可能已经进入 closed，无需再处理。
-      });
-    }
+    this.sources.clear();
   }
 }

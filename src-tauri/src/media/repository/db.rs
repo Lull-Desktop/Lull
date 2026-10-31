@@ -99,7 +99,7 @@ mod tests {
       let tables: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN \
          ('music_sources', 'music_files', 'music_tracks', 'music_artists', \
-          'music_albums', 'music_track_metadata', 'music_search_text')",
+          'music_albums', 'music_track_metadata', 'music_search_text', 'media_output')",
       )
       .fetch_one(&pool)
       .await
@@ -112,7 +112,7 @@ mod tests {
       (tables, fts5)
     });
     cleanup(&path);
-    assert_eq!(tables, 7);
+    assert_eq!(tables, 8);
     eprintln!("SQLite FTS5 enabled = {fts5}");
   }
 

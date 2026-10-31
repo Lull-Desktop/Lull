@@ -3,27 +3,24 @@
 //! 状态由 Rust 持有；引擎只负责发声。播放进度高频更新只存在内存与事件里，
 //! 暂停/停止/切歌/音量/队列/噪声参数写入 SQLite。
 
-pub mod engine;
 pub mod model;
 pub mod store;
 
-use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
+use tauri::{AppHandle, Manager, WebviewWindow};
 
 use self::model::{
-  ConnectRequest, NoiseLayerView, NoiseSleepView, NoiseSoundView, NoiseStateView, PlaybackSnapshot,
-  PlayerStateView, QueueStateView, Subscription,
+  NoiseLayerView, NoiseSleepView, NoiseSoundView, NoiseStateView, PlayerStateView, QueueStateView,
 };
 use super::api::dto::TrackSummary;
 use super::api::errors::MediaError;
+use super::engine;
 use super::repository::{now_ms, tracks};
 
-pub const PROTOCOL_VERSION: u32 = 1;
 const ENGINE_LABEL: &str = engine::ENGINE_LABEL;
 
 #[derive(Debug, Clone)]
@@ -114,7 +111,6 @@ struct Service {
   sync_pending: bool,
   load_seq: u64,
   current_load_id: Option<String>,
-  subscribers: BTreeMap<String, Subscription>,
   sleep_generation: u64,
 }
 
@@ -177,29 +173,19 @@ fn noise_view(service: &Service) -> NoiseStateView {
   }
 }
 
-fn snapshot(service: &Service) -> PlaybackSnapshot {
-  PlaybackSnapshot {
-    protocol: PROTOCOL_VERSION,
-    revision: service.revision,
-    player: player_view(service),
-    queue: queue_view(service),
-    noise: noise_view(service),
-  }
+/// 一次加锁取出 Player/Queue/Noise 视图，避免快照内部出现跨 revision 的撕裂。
+pub(crate) fn snapshot_parts(
+) -> Result<(PlayerStateView, QueueStateView, NoiseStateView), MediaError> {
+  let service = lock()?;
+  Ok((
+    player_view(&service),
+    queue_view(&service),
+    noise_view(&service),
+  ))
 }
 
 fn emit(app: &AppHandle, service: &Service, topic: &str, payload: Value) {
-  let event = json!({
-    "protocol": PROTOCOL_VERSION,
-    "topic": topic,
-    "revision": service.revision,
-    "at": now_ms(),
-    "payload": payload,
-  });
-  for (label, subscription) in &service.subscribers {
-    if subscription.wants(topic) {
-      let _ = app.emit_to(label.as_str(), engine::MEDIA_EVENT, &event);
-    }
-  }
+  super::events::emit(app, topic, service.revision, payload);
 }
 
 fn emit_state(app: &AppHandle, service: &Service) {
@@ -267,7 +253,13 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
   if SERVICE.get().is_some() {
     return Ok(());
   }
-  let (player, queue, mut noise) = store::load(pool).await?;
+  let (mut player, queue, mut noise) = store::load(pool).await?;
+  // 旧播放器把“静音”写成 volume=0 且 muted=false；这种状态重启后无法出声。
+  // 新 UI 只用 muted 表达静音，这里把历史坏状态修回默认音量（muted 保持原值）。
+  if player.volume <= f64::EPSILON && !player.muted {
+    player.volume = PlayerData::default().volume;
+    let _ = store::save_player(pool, &player).await;
+  }
   // 应用重启只恢复混音参数，不自动播放白噪音；首次用户手势才 activate。
   if noise.active || noise.sleep_minutes != 0 || noise.sleep_ends_at.is_some() {
     noise.active = false;
@@ -280,7 +272,6 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     .current_track_id
     .clone()
     .or_else(|| queue.first().cloned());
-  let mut player = player;
   player.current_track_id = current_track_id.clone();
   let status = if current_track_id.is_some() {
     "paused".to_string()
@@ -306,30 +297,26 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     sync_pending: false,
     load_seq: 0,
     current_load_id: None,
-    subscribers: BTreeMap::new(),
     sleep_generation: 0,
   };
   let _ = SERVICE.set(Mutex::new(service));
   Ok(())
 }
 
-/// 窗口销毁：移除订阅；引擎窗口丢失时降级播放状态。
+/// 引擎窗口丢失时降级播放状态；订阅清理由 `media::events` 负责。
 pub fn on_window_destroyed(app: &AppHandle, label: &str) {
-  if label == ENGINE_LABEL {
-    if let Ok(mut service) = lock() {
-      service.engine_ready = false;
-      if service.status == "playing" || service.status == "loading" {
-        service.status = "paused".to_string();
-        touch(&mut service);
-        emit_state(app, &service);
-      }
-    }
-    crate::wallpaper::wlog("media engine 窗口已销毁，播放暂停");
+  if label != ENGINE_LABEL {
     return;
   }
   if let Ok(mut service) = lock() {
-    service.subscribers.remove(label);
+    service.engine_ready = false;
+    if service.status == "playing" || service.status == "loading" {
+      service.status = "paused".to_string();
+      touch(&mut service);
+      emit_state(app, &service);
+    }
   }
+  crate::wallpaper::wlog("media engine 窗口已销毁，播放暂停");
 }
 
 pub fn shutdown() {
@@ -352,65 +339,6 @@ pub fn shutdown() {
   }
 }
 
-/// 连接：注册订阅并原子返回当前快照。
-pub fn connect(
-  app: &AppHandle,
-  label: &str,
-  request: ConnectRequest,
-) -> Result<PlaybackSnapshot, MediaError> {
-  let mut service = lock()?;
-  let mut topics = BTreeMap::new();
-  for topic in request.topics {
-    if matches!(
-      topic.as_str(),
-      "player.state"
-        | "player.progress"
-        | "player.level"
-        | "queue.changed"
-        | "noise.state"
-        | "noise.level"
-    ) {
-      topics.insert(topic, true);
-    }
-  }
-  if topics.is_empty() {
-    for topic in [
-      "player.state",
-      "player.progress",
-      "queue.changed",
-      "noise.state",
-      "noise.level",
-    ] {
-      topics.insert(topic.to_string(), true);
-    }
-  }
-  let levels_requested = request.levels.unwrap_or(false);
-  let progress_ms = request.progress_ms.unwrap_or(1000).clamp(250, 5000);
-  service.subscribers.insert(
-    label.to_string(),
-    Subscription {
-      topics,
-      progress_ms,
-      levels: levels_requested,
-    },
-  );
-  if service.engine_ready {
-    let any_levels = service.subscribers.values().any(|item| item.levels);
-    let any_progress = service
-      .subscribers
-      .values()
-      .any(|item| item.wants("player.progress"));
-    engine::send(app, engine::meters(any_progress, any_levels, progress_ms));
-  }
-  Ok(snapshot(&service))
-}
-
-pub fn disconnect(label: &str) {
-  if let Ok(mut service) = lock() {
-    service.subscribers.remove(label);
-  }
-}
-
 /// `media_call` 的 playback 域入口。
 pub async fn call(
   app: AppHandle,
@@ -421,10 +349,6 @@ pub async fn call(
 ) -> Result<Value, MediaError> {
   let pool = super::library::pool()?.clone();
   let result = match (namespace, method) {
-    ("system", "snapshot") => {
-      let service = lock()?;
-      Ok(serde_json::to_value(snapshot(&service)).unwrap_or(Value::Null))
-    }
     ("player", "getState") => {
       let service = lock()?;
       Ok(serde_json::to_value(player_view(&service)).unwrap_or(Value::Null))
@@ -621,6 +545,11 @@ pub async fn call(
 
 pub fn revision() -> u64 {
   lock().map(|service| service.revision).unwrap_or(0)
+}
+
+#[must_use]
+pub fn is_engine_ready() -> bool {
+  lock().is_ok_and(|service| service.engine_ready)
 }
 
 fn noise_sounds() -> Vec<NoiseSoundView> {
@@ -889,7 +818,9 @@ async fn sync_engine(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaErro
 }
 
 async fn sync_engine_inner(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
-  let (ready, track_id, position, status, noise, progress_ms, levels, volume, muted) = {
+  let progress_ms = super::events::min_progress_ms();
+  let levels = super::events::any_levels();
+  let (ready, track_id, position, status, noise, volume, muted) = {
     let service = lock()?;
     (
       service.engine_ready,
@@ -897,13 +828,6 @@ async fn sync_engine_inner(app: &AppHandle, pool: &SqlitePool) -> Result<(), Med
       service.player.position_ms,
       service.status.clone(),
       service.noise.clone(),
-      service
-        .subscribers
-        .values()
-        .map(|sub| sub.progress_ms)
-        .min()
-        .unwrap_or(1000),
-      service.subscribers.values().any(|sub| sub.levels),
       service.player.volume,
       service.player.muted,
     )
@@ -943,6 +867,7 @@ async fn sync_engine_inner(app: &AppHandle, pool: &SqlitePool) -> Result<(), Med
     app,
     engine::noise_sync(noise.active, noise.master, noise.muted, &noise.layers),
   );
+  super::output::sync(app);
   engine::send(app, engine::meters(true, levels, progress_ms));
   Ok(())
 }
@@ -996,6 +921,7 @@ async fn resolve_source(
 }
 
 fn set_error(app: &AppHandle, error: &MediaError) {
+  crate::wallpaper::wlog(&format!("播放错误 {}: {}", error.code, error.message));
   if let Ok(mut service) = lock() {
     service.status = "error".to_string();
     service.error = Some(
@@ -1120,6 +1046,7 @@ pub fn on_engine_event(app: &AppHandle, event: engine::EngineEvent) {
       code,
       message,
     } => {
+      crate::wallpaper::wlog(&format!("引擎错误 {scope}/{code}: {message}"));
       if let Ok(mut service) = lock() {
         service.status = "error".to_string();
         service.error = Some(json!({ "code": code, "message": message, "scope": scope }));

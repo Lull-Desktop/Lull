@@ -151,10 +151,14 @@ lib.rs
  │    │    ├─ diagnostics.rs（Session/Surface/统计 DTO）
  │    │    ├─ native_bridge.rs（可选 `native-media`：lull_native.dll 的 lull_media_* FFI）
  │    │    └─ config.rs（MediaConfig 归一化）
- │    ├─ api（`media_call`、MediaRequest/Response、DTO/错误码）
+ │    ├─ api（`media_call`、MediaRequest/Response、DTO/错误码、组合快照）
+ │    ├─ engine（隐藏 `media-engine` 窗口、engine protocol v2、命令/事件）
+ │    ├─ events（`media:event` 订阅、revision/eventId）
+ │    ├─ output（Music + Noise 共享的全局输出音量）
  │    ├─ library（音乐资料库门面、lofty 元数据、扫描进度/取消、封面/歌词资产、revision 事件）
+ │    ├─ playback（Music 播放/队列；旧 5 层 Noise 在 N2 前兼容保留）
  │    ├─ repository（SQLx：music.db 迁移、来源/曲目/艺术家/专辑查询）
- │    └─ mod.rs（init/shutdown；初始化视频运行时与音乐资料库）
+ │    └─ mod.rs（init/shutdown；初始化视频运行时、引擎与音乐资料库）
  ├─ wallpaper
  │    ├─ runtime.rs（状态 + 命令 + autostart）
  │    ├─ windows.rs（创建 / 销毁 / 重建 / 热更新）
@@ -164,7 +168,7 @@ lib.rs
  │    └─ ffi.rs（DLL 加载 / C ABI / 日志）
 ```
 
-依赖方向：`runtime → windows → protocol/topology → ffi`；`watchdog → ffi + windows`；`config` 不依赖任何壁纸模块；`media::video` 只通过 `wallpaper::runtime` 的配置/目标快照与 `windows` 生命周期钩子交互，不直接操作窗口。`media::library` 只依赖 `media::repository` 与 `media::api`，不依赖 `video`；`media::playback` 只依赖 `repository`/`api` 与隐藏 `media-engine` WebView，不依赖 `video`。
+依赖方向：`runtime → windows → protocol/topology → ffi`；`watchdog → ffi + windows`；`config` 不依赖任何壁纸模块；`media::video` 只通过 `wallpaper::runtime` 的配置/目标快照与 `windows` 生命周期钩子交互，不直接操作窗口。`media::library` 只依赖 `media::repository` 与 `media::api`，不依赖 `video`；`media::playback` 依赖 `repository`/`api`、`media::engine`、`media::events` 与 `media::output`，不依赖 `video`；`media::engine`/`media::events` 不依赖视频或 Noise 业务。
 
 ## 4. IPC 合约
 
@@ -239,8 +243,8 @@ lib.rs
 | `media-changed` / `media-config-changed` | Rust（会话/配置） | 设置页、壁纸媒体面板 |
 | `media-master-visible` | Rust（全局壁纸显隐） | 壁纸 MediaSurface 暂停/恢复 HTML video |
 | `media-degraded` | Rust（原生路径失败） | 壁纸 MediaSurface 切换 HTML 回退 |
-| `media:event` | Rust（资料库 revision、扫描进度、播放/队列/白噪音） | 设置页、已订阅的播放器/白噪音窗口 |
-| `media-engine-command` | Rust（`media::playback::engine`） | 隐藏 `media-engine` 窗口 |
+| `media:event` | Rust（资料库 revision、扫描进度、播放/队列/白噪音、输出音量） | 设置页、已订阅的播放器/白噪音窗口 |
+| `media-engine-command` | Rust（`media::engine`） | 隐藏 `media-engine` 窗口 |
 
 ### 4.3 Widget 上下文注入
 
@@ -372,8 +376,8 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 45 个测试文件（249 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描、播放器/白噪音、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
-cargo test             Rust 158 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描/取消、资产、筛选与内置曲 seed / 播放状态、窗口权限与引擎协议）
+pnpm test              前端 46 个测试文件（254 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描、播放器/白噪音、共享音频增益、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
+cargo test             Rust 160 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描/取消、资产、筛选与内置曲 seed / 播放状态、窗口权限、订阅/快照与引擎协议）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
@@ -415,4 +419,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
    没有自动更新、版本比较与回滚；安装目录由用户自行维护，卸载即删目录。
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
 9. **视频壁纸的边界**：默认构建走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/WebView2 TextureStream 共享解码在可选 `native-media` feature 下实现，但本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，运行时自动回退。能力探测、构建依赖与验收门见 [Media Runtime](media-runtime.md)。不要把 HTML 回退描述成“单解码器”，也不要把“feature 已实现”描述成“原生已交付”。
-10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；`media_call` 对 `settings/player/noise` 开放，`media_connect` 返回快照并通过 `media:event` 推送，播放器/白噪音不再持有自己的音频图。P1 已补封面/歌词资产、艺术家/专辑/流派/格式/年份筛选、扫描进度/取消与资料库 revision；歌单/喜欢/历史、完整标签实体、第三方媒体权限、队列 UI 与多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md)。
+10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。`media_call` 对 `settings/player/noise` 开放，`media_connect` 返回快照并通过 `media:event` 推送，播放器/白噪音不再持有自己的音频图。P1 已补封面/歌词资产、艺术家/专辑/流派/格式/年份筛选、扫描进度/取消与资料库 revision；歌单/喜欢/历史、完整标签实体、Noise 业务域、第三方媒体权限、队列 UI 与多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。

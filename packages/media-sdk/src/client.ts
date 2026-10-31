@@ -20,6 +20,7 @@ import type {
   AlbumSummary,
   ArtistSummary,
   ConnectOptions,
+  MediaOutput,
   NoiseSound,
   NoiseState,
   Page,
@@ -94,6 +95,13 @@ export interface LullMediaClient {
     setMuted(muted: boolean): Promise<NoiseState>;
     setSleepTimer(minutes: number): Promise<NoiseState>;
     reset(): Promise<NoiseState>;
+  };
+  system: {
+    getOutput(): Promise<MediaOutput>;
+    setOutput(patch: {
+      volume?: number;
+      muted?: boolean;
+    }): Promise<MediaOutput>;
   };
   events: {
     on<T = unknown>(listener: (event: MediaEvent<T>) => void): () => void;
@@ -283,6 +291,12 @@ export function createMediaClient(
     reset: () => call<NoiseState>("noise", "reset"),
   };
 
+  const system = {
+    getOutput: () => call<MediaOutput>("system", "getOutput"),
+    setOutput: (patch: { volume?: number; muted?: boolean }) =>
+      call<MediaOutput>("system", "setOutput", patch),
+  };
+
   return {
     protocol: MEDIA_PROTOCOL,
     get revision() {
@@ -305,6 +319,7 @@ export function createMediaClient(
     player,
     queue,
     noise,
+    system,
     events: {
       on<T = unknown>(listener: (event: MediaEvent<T>) => void): () => void {
         if (!transport.subscribe) return () => {};

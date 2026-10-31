@@ -5,12 +5,12 @@ order: 3
 group: 扩展开发
 source: docs/scene-sdk.md
 ---
->当前仍处于 **Beta 测试阶段**，我们会尽力保持各版本之间的向后兼容性，如有重大变更会提前在社区公告。
+
+> 当前仍处于 **Beta 测试阶段**，我们会尽力保持各版本之间的向后兼容性，如有重大变更会提前在社区公告。
 
 目前已落地的能力包括**静态场景包**与声明 `wallpaper.script` 的**沙箱脚本场景包**。
 `theme` / `sound-preset` / `layout` 三种类型的清单字段已在 SDK 里预留，但宿主尚未加载，
 不要在说明里把它们算成已支持。
-
 
 ## 包结构
 
@@ -25,7 +25,7 @@ public/content/
       assets/…
 ```
 
->没有登记在 `catalog.json` 里的目录不会被加载。
+> 没有登记在 `catalog.json` 里的目录不会被加载。
 
 `catalog.json` 是唯一的内容索引，`scenes[]` 里每条描述一个场景包：
 

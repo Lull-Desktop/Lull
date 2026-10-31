@@ -77,6 +77,19 @@ test("进度环与音量滑杆保留可访问值与键盘语义", () => {
   expect(volume.getAttribute("aria-valuenow")).toBe("83");
 });
 
+test("静音只切换 muted，不把音量写成 0", () => {
+  render(<PlayerPage />);
+
+  const volume = screen.getByRole("slider", { name: "音量" });
+  fireEvent.click(screen.getByRole("button", { name: "静音" }));
+  expect(screen.getByRole("button", { name: "取消静音" })).toBeDefined();
+  expect(volume.getAttribute("aria-valuenow")).toBe("78");
+
+  fireEvent.click(screen.getByRole("button", { name: "取消静音" }));
+  expect(screen.getByRole("button", { name: "静音" })).toBeDefined();
+  expect(volume.getAttribute("aria-valuenow")).toBe("78");
+});
+
 test("曲库弹出方向可切到左侧，抽屉保持展开", async () => {
   render(<PlayerPage />);
 

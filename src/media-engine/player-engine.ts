@@ -3,8 +3,13 @@
  *
  * 它只负责发声、位置与状态，不认识歌单/队列；这些由 Rust Media Service 持有。
  * 隐藏窗口里每 250ms 上报进度，由宿主再按订阅节流转发。
+ *
+ * N1 起所有声音进入共享 AudioGraph：本地音频用 MediaElementAudioSource，
+ * 内置氛围曲接 musicBus，播放器音量只由 graph 控制。
  */
 import { AmbientStream } from "./ambient-stream";
+import type { AudioGraph } from "./audio-graph";
+import { clamp01 } from "./gain";
 import type { AmbientPreset } from "./preset";
 import type { EngineEvent, PlaybackSource } from "./protocol";
 
@@ -12,14 +17,11 @@ type Emit = (event: EngineEvent) => void;
 
 export class PlayerEngine {
   private readonly emit: Emit;
+  private readonly graph: AudioGraph;
   private readonly timer: number;
   private ambient: AmbientStream | null = null;
   private audio: HTMLAudioElement | null = null;
-  private localContext: AudioContext | null = null;
-  private localAnalyser: AnalyserNode | null = null;
-  private localSource: MediaStreamAudioSourceNode | null = null;
-  private localStream: MediaStream | null = null;
-  private localSamples: Uint8Array<ArrayBuffer> | null = null;
+  private localSource: MediaElementAudioSourceNode | null = null;
   private source: PlaybackSource | null = null;
   private loadId = "";
   private durationMs: number | null = null;
@@ -30,8 +32,10 @@ export class PlayerEngine {
   private muted = false;
   private ended = false;
 
-  constructor(emit: Emit) {
+  constructor(emit: Emit, graph: AudioGraph) {
     this.emit = emit;
+    this.graph = graph;
+    this.graph.setMusicVolume(this.volume, this.muted);
     this.timer = window.setInterval(() => this.tick(), 250);
   }
 
@@ -51,9 +55,9 @@ export class PlayerEngine {
 
     if (command.source.kind === "ambient") {
       this.emitLoaded();
-      if (command.autoplay)
+      if (command.autoplay) {
         this.startAmbient(command.source.preset, this.offsetMs);
-      else {
+      } else {
         this.playing = false;
         this.emitState("paused");
       }
@@ -62,10 +66,22 @@ export class PlayerEngine {
 
     const audio = new Audio();
     audio.preload = "auto";
+    // 本地曲走 Tauri asset protocol；接入 MediaElementAudioSource 时必须让
+    // 元素以 CORS 模式取资源，否则 Web Audio 会把跨域媒体输出成静音。
+    // Tauri asset protocol 会回 Access-Control-Allow-Origin: <window origin>。
+    audio.crossOrigin = "anonymous";
     audio.src = command.source.url;
     audio.volume = this.effectiveVolume();
+    try {
+      this.graph.ensure();
+      this.localSource = this.graph.attachMediaElement(audio);
+      audio.volume = 1;
+    } catch {
+      // Graph 不可用时保留元素直出，随后由宿主上报错误；音量仍可调。
+      this.localSource = null;
+      audio.volume = this.effectiveVolume();
+    }
     audio.addEventListener("loadedmetadata", () => {
-      if (!this.localAnalyser) this.attachLocalLevel(audio);
       if (Number.isFinite(audio.duration) && audio.duration > 0) {
         this.durationMs = Math.round(audio.duration * 1000);
       }
@@ -97,7 +113,6 @@ export class PlayerEngine {
       this.emitError("player.load-failed", "本地音频加载失败");
     });
     this.audio = audio;
-    this.attachLocalLevel(audio);
     audio.load();
   }
 
@@ -108,7 +123,6 @@ export class PlayerEngine {
     }
     if (this.source?.kind === "ambient") {
       this.startAmbient(this.source.preset, this.offsetMs);
-      this.emitState("playing");
     }
   }
 
@@ -144,95 +158,64 @@ export class PlayerEngine {
       return;
     }
     if (this.source?.kind === "ambient") {
-      if (this.playing) this.startAmbient(this.source.preset, position);
-      else this.emitState("paused");
+      if (this.playing) {
+        this.startAmbient(this.source.preset, position);
+      } else {
+        this.emitState("paused");
+      }
     }
   }
 
   setVolume(volume: number, muted: boolean): void {
-    this.volume = Number.isFinite(volume)
-      ? Math.min(1, Math.max(0, volume))
-      : 0;
+    this.volume = clamp01(volume);
     this.muted = muted;
-    this.ambient?.setVolume(this.muted ? 0 : Math.round(this.volume * 100));
-    if (this.audio) this.audio.volume = this.effectiveVolume();
+    this.graph.setMusicVolume(this.volume, this.muted);
+    if (this.audio && !this.localSource) {
+      this.audio.volume = this.effectiveVolume();
+    }
   }
 
   level(): number {
     if (!this.playing || this.muted) return 0;
-    if (this.ambient) return this.ambient.level();
-    const analyser = this.localAnalyser;
-    if (!analyser) return Math.min(1, 0.42 * this.volume);
-    if (!this.localSamples || this.localSamples.length !== analyser.fftSize) {
-      this.localSamples = new Uint8Array(analyser.fftSize);
-    }
-    analyser.getByteTimeDomainData(this.localSamples);
-    let sum = 0;
-    for (const sample of this.localSamples) {
-      const value = (sample - 128) / 128;
-      sum += value * value;
-    }
-    const level = Math.min(
-      1,
-      Math.sqrt(sum / this.localSamples.length) * 7.5 * this.volume,
-    );
-    return level > 0.001 ? level : Math.min(1, 0.42 * this.volume);
+    return this.graph.musicLevel();
   }
 
   dispose(): void {
     window.clearInterval(this.timer);
     this.stopInternal();
-    const context = this.localContext;
-    this.localContext = null;
-    if (context) void context.close().catch(() => {});
     this.ambient?.dispose();
     this.ambient = null;
-  }
-
-  private attachLocalLevel(audio: HTMLAudioElement): void {
-    const capture = (
-      audio as HTMLAudioElement & { captureStream?: () => MediaStream }
-    ).captureStream;
-    if (typeof capture !== "function") return;
-    try {
-      this.localContext ??= new AudioContext();
-      const context = this.localContext;
-      const stream = capture.call(audio);
-      const source = context.createMediaStreamSource(stream);
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 128;
-      analyser.smoothingTimeConstant = 0.82;
-      source.connect(analyser);
-      this.localSource = source;
-      this.localStream = stream;
-      this.localAnalyser = analyser;
-      void context.resume().catch(() => {});
-    } catch {
-      // 本地音频仍可直接播放；失败时退回稳定的占位电平。
-      this.localSource = null;
-      this.localStream = null;
-      this.localAnalyser = null;
-    }
   }
 
   private effectiveVolume(): number {
     return this.muted ? 0 : this.volume;
   }
 
-  private startAmbient(preset: AmbientPreset, offsetMs: number): void {
-    this.ambient ??= new AmbientStream();
-    this.ambient.setVolume(this.muted ? 0 : Math.round(this.volume * 100));
-    this.ambient.start(preset, offsetMs / 1000);
+  private startAmbient(preset: AmbientPreset, offsetMs: number): boolean {
+    try {
+      this.graph.resume();
+      this.ambient ??= new AmbientStream(this.graph);
+      this.ambient.start(preset, offsetMs / 1000);
+    } catch (error) {
+      this.playing = false;
+      this.emitError(
+        "player.audio-graph",
+        error instanceof Error ? error.message : "音频图初始化失败",
+      );
+      return false;
+    }
     this.offsetMs = offsetMs;
     this.startedAt = performance.now();
     this.playing = true;
     this.ended = false;
     this.emitState("playing");
+    return true;
   }
 
   private async playAudio(audio: HTMLAudioElement): Promise<void> {
     try {
-      audio.volume = this.effectiveVolume();
+      this.graph.resume();
+      audio.volume = this.localSource ? 1 : this.effectiveVolume();
       await audio.play();
       this.playing = true;
       this.ended = false;
@@ -251,12 +234,8 @@ export class PlayerEngine {
   private stopInternal(): void {
     this.playing = false;
     this.ambient?.stop();
-    this.localSource?.disconnect();
+    this.graph.detachMediaElement(this.localSource);
     this.localSource = null;
-    this.localAnalyser = null;
-    this.localSamples = null;
-    for (const track of this.localStream?.getTracks() ?? []) track.stop();
-    this.localStream = null;
     if (this.audio) {
       this.audio.pause();
       this.audio.removeAttribute("src");

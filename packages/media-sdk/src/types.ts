@@ -162,11 +162,17 @@ export interface NoiseSound {
   name: string;
 }
 
+export interface MediaOutput {
+  volume: number;
+  muted: boolean;
+}
+
 export interface PlaybackSnapshot {
   protocol: 1;
   revision: number;
   player: PlayerState;
   queue: QueueState;
+  output: MediaOutput;
   noise: NoiseState;
 }
 

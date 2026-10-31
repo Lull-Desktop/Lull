@@ -1,16 +1,16 @@
 /**
  * 引擎侧白噪音混音图。逻辑从 `use-ambient-mixer` 迁出，去掉 React/授权判断；
  * 状态由 Rust 服务下发，这里只同步增益并输出 RMS 电平。
+ *
+ * N1 起不再自建 AudioContext：所有轨道接入共享 `AudioGraph.noiseBus`，由 graph
+ * 统一控制 Noise master、输出 master 和 limiter。
  */
+import type { AudioGraph } from "./audio-graph";
+import { trackGain } from "./gain";
 import type { NoiseLayer } from "./protocol";
-
-const CHANNEL_GAIN = 0.34;
-const MASTER_GAIN = 0.9;
 
 type Engine = {
   context: AudioContext;
-  master: GainNode;
-  analyser: AnalyserNode;
   gains: Record<string, GainNode>;
 };
 
@@ -212,15 +212,7 @@ function buildChannel(
   }
 }
 
-function buildEngine(context: AudioContext): Engine {
-  const master = context.createGain();
-  master.gain.value = 0;
-  const analyser = context.createAnalyser();
-  analyser.fftSize = 512;
-  analyser.smoothingTimeConstant = 0.82;
-  master.connect(analyser);
-  analyser.connect(context.destination);
-
+function buildEngine(context: AudioContext, graph: AudioGraph): Engine {
   const white = makeNoiseBuffer(context, "white");
   const brown = makeNoiseBuffer(context, "brown");
   const crackle = makeCrackleBuffer(context);
@@ -228,11 +220,11 @@ function buildEngine(context: AudioContext): Engine {
   for (const id of ["rain", "thunder", "wind", "waves", "fire"]) {
     const gain = context.createGain();
     gain.gain.value = 0;
-    gain.connect(master);
+    gain.connect(graph.noiseBus);
     gains[id] = gain;
     buildChannel(context, id, gain, white, brown, crackle);
   }
-  return { context, master, analyser, gains };
+  return { context, gains };
 }
 
 function ramp(param: AudioParam, value: number, now: number): void {
@@ -241,20 +233,18 @@ function ramp(param: AudioParam, value: number, now: number): void {
 }
 
 export class NoiseEngine {
+  private readonly graph: AudioGraph;
   private engine: Engine | null = null;
-  private samples: Uint8Array<ArrayBuffer> | null = null;
+
+  constructor(graph: AudioGraph) {
+    this.graph = graph;
+  }
 
   private ensure(): Engine | null {
     if (this.engine) return this.engine;
-    if (
-      typeof window === "undefined" ||
-      typeof window.AudioContext !== "function"
-    ) {
-      return null;
-    }
     try {
-      const context = new window.AudioContext();
-      this.engine = buildEngine(context);
+      const context = this.graph.ensure();
+      this.engine = buildEngine(context, this.graph);
       return this.engine;
     } catch {
       return null;
@@ -264,11 +254,7 @@ export class NoiseEngine {
   async start(): Promise<void> {
     const engine = this.ensure();
     if (!engine) return;
-    try {
-      await engine.context.resume();
-    } catch {
-      // 自动播放策略可能拒绝；宿主会通过 browser args 放行，失败不崩。
-    }
+    this.graph.resume();
   }
 
   sync(
@@ -280,36 +266,20 @@ export class NoiseEngine {
     const engine = this.ensure();
     if (!engine) return;
     void this.start();
+    this.graph.setNoiseVolume(active ? master : 0, muted);
     const now = engine.context.currentTime;
-    const masterValue = !active || muted ? 0 : master * MASTER_GAIN;
-    ramp(engine.master.gain, masterValue, now);
     for (const layer of layers) {
       const gain = engine.gains[layer.soundId];
       if (!gain) continue;
-      const value = layer.enabled ? layer.volume * CHANNEL_GAIN : 0;
-      ramp(gain.gain, value, now);
+      ramp(gain.gain, trackGain(layer.volume, layer.enabled, active), now);
     }
   }
 
   level(): number {
-    const engine = this.engine;
-    if (!engine) return 0;
-    if (!this.samples || this.samples.length !== engine.analyser.fftSize) {
-      this.samples = new Uint8Array(engine.analyser.fftSize);
-    }
-    engine.analyser.getByteTimeDomainData(this.samples);
-    let sum = 0;
-    for (let index = 0; index < this.samples.length; index += 1) {
-      const value = ((this.samples[index] ?? 128) - 128) / 128;
-      sum += value * value;
-    }
-    return Math.min(1, Math.sqrt(sum / this.samples.length) * 7.5);
+    return this.engine ? this.graph.noiseLevel() : 0;
   }
 
   dispose(): void {
-    const engine = this.engine;
     this.engine = null;
-    this.samples = null;
-    if (engine) void engine.context.close().catch(() => {});
   }
 }

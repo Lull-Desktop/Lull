@@ -2,15 +2,17 @@
 //!
 //! P2：`settings` 可访问资料库与播放；`player` 可访问播放/队列/资料库读取；
 //! `noise` 可访问噪声与资料库读取。引擎命令只允许 `media-engine` 窗口。
+//! N1 起 `media_connect` 的订阅与快照由 `events` + `snapshot` 统一处理。
 
 use serde_json::Value;
 use tauri::{Manager, WebviewWindow};
 
 use super::errors::MediaError;
 use super::protocol::{MediaRequest, MediaResponse, PROTOCOL_VERSION};
-use crate::media::playback::engine::{EngineEvent, ENGINE_LABEL};
-use crate::media::playback::model::ConnectRequest;
-use crate::media::{library, playback};
+use super::snapshot;
+use crate::media::engine::{self, EngineEvent, ENGINE_LABEL};
+use crate::media::events::{self, ConnectRequest};
+use crate::media::{library, output, playback};
 
 fn media_window(label: &str) -> Result<(), MediaError> {
   if matches!(label, "settings" | "player" | "noise") {
@@ -65,6 +67,14 @@ pub async fn media_call(window: WebviewWindow, request: MediaRequest) -> MediaRe
     .await;
   }
 
+  if request.namespace == "system" {
+    let result = system_call(&window, &request.method, &request.args).await;
+    return match result {
+      Ok(value) => MediaResponse::ok(&request_id, value, snapshot::revision()),
+      Err(error) => MediaResponse::error(&request_id, &error, snapshot::revision()),
+    };
+  }
+
   match playback::call(
     window.app_handle().clone(),
     &label,
@@ -74,8 +84,36 @@ pub async fn media_call(window: WebviewWindow, request: MediaRequest) -> MediaRe
   )
   .await
   {
-    Ok(value) => MediaResponse::ok(&request_id, value, playback::revision()),
-    Err(error) => MediaResponse::error(&request_id, &error, playback::revision()),
+    Ok(value) => MediaResponse::ok(&request_id, value, snapshot::revision()),
+    Err(error) => MediaResponse::error(&request_id, &error, snapshot::revision()),
+  }
+}
+
+async fn system_call(
+  window: &WebviewWindow,
+  method: &str,
+  args: &Value,
+) -> Result<Value, MediaError> {
+  match method {
+    "snapshot" => {
+      snapshot::snapshot().map(|snapshot| serde_json::to_value(snapshot).unwrap_or(Value::Null))
+    }
+    "getOutput" => Ok(serde_json::to_value(output::view()).unwrap_or(Value::Null)),
+    "setOutput" => {
+      let volume = args.get("volume").and_then(Value::as_f64);
+      let muted = args.get("muted").and_then(Value::as_bool);
+      if volume.is_none() && muted.is_none() {
+        return Err(MediaError::invalid("缺少 volume 或 muted"));
+      }
+      let pool = library::pool()?;
+      output::set(&window.app_handle().clone(), pool, volume, muted)
+        .await
+        .map(|view| serde_json::to_value(view).unwrap_or(Value::Null))
+    }
+    _ => Err(MediaError::new(
+      "method.unknown",
+      format!("不支持的媒体系统方法：{method}"),
+    )),
   }
 }
 
@@ -84,19 +122,35 @@ pub fn media_connect(window: WebviewWindow, request: ConnectRequest) -> MediaRes
   if let Err(error) = media_window(window.label()) {
     return MediaResponse::error("connect", &error, 0);
   }
-  match playback::connect(&window.app_handle().clone(), window.label(), request) {
+  let label = window.label().to_string();
+  events::register(&label, request);
+  let app = window.app_handle().clone();
+  if playback::is_engine_ready() {
+    engine::send(
+      &app,
+      engine::meters(
+        events::any_progress(),
+        events::any_levels(),
+        events::min_progress_ms(),
+      ),
+    );
+  }
+  match snapshot::snapshot() {
     Ok(snapshot) => MediaResponse::ok(
       "connect",
       serde_json::to_value(snapshot).unwrap_or(Value::Null),
-      playback::revision(),
+      snapshot::revision(),
     ),
-    Err(error) => MediaResponse::error("connect", &error, playback::revision()),
+    Err(error) => {
+      events::disconnect(&label);
+      MediaResponse::error("connect", &error, snapshot::revision())
+    }
   }
 }
 
 #[tauri::command]
 pub fn media_disconnect(window: WebviewWindow) {
-  playback::disconnect(window.label());
+  events::disconnect(window.label());
 }
 
 #[tauri::command]

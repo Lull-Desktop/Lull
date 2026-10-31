@@ -80,6 +80,9 @@ pub fn init(app: tauri::AppHandle) {
         if let Err(error) = catalog::seed(&pool).await {
           crate::wallpaper::wlog(&format!("内置曲目 seed 失败：{error}"));
         }
+        if let Err(error) = super::output::init(&pool).await {
+          crate::wallpaper::wlog(&format!("输出音量初始化失败：{error}"));
+        }
         if let Err(error) = super::playback::init(&pool).await {
           crate::wallpaper::wlog(&format!("播放服务初始化失败：{error}"));
         }

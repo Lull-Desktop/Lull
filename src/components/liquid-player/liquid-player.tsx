@@ -198,6 +198,7 @@ export function LiquidPlayer(): React.ReactElement {
   const [progress, setProgress] = useState(0);
   const [mode, setMode] = useState<PlayMode>("sequence");
   const [volume, setVolume] = useState(78);
+  const [muted, setMuted] = useState(false);
   const [lastAudibleVolume, setLastAudibleVolume] = useState(78);
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [drawerHeld, setDrawerHeld] = useState(false);
@@ -236,6 +237,7 @@ export function LiquidPlayer(): React.ReactElement {
   const playingRef = useRef(false);
   const progressRef = useRef(0);
   const volumeRef = useRef(78);
+  const mutedRef = useRef(false);
   const serviceVolumeRef = useRef(-1);
   const scrubPointerRef = useRef<number | null>(null);
   const volumeTrackRef = useRef<HTMLDivElement>(null);
@@ -329,8 +331,9 @@ export function LiquidPlayer(): React.ReactElement {
 
   useEffect(() => {
     volumeRef.current = volume;
+    mutedRef.current = muted;
     if (volume > 0) setLastAudibleVolume(volume);
-  }, [volume]);
+  }, [muted, volume]);
 
   // Rust Media Service 是播放状态的权威源；本组件只缓存给玻璃 UI 用。
   useEffect(() => {
@@ -343,6 +346,7 @@ export function LiquidPlayer(): React.ReactElement {
       progressRef.current = player.positionMs / 1000;
     }
     setMode(player.mode);
+    setMuted(player.muted);
     const nextVolume = Math.round(player.volume * 100);
     // 进度事件也会刷新 player 对象；只有服务端音量真的变化时才覆盖本地滑杆，
     // 避免用户拖动中的值被 500ms 一次的进度事件弹回去。
@@ -372,9 +376,10 @@ export function LiquidPlayer(): React.ReactElement {
   useEffect(() => {
     const stored = readPlayerPrefs();
     if (stored.mode) setMode(stored.mode);
-    if (stored.volume !== undefined) {
+    // 旧版本把“静音”持久化成 volume=0；新版本只用 muted，启动时忽略 0。
+    if (stored.volume !== undefined && stored.volume > 0) {
       setVolume(stored.volume);
-      if (stored.volume > 0) setLastAudibleVolume(stored.volume);
+      setLastAudibleVolume(stored.volume);
     }
     setThemeReady(true);
   }, []);
@@ -538,7 +543,7 @@ export function LiquidPlayer(): React.ReactElement {
 
   /** 切歌时一声很轻的水滴「啵」，与 0.35s 封面晕染同步。 */
   const playDropSound = useCallback((): void => {
-    if (volumeRef.current <= 0) return;
+    if (volumeRef.current <= 0 || mutedRef.current) return;
     const context = ensureUiContext();
     if (!context) return;
     try {
@@ -750,12 +755,16 @@ export function LiquidPlayer(): React.ReactElement {
   }, [session.actions, setDrawer, showNotice]);
 
   const toggleMute = useCallback((): void => {
-    const next = volume > 0 ? 0 : Math.max(1, lastAudibleVolume);
-    setVolume(next);
-    void session.actions.setVolume(next / 100).catch(() => {});
-    if (next === 0) void session.actions.setMuted(true).catch(() => {});
-    else void session.actions.setMuted(false).catch(() => {});
-  }, [lastAudibleVolume, session.actions, volume]);
+    const silent = muted || volume <= 0;
+    const next = !silent;
+    setMuted(next);
+    if (!next && volume <= 0) {
+      const restored = Math.max(1, lastAudibleVolume);
+      setVolume(restored);
+      void session.actions.setVolume(restored / 100).catch(() => {});
+    }
+    void session.actions.setMuted(next).catch(() => {});
+  }, [lastAudibleVolume, muted, session.actions, volume]);
 
   // 滑杆/滚轮只改本地 UI；停顿后再提交给服务，避免每像素一次 IPC。
   useEffect(() => {
@@ -764,7 +773,10 @@ export function LiquidPlayer(): React.ReactElement {
     if (current === volume) return;
     const timer = window.setTimeout(() => {
       void session.actions.setVolume(volume / 100).catch(() => {});
-      if (volume > 0) void session.actions.setMuted(false).catch(() => {});
+      if (volume > 0) {
+        setMuted(false);
+        void session.actions.setMuted(false).catch(() => {});
+      }
     }, 120);
     return () => window.clearTimeout(timer);
   }, [session.actions, session.player, volume]);
@@ -961,6 +973,7 @@ export function LiquidPlayer(): React.ReactElement {
   const nextDockSide: DockSide = dockSide === "right" ? "left" : "right";
   const dockSideLabel =
     nextDockSide === "left" ? "曲库改从左侧弹出" : "曲库改从右侧弹出";
+  const silent = muted || volume <= 0;
   // 换边时抽屉释放隐藏后，与主球组一起用 materialize 关键帧重组。
   const drawerEntering = dockSwitching && drawerOpen && !drawerHeld;
 
@@ -1317,11 +1330,11 @@ export function LiquidPlayer(): React.ReactElement {
                 <button
                   type="button"
                   className={styles.volumeMute}
-                  aria-label={volume > 0 ? "静音" : "取消静音"}
-                  title={volume > 0 ? "静音（M）" : "取消静音（M）"}
+                  aria-label={silent ? "取消静音" : "静音"}
+                  title={silent ? "取消静音（M）" : "静音（M）"}
                   onClick={toggleMute}
                 >
-                  {volume > 0 ? <Volume2 /> : <VolumeX />}
+                  {silent ? <VolumeX /> : <Volume2 />}
                 </button>
                 <div
                   ref={volumeTrackRef}

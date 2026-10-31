@@ -1,5 +1,8 @@
 import type { AmbientPreset } from "./preset";
 
+/** Rust `media::engine::ENGINE_PROTOCOL` 必须与该值一致。 */
+export const ENGINE_PROTOCOL = 2 as const;
+
 export type PlaybackSource =
   | { kind: "ambient"; preset: AmbientPreset }
   | { kind: "asset"; url: string };
@@ -12,7 +15,7 @@ export type NoiseLayer = {
 
 export type EngineCommand =
   | {
-      v: 1;
+      v: typeof ENGINE_PROTOCOL;
       type: "player.load";
       loadId: string;
       source: PlaybackSource;
@@ -20,13 +23,24 @@ export type EngineCommand =
       durationMs: number | null;
       autoplay: boolean;
     }
-  | { v: 1; type: "player.play" }
-  | { v: 1; type: "player.pause" }
-  | { v: 1; type: "player.stop" }
-  | { v: 1; type: "player.seek"; positionMs: number }
-  | { v: 1; type: "player.volume"; volume: number; muted: boolean }
+  | { v: typeof ENGINE_PROTOCOL; type: "player.play" }
+  | { v: typeof ENGINE_PROTOCOL; type: "player.pause" }
+  | { v: typeof ENGINE_PROTOCOL; type: "player.stop" }
+  | { v: typeof ENGINE_PROTOCOL; type: "player.seek"; positionMs: number }
   | {
-      v: 1;
+      v: typeof ENGINE_PROTOCOL;
+      type: "player.volume";
+      volume: number;
+      muted: boolean;
+    }
+  | {
+      v: typeof ENGINE_PROTOCOL;
+      type: "output.volume";
+      volume: number;
+      muted: boolean;
+    }
+  | {
+      v: typeof ENGINE_PROTOCOL;
       type: "noise.sync";
       active: boolean;
       master: number;
@@ -34,12 +48,13 @@ export type EngineCommand =
       layers: NoiseLayer[];
     }
   | {
-      v: 1;
+      v: typeof ENGINE_PROTOCOL;
       type: "meters";
       player: boolean;
       noise: boolean;
       intervalMs: number;
-    };
+    }
+  | { v: typeof ENGINE_PROTOCOL; type: "engine.shutdown" };
 
 export type PlayerStatus = "playing" | "paused" | "ended" | "error";
 

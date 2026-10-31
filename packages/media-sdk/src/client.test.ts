@@ -122,4 +122,29 @@ describe("media client", () => {
       volume: 0.4,
     });
   });
+
+  test("routes output volume through the system namespace", async () => {
+    const transport = createMemoryTransport((request) => {
+      expect(request.namespace).toBe("system");
+      return {
+        volume: request.method === "getOutput" ? 0.5 : 0.7,
+        muted: false,
+      };
+    });
+    const media = createMediaClient({ transport });
+
+    await expect(media.system.getOutput()).resolves.toEqual({
+      volume: 0.5,
+      muted: false,
+    });
+    await expect(media.system.setOutput({ volume: 0.7 })).resolves.toEqual({
+      volume: 0.7,
+      muted: false,
+    });
+    expect(transport.requests.map((request) => request.method)).toEqual([
+      "getOutput",
+      "setOutput",
+    ]);
+    expect(transport.requests[1]?.args).toEqual({ volume: 0.7 });
+  });
 });
