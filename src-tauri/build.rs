@@ -79,6 +79,7 @@ const APP_COMMANDS: &[&str] = &[
   "media_play",
   "media_pause",
   "media_seek",
+  "media_resync",
   "media_set_loop",
   "media_status",
   "media_stats",

@@ -173,7 +173,15 @@ impl D3d11FrameRenderer for WebViewStreamRenderer {
       .submit_nv12(texture.as_raw(), array_index, width, height, timestamp);
     match rc {
       0 => {
-        self.presented.fetch_add(1, Ordering::Relaxed);
+        let presented = self.presented.fetch_add(1, Ordering::Relaxed);
+        if presented == 0 {
+          crate::wallpaper::wlog(&format!(
+            "media: native first frame stream={} {}x{} ts={timestamp}",
+            self.stream.id(),
+            width,
+            height
+          ));
+        }
         Ok(())
       }
       1 => {
@@ -300,11 +308,19 @@ impl NativeSession {
       .tee
       .attach(branch)
       .map_err(|error| format!("挂载显示分支失败: {error}"))?;
-    self
-      .branches
-      .lock()
-      .map_err(|error| error.to_string())?
-      .insert(label.to_string(), branch_id);
+    {
+      let mut branches = self.branches.lock().map_err(|error| error.to_string())?;
+      // 同一窗口可能因为 StrictMode/页面重载再次 attach；先摘掉旧分支，
+      // 否则旧 renderer 会继续向已销毁的 TextureStream 提交帧。
+      if let Some(previous) = branches.remove(label) {
+        if let Err(error) = self.tee.detach(previous) {
+          crate::wallpaper::wlog(&format!(
+            "media: detach previous branch {label} failed: {error}"
+          ));
+        }
+      }
+      branches.insert(label.to_string(), branch_id);
+    }
     self.pipeline.resume();
     Ok(())
   }

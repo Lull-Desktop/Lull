@@ -265,5 +265,9 @@
   "media_pick_failed": "Could not add the asset: {reason}",
   "media_activate_failed": "Could not activate the asset: {reason}",
   "media_save_failed": "Could not save media settings: {reason}",
-  "media_remove_failed": "Could not remove the asset: {reason}"
+  "media_remove_failed": "Could not remove the asset: {reason}",
+  "media_resync": "Resync playback",
+  "media_resync_hint": "Restart the current asset from the same starting point on every display.",
+  "media_resync_done": "Every display has been restarted from the same point.",
+  "media_resync_failed": "Could not resync playback: {reason}"
 }

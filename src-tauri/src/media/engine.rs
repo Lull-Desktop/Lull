@@ -70,6 +70,7 @@ struct SurfaceRecord {
   device: Option<String>,
   session_id: String,
   backend: MediaBackend,
+  stream_id: Option<String>,
   started: bool,
   presented: u64,
   dropped: u64,
@@ -239,6 +240,7 @@ impl MediaEngine {
         device: device.map(str::to_string),
         session_id: session_id.to_string(),
         backend,
+        stream_id: None,
         started: true,
         presented: 0,
         dropped: 0,
@@ -301,7 +303,7 @@ impl MediaEngine {
     };
     let result = MediaAttachResult {
       backend: MediaBackend::NativeTexture,
-      stream_id: Some(stream_id),
+      stream_id: Some(stream_id.clone()),
       asset_url,
       state: session_state,
       reason,
@@ -313,6 +315,7 @@ impl MediaEngine {
         device: device.map(str::to_string),
         session_id: session_id.to_string(),
         backend: MediaBackend::NativeTexture,
+        stream_id: Some(stream_id),
         started: true,
         presented: 0,
         dropped: 0,
@@ -325,8 +328,18 @@ impl MediaEngine {
     Ok(result)
   }
 
-  pub fn detach(&self, label: &str) {
+  /// 解绑一个 Surface。`expected_stream_id` 用于过滤 StrictMode/旧页面迟到的
+  /// detach：只有当前 Surface 的 stream id 仍匹配时才移除，避免误删新 attach。
+  pub fn detach(&self, label: &str, expected_stream_id: Option<&str>) {
     let mut state = self.lock();
+    let matches = state.surfaces.get(label).is_some_and(|surface| {
+      expected_stream_id.map_or(true, |expected| {
+        surface.stream_id.as_deref() == Some(expected)
+      })
+    });
+    if !matches {
+      return;
+    }
     let Some(surface) = state.surfaces.remove(label) else {
       return;
     };
@@ -467,6 +480,32 @@ impl MediaEngine {
     }
     session.position_ms = position_ms;
     Ok(())
+  }
+
+  /// 把所有视频会话拉到同一个位置并恢复播放，返回被同步的会话数。
+  ///
+  /// 共享/独立 Session 都走这里：原生会话直接 seek 解码器；HTML 会话只更新
+  /// Engine 里的位置，真正的 `<video>` seek 由 `media-resync` 事件在壁纸页完成。
+  pub fn resync(&self, position_ms: u64) -> Result<usize, String> {
+    let mut state = self.lock();
+    let master_visible = state.master_visible;
+    let mut synced = 0usize;
+    for session in state.sessions.values_mut() {
+      let was_paused = session.state == MediaSessionState::Paused;
+      #[cfg(feature = "native-media")]
+      if let Some(native) = &session.native {
+        native.seek(position_ms)?;
+        if master_visible && was_paused {
+          native.resume();
+        }
+      }
+      if master_visible && was_paused {
+        session.state = MediaSessionState::Playing;
+      }
+      session.position_ms = position_ms;
+      synced += 1;
+    }
+    Ok(synced)
   }
 
   pub fn set_loop(&self, session_id: &str, loop_playback: bool) -> Result<(), String> {
@@ -699,9 +738,70 @@ mod tests {
     engine
       .attach(&opened.session_id, "wallpaper-0", Some("\\\\.\\DISPLAY1"))
       .unwrap();
-    engine.detach("wallpaper-0");
+    engine.detach("wallpaper-0", None);
     assert_eq!(engine.status().len(), 1, "detach 不应销毁会话");
     assert_eq!(engine.status()[0].state, MediaSessionState::Paused);
+  }
+
+  #[test]
+  fn resync_moves_all_sessions_to_one_position() {
+    let engine = MediaEngine {
+      state: Mutex::new(EngineState {
+        sessions: BTreeMap::new(),
+        surfaces: BTreeMap::new(),
+        master_visible: true,
+      }),
+      capabilities: MediaCapabilities::default(),
+    };
+    for display in ["\\\\.\\DISPLAY1", "\\\\.\\DISPLAY2"] {
+      let opened = engine.open(
+        "lull.video",
+        "m_1",
+        "a.mp4",
+        "http://asset.localhost/a.mp4",
+        std::path::Path::new("a.mp4"),
+        &config(),
+        Some(display),
+        false,
+      );
+      engine
+        .attach(&opened.session_id, display, Some(display))
+        .unwrap();
+    }
+    assert_eq!(engine.resync(1_234).unwrap(), 2);
+    for view in engine.status() {
+      assert_eq!(view.position_ms, 1_234);
+    }
+  }
+
+  #[test]
+  fn stale_detach_with_old_stream_id_keeps_current_surface() {
+    let engine = MediaEngine {
+      state: Mutex::new(EngineState {
+        sessions: BTreeMap::new(),
+        surfaces: BTreeMap::new(),
+        master_visible: true,
+      }),
+      capabilities: MediaCapabilities::default(),
+    };
+    let opened = engine.open(
+      "lull.video",
+      "m_1",
+      "a.mp4",
+      "http://asset.localhost/a.mp4",
+      std::path::Path::new("a.mp4"),
+      &config(),
+      Some("\\\\.\\DISPLAY1"),
+      true,
+    );
+    engine
+      .attach(&opened.session_id, "wallpaper-0", Some("\\\\.\\DISPLAY1"))
+      .unwrap();
+    // StrictMode 旧 cleanup 携带旧 stream id：不匹配当前 Surface 时必须忽略。
+    engine.detach("wallpaper-0", Some("lull-old-stream"));
+    assert_eq!(engine.status()[0].surfaces.len(), 1);
+    engine.detach("wallpaper-0", None);
+    assert!(engine.status()[0].surfaces.is_empty());
   }
 
   #[test]

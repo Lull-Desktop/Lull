@@ -80,7 +80,7 @@ pub fn open(app: &AppHandle, spec: &WidgetSpec) {
 
   let prefs = prefs::load(app);
   let on = prefs.taskbar_and_minimize;
-  let mut builder = WebviewWindowBuilder::new(app, spec.label, WebviewUrl::App(spec.url.into()))
+  let builder = WebviewWindowBuilder::new(app, spec.label, WebviewUrl::App(spec.url.into()))
     .title(spec.title)
     .inner_size(spec.width, spec.height)
     .min_inner_size(spec.min_width, spec.min_height)
@@ -100,6 +100,12 @@ pub fn open(app: &AppHandle, spec: &WidgetSpec) {
     // Widget SDK 上下文：先于页面脚本注入 window.__LULL_WIDGET__。
     .initialization_script(widget_context_script(spec))
     .devtools(devtools_enabled());
+
+  // WebView2 environment options 必须与壁纸窗一致；否则后建设置/工具窗可能
+  // 返回 0x8007139F（组或资源状态不正确），表现为“设置面板无法弹出”。
+  #[cfg(feature = "native-media")]
+  let builder = builder.additional_browser_args(crate::media::NATIVE_MEDIA_BROWSER_ARGS);
+  let mut builder = builder;
 
   if spec.transparent {
     // 播放器 / 白噪音 / 液态番茄钟是透明浮窗：WebView 页面背景 alpha 为 0，

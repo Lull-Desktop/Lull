@@ -309,6 +309,11 @@ pub async fn wallpaper_set_monitor_visible(
     ffi::wlog(&format!(
       "set_monitor_visible({device}, {visible}) 失败: {error}"
     ));
+  } else {
+    // 显示器开关会销毁/重建壁纸窗：让媒体生命周期回收已无 video Surface 的
+    // Session。否则 independent 下两个屏都关闭后，Session 会被 pause 并保留，
+    // 再次打开时 resume 可能不再出帧，表现为黑屏；回收后重开走新建 Session。
+    crate::media::lifecycle::on_display_config_changed();
   }
   // 成功要让设置页刷新；失败也要（点击后的乐观跳动要回正）。
   emit_changed(&app);

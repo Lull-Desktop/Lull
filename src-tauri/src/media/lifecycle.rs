@@ -41,12 +41,12 @@ pub fn register_window(label: &str) -> String {
 
 pub fn remove_window(label: &str) {
   token_map().remove(label);
-  engine().detach(label);
+  engine().detach(label, None);
 }
 
 /// 页面重载/WebView 重建时清掉旧 surface；新页面会重新 attach。
 pub fn on_page_loaded(label: &str) {
-  engine().detach(label);
+  engine().detach(label, None);
 }
 
 /// 拓扑重建：只解绑 surface，保留 Session，避免 Explorer 重启后重新解码。

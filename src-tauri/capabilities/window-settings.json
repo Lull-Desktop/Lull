@@ -51,6 +51,7 @@
     "allow-media-open",
     "allow-media-pause",
     "allow-media-play",
+    "allow-media-resync",
     "allow-media-seek",
     "allow-media-set-loop",
     "allow-media-stats",

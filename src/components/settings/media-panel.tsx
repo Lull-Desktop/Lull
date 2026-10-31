@@ -27,6 +27,7 @@ import {
   listMediaAssets,
   pickMediaAsset,
   removeMediaAsset,
+  resyncMediaPlayback,
   setMediaConfig,
 } from "@/core/media/media-api";
 import { onMediaConfigChanged } from "@/core/media/media-events";
@@ -58,6 +59,7 @@ export function MediaPanel() {
     ReadonlyMap<string, MediaPlaybackQuality>
   >(() => new Map());
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -152,6 +154,22 @@ export function MediaPanel() {
       })
       .catch((reason: unknown) => {
         setError(m.media_remove_failed({ reason: reasonOf(reason) }));
+      })
+      .finally(() => setBusy(false));
+  }, [refresh, view?.config.assetId]);
+
+  const resync = useCallback((): void => {
+    if (!view?.config.assetId) return;
+    setBusy(true);
+    setNotice(null);
+    resyncMediaPlayback(0)
+      .then(async () => {
+        setError(null);
+        setNotice(m.media_resync_done());
+        await refresh();
+      })
+      .catch((reason: unknown) => {
+        setError(m.media_resync_failed({ reason: reasonOf(reason) }));
       })
       .finally(() => setBusy(false));
   }, [refresh, view?.config.assetId]);
@@ -408,6 +426,28 @@ export function MediaPanel() {
             screens: qualitySamples.length,
           })}
         </p>
+      ) : null}
+      <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+        <div>
+          <p className="text-sm font-medium text-ink-soft">
+            {m.media_resync()}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {m.media_resync_hint()}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy || isImage || !config.assetId}
+          onClick={resync}
+        >
+          {m.media_resync()}
+        </Button>
+      </div>
+      {notice ? (
+        <p className="text-xs text-muted-foreground">{notice}</p>
       ) : null}
       <MediaDiagnostics stats={stats} />
     </div>

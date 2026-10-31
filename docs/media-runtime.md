@@ -1,9 +1,9 @@
 # Lull Media Runtime
 
-> 状态（本次提交）：**HTML `<video>` 回退是当前默认交付路径**；`media-pp 0.4.1 +
-> FFmpeg 8.0.1 + D3D11 + WebView2 TextureStream` 原生共享解码路径已实现并编译通过，
-> 但本轮目标机器上的 WebView2 运行时拒绝 `CreateTextureStream`，因此运行时自动回退。
-> 本文同时记录已实现的会话/素材/配置/安全边界、原生后端契约，以及这次实测的能力门。
+> 状态（本次提交）：默认构建仍交付 **HTML `<video>` 回退**；启用
+> `--features native-media` 且 WebView2 运行时支持 `msWebView2TextureStream`
+> 时，原生共享解码路径可用。本轮已在双 4K 显示器上验证两屏原生 attach 与首帧。
+> 本文记录会话/素材/配置/安全边界、原生后端契约，以及这次定位到的两个运行时门。
 
 ## 1. 为什么会话不是“每个显示器一个”
 
@@ -251,22 +251,65 @@ WebView2 预发布接口只从固定版 SDK 提取最小头文件，不手写猜
 ### 4.6 WebView2 TextureStream 的限制与实测
 
 - `ICoreWebView2ExperimentalEnvironment12` / TextureStream 仍是预发布实验接口；
-- **本轮实测（2026-10-30）**：
+- **必须打开 `msWebView2TextureStream` 浏览器特性**。Tauri 壁纸窗在
+  `--features native-media` 下通过 `additional_browser_args` 传入：
+  `--enable-features=msWebView2TextureStream`；未打开时 `CreateTextureStream`
+  返回 `0x80070032`（`ERROR_NOT_SUPPORTED`）。该参数必须在 WebView2 启动前设置，
+  见 `src-tauri/src/media/mod.rs` 的 `NATIVE_MEDIA_BROWSER_ARGS`；
+- **同一进程内所有 WebView2 窗口必须使用同一份 AdditionalBrowserArguments**。
+  壁纸窗带实验特性、设置/工具窗使用默认参数时，后建窗口会返回
+  `0x8007139F`（组或资源状态不正确），表现为“设置面板无法弹出”。因此
+  `window_host` 与 `widget_package` 的 builder 也统一应用同一常量；
+- **TextureStream 是 WebView2 STA 对象，只能在创建它的 UI 线程调用**。
+  media-pp 的 `submit_nv12` 在解码线程触发；C++ 桥通过 message-only window 把
+  `GetAvailableTexture/CreateTexture/CopySubresourceRegion/PutTimestamp/PresentTexture`
+  marshal 回 UI 线程，解码线程等待复制完成。直接跨线程调用会在
+  `EmbeddedBrowserWebView.dll` 触发 `0x80000003`（STATUS_BREAKPOINT）；
+- **WebView2 返回的目标纹理带 keyed mutex**（`MiscFlags=0x900`）。复制前必须
+  `IDXGIKeyedMutex::AcquireSync(0, timeout)`，复制后 `ReleaseSync(0)`；否则
+  `CopySubresourceRegion` 会静默写不进去，画面表现为全黑/绿屏；
+- keyed mutex 只保证互斥，不保证 GPU 复制已落地。新 Stream / 新目标纹理的
+  前 4 帧在 `ReleaseSync` 前 `Flush()`，避免显示器重新打开时浏览器先采样到
+  未写完的 NV12（UV=0 → 偶发绿屏闪烁）；
+- **显示器全关会销毁全部壁纸窗**：`wallpaper_set_monitor_visible` 成功后要按
+  新 `video_devices` 回收 Session；拓扑重建同理。只 detach 并保留 pause 的
+  Session，重新打开时可能 resume 不出帧（independent 双屏全关再开黑屏）；
+- 全屏关闭后进程不能被 last-window-close 自动退出：`RunEvent::ExitRequested`
+  且 `code=None` 时 `prevent_exit()`；托盘 `app.exit(0)` 带 `Some(0)`，仍可退出；
+- 无法启动的 TextureStream 先 retire 到进程退出；重新打开显示器时，前端对
+  首帧失败做一次重新 attach + 取流再降级，避免一次竞态就永久回退 HTML；
+- 首帧之后仍用 `requestVideoFrameCallback` 做健康检查：超过 5 秒没有新呈现帧
+  就重挂一次，连续两次无帧才降级 HTML；浏览器不支持 rVFC 时不启用该检查；
+- 未 `StartRequested` 前释放 TextureStream 也会触发同一断言；页面
+  StrictMode/重载产生的旧 detach 以 stream id 校验，不能误删新 Surface；
+- 本轮实测（2026-10-31）：
   - OS：Windows 10 Enterprise 26H2，build `26300.9711`；
   - WebView2 Runtime：`156.0.4314.50`；
-  - `Environment12` QI 成功、`RenderAdapterLUID` 可读、D3D11 Device 使用同一 LUID；
-  - `CreateTextureStream` 返回 `0x80070032`（`ERROR_NOT_SUPPORTED`）；
-  - 公开的最小复现项目也记录了同一错误：
-    <https://github.com/space928/WebView2_TextureStreamSample>；
-- 因此当前交付在 `media_attach` 里回退 HTML，且日志保留具体 HRESULT；不要因为
-  “接口存在”就宣称原生路径可用；
+  - 双 4K（3840×2160）mirror：两屏原生 attach 成功，均打印
+    `native first frame ... 3840x2160`；手动桌面截屏可见视频画面；
+  - independent 双屏全关再开：旧 Session 被回收，新窗口重新 attach；
+    实测两屏都在重开后收到新 stream 首帧，截屏均有画面（第二次 attach
+    成功前会先走一次短重试，日志可见两个 stream id）；
+  - 显示器重新打开时偶发绿屏：前 4 帧在释放 keyed mutex 前 `Flush()`；
+    实测重开截屏无绿帧；
+  - `check_desktop.py verify` 会先 `show_desktop`，壁纸窗被隐藏/遮挡，
+    其像素差分不适用于 native TextureStream，需用 `-SkipVerify` 看 attach 日志；
 - 已知只接受 NV12；HDR/10-bit/alpha/奇数尺寸首版回退；
 - `StartRequested` 后 10 秒内必须 `PresentTexture`，前端另设 12 秒首帧看门狗；
-- C++ 在窗口线程创建 stream；当前 `submit_nv12` 由 media-pp 队列线程直接调用。
-  如果某个运行时要求同一 COM apartment，需要增加主线程 marshal；本轮在
-  `CreateTextureStream` 阶段就失败，尚未验证到这一步；
 - `RenderAdapterLUIDChanged`/设备丢失：标记该 Surface 回退，不在原地硬恢复；
 - 物理扫描同步不保证，只保证同一媒体时间轴与同一帧 PTS。
+
+### 4.7 手动重新同步播放
+
+设置页「媒体壁纸」底部提供 **重新同步播放** 按钮：
+
+- 前端调用 `media_resync(positionMs = 0)`；
+- Rust 对所有原生 Session 调 `seek(0)`，主开关可见时恢复播放；
+- 再广播 `media-resync` 事件，HTML 壁纸页把 `<video>` seek 到同一点并 play；
+- 返回被同步的会话数，设置页显示“已重新同步 N 个会话”。
+
+这样不区分 mirror / independent / 共享 / 独立解码，所有显示器都从同一起点重新开始；
+原生流本身不能由 JS seek，所以原生路径以 Rust 端 seek 为准。
 
 ## 5. 验收
 
@@ -285,28 +328,31 @@ WebView2 预发布接口只从固定版 SDK 提取最小头文件，不手写猜
 - 真机验收模式已支持原生预览：
   `pnpm test-mode -NativeMedia` 会设置 FFmpeg/libclang、重建含 `lull_media_*` 的
   DLL、复制 FFmpeg DLL，并以 `tauri dev --features native-media` 启动；
-  `-RequireNative` 会在没有成功原生 attach 时返回非 0。当前机器会记录
-  `CreateTextureStream 0x80070032` 并回退，默认不会因此判失败；
-- 双屏实际启动：两个壁纸 WebView 都尝试原生 attach，因上述 `0x80070032`
-  回退 HTML；应用不崩溃、配置/日志可读；
+  `-RequireNative` 会在没有成功原生 attach 时返回非 0。本轮双 4K mirror 已通过；
+- 双屏实际启动：两个壁纸 WebView 都原生 attach 成功，两屏均收到首帧；
+  应用持续运行、正常关闭，不再触发 `0x80000003`；
 - HTML 路径：选择本地 MP4 → 壁纸播放；循环、fit/position、静音、重建后保留；
   关闭/显示全部壁纸暂停/恢复；关闭单屏不影响其它屏；文件缺失有提示。
 
-### 5.2 原生路径门（未通过，不得宣称共享解码已交付）
+### 5.2 原生路径验收（本轮已通过首帧门）
 
-- G1：单屏原生首帧成功，`media_stats.cpuReadbackBytes=0`；
-- G2：双屏 mirror `decoderInstances=1`，两屏同一媒体 PTS；关闭第二屏/Explorer
-  重启不重开解码；
-- G3：4K/30 分钟 soak；多 GPU 不匹配屏自动 HTML；无界队列不允许。
+- G1：单屏原生首帧成功（已观察到 `native first frame ... 3840x2160`）；
+  `media_stats.cpuReadbackBytes` 字段尚未接线，不能作为验收证据；
+- G2：双屏 mirror 共享同一 Session/解码器，两个 Surface 均 attach 成功；
+  `decoderInstances` 与逐 Surface 丢帧仍待仪表接线后复验；
+- G3：4K/30 分钟 soak、多 GPU 不匹配屏自动 HTML、无界队列检查仍待执行。
 
-G1 的前置条件不是代码，而是运行环境：`CreateTextureStream` 必须返回 `S_OK`。
-在通过前，`MediaCapabilities.nativeTextureStream` 只能表示“桥已加载”，
-`media_attach` 仍按窗口实际探测结果决定后端。
+原生路径的前置条件已经从“运行时拒绝”变为“运行时开启
+`msWebView2TextureStream` 且调用发生在 WebView2 UI 线程”。任一条件不满足时，
+`media_attach` 仍回退 HTML，不伪装成原生成功。
 
 ## 6. 已知边界
 
 - 首版无音频；`muted` 恒为 true；
 - 一个全局媒体源（图片或视频），无每屏独立素材；图片不创建 Session；
+- 原生路径需要 `native-media` feature 且 WebView2 开启
+  `msWebView2TextureStream`；默认构建/不支持该特性的运行时仍走 HTML；
+- 原生 TextureStream 的调用必须 marshal 到 WebView2 UI 线程；
 - 原生分支尚未实现 `FrameThrottle`，`preferredFps` 在原生路径暂不生效；
 - 外部内容包视频未开放（包体积/摘要/透明 iframe/CSP 都需单独设计）；
 - HTML 回退由每个 WebView 自行解码，不承诺单解码器；

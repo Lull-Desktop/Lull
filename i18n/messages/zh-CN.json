@@ -265,5 +265,9 @@
   "media_pick_failed": "添加素材失败：{reason}",
   "media_activate_failed": "应用素材失败：{reason}",
   "media_save_failed": "保存媒体设置失败：{reason}",
-  "media_remove_failed": "移除素材失败：{reason}"
+  "media_remove_failed": "移除素材失败：{reason}",
+  "media_resync": "重新同步播放",
+  "media_resync_hint": "让所有显示器的当前素材从同一起点重新开始。",
+  "media_resync_done": "已让所有显示器从同一起点重新开始。",
+  "media_resync_failed": "同步播放失败：{reason}"
 }

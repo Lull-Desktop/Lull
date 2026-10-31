@@ -78,3 +78,25 @@ export function onMediaMasterVisible(
     stop = null;
   };
 }
+
+/** 设置页触发：所有壁纸页把 HTML 视频 seek 到同一位置；原生已由 Rust seek。 */
+export function onMediaResync(
+  handler: (positionMs: number) => void,
+): () => void {
+  if (!isMediaDesktop()) return () => {};
+  let stop: (() => void) | null = null;
+  let disposed = false;
+  void listen<number>("media-resync", (event) => {
+    if (typeof event.payload === "number") handler(event.payload);
+  })
+    .then((unlisten) => {
+      if (disposed) unlisten();
+      else stop = unlisten;
+    })
+    .catch(() => {});
+  return () => {
+    disposed = true;
+    stop?.();
+    stop = null;
+  };
+}

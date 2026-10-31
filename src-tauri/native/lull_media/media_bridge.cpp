@@ -58,6 +58,12 @@ uint64_t AdapterLuidOf(ID3D11Device *device) {
 
 class StreamState;
 
+constexpr UINT kDispatchSubmit = WM_APP + 0x51;
+constexpr UINT kDispatchShutdown = WM_APP + 0x52;
+constexpr wchar_t kDispatchClass[] = L"LullMediaTextureDispatch";
+
+LRESULT CALLBACK DispatchWndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
+
 class StartHandler final
 		: public Microsoft::WRL::RuntimeClass<
 					Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
@@ -102,6 +108,20 @@ private:
 
 class StreamState final : public std::enable_shared_from_this<StreamState> {
 public:
+	// SubmitNV12 由 media-pp 解码线程调用，但 TextureStream 是 WebView2 的 STA
+	// 对象，只能在创建它的 UI 线程使用；通过 hidden window 把复制/呈现 marshal
+	// 回 UI 线程，解码线程等待完成后再归还源纹理。
+	struct SubmitRequest {
+		std::shared_ptr<StreamState> state;
+		ID3D11Texture2D *source = nullptr;
+		uint32_t array_index = 0;
+		uint32_t width = 0;
+		uint32_t height = 0;
+		uint64_t timestamp_us = 0;
+		HANDLE done = nullptr;
+		int result = E_FAIL;
+	};
+
 	HRESULT Initialize(
 			void *environment,
 			void *d3d_device,
@@ -169,18 +189,23 @@ public:
 			return hr;
 		}
 		state_.store(kStateCreated, std::memory_order_release);
+		CreateDispatchWindow();
 		return S_OK;
 	}
 
 	void OnStarted() {
+		fprintf(stderr, "lull_media: StartRequested\n");
 		state_.store(kStateStarted, std::memory_order_release);
 	}
 
 	void OnStopped() {
+		fprintf(stderr, "lull_media: Stopped\n");
 		state_.store(kStateStopped, std::memory_order_release);
 	}
 
 	void OnError(HRESULT hr) {
+		fprintf(stderr, "lull_media: stream error hr=0x%08lx\n",
+				static_cast<unsigned long>(hr));
 		last_error_.store(hr, std::memory_order_release);
 		state_.store(kStateError, std::memory_order_release);
 	}
@@ -199,20 +224,52 @@ public:
 
 	void Stop() {
 		std::lock_guard<std::mutex> lock(mutex_);
-		if (stream_ && state_.load(std::memory_order_acquire) != kStateStopped) {
+		if (stream_ && state_.load(std::memory_order_acquire) == kStateStarted) {
 			stream_->Stop();
 		}
 		state_.store(kStateStopped, std::memory_order_release);
 	}
 
-	// Returns 0 for presented-or-intentionally-dropped, negative HRESULT on a
-	// real failure. The source texture is borrowed for this call only.
-	int SubmitNV12(
+	void CreateDispatchWindow() {
+		WNDCLASSEXW wc{};
+		wc.cbSize = sizeof(wc);
+		wc.lpfnWndProc = DispatchWndProc;
+		wc.hInstance = GetModuleHandleW(nullptr);
+		wc.lpszClassName = kDispatchClass;
+		RegisterClassExW(&wc);
+		dispatch_hwnd_ = CreateWindowExW(
+				0,
+				kDispatchClass,
+				L"",
+				0,
+				0,
+				0,
+				0,
+				0,
+				HWND_MESSAGE,
+				nullptr,
+				wc.hInstance,
+				this);
+		if (!dispatch_hwnd_) {
+			fprintf(stderr, "lull_media: CreateWindowEx(message) failed err=%lu\n",
+					static_cast<unsigned long>(GetLastError()));
+			return;
+		}
+		SetWindowLongPtrW(
+				dispatch_hwnd_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+		dispatch_thread_id_ = GetCurrentThreadId();
+	}
+
+	/** 必须在 WebView2 UI 线程调用。 */
+	int SubmitNV12OnUi(
 			ID3D11Texture2D *source,
 			uint32_t array_index,
 			uint32_t width,
 			uint32_t height,
 			uint64_t timestamp_us) {
+
+	// Returns 0 for presented-or-intentionally-dropped, negative HRESULT on a
+	// real failure. The source texture is borrowed for this call only.
 		if (source == nullptr || width == 0 || height == 0) {
 			return E_INVALIDARG;
 		}
@@ -221,7 +278,16 @@ public:
 			return E_HANDLE;
 		}
 		if (state_.load(std::memory_order_acquire) != kStateStarted) {
+			if (!not_started_logged_) {
+				not_started_logged_ = true;
+				fprintf(stderr, "lull_media: frame before StartRequested (dropped)\n");
+			}
 			return 1; // JS has not requested the stream yet; drop this frame.
+		}
+		const bool first_frame = !started_logged_;
+		if (first_frame) {
+			started_logged_ = true;
+			fprintf(stderr, "lull_media: first frame after StartRequested %ux%u\n", width, height);
 		}
 		if (width_ != width || height_ != height) {
 			CloseTexturesLocked();
@@ -261,6 +327,19 @@ public:
 			OnError(hr);
 			return hr;
 		}
+		ComPtr<IDXGIKeyedMutex> keyed_mutex;
+		const bool has_keyed_mutex =
+				SUCCEEDED(resource.As(&keyed_mutex)) && keyed_mutex;
+		if (has_keyed_mutex) {
+			hr = keyed_mutex->AcquireSync(0, 16);
+			if (hr == static_cast<HRESULT>(WAIT_TIMEOUT)) {
+				return 1; // browser 正在使用纹理；丢这一帧，下一帧再试。
+			}
+			if (FAILED(hr)) {
+				OnError(hr);
+				return hr;
+			}
+		}
 		context_->CopySubresourceRegion(
 				destination.Get(),
 				0,
@@ -270,6 +349,12 @@ public:
 				source,
 				D3D11CalcSubresource(0, array_index, 1),
 				nullptr);
+		// 新 TextureStream/新目标纹理的前几帧：确保 GPU 复制完成后再释放 keyed
+		// mutex，否则浏览器可能先采样到未写完的 NV12（UV=0 → 绿屏闪烁）。
+		if (submitted_frames_ < 4) {
+			context_->Flush();
+		}
+		if (has_keyed_mutex) keyed_mutex->ReleaseSync(0);
 		hr = target->put_Timestamp(timestamp_us);
 		if (FAILED(hr)) {
 			OnError(hr);
@@ -281,17 +366,89 @@ public:
 			return hr;
 		}
 		last_timestamp_ = timestamp_us;
+		++submitted_frames_;
 		return 0;
 	}
 
+	int SubmitNV12(
+			ID3D11Texture2D *source,
+			uint32_t array_index,
+			uint32_t width,
+			uint32_t height,
+			uint64_t timestamp_us) {
+		if (source == nullptr || width == 0 || height == 0) {
+			return E_INVALIDARG;
+		}
+		if (dispatch_hwnd_ != nullptr &&
+				GetCurrentThreadId() != dispatch_thread_id_) {
+			auto *request = new SubmitRequest();
+			request->state = shared_from_this();
+			request->source = source;
+			request->array_index = array_index;
+			request->width = width;
+			request->height = height;
+			request->timestamp_us = timestamp_us;
+			request->done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+			if (request->done == nullptr) {
+				delete request;
+				return E_FAIL;
+			}
+			if (!PostMessageW(
+						dispatch_hwnd_,
+						kDispatchSubmit,
+						0,
+						reinterpret_cast<LPARAM>(request))) {
+				fprintf(stderr, "lull_media: PostMessage submit failed err=%lu\n",
+						static_cast<unsigned long>(GetLastError()));
+				CloseHandle(request->done);
+				delete request;
+				return E_FAIL;
+			}
+			const DWORD wait = WaitForSingleObject(request->done, INFINITE);
+			if (wait != WAIT_OBJECT_0) {
+				fprintf(stderr, "lull_media: submit wait failed %lu\n",
+						static_cast<unsigned long>(wait));
+				return E_FAIL;
+			}
+			const int result = request->result;
+			CloseHandle(request->done);
+			delete request;
+			return result;
+		}
+		return SubmitNV12OnUi(source, array_index, width, height, timestamp_us);
+	}
+
 	void Shutdown() {
+		if (dispatch_hwnd_ != nullptr &&
+				GetCurrentThreadId() != dispatch_thread_id_) {
+			state_.store(kStateStopped, std::memory_order_release);
+			auto *holder = new std::shared_ptr<StreamState>(shared_from_this());
+			if (!PostMessageW(
+						dispatch_hwnd_,
+						kDispatchShutdown,
+						0,
+						reinterpret_cast<LPARAM>(holder))) {
+				fprintf(stderr, "lull_media: PostMessage shutdown failed err=%lu\n",
+						static_cast<unsigned long>(GetLastError()));
+				delete holder;
+				ShutdownOnUi();
+			}
+			return;
+		}
+		ShutdownOnUi();
+	}
+
+	/** 必须在 WebView2 UI 线程调用。 */
+	void ShutdownOnUi() {
 		std::lock_guard<std::mutex> lock(mutex_);
 		if (stream_) {
+			const int state = state_.load(std::memory_order_acquire);
+			fprintf(stderr, "lull_media: stream shutdown state=%d\n", state);
 			if (start_token_.value != 0) stream_->remove_StartRequested(start_token_);
 			if (stop_token_.value != 0) stream_->remove_Stopped(stop_token_);
 			if (error_token_.value != 0) stream_->remove_ErrorReceived(error_token_);
 			CloseTexturesLocked();
-			stream_->Stop();
+			if (state == kStateStarted) stream_->Stop();
 			stream_.Reset();
 		}
 		start_handler_.Reset();
@@ -300,6 +457,11 @@ public:
 		context_.Reset();
 		device_.Reset();
 		state_.store(kStateStopped, std::memory_order_release);
+		if (dispatch_hwnd_ != nullptr) {
+			SetWindowLongPtrW(dispatch_hwnd_, GWLP_USERDATA, 0);
+			DestroyWindow(dispatch_hwnd_);
+			dispatch_hwnd_ = nullptr;
+		}
 	}
 
 private:
@@ -344,7 +506,37 @@ private:
 	uint64_t last_timestamp_ = 0;
 	std::atomic<int> state_{kStateCreated};
 	std::atomic<long> last_error_{S_OK};
+	bool not_started_logged_ = false;
+	bool started_logged_ = false;
+	int submitted_frames_ = 0;
+	HWND dispatch_hwnd_ = nullptr;
+	DWORD dispatch_thread_id_ = 0;
 };
+
+LRESULT CALLBACK DispatchWndProc(
+		HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+	auto *state = reinterpret_cast<StreamState *>(
+			GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+	if (state != nullptr && message == kDispatchSubmit) {
+		auto *request = reinterpret_cast<StreamState::SubmitRequest *>(lparam);
+		request->result = state->SubmitNV12OnUi(
+				request->source,
+				request->array_index,
+				request->width,
+				request->height,
+				request->timestamp_us);
+		SetEvent(request->done);
+		return 0;
+	}
+	if (state != nullptr && message == kDispatchShutdown) {
+		auto *holder =
+				reinterpret_cast<std::shared_ptr<StreamState> *>(lparam);
+		(*holder)->ShutdownOnUi();
+		delete holder;
+		return 0;
+	}
+	return DefWindowProcW(hwnd, message, wparam, lparam);
+}
 
 HRESULT STDMETHODCALLTYPE StartHandler::Invoke(
 		ICoreWebView2ExperimentalTextureStream *,
@@ -369,6 +561,9 @@ HRESULT STDMETHODCALLTYPE ErrorHandler::Invoke(
 
 std::mutex g_registry_mutex;
 std::unordered_map<lull_media_stream_t, std::shared_ptr<StreamState>> g_streams;
+// WebView2 156：TextureStream 在 StartRequested 之前析构会在
+// EmbeddedBrowserWebView.dll 里 0x80000003 断言崩溃。未启动的流先留到进程退出。
+std::vector<std::shared_ptr<StreamState>> g_retired_streams;
 lull_media_stream_t g_next_handle = 1;
 
 std::shared_ptr<StreamState> Lookup(lull_media_stream_t handle) {
@@ -486,6 +681,12 @@ __declspec(dllexport) void lull_media_stream_destroy(lull_media_stream_t stream)
 		if (found == g_streams.end()) return;
 		state = std::move(found->second);
 		g_streams.erase(found);
+	}
+	if (state->State() == kStateCreated) {
+		fprintf(stderr, "lull_media: retire unstarted stream until process exit\n");
+		std::lock_guard<std::mutex> lock(g_registry_mutex);
+		g_retired_streams.push_back(std::move(state));
+		return;
 	}
 	state->Shutdown();
 }

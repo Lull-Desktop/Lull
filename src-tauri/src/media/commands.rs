@@ -106,7 +106,7 @@ pub async fn media_asset_pick(
 }
 
 #[tauri::command]
-pub fn media_asset_remove(
+pub async fn media_asset_remove(
   app: AppHandle,
   webview: WebviewWindow,
   id: String,
@@ -160,7 +160,7 @@ pub fn media_config_get(
 }
 
 #[tauri::command]
-pub fn media_config_set(
+pub async fn media_config_set(
   app: AppHandle,
   webview: WebviewWindow,
   config: MediaConfig,
@@ -188,7 +188,7 @@ pub fn media_config_set(
 }
 
 #[tauri::command]
-pub fn media_activate(
+pub async fn media_activate(
   app: AppHandle,
   webview: WebviewWindow,
   asset_id: String,
@@ -370,14 +370,15 @@ pub async fn media_attach(
 }
 
 #[tauri::command]
-pub fn media_detach(
+pub async fn media_detach(
   app: AppHandle,
   webview: WebviewWindow,
   token: Option<String>,
   session_id: String,
+  stream_id: Option<String>,
 ) -> Result<(), String> {
   authorize(webview.label(), token.as_deref())?;
-  engine().detach(webview.label());
+  engine().detach(webview.label(), stream_id.as_deref());
   events::emit_changed(&app, vec![session_id]);
   Ok(())
 }
@@ -391,6 +392,10 @@ pub fn media_degrade(
   reason: String,
 ) -> Result<MediaAttachResult, String> {
   authorize(webview.label(), token.as_deref())?;
+  crate::wallpaper::wlog(&format!(
+    "media: degrade {} session={session_id} reason={reason}",
+    webview.label()
+  ));
   let result = engine().degrade(&session_id, &reason)?;
   events::emit_degraded(&app, &session_id, &result.asset_url, &reason);
   events::emit_changed(&app, vec![session_id]);
@@ -432,6 +437,19 @@ pub fn media_seek(
   engine().seek(&session_id, position_ms)?;
   events::emit_changed(&app, vec![session_id]);
   Ok(())
+}
+
+#[tauri::command]
+pub async fn media_resync(
+  app: AppHandle,
+  webview: WebviewWindow,
+  position_ms: u64,
+) -> Result<usize, String> {
+  ensure_settings(webview.label())?;
+  let synced = engine().resync(position_ms)?;
+  events::emit_resync(&app, position_ms);
+  events::emit_changed(&app, Vec::new());
+  Ok(synced)
 }
 
 #[tauri::command]

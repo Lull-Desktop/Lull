@@ -108,10 +108,16 @@ export async function attachMediaSession(
   }
 }
 
-export async function detachMediaSession(sessionId: string): Promise<void> {
+export async function detachMediaSession(
+  sessionId: string,
+  streamId?: string | null,
+): Promise<void> {
   if (!isMediaDesktop()) return;
   try {
-    await invoke("media_detach", withToken({ sessionId }));
+    await invoke(
+      "media_detach",
+      withToken({ sessionId, streamId: streamId ?? null }),
+    );
   } catch {
     // 页面卸载/窗口销毁竞态：detach 失败不影响关闭流程。
   }
@@ -145,6 +151,12 @@ export async function seekMediaSession(
   positionMs: number,
 ): Promise<void> {
   await invoke("media_seek", { sessionId, positionMs });
+}
+
+/** 设置页「重新同步播放」：所有会话 seek 到同一点，并广播给 HTML 壁纸页。 */
+export async function resyncMediaPlayback(positionMs = 0): Promise<number> {
+  if (!isMediaDesktop()) return 0;
+  return invoke<number>("media_resync", { positionMs });
 }
 
 export async function setMediaLoop(

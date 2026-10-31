@@ -93,6 +93,7 @@ pub fn run() {
       media::commands::media_play,
       media::commands::media_pause,
       media::commands::media_seek,
+      media::commands::media_resync,
       media::commands::media_set_loop,
       media::commands::media_status,
       media::commands::media_stats,
@@ -137,10 +138,16 @@ pub fn run() {
     })
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(|_app, event| {
-      if let tauri::RunEvent::Exit = event {
+    .run(|_app, event| match event {
+      // 壁纸窗在“关闭所有显示器”时会全部销毁；设置窗也可能被隐藏。
+      // 托盘应用必须靠 tray 的显式 app.exit(0) 退出，不能被 last-window-close
+      // 默认行为带走，否则再次打开显示器时进程已经没了。程序化 exit 的
+      // code 是 Some(_)，用户关窗/系统请求是 None。
+      tauri::RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+      tauri::RunEvent::Exit => {
         media::shutdown();
         wallpaper::shutdown();
       }
+      _ => {}
     });
 }

@@ -26,6 +26,7 @@ vi.mock("@/core/media/media-events", () => ({
   onMediaConfigChanged: () => () => {},
   onMediaDegraded: () => () => {},
   onMediaMasterVisible: () => () => {},
+  onMediaResync: () => () => {},
 }));
 
 const asset = {
@@ -71,7 +72,7 @@ beforeEach(() => {
   });
   mocks.attachMediaSession.mockResolvedValue({
     backend: "html-video",
-    streamId: null,
+    streamId: "stream-1",
     assetUrl: "http://asset.localhost/night.mp4",
     state: "playing",
     reason: null,
@@ -93,7 +94,10 @@ describe("MediaSurface", () => {
       "http://asset.localhost/night.mp4",
     );
     unmount();
-    expect(mocks.detachMediaSession).toHaveBeenCalledWith("media-1");
+    expect(mocks.detachMediaSession).toHaveBeenCalledWith(
+      "media-1",
+      "stream-1",
+    );
   });
 
   test("renders an idle gradient without a selected asset", async () => {

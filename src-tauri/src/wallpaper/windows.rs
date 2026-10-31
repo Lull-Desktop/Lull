@@ -23,7 +23,6 @@ use super::runtime::{
 use super::topology::{enabled_display_targets, monitor_infos, MonitorInfo};
 
 /// 当前配置是否允许这个壁纸窗显示：总开关开 + 该显示器开启。
-///
 /// 页面首帧回调可能晚于用户再次关闭总开关/显示器；显示前必须按**当前**配置复核，
 /// 不能只用建窗时的 `show` 快照，否则已关闭的壁纸会被迟到回调重新弹出来。
 fn monitor_visible(device: &str, fallback: bool) -> bool {
@@ -82,7 +81,7 @@ pub(crate) fn create_one(
   let label_for_load = label.clone();
   let set_visible = host.set_visible;
   let allow_show = show;
-  let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+  let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
     .title("Lull 壁纸")
     .visible(false)
     .inner_size(logical.0, logical.1)
@@ -97,7 +96,10 @@ pub(crate) fn create_one(
       "window.__LULL_LOCALE__ = {}; if (window.top === window) {{ window.__LULL_MEDIA_TOKEN__ = {media_token_json}; }}",
       serde_json::to_string(&crate::i18n::current()).unwrap_or_else(|_| "\"zh-CN\"".to_string())
     ))
-    .devtools(crate::window_host::devtools_enabled())
+    .devtools(crate::window_host::devtools_enabled());
+  #[cfg(feature = "native-media")]
+  let builder = builder.additional_browser_args(crate::media::NATIVE_MEDIA_BROWSER_ARGS);
+  let window = builder
     .on_page_load(move |_window, payload| {
       if !matches!(payload.event(), PageLoadEvent::Finished) {
         return;
@@ -285,7 +287,8 @@ pub(crate) fn apply_monitor_visibility(
 /// 拓扑变化后的全量重建；由看门狗在 async 运行时调用（非主线程）。
 pub(crate) fn rebuild(app: &AppHandle) -> Result<(), String> {
   let host = ffi::host()?;
-  // 拓扑重建只解绑媒体 surface，保留 Session；新窗口会重新 attach。
+  // 拓扑重建先解绑全部 media surface；重建结束后再按新 target 回收 Session。
+  // 不能只 detach 后保留 pause 的 Session：显示器重新接入时 resume 可能不再出帧。
   crate::media::lifecycle::on_topology_rebuild();
   let old = take_targets();
   for target in &old {
@@ -323,6 +326,9 @@ pub(crate) fn rebuild(app: &AppHandle) -> Result<(), String> {
       Err(error) => ffi::wlog(&error),
     }
   }
+  // 旧 Surface 已全部 detach；此时按新窗口/场景回收无归属 Session，
+  // 新页面加载后会重新 media_open + native attach。
+  crate::media::lifecycle::on_display_config_changed();
   emit_changed(app);
   Ok(())
 }

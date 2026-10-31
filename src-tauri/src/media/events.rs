@@ -10,6 +10,11 @@ pub const MEDIA_CHANGED: &str = "media-changed";
 pub const MEDIA_CONFIG_CHANGED: &str = "media-config-changed";
 pub const MEDIA_DEGRADED: &str = "media-degraded";
 pub const MEDIA_MASTER_VISIBLE: &str = "media-master-visible";
+pub const MEDIA_RESYNC: &str = "media-resync";
+
+pub fn emit_resync(app: &AppHandle, position_ms: u64) {
+  let _ = app.emit(MEDIA_RESYNC, position_ms);
+}
 
 pub fn emit_changed(app: &AppHandle, session_ids: Vec<String>) {
   let _ = app.emit(MEDIA_CHANGED, MediaChangedEvent { session_ids });

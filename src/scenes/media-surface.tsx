@@ -24,6 +24,7 @@ import {
   onMediaConfigChanged,
   onMediaDegraded,
   onMediaMasterVisible,
+  onMediaResync,
 } from "@/core/media/media-events";
 import { reportMediaQuality } from "@/core/media/media-quality";
 import {
@@ -50,6 +51,13 @@ const DRIFT_CHECK_MS = 60_000;
 const DRIFT_TOLERANCE_SEC = 2;
 /** 播放质量采样间隔；设置页据此显示丢帧率。 */
 const QUALITY_SAMPLE_MS = 5_000;
+/** 原生 MediaStream 无新帧超过该时长，认为画面已黑，尝试重挂一次。 */
+const NATIVE_STALL_TIMEOUT_MS = 5_000;
+
+type FrameCallbackVideo = HTMLVideoElement & {
+  requestVideoFrameCallback?: (callback: () => void) => number;
+  cancelVideoFrameCallback?: (id: number) => void;
+};
 
 type MediaSurfaceProps = {
   className?: string;
@@ -96,9 +104,18 @@ export function MediaSurface({
 }: MediaSurfaceProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionRef = useRef<string | null>(null);
+  const streamIdRef = useRef<string | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const timeoutRef = useRef<number | null>(null);
   const disposedRef = useRef(false);
+  // React StrictMode 会 setup → cleanup → setup；异步 load 必须按 runId 失效，
+  // 否则第一轮会在 cleanup 之后继续 attach，造成同一窗口重复建 TextureStream。
+  const runIdRef = useRef(0);
+  const nativeFrameAtRef = useRef(0);
+  const nativeFrameCallbackRef = useRef<number | null>(null);
+  const nativeFrameWatchSupportedRef = useRef(false);
+  const nativeRecoveriesRef = useRef(0);
+  const masterVisibleRef = useRef(true);
   const [state, setState] = useState<SurfaceState>(INITIAL_STATE);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -115,7 +132,40 @@ export function MediaSurface({
     }
   }, []);
 
+  const stopNativeFrameWatch = useCallback(() => {
+    const video = videoRef.current as FrameCallbackVideo | null;
+    if (
+      nativeFrameCallbackRef.current !== null &&
+      video?.cancelVideoFrameCallback
+    ) {
+      video.cancelVideoFrameCallback(nativeFrameCallbackRef.current);
+    }
+    nativeFrameCallbackRef.current = null;
+  }, []);
+
+  const startNativeFrameWatch = useCallback(
+    (video: FrameCallbackVideo) => {
+      stopNativeFrameWatch();
+      if (typeof video.requestVideoFrameCallback !== "function") {
+        nativeFrameWatchSupportedRef.current = false;
+        return;
+      }
+      nativeFrameWatchSupportedRef.current = true;
+      nativeFrameAtRef.current = performance.now();
+      const onFrame = () => {
+        nativeFrameAtRef.current = performance.now();
+        nativeRecoveriesRef.current = 0;
+        nativeFrameCallbackRef.current =
+          video.requestVideoFrameCallback?.(onFrame) ?? null;
+      };
+      nativeFrameCallbackRef.current =
+        video.requestVideoFrameCallback?.(onFrame) ?? null;
+    },
+    [stopNativeFrameWatch],
+  );
+
   const stopNativeTrack = useCallback(() => {
+    stopNativeFrameWatch();
     trackRef.current?.stop();
     trackRef.current = null;
     const video = videoRef.current;
@@ -126,7 +176,7 @@ export function MediaSurface({
         // jsdom / 已销毁的 video
       }
     }
-  }, []);
+  }, [stopNativeFrameWatch]);
 
   /**
    * HTML 起播：metadata 就绪后按墙钟对齐一次，再 play。
@@ -154,8 +204,18 @@ export function MediaSurface({
   );
 
   const switchToHtmlFallback = useCallback(
-    (url: string, config: MediaConfig, reason: string | null) => {
-      if (disposedRef.current) return;
+    (
+      url: string,
+      config: MediaConfig,
+      reason: string | null,
+      runId?: number,
+    ) => {
+      if (
+        disposedRef.current ||
+        (runId !== undefined && runIdRef.current !== runId)
+      ) {
+        return;
+      }
       const video = videoRef.current;
       clearNativeTimer();
       stopNativeTrack();
@@ -176,127 +236,183 @@ export function MediaSurface({
     [clearNativeTimer, onBackendChange, startHtmlPlayback, stopNativeTrack],
   );
 
-  const load = useCallback(async () => {
-    if (!isMediaDesktop()) {
+  const load = useCallback(
+    async (runId: number) => {
+      const active = (): boolean =>
+        runIdRef.current === runId && !disposedRef.current;
+      if (!isMediaDesktop()) {
+        setState((current) => ({
+          ...current,
+          loading: false,
+          error: "浏览器预览没有媒体运行时",
+        }));
+        return;
+      }
       setState((current) => ({
         ...current,
-        loading: false,
-        error: "浏览器预览没有媒体运行时",
+        loading: true,
+        error: null,
+        backend: null,
+        sessionId: null,
       }));
-      return;
-    }
-    setState((current) => ({
-      ...current,
-      loading: true,
-      error: null,
-      backend: null,
-      sessionId: null,
-    }));
-    const view = await getMediaConfig();
-    if (disposedRef.current) return;
-    if (!view) {
+      const view = await getMediaConfig();
+      if (!active()) return;
+      if (!view) {
+        setState((current) => ({
+          ...current,
+          loading: false,
+          error: "媒体配置不可用",
+        }));
+        return;
+      }
+      const config = view.config;
+      const kind =
+        view.asset?.kind ??
+        (view.assetUrl ? mediaKindFromUrl(view.assetUrl) : null) ??
+        "video";
+      setState((current) => ({ ...current, view, config, kind }));
+      if (!view.asset || !view.assetUrl || !view.asset.available) {
+        setState((current) => ({ ...current, loading: false, error: null }));
+        return;
+      }
+
+      // 图片是静态资源：不建 Session、不尝试原生、不占解码器。
+      if (kind === "image") {
+        setState((current) => ({ ...current, loading: false, error: null }));
+        return;
+      }
+
+      const opened = await openMediaSession("lull.video");
+      if (!active()) return;
+      if (!opened) {
+        switchToHtmlFallback(
+          view.assetUrl,
+          config,
+          "原生会话不可用，已回退 HTML",
+          runId,
+        );
+        return;
+      }
+      sessionRef.current = opened.sessionId;
+      setState((current) => ({ ...current, sessionId: opened.sessionId }));
+
+      const attached = await attachMediaSession(opened.sessionId);
+      if (!active()) {
+        // 本轮已经失效（StrictMode/重载）：按 stream id 精确解绑，不能误删
+        // 新一轮已经 attach 的 Surface。
+        if (attached) {
+          void detachMediaSession(opened.sessionId, attached.streamId);
+        }
+        return;
+      }
+      streamIdRef.current = attached?.streamId ?? null;
+      const url = attached?.assetUrl ?? opened.assetUrl ?? view.assetUrl;
+      const native = decideNativeAttempt(
+        view.capabilities,
+        typeof window.chrome?.webview?.getTextureStream === "function",
+      );
+      const canNative =
+        native.attempt &&
+        attached?.backend === "native-texture" &&
+        typeof attached.streamId === "string";
+      if (!canNative) {
+        switchToHtmlFallback(
+          url,
+          config,
+          attached?.reason ?? native.reason,
+          runId,
+        );
+        return;
+      }
+
+      const video = videoRef.current;
+      let stream = await getWebView2TextureStream(attached.streamId ?? "");
+      if (!active()) return;
+      if (!stream) {
+        // 显示器重新打开/StrictMode 双挂载时，旧 Surface 可能留下一个
+        // 未 StartRequested 的 TextureStream；直接 degrade 会永久回退 HTML。
+        // 这里重新 attach 一次，用新 stream id 再取流，失败才降级。
+        const retry = await attachMediaSession(opened.sessionId);
+        if (!active()) {
+          if (retry) {
+            void detachMediaSession(opened.sessionId, retry.streamId);
+          }
+          return;
+        }
+        if (retry?.backend === "native-texture" && retry.streamId) {
+          streamIdRef.current = retry.streamId;
+          stream = await getWebView2TextureStream(retry.streamId);
+        }
+      }
+      if (!active()) return;
+      if (!video || !stream) {
+        await degradeMediaSession(
+          opened.sessionId,
+          "WebView2 TextureStream 首帧失败",
+        );
+        switchToHtmlFallback(url, config, "原生纹理不可用，已回退 HTML", runId);
+        return;
+      }
+      applyVideoConfig(video, config);
+      trackRef.current = stream.getVideoTracks()[0] ?? null;
+      video.srcObject = stream;
+      startNativeFrameWatch(video as FrameCallbackVideo);
       setState((current) => ({
         ...current,
+        backend: "native-texture",
+        error: null,
         loading: false,
-        error: "媒体配置不可用",
       }));
-      return;
-    }
-    const config = view.config;
-    const kind =
-      view.asset?.kind ??
-      (view.assetUrl ? mediaKindFromUrl(view.assetUrl) : null) ??
-      "video";
-    setState((current) => ({ ...current, view, config, kind }));
-    if (!view.asset || !view.assetUrl || !view.asset.available) {
-      setState((current) => ({ ...current, loading: false, error: null }));
-      return;
-    }
-
-    // 图片是静态资源：不建 Session、不尝试原生、不占解码器。
-    if (kind === "image") {
-      setState((current) => ({ ...current, loading: false, error: null }));
-      return;
-    }
-
-    const opened = await openMediaSession("lull.video");
-    if (disposedRef.current) return;
-    if (!opened) {
-      switchToHtmlFallback(
-        view.assetUrl,
-        config,
-        "原生会话不可用，已回退 HTML",
-      );
-      return;
-    }
-    sessionRef.current = opened.sessionId;
-    setState((current) => ({ ...current, sessionId: opened.sessionId }));
-
-    const attached = await attachMediaSession(opened.sessionId);
-    if (disposedRef.current) return;
-    const url = attached?.assetUrl ?? opened.assetUrl ?? view.assetUrl;
-    const native = decideNativeAttempt(
-      view.capabilities,
-      typeof window.chrome?.webview?.getTextureStream === "function",
-    );
-    const canNative =
-      native.attempt &&
-      attached?.backend === "native-texture" &&
-      typeof attached.streamId === "string";
-    if (!canNative) {
-      switchToHtmlFallback(url, config, attached?.reason ?? native.reason);
-      return;
-    }
-
-    const video = videoRef.current;
-    const stream = await getWebView2TextureStream(attached.streamId ?? "");
-    if (disposedRef.current) return;
-    if (!video || !stream) {
-      await degradeMediaSession(
-        opened.sessionId,
-        "WebView2 TextureStream 首帧失败",
-      );
-      switchToHtmlFallback(url, config, "原生纹理不可用，已回退 HTML");
-      return;
-    }
-    applyVideoConfig(video, config);
-    trackRef.current = stream.getVideoTracks()[0] ?? null;
-    video.srcObject = stream;
-    setState((current) => ({
-      ...current,
-      backend: "native-texture",
-      error: null,
-      loading: false,
-    }));
-    onBackendChange?.("native-texture");
-    void video.play().catch(() => {
-      void degradeMediaSession(opened.sessionId, "原生视频自动播放失败").then(
-        () => {
-          switchToHtmlFallback(url, config, "自动播放失败，已回退 HTML");
-        },
-      );
-    });
-    clearNativeTimer();
-    timeoutRef.current = window.setTimeout(() => {
-      void degradeMediaSession(opened.sessionId, "12 秒内未收到原生首帧").then(
-        () => {
-          switchToHtmlFallback(url, config, "原生首帧超时，已回退 HTML");
-        },
-      );
-    }, NATIVE_FIRST_FRAME_TIMEOUT_MS);
-  }, [clearNativeTimer, onBackendChange, switchToHtmlFallback]);
+      onBackendChange?.("native-texture");
+      void video.play().catch(() => {
+        void degradeMediaSession(opened.sessionId, "原生视频自动播放失败").then(
+          () => {
+            switchToHtmlFallback(
+              url,
+              config,
+              "自动播放失败，已回退 HTML",
+              runId,
+            );
+          },
+        );
+      });
+      clearNativeTimer();
+      timeoutRef.current = window.setTimeout(() => {
+        void degradeMediaSession(
+          opened.sessionId,
+          "12 秒内未收到原生首帧",
+        ).then(() => {
+          switchToHtmlFallback(url, config, "原生首帧超时，已回退 HTML", runId);
+        });
+      }, NATIVE_FIRST_FRAME_TIMEOUT_MS);
+    },
+    [
+      clearNativeTimer,
+      onBackendChange,
+      startNativeFrameWatch,
+      switchToHtmlFallback,
+    ],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey intentionally restarts cleanup + load
   useEffect(() => {
+    const runId = ++runIdRef.current;
     disposedRef.current = false;
-    void load();
+    void load(runId);
     return () => {
+      // 让仍在 await 的 load 失效，避免 StrictMode 的第一轮在 cleanup 后
+      // 继续 open/attach（那会在同一窗口重复创建 TextureStream）。
+      if (runIdRef.current === runId) runIdRef.current += 1;
       disposedRef.current = true;
       clearNativeTimer();
       stopNativeTrack();
       const sessionId = sessionRef.current;
+      const streamId = streamIdRef.current;
       sessionRef.current = null;
-      if (sessionId) void detachMediaSession(sessionId);
+      streamIdRef.current = null;
+      if (sessionId && streamId) {
+        void detachMediaSession(sessionId, streamId);
+      }
       const video = videoRef.current;
       if (video) {
         try {
@@ -309,6 +425,47 @@ export function MediaSurface({
       }
     };
   }, [clearNativeTimer, load, reloadKey, stopNativeTrack]);
+
+  // 原生流有首帧不代表之后一直在出帧：显示器全关再开、WebView2 合成器
+  // 重新唤醒时可能停在黑帧。用 requestVideoFrameCallback 看“最近一次真正
+  // 呈现的帧”；超过 5 秒没有新帧就重挂一次，连续失败才回退 HTML。
+  useEffect(() => {
+    if (
+      state.backend !== "native-texture" ||
+      !nativeFrameWatchSupportedRef.current
+    ) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      if (disposedRef.current || document.hidden) return;
+      const video = videoRef.current;
+      if (!video || video.paused) return;
+      if (
+        performance.now() - nativeFrameAtRef.current <
+        NATIVE_STALL_TIMEOUT_MS
+      ) {
+        return;
+      }
+      if (nativeRecoveriesRef.current >= 2) {
+        const sessionId = sessionRef.current;
+        const assetUrl = state.view?.assetUrl;
+        if (!sessionId || !state.config || !assetUrl) return;
+        void degradeMediaSession(sessionId, "原生纹理持续无帧").then(() => {
+          if (disposedRef.current || !state.config) return;
+          switchToHtmlFallback(
+            assetUrl,
+            state.config,
+            "原生纹理持续无帧，已回退 HTML",
+          );
+        });
+        return;
+      }
+      nativeRecoveriesRef.current += 1;
+      nativeFrameAtRef.current = performance.now();
+      setReloadKey((key) => key + 1);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [state.backend, state.view?.assetUrl, state.config, switchToHtmlFallback]);
 
   // WebView 重载/场景切走时 React cleanup 不一定先跑完：pagehide 里同步释放
   // 轨道和 <video> 的 src，避免旧页面在卸载阶段继续解码。
@@ -347,6 +504,7 @@ export function MediaSurface({
   // 不能 seek，只处理 HTML 的 src 路径。
   useEffect(() => {
     return onMediaMasterVisible((visible) => {
+      masterVisibleRef.current = visible;
       const video = videoRef.current;
       if (!video) return;
       if (!visible) {
@@ -359,6 +517,35 @@ export function MediaSurface({
         alignVideoPhase(video, DRIFT_TOLERANCE_SEC, config.rate);
       }
       if (video.srcObject || video.getAttribute("src")) {
+        void video.play().catch(() => {});
+      }
+    });
+  }, []);
+
+  // 设置页「重新同步播放」：原生会话已在 Rust seek；HTML 这里按同一点 seek
+  // 并恢复播放。positionMs 为 0 时就是所有显示器从素材开头重新开始。
+  useEffect(() => {
+    return onMediaResync((positionMs) => {
+      const video = videoRef.current;
+      if (!video) return;
+      nativeFrameAtRef.current = performance.now();
+      const isHtml = !video.srcObject && Boolean(video.getAttribute("src"));
+      if (isHtml) {
+        const seconds = Math.max(0, positionMs / 1000);
+        try {
+          const duration = video.duration;
+          video.currentTime =
+            Number.isFinite(duration) && duration > 0
+              ? seconds % duration
+              : seconds;
+        } catch {
+          // metadata 尚未就绪；下一次可见/播放入口会重新对齐。
+        }
+      }
+      if (
+        masterVisibleRef.current &&
+        (video.srcObject || video.getAttribute("src"))
+      ) {
         void video.play().catch(() => {});
       }
     });

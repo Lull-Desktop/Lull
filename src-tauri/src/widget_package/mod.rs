@@ -181,7 +181,7 @@ fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
   }
 
   let on = window_host::prefs::load(app).taskbar_and_minimize;
-  let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("embed".into()))
+  let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("embed".into()))
     .title(format!("Lull {}", manifest.name))
     .inner_size(manifest.window.width, manifest.window.height)
     .min_inner_size(manifest.window.min_width(), manifest.window.min_height())
@@ -196,6 +196,9 @@ fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
       "window.__LULL_PLUGIN__ = {};",
       plugin_context_json(app, &manifest)
     ));
+  #[cfg(feature = "native-media")]
+  let builder = builder.additional_browser_args(crate::media::NATIVE_MEDIA_BROWSER_ARGS);
+  let mut builder = builder;
   // 插件窗口始终用透明 WebView 创建，初始背景由清单的 window.transparent 决定；
   // 运行时可通过 widget_set_transparent 在透明/不透明之间切换。
   builder = builder

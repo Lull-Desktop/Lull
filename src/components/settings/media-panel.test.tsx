@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { DEFAULT_MEDIA_CONFIG } from "@/core/media/types";
 import { MediaPanel } from "./media-panel";
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   removeMediaAsset: vi.fn(),
   setMediaConfig: vi.fn(),
   activateMediaAsset: vi.fn(),
+  resyncMediaPlayback: vi.fn(),
 }));
 
 vi.mock("@/core/media/media-api", () => ({
@@ -21,6 +22,7 @@ vi.mock("@/core/media/media-api", () => ({
   removeMediaAsset: mocks.removeMediaAsset,
   setMediaConfig: mocks.setMediaConfig,
   activateMediaAsset: mocks.activateMediaAsset,
+  resyncMediaPlayback: mocks.resyncMediaPlayback,
 }));
 
 vi.mock("@/core/media/media-events", () => ({
@@ -144,5 +146,20 @@ describe("MediaPanel", () => {
     expect(screen.queryByText("循环")).toBeNull();
     expect(screen.queryByText("目标帧率")).toBeNull();
     expect(screen.queryByText("共享解码")).toBeNull();
+  });
+
+  test("resyncs every media session from the settings panel", async () => {
+    mocks.resyncMediaPlayback.mockResolvedValue(2);
+    render(<MediaPanel />);
+    const button = await screen.findByRole("button", {
+      name: "重新同步播放",
+    });
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(mocks.resyncMediaPlayback).toHaveBeenCalledWith(0),
+    );
+    expect(
+      await screen.findByText("已让所有显示器从同一起点重新开始。"),
+    ).toBeTruthy();
   });
 });
