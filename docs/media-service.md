@@ -1,6 +1,6 @@
 # Lull Media Service 与音乐资料库
 
-> 状态：P0 + P1 + P2 基础已落地（SQLite 曲库、扫描、Media API/SDK、隐藏音频引擎、播放/队列/白噪音、官方播放器与白噪音迁移）。歌单/喜欢/历史、标签、第三方开放按阶段推进。
+> 状态：P0 + P1 + P2 已落地（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列/白噪音、官方播放器与白噪音迁移）。歌单/喜欢/历史、标签实体、第三方开放按阶段推进。
 
 ## 1. 边界
 
@@ -30,8 +30,9 @@ Media Service（Rust）
 
 - 路径：`%APPDATA%\app.lull.desktop\music\music.db`；`LULL_MUSIC_DIR` 可覆盖。
 - SQLite WAL、`foreign_keys=ON`、`busy_timeout=5s`；SQLx migration 编译期嵌入。
-- 迁移：`0001_library.sql`、`0002_search_fts.sql`、`0003_playback.sql`。
+- 迁移：`0001_library.sql`、`0002_search_fts.sql`、`0003_playback.sql`、`0004_library_filters.sql`。
 - 播放状态：`player_state`（当前曲目/进度/音量/模式）、`player_queue`（Track 引用顺序）、`noise_state`（五层/主音量/睡眠）。进度每 250ms 只走内存与事件，暂停/停止/切歌/退出才落盘。
+- 封面/歌词：`music/assets/` 下按 SHA-256 内容寻址保存二进制；`music_assets.storage_key` 只存文件名，`music_track_assets` 关联主封面，`music_lyrics` 存内嵌/同名 `.lrc` 文本。扫描只读用户文件，资产是 Lull 副本。
 - 核心表：
   - `music_sources`：本地/内置来源；`root_path` 不返回第三方。
   - `music_folders`、`music_files`：磁盘目录与真实文件；文件按 `source_id + path_key` 唯一。
@@ -39,7 +40,7 @@ Media Service（Rust）
   - `music_artists` / `music_albums` + aliases：稳定实体，支持后续合并/拆分。
   - `music_track_artists` / `music_track_albums`：多艺术家、多角色、专辑关系与来源。
   - `music_track_metadata` / `music_field_sources`：导入快照、规范化、用户覆盖、逐字段来源。
-  - `music_assets` / `music_track_assets` / `music_lyrics`：内容寻址封面与歌词（P1 已建表，扫描侧逐步接入）。
+  - `music_assets` / `music_track_assets` / `music_lyrics`：内容寻址封面与歌词；已接入内嵌封面、文件夹封面、内嵌歌词与同名 `.lrc`。
   - `music_scan_runs`、`music_search_text`、`app_meta`。
 - 搜索：`music_search_text` 保存标题/艺术家/专辑/文件名，`music_search_fts`（FTS5 trigram）由触发器同步；>=3 字符走 FTS，1–2 字符/无法匹配时回退 `LIKE`。SQLite 构建已确认启用 `ENABLE_FTS5`（见 `db.rs` 测试输出）。
 - 元数据优先级（P4 完整实现）：用户覆盖 > 已确认在线匹配 > 规范化本地标签 > 文件名推断；普通重扫不覆盖 `manual/split/online` 字段。
@@ -67,10 +68,13 @@ Media Service（Rust）
 | `library.addSource` | `{}` | `SourceView \| null`（系统目录选择器） |
 | `library.removeSource` | `{sourceId}` | `{removed: boolean}` |
 | `library.startScan` | `{sourceId}` | `ScanJobView`（立即返回，扫描后台执行） |
-| `library.listTracks` | `{keyword?, sourceIds?, page?, pageSize?, sortBy?, sortOrder?, includeUnavailable?}` | `Page<TrackSummary>` |
-| `library.getTrack` | `{trackId}` | `TrackDetail`（含文件格式/码率与元数据 JSON，不含路径） |
+| `library.cancelScan` | `{sourceId}` | `{cancelled: boolean}` |
+| `library.listTracks` | `{keyword?, sourceIds?, artistId?, albumId?, genre?, format?, year?, yearFrom?, yearTo?, page?, pageSize?, sortBy?, sortOrder?, includeUnavailable?}` | `Page<TrackSummary>` |
+| `library.getTrack` | `{trackId}` | `TrackDetail`（含文件格式/码率、元数据 JSON 与主歌词，不含路径） |
+| `library.getCoverUrl` | `{trackId}` | `{url: string \| null}`（仅官方窗口） |
 | `library.listArtists` | `{}` | `ArtistSummary[]` |
 | `library.listAlbums` | `{}` | `AlbumSummary[]` |
+| `library.listGenres` | `{}` | `string[]` |
 | `player.getState` / `play` / `pause` / `resume` / `stop` / `seek` / `next` / `previous` | `trackId?`, `positionMs` | `PlayerState` |
 | `player.setVolume` / `setMuted` / `setMode` | `volume`, `muted`, `mode` | `PlayerState` |
 | `queue.get` / `add` / `remove` / `clear` / `move` / `playAt` | `trackId`, `index` | `QueueState` / `PlayerState` |
@@ -82,6 +86,7 @@ Media Service（Rust）
 - 结果不含 `path/storage_key` 之外的文件系统细节；`rootPath` 只给 host 设置窗。
 - 错误用 `{code,message,details?}`；前端按 `code` 分支。
 - `media_connect({topics,progressMs,levels})` 原子注册订阅并返回 `PlaybackSnapshot`；事件 envelope 为 `{protocol,topic,revision,at,payload}`。
+- 资料库事件也走 `media:event`：`library.changed`、`library.scan.started`、`library.scan.progress`、`library.scan.finished`；`app_meta.revision` 持久化，列表响应同时带 revision。
 - 播放状态事件发完整 `PlayerState`；进度/电平只发给订阅窗口；音频电平最高 20Hz。
 - 引擎窗口只接收 `media-engine-command`，通过 `media_engine_ready/event` 上报；命令携带 `loadId`，旧加载事件被丢弃。
 
@@ -90,7 +95,7 @@ Media Service（Rust）
 `packages/media-sdk`（Apache-2.0）：
 
 - `createMediaClient({ transport? })`：Tauri 环境自动使用 `media_call` / `media_connect`；测试传内存 transport。
-- `library.*`、`player.*`、`queue.*`、`noise.*`、`connect/disconnect`、`events.on`。
+- `library.*`（含 scan progress/cancel、cover URL、genre/filter 参数）、`player.*`、`queue.*`、`noise.*`、`connect/disconnect`、`events.on`。
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient`。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
 - 设置页音乐库面板、官方播放器与白噪音都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。
@@ -108,10 +113,10 @@ P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公�
 
 ## 6. 当前限制
 
-- 扫描每个文件一个小事务，未做批量事务与取消；扫描进度仍只有 `library-changed`，P3 前补 `library.scan.progress`。
-- 尚未接入封面/歌词资产写入、文件移动检测、`.lullignore`。
-- `library.listTracks` 只实现关键词/来源/分页/基础排序；艺术家/专辑/标签/格式/年份筛选在 P3/P4 补。
-- 播放/队列/白噪音已迁移到 Media Service；本地音频的封面、歌词和更细的播放列表 UI 仍待补。
+- 扫描每个文件一个小事务；取消只在文件之间生效，大文件解析期间不会立即中断。
+- 已接入内嵌/文件夹封面与内嵌/同名 `.lrc` 歌词；歌词 UI、文件移动检测、`.lullignore` 尚未接入。
+- `library.listTracks` 已支持艺术家/专辑/流派(genre)/格式/年份筛选；完整标签实体、多值标签与 P4 元数据编辑仍在后续。
+- 播放/队列/白噪音已迁移到 Media Service；本地音频优先用 `captureStream` 分析电平，浏览器不支持时回退占位值；播放器队列 UI 尚未暴露。
 - 没有第三方媒体权限；`media:event` 只对官方窗口开放。
 - 扫描错误最多保留 100 条，写入 `music_scan_runs.errors_json`。
 - 多设备音频输出切换、独占模式、系统媒体控制（SMTC）尚未接入。
@@ -121,8 +126,8 @@ P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公�
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | P0 | `media/video` 迁移、SQLx/lofty 依赖、迁移骨架 | 已完成基础 |
-| P1 | 来源/文件/Track/艺术家/专辑、扫描、只读 API、SDK 基础、设置面板 | 基础已落地，待补资产/FTS/筛选 |
-| P2 | Playback/Queue/Noise 服务、隐藏音频引擎、官方播放器/白噪音迁移 | 基础已落地，待真机长稳/多设备验收 |
+| P1 | 来源/文件/Track/艺术家/专辑、扫描、只读 API、SDK 基础、设置面板 | 已完成（含资产、筛选、扫描进度/取消、revision/事件） |
+| P2 | Playback/Queue/Noise 服务、隐藏音频引擎、官方播放器/白噪音迁移 | 已完成，待长稳/多设备验收 |
 | P3 | 歌单/喜欢/历史、M3U、资料库窗口 | 未开始 |
 | P4 | 元数据编辑、标签、实体合并/拆分、智能歌单 | 未开始 |
 | P5 | 公开 SDK、Widget 桥、权限、示例 | 未开始 |
