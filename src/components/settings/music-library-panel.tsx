@@ -149,7 +149,10 @@ export function MusicLibraryPanel({
     if (!client) return;
     void run("add", async () => {
       const added = await client.library.addSource();
-      if (added) await refresh(client, appliedKeyword);
+      if (added) {
+        await client.library.startScan(added.id);
+        await refresh(client, appliedKeyword);
+      }
     });
   }, [appliedKeyword, client, refresh, run]);
 

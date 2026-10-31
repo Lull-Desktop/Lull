@@ -97,8 +97,7 @@ pub(crate) fn create_one(
       serde_json::to_string(&crate::i18n::current()).unwrap_or_else(|_| "\"zh-CN\"".to_string())
     ))
     .devtools(crate::window_host::devtools_enabled());
-  #[cfg(feature = "native-media")]
-  let builder = builder.additional_browser_args(crate::media::video::NATIVE_MEDIA_BROWSER_ARGS);
+  let builder = builder.additional_browser_args(crate::webview::browser_args());
   let window = builder
     .on_page_load(move |_window, payload| {
       if !matches!(payload.event(), PageLoadEvent::Finished) {

@@ -196,9 +196,7 @@ fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
       "window.__LULL_PLUGIN__ = {};",
       plugin_context_json(app, &manifest)
     ));
-  #[cfg(feature = "native-media")]
-  let builder = builder.additional_browser_args(crate::media::video::NATIVE_MEDIA_BROWSER_ARGS);
-  let mut builder = builder;
+  let mut builder = builder.additional_browser_args(crate::webview::browser_args());
   // 插件窗口始终用透明 WebView 创建，初始背景由清单的 window.transparent 决定；
   // 运行时可通过 widget_set_transparent 在透明/不透明之间切换。
   builder = builder

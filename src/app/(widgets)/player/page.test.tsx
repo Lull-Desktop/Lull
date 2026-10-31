@@ -28,8 +28,9 @@ test("切到本地来源时展示空态与导入入口", () => {
 
   fireEvent.click(screen.getByRole("tab", { name: "本地" }));
   expect(screen.getByText("本地曲库还空着")).toBeDefined();
-  expect(screen.getByRole("button", { name: "导入音频" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "添加本地音频" })).toBeDefined();
+  expect(
+    screen.getAllByRole("button", { name: "添加音乐文件夹" }).length,
+  ).toBeGreaterThan(0);
 });
 
 test("右上曲库泡切换抽屉展开状态", () => {

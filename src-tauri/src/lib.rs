@@ -16,6 +16,7 @@ mod package_hash;
 mod resource;
 pub(crate) mod tray;
 pub(crate) mod wallpaper;
+mod webview;
 mod widget_package;
 mod window_frame;
 mod window_host;
@@ -98,6 +99,10 @@ pub fn run() {
       media::video::commands::media_status,
       media::video::commands::media_stats,
       media::api::commands::media_call,
+      media::api::commands::media_connect,
+      media::api::commands::media_disconnect,
+      media::api::commands::media_engine_ready,
+      media::api::commands::media_engine_event,
       content_package::content_packages
     ])
     .setup(|app| {
@@ -123,8 +128,8 @@ pub fn run() {
       }
       Ok(())
     })
-    .on_window_event(|window, event| {
-      if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+    .on_window_event(|window, event| match event {
+      tauri::WindowEvent::CloseRequested { api, .. } => {
         // 退出模型：所有应用窗口的 X / Alt+F4 都只是隐藏（应用与壁纸继续运行），
         // 只有托盘「退出」才真正结束整个进程（见 tray.rs 的 app.exit(0)）。
         if window_host::is_managed(window.label())
@@ -134,8 +139,15 @@ pub fn run() {
           let _ = window.hide();
           // 工具窗/插件窗被 Alt+F4 隐藏后，通知设置页刷新显示开关。
           window_host::notify_changed(window.app_handle());
+        } else if window.label() == media::playback::engine::ENGINE_LABEL {
+          api.prevent_close();
+          let _ = window.hide();
         }
       }
+      tauri::WindowEvent::Destroyed => {
+        media::playback::on_window_destroyed(window.app_handle(), window.label());
+      }
+      _ => {}
     })
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

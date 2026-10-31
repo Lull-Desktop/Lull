@@ -7,6 +7,7 @@
  */
 "use client";
 
+import type { TrackSummary } from "@lull/media-sdk";
 import {
   AudioLines,
   ChevronLeft,
@@ -29,7 +30,6 @@ import {
   X,
 } from "lucide-react";
 import type {
-  ChangeEvent,
   CSSProperties,
   DragEvent,
   KeyboardEvent as ReactKeyboardEvent,
@@ -43,9 +43,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePlayerSession } from "@/hooks/use-player-session";
 import {
   isWidgetAudioAvailable,
-  isWidgetMediaAvailable,
   onWidgetPrefsChanged,
   widgetAlignPlayer,
   widgetHideWindow,
@@ -54,7 +54,6 @@ import {
   widgetResizeWidth,
 } from "@/sdk/widget";
 import { useWidgetFit, useWidgetTheme } from "@/sdk/widget/react";
-import { AmbientStream } from "./ambient-stream";
 import { CoverArt } from "./cover-art";
 import styles from "./liquid-player.module.css";
 import {
@@ -64,22 +63,31 @@ import {
   findTrackById,
   formatClock,
   formatTrackDuration,
-  nextIndexForMode,
   ONLINE_TRACKS,
   PLAY_MODE_OPTIONS,
   type PlayerSource,
   type PlayerTrack,
   type PlayMode,
-  parseTrackName,
   persistPlayerPrefs,
   playModeLabel,
-  previousIndex,
   readPlayerPrefs,
   totalDuration,
 } from "./player-model";
 
 const DEFAULT_TRACK = ONLINE_TRACKS[0] ?? null;
 const DEFAULT_TRACK_ID = DEFAULT_TRACK?.id ?? "";
+
+/** Media Service 的 TrackSummary → 现有玻璃 UI 的 PlayerTrack。 */
+function toPlayerTrack(track: TrackSummary): PlayerTrack {
+  return {
+    id: track.id,
+    title: track.title,
+    artist: track.artists.join(" / ") || "未知艺术家",
+    duration: (track.durationMs ?? 0) / 1000,
+    source: track.source,
+    tone: coverToneForText(track.id),
+  };
+}
 const SEEK_STEP_SECONDS = 5;
 /** 展开曲库的完整画布；收起时收到 530，左右留白正好包住主球与曲库泡。 */
 /** 右停靠展开的完整画布；收起时收到 530。左停靠始终保留 880。 */
@@ -150,21 +158,9 @@ const MODE_GLYPHS = {
   shuffle: Shuffle,
   "repeat-one": Repeat1,
 } as const;
-const AUDIO_EXTENSION = /\.(mp3|wav|flac|ogg|oga|m4a|aac|opus|webm|aiff?)$/i;
 const DISSOLVE_ANGLES = [
   0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330,
 ] as const;
-
-let localTrackSequence = 0;
-
-function nextLocalTrackId(): string {
-  localTrackSequence += 1;
-  return `local-${Date.now().toString(36)}-${localTrackSequence}`;
-}
-
-function isAudioFile(file: File): boolean {
-  return file.type.startsWith("audio/") || AUDIO_EXTENSION.test(file.name);
-}
 
 function resolveAudioContextCtor(): typeof AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -174,20 +170,6 @@ function resolveAudioContextCtor(): typeof AudioContext | null {
       .webkitAudioContext ??
     null
   );
-}
-
-function analyserLevel(
-  analyser: AnalyserNode,
-  data: Uint8Array<ArrayBuffer>,
-): number {
-  analyser.getByteFrequencyData(data);
-  const limit = Math.min(data.length, 48);
-  let sum = 0;
-  for (let index = 1; index < limit; index += 1) {
-    sum += data[index] ?? 0;
-  }
-  const average = sum / Math.max(1, (limit - 1) * 255);
-  return Math.min(1, average * 2.3);
 }
 
 /**
@@ -232,6 +214,11 @@ export function LiquidPlayer(): React.ReactElement {
   const [canMinimize, setCanMinimize] = useState(false);
   const [themeReady, setThemeReady] = useState(false);
 
+  const session = usePlayerSession();
+  const remoteTracks = useMemo(
+    () => session.tracks.map(toPlayerTrack),
+    [session.tracks],
+  );
   const { themeId } = useWidgetTheme();
   const panelId = useId().replace(/[^a-zA-Z0-9_-]/g, "") || "tracklist";
 
@@ -240,54 +227,51 @@ export function LiquidPlayer(): React.ReactElement {
   const playerClusterRef = useRef<HTMLElement>(null);
   const drawerSlotRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const localTabRef = useRef<HTMLButtonElement>(null);
   const onlineTabRef = useRef<HTMLButtonElement>(null);
 
-  const tracksRef = useRef<PlayerTrack[]>([]);
   const currentRef = useRef<PlayerTrack | null>(DEFAULT_TRACK);
   const currentIdRef = useRef(DEFAULT_TRACK_ID);
-  const loadedIdRef = useRef(DEFAULT_TRACK_ID);
   const playingRef = useRef(false);
   const progressRef = useRef(0);
-  const modeRef = useRef<PlayMode>("sequence");
   const volumeRef = useRef(78);
-  const requestAutoplayRef = useRef(false);
+  const serviceVolumeRef = useRef(-1);
   const scrubPointerRef = useRef<number | null>(null);
-  const scrubRef = useRef(false);
   const volumeTrackRef = useRef<HTMLDivElement>(null);
   const volumePointerRef = useRef<number | null>(null);
-  const endedGuardRef = useRef(false);
-  const objectUrlsRef = useRef<string[]>([]);
-  const ambientRef = useRef<AmbientStream | null>(null);
-  const onlineClockRef = useRef({ startedAt: 0, offset: 0 });
   const uiContextRef = useRef<AudioContext | null>(null);
-  const localAnalyserRef = useRef<{
-    context: AudioContext;
-    analyser: AnalyserNode;
-    data: Uint8Array<ArrayBuffer>;
-  } | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
   const drawerWidthTimerRef = useRef<number | null>(null);
   const drawerOpenRef = useRef(true);
   const dockSideRef = useRef<DockSide>("right");
   const dockSwitchBusyRef = useRef(false);
   const dragDepthRef = useRef(0);
-  const handleEndedRef = useRef<() => void>(() => {});
-  const commitSeekRef = useRef<(value: number) => void>(() => {});
 
   // 播放器是固定画布的透明浮窗：只需要等字体就绪后显示窗口，
   // 不能再按内容高度贴合（100vh 内容叠加顶栏高度会让窗口反复长高）。
   useWidgetFit(rootRef, { fit: false });
 
-  const allTracks = useMemo(() => [...ONLINE_TRACKS, ...tracks], [tracks]);
+  const onlineTracks = useMemo(
+    () =>
+      remoteTracks.length > 0
+        ? remoteTracks.filter((track) => track.source === "online")
+        : ONLINE_TRACKS,
+    [remoteTracks],
+  );
+  const allTracks = useMemo(
+    () =>
+      remoteTracks.length > 0 ? remoteTracks : [...ONLINE_TRACKS, ...tracks],
+    [remoteTracks, tracks],
+  );
   const current = findTrackById(allTracks, currentId) ?? DEFAULT_TRACK ?? null;
   const currentTone = current?.tone ?? 0;
   const palette = coverPalette(currentTone);
-  const duration = current?.duration ?? 0;
-  const visibleTracks = tab === "online" ? ONLINE_TRACKS : tracks;
-  const currentList = current?.source === "online" ? ONLINE_TRACKS : tracks;
+  const duration =
+    current?.duration ||
+    (session.player?.track?.id === current?.id
+      ? (session.player.durationMs ?? 0) / 1000
+      : 0);
+  const visibleTracks = tab === "online" ? onlineTracks : tracks;
   const displayProgress = scrubbing ? scrubValue : progress;
   const progressRatio =
     duration > 0 ? Math.min(1, Math.max(0, displayProgress / duration)) : 0;
@@ -296,7 +280,8 @@ export function LiquidPlayer(): React.ReactElement {
   const scrubAngle = progressRatio * Math.PI * 2 - Math.PI / 2;
   const scrubBubbleX = 50 + Math.cos(scrubAngle) * 46;
   const scrubBubbleY = 50 + Math.sin(scrubAngle) * 46;
-  const listLength = currentList.length;
+  const listLength =
+    current?.source === "online" ? onlineTracks.length : tracks.length;
   const canSkip = current !== null && listLength > 1;
 
   const rootStyle = {
@@ -321,20 +306,38 @@ export function LiquidPlayer(): React.ReactElement {
   }, [progress]);
 
   useEffect(() => {
-    tracksRef.current = tracks;
-  }, [tracks]);
-
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
-
-  useEffect(() => {
     volumeRef.current = volume;
     if (volume > 0) setLastAudibleVolume(volume);
-    const audio = audioRef.current;
-    if (audio) audio.volume = volume / 100;
-    ambientRef.current?.setVolume(volume);
   }, [volume]);
+
+  // Rust Media Service 是播放状态的权威源；本组件只缓存给玻璃 UI 用。
+  useEffect(() => {
+    const player = session.player;
+    if (!player) return;
+    setCurrentId(player.track?.id ?? "");
+    setPlaying(player.status === "playing" || player.status === "loading");
+    if (!scrubbing) {
+      setProgress(player.positionMs / 1000);
+      progressRef.current = player.positionMs / 1000;
+    }
+    setMode(player.mode);
+    const nextVolume = Math.round(player.volume * 100);
+    // 进度事件也会刷新 player 对象；只有服务端音量真的变化时才覆盖本地滑杆，
+    // 避免用户拖动中的值被 500ms 一次的进度事件弹回去。
+    if (serviceVolumeRef.current !== nextVolume) {
+      serviceVolumeRef.current = nextVolume;
+      setVolume(nextVolume);
+      if (nextVolume > 0) setLastAudibleVolume(nextVolume);
+    }
+  }, [scrubbing, session.player]);
+
+  // 资料库中的本地曲目进入现有“本地”页签；内置曲由 onlineTracks 负责。
+  useEffect(() => {
+    const local = session.tracks
+      .filter((track) => track.source === "local")
+      .map(toPlayerTrack);
+    if (local.length > 0 || session.tracks.length > 0) setTracks(local);
+  }, [session.tracks]);
 
   // WebView 页面透明：窗口本身在 Rust 侧以 transparent 创建，桌面从玻璃件之间透出来。
   useEffect(() => {
@@ -492,20 +495,6 @@ export function LiquidPlayer(): React.ReactElement {
     void run();
   }, []);
 
-  const updateTrackDuration = useCallback(
-    (trackId: string, value: number): void => {
-      if (!Number.isFinite(value) || value <= 0) return;
-      setTracks((previous) =>
-        previous.map((track) =>
-          track.id === trackId && Math.abs(track.duration - value) > 0.25
-            ? { ...track, duration: value }
-            : track,
-        ),
-      );
-    },
-    [],
-  );
-
   const ensureUiContext = useCallback((): AudioContext | null => {
     if (!isWidgetAudioAvailable()) return null;
     if (uiContextRef.current) {
@@ -524,32 +513,6 @@ export function LiquidPlayer(): React.ReactElement {
       return null;
     }
   }, []);
-
-  // 本地音频接一次 MediaElementSource，让主球频响跟随真实播放内容。
-  const ensureLocalAnalyser = useCallback((): {
-    context: AudioContext;
-    analyser: AnalyserNode;
-    data: Uint8Array<ArrayBuffer>;
-  } | null => {
-    if (localAnalyserRef.current) return localAnalyserRef.current;
-    const audio = audioRef.current;
-    const context = ensureUiContext();
-    if (!audio || !context) return null;
-    try {
-      const source = context.createMediaElementSource(audio);
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 128;
-      analyser.smoothingTimeConstant = 0.82;
-      source.connect(analyser);
-      analyser.connect(context.destination);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      localAnalyserRef.current = { context, analyser, data };
-      return localAnalyserRef.current;
-    } catch (error) {
-      console.error("[player] 无法连接频响分析器", error);
-      return null;
-    }
-  }, [ensureUiContext]);
 
   /** 切歌时一声很轻的水滴「啵」，与 0.35s 封面晕染同步。 */
   const playDropSound = useCallback((): void => {
@@ -578,49 +541,12 @@ export function LiquidPlayer(): React.ReactElement {
     }
   }, [ensureUiContext]);
 
-  const startAmbient = useCallback(
-    (track: PlayerTrack, offset: number): boolean => {
-      if (track.source !== "online" || !track.ambient) return false;
-      if (!isWidgetAudioAvailable()) return false;
-      try {
-        ambientRef.current ??= new AmbientStream();
-        ambientRef.current.setVolume(volumeRef.current);
-        ambientRef.current.start(track.ambient, offset);
-        return true;
-      } catch (error) {
-        console.error("[player] 在线氛围合成失败", error);
-        showNotice("音频引擎启动失败，请重试");
-        return false;
-      }
-    },
-    [showNotice],
-  );
-
   const pausePlayback = useCallback((): void => {
-    const track = currentRef.current;
-    const audio = audioRef.current;
-    if (track?.source === "local") {
-      audio?.pause();
-      if (audio && Number.isFinite(audio.currentTime)) {
-        setProgress(audio.currentTime);
-        progressRef.current = audio.currentTime;
-      }
-    } else if (track?.source === "online") {
-      const elapsed = Math.min(
-        track.duration,
-        onlineClockRef.current.offset +
-          (performance.now() - onlineClockRef.current.startedAt) / 1000,
-      );
-      onlineClockRef.current.offset = elapsed;
-      setProgress(elapsed);
-      progressRef.current = elapsed;
-      ambientRef.current?.stop();
-    }
-    endedGuardRef.current = false;
     setPlaying(false);
     playingRef.current = false;
     setPulseKey((value) => value + 1);
-  }, []);
+    void session.actions.pause().catch(() => {});
+  }, [session.actions]);
 
   const startPlayback = useCallback((): void => {
     const track = currentRef.current;
@@ -629,58 +555,26 @@ export function LiquidPlayer(): React.ReactElement {
       showNotice("先从曲库选择一首音频");
       return;
     }
-    endedGuardRef.current = false;
-    if (track.source === "local") {
-      const audio = audioRef.current;
-      if (!audio || !track.url) {
-        showNotice("这首本地音频已经失效，请重新导入");
-        return;
-      }
-      ensureLocalAnalyser();
-      audio.volume = volumeRef.current / 100;
-      if (
-        audio.ended ||
-        progressRef.current >= Math.max(0, track.duration - 0.25)
-      ) {
-        try {
-          audio.currentTime = 0;
-        } catch {
-          // 元数据还没回来时设置 currentTime 会抛错，等 play 后自然从头开始。
-        }
-        setProgress(0);
-        progressRef.current = 0;
-      }
-      void audio
-        .play()
-        .then(() => {
-          if (currentRef.current?.id !== track.id) return;
-          setPlaying(true);
-          playingRef.current = true;
-        })
-        .catch((error: unknown) => {
-          if (currentRef.current?.id !== track.id) return;
-          console.error("[player] 本地音频播放失败", error);
-          setPlaying(false);
-          playingRef.current = false;
-          showNotice("音频播放失败，请重新选择文件");
-        });
-    } else {
-      const offset =
-        progressRef.current >= Math.max(0, track.duration - 0.25)
-          ? 0
-          : progressRef.current;
-      if (!startAmbient(track, offset)) return;
-      onlineClockRef.current = {
-        offset,
-        startedAt: performance.now(),
-      };
-      setProgress(offset);
-      progressRef.current = offset;
-      setPlaying(true);
-      playingRef.current = true;
-    }
+    setPlaying(true);
+    playingRef.current = true;
     setPulseKey((value) => value + 1);
-  }, [ensureLocalAnalyser, setDrawer, showNotice, startAmbient]);
+    if (progressRef.current >= Math.max(0, track.duration - 0.25)) {
+      setProgress(0);
+      progressRef.current = 0;
+    }
+    const resumable =
+      session.player?.track?.id === track.id &&
+      session.player.positionMs > 0 &&
+      session.player.status !== "idle";
+    const action = resumable
+      ? session.actions.resume
+      : () => session.actions.play(track.id);
+    void action().catch(() => {
+      setPlaying(false);
+      playingRef.current = false;
+      showNotice("音频播放失败，请重试");
+    });
+  }, [session.actions, session.player, setDrawer, showNotice]);
 
   const togglePlayback = useCallback((): void => {
     if (playingRef.current) pausePlayback();
@@ -694,75 +588,39 @@ export function LiquidPlayer(): React.ReactElement {
         return;
       }
       const wasPlaying = playingRef.current;
-      requestAutoplayRef.current = autoplay;
       currentRef.current = track;
       currentIdRef.current = track.id;
       setCurrentId(track.id);
       setTab(track.source);
       setProgress(0);
       progressRef.current = 0;
-      endedGuardRef.current = false;
       setPulseKey((value) => value + 1);
       if (wasPlaying) playDropSound();
+      if (autoplay) {
+        setPlaying(true);
+        playingRef.current = true;
+        void session.actions.play(track.id).catch(() => {
+          setPlaying(false);
+          playingRef.current = false;
+          showNotice("音频播放失败，请重试");
+        });
+      } else if (wasPlaying) {
+        void session.actions.pause().catch(() => {});
+      }
     },
-    [playDropSound, startPlayback],
+    [playDropSound, session.actions, showNotice, startPlayback],
   );
 
   const moveTrack = useCallback(
     (direction: 1 | -1): void => {
-      const track = currentRef.current;
-      if (!track) return;
-      const list =
-        track.source === "online" ? ONLINE_TRACKS : tracksRef.current;
-      if (list.length === 0) return;
-      const index = Math.max(
-        0,
-        list.findIndex((item) => item.id === track.id),
-      );
-      const target =
-        direction > 0
-          ? (list[nextIndexForMode(index, list.length, "sequence")] ?? null)
-          : (list[previousIndex(index, list.length)] ?? null);
-      if (target) selectTrack(target, playingRef.current);
+      const action =
+        direction > 0 ? session.actions.next : session.actions.previous;
+      void action().catch(() => {
+        showNotice("播放队列为空");
+      });
     },
-    [selectTrack],
+    [session.actions, showNotice],
   );
-
-  const handleEnded = useCallback((): void => {
-    const track = currentRef.current;
-    if (!track) return;
-    setPlaying(false);
-    playingRef.current = false;
-    if (modeRef.current === "repeat-one") {
-      setProgress(0);
-      progressRef.current = 0;
-      endedGuardRef.current = false;
-      if (track.source === "local") {
-        const audio = audioRef.current;
-        if (audio) {
-          try {
-            audio.currentTime = 0;
-          } catch {
-            // 元数据异常时直接让 play() 处理。
-          }
-        }
-      }
-      startPlayback();
-      return;
-    }
-    const list = track.source === "online" ? ONLINE_TRACKS : tracksRef.current;
-    if (list.length === 0) return;
-    const index = Math.max(
-      0,
-      list.findIndex((item) => item.id === track.id),
-    );
-    const next = list[nextIndexForMode(index, list.length, modeRef.current)];
-    if (next) selectTrack(next, true);
-  }, [selectTrack, startPlayback]);
-
-  useEffect(() => {
-    handleEndedRef.current = handleEnded;
-  }, [handleEnded]);
 
   const commitSeek = useCallback(
     (value: number): void => {
@@ -772,33 +630,17 @@ export function LiquidPlayer(): React.ReactElement {
       const clamped = Math.min(maximum, Math.max(0, value));
       setProgress(clamped);
       progressRef.current = clamped;
-      if (track.source === "local") {
-        const audio = audioRef.current;
-        if (audio && Number.isFinite(audio.duration) && audio.duration > 0) {
-          try {
-            audio.currentTime = Math.min(audio.duration, clamped);
-          } catch {
-            // 元数据还没回来时忽略这次 seek。
-          }
-        }
-      } else {
-        onlineClockRef.current = {
-          offset: clamped,
-          startedAt: performance.now(),
-        };
-        if (playingRef.current) startAmbient(track, clamped);
-      }
+      void session.actions.seek(clamped * 1000).catch(() => {});
     },
-    [startAmbient],
+    [session.actions],
   );
 
-  useEffect(() => {
-    commitSeekRef.current = commitSeek;
-  }, [commitSeek]);
-
-  const seekRelative = useCallback((delta: number): void => {
-    commitSeekRef.current(progressRef.current + delta);
-  }, []);
+  const seekRelative = useCallback(
+    (delta: number): void => {
+      commitSeek(progressRef.current + delta);
+    },
+    [commitSeek],
+  );
 
   const ringPointerDown = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (event.button !== 0 || !current || duration <= 0) return;
@@ -811,7 +653,6 @@ export function LiquidPlayer(): React.ReactElement {
     const value = ratio * duration;
     scrubPointerRef.current = event.pointerId;
     event.currentTarget.setPointerCapture(event.pointerId);
-    scrubRef.current = true;
     setScrubbing(true);
     setScrubValue(value);
     setProgress(value);
@@ -834,12 +675,11 @@ export function LiquidPlayer(): React.ReactElement {
   const endRingPointer = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (scrubPointerRef.current !== event.pointerId) return;
     scrubPointerRef.current = null;
-    scrubRef.current = false;
     setScrubbing(false);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    commitSeekRef.current(progressRef.current);
+    commitSeek(progressRef.current);
   };
 
   const ringKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
@@ -861,15 +701,16 @@ export function LiquidPlayer(): React.ReactElement {
     if (next === null) return;
     event.preventDefault();
     event.stopPropagation();
-    commitSeekRef.current(next);
+    commitSeek(next);
   };
 
   const chooseMode = useCallback(
     (nextMode: PlayMode): void => {
       setMode(nextMode);
       showNotice(playModeLabel(nextMode));
+      void session.actions.setMode(nextMode).catch(() => {});
     },
-    [showNotice],
+    [session.actions, showNotice],
   );
 
   const switchTab = useCallback((next: PlayerSource): void => {
@@ -877,83 +718,34 @@ export function LiquidPlayer(): React.ReactElement {
     listRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
   }, []);
 
-  const probeTrackDuration = useCallback(
-    (track: PlayerTrack): void => {
-      if (!track.url || typeof Audio === "undefined") return;
-      const probe = new Audio();
-      probe.preload = "metadata";
-      const finish = (): void => {
-        if (Number.isFinite(probe.duration) && probe.duration > 0) {
-          updateTrackDuration(track.id, probe.duration);
-        }
-        probe.removeAttribute("src");
-        probe.load();
-      };
-      probe.addEventListener("loadedmetadata", finish, { once: true });
-      probe.addEventListener(
-        "error",
-        () => {
-          probe.removeAttribute("src");
-          probe.load();
-        },
-        { once: true },
-      );
-      probe.src = track.url;
-      probe.load();
-    },
-    [updateTrackDuration],
-  );
-
-  const addFiles = useCallback(
-    (files: FileList | File[] | null): void => {
-      if (!files) return;
-      if (!isWidgetMediaAvailable()) return;
-      const incoming = Array.from(files).filter(isAudioFile);
-      if (incoming.length === 0) {
-        showNotice("这些文件不是可播放的音频");
-        return;
-      }
-      const added = incoming.map((file) => {
-        const url = URL.createObjectURL(file);
-        objectUrlsRef.current.push(url);
-        const parsed = parseTrackName(file.name);
-        const track: PlayerTrack = {
-          id: nextLocalTrackId(),
-          title: parsed.title,
-          artist: parsed.artist,
-          duration: 0,
-          source: "local",
-          tone: coverToneForText(`${parsed.artist}-${parsed.title}`),
-          url,
-        };
-        probeTrackDuration(track);
-        return track;
-      });
-      setTracks((previous) => [...previous, ...added]);
-      setTab("local");
-      setDrawer(true);
-      if (!playingRef.current) {
-        const first = added[0];
-        if (first) selectTrack(first, false);
-      }
-      showNotice(
-        added.length === 1
-          ? `已加入「${added[0]?.title ?? "音频"}」`
-          : `已加入 ${added.length} 首本地音频`,
-      );
-    },
-    [probeTrackDuration, selectTrack, setDrawer, showNotice],
-  );
-
   const openFilePicker = useCallback((): void => {
-    inputRef.current?.click();
-  }, []);
+    setTab("local");
+    setDrawer(true);
+    void session.actions
+      .addSource()
+      .then(() => showNotice("正在扫描音乐文件夹"))
+      .catch(() => showNotice("添加音乐文件夹失败"));
+  }, [session.actions, setDrawer, showNotice]);
 
   const toggleMute = useCallback((): void => {
-    setVolume((currentVolume) =>
-      currentVolume > 0 ? 0 : Math.max(1, lastAudibleVolume),
-    );
-  }, [lastAudibleVolume]);
+    const next = volume > 0 ? 0 : Math.max(1, lastAudibleVolume);
+    setVolume(next);
+    void session.actions.setVolume(next / 100).catch(() => {});
+    if (next === 0) void session.actions.setMuted(true).catch(() => {});
+    else void session.actions.setMuted(false).catch(() => {});
+  }, [lastAudibleVolume, session.actions, volume]);
+
+  // 滑杆/滚轮只改本地 UI；停顿后再提交给服务，避免每像素一次 IPC。
+  useEffect(() => {
+    if (!session.player) return;
+    const current = Math.round(session.player.volume * 100);
+    if (current === volume) return;
+    const timer = window.setTimeout(() => {
+      void session.actions.setVolume(volume / 100).catch(() => {});
+      if (volume > 0) void session.actions.setMuted(false).catch(() => {});
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [session.actions, session.player, volume]);
 
   const volumeFromPointer = useCallback((clientX: number): number => {
     const rect = volumeTrackRef.current?.getBoundingClientRect();
@@ -1011,11 +803,6 @@ export function LiquidPlayer(): React.ReactElement {
     setDrawer(!drawerOpenRef.current);
   }, [setDrawer]);
 
-  const onFileInputChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    addFiles(event.currentTarget.files);
-    event.currentTarget.value = "";
-  };
-
   const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
@@ -1057,79 +844,21 @@ export function LiquidPlayer(): React.ReactElement {
     event.preventDefault();
     dragDepthRef.current = 0;
     setDropActive(false);
-    addFiles(event.dataTransfer.files);
+    showNotice("请使用「添加音乐文件夹」导入曲目");
   };
 
-  // 换曲 / 换源时真正装载音频；autoplay 由触发方预先写入 requestAutoplayRef。
-  useEffect(() => {
-    if (!currentId || loadedIdRef.current === currentId) return;
-    loadedIdRef.current = currentId;
-    const track = currentRef.current;
-    if (!track || track.id !== currentId) return;
-    const shouldPlay = requestAutoplayRef.current;
-    requestAutoplayRef.current = false;
-    const audio = audioRef.current;
-    if (audio) audio.pause();
-    ambientRef.current?.stop();
-    setPlaying(false);
-    playingRef.current = false;
-    setProgress(0);
-    progressRef.current = 0;
-    endedGuardRef.current = false;
-    if (shouldPlay) startPlayback();
-  }, [currentId, startPlayback]);
-
-  // 播放期间用 rAF 平滑进度并驱动频响涟漪；暂停时只维持 0.05 的呼吸底噪。
+  // 频响电平由音频引擎 20Hz 上报；rAF 只写 CSS 变量，不触发 React 重渲染。
   useEffect(() => {
     const stage = stageRef.current;
-    if (!playing) {
-      stage?.style.setProperty("--level", "0.04");
-      return;
-    }
     let frame = 0;
-    let lastSync = 0;
-    const paint = (time: number): void => {
-      const track = currentRef.current;
-      let level = 0.08;
-      if (track?.source === "local") {
-        const analyser = localAnalyserRef.current;
-        level = analyser
-          ? analyserLevel(analyser.analyser, analyser.data)
-          : 0.26;
-      } else {
-        level = ambientRef.current?.level() ?? 0;
-      }
+    const paint = (): void => {
+      const level = playing ? session.levelRef.current : 0;
       stage?.style.setProperty("--level", Math.max(0.045, level).toFixed(3));
-      if (time - lastSync > 70) {
-        lastSync = time;
-        if (track?.source === "local" && !scrubRef.current) {
-          const audio = audioRef.current;
-          if (audio) {
-            setProgress(audio.currentTime);
-            progressRef.current = audio.currentTime;
-          }
-        } else if (track?.source === "online" && !scrubRef.current) {
-          const clock = onlineClockRef.current;
-          const elapsed =
-            clock.offset + (performance.now() - clock.startedAt) / 1000;
-          const total = track.duration;
-          if (total > 0 && elapsed >= total) {
-            if (!endedGuardRef.current) {
-              endedGuardRef.current = true;
-              handleEndedRef.current();
-            }
-          } else {
-            const value = Math.max(0, elapsed);
-            setProgress(value);
-            progressRef.current = value;
-          }
-        }
-      }
       frame = window.requestAnimationFrame(paint);
     };
     frame = window.requestAnimationFrame(paint);
     return () => window.cancelAnimationFrame(frame);
-  }, [playing]);
+  }, [playing, session.levelRef]);
 
   // 把当前播放行平滑吸附到可视区，避免长列表里选中后还要手动滚。
   useEffect(() => {
@@ -1182,12 +911,7 @@ export function LiquidPlayer(): React.ReactElement {
 
   useEffect(
     () => () => {
-      for (const url of objectUrlsRef.current) URL.revokeObjectURL(url);
-      objectUrlsRef.current = [];
-      ambientRef.current?.dispose();
-      ambientRef.current = null;
-      const context = localAnalyserRef.current?.context ?? uiContextRef.current;
-      localAnalyserRef.current = null;
+      const context = uiContextRef.current;
       uiContextRef.current = null;
       if (context) {
         void context.close().catch(() => {});
@@ -1680,8 +1404,8 @@ export function LiquidPlayer(): React.ReactElement {
                 <button
                   type="button"
                   className={styles.drawerAdd}
-                  aria-label="添加本地音频"
-                  title="添加本地音频"
+                  aria-label="添加音乐文件夹"
+                  title="添加音乐文件夹"
                   onClick={openFilePicker}
                 >
                   <Plus />
@@ -1706,14 +1430,14 @@ export function LiquidPlayer(): React.ReactElement {
                     <Upload />
                   </span>
                   <strong>本地曲库还空着</strong>
-                  <p>拖入音频文件，或从电脑中选择</p>
+                  <p>点击添加音乐文件夹，由 Media Service 扫描</p>
                   <button
                     type="button"
                     className={styles.emptyAction}
                     onClick={openFilePicker}
                   >
                     <Plus aria-hidden="true" />
-                    导入音频
+                    添加音乐文件夹
                   </button>
                 </div>
               ) : (
@@ -1806,58 +1530,10 @@ export function LiquidPlayer(): React.ReactElement {
           <span>
             <Upload />
           </span>
-          <strong>松开以加入本地曲库</strong>
-          <p>支持 MP3 / WAV / FLAC / OGG / M4A</p>
+          <strong>请使用「添加音乐文件夹」</strong>
+          <p>本地曲库由 Media Service 扫描，不直接读取拖入的文件</p>
         </div>
       ) : null}
-
-      <input
-        ref={inputRef}
-        type="file"
-        accept="audio/*,.mp3,.wav,.flac,.ogg,.oga,.m4a,.aac,.opus,.webm,.aiff,.aif"
-        multiple
-        hidden
-        onChange={onFileInputChange}
-      />
-
-      {/* biome-ignore lint/a11y/useMediaCaption: 用户自选的本地音频，没有可预置的字幕轨道 */}
-      <audio
-        ref={audioRef}
-        className={styles.srOnly}
-        src={
-          current?.source === "local" && current.url ? current.url : undefined
-        }
-        preload="metadata"
-        onLoadedMetadata={(event) => {
-          const audio = event.currentTarget;
-          const track = currentRef.current;
-          if (track?.source === "local" && Number.isFinite(audio.duration)) {
-            updateTrackDuration(track.id, audio.duration);
-          }
-        }}
-        onTimeUpdate={(event) => {
-          if (currentRef.current?.source !== "local" || scrubRef.current) {
-            return;
-          }
-          const value = event.currentTarget.currentTime;
-          setProgress(value);
-          progressRef.current = value;
-        }}
-        onPlay={() => {
-          setPlaying(true);
-          playingRef.current = true;
-        }}
-        onEnded={() => {
-          if (currentRef.current?.source !== "local") return;
-          if (endedGuardRef.current) return;
-          endedGuardRef.current = true;
-          handleEndedRef.current();
-        }}
-        onError={() => {
-          if (currentRef.current?.source !== "local") return;
-          showNotice("这个音频格式无法播放");
-        }}
-      />
 
       <p className={styles.srOnly} aria-live="polite">
         {current

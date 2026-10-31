@@ -7,6 +7,7 @@
  */
 "use client";
 
+import type { NoiseState } from "@lull/media-sdk";
 import {
   ChevronRight,
   ChevronsLeftRight,
@@ -30,6 +31,7 @@ import type {
   WheelEvent as ReactWheelEvent,
 } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getMediaClient } from "@/hooks/use-media-client";
 import { m } from "@/paraglide/messages";
 import {
   onWidgetPrefsChanged,
@@ -54,7 +56,6 @@ import {
   type SoundDefinition,
   type SoundId,
 } from "./sound-model";
-import { useAmbientMixer } from "./use-ambient-mixer";
 
 const SOUND_ICONS: Record<SoundId, ComponentType<{ className?: string }>> = {
   rain: DropletGlyph,
@@ -425,11 +426,9 @@ function MasterBubble({
 
 export function EtherBubbles() {
   const rootRef = useRef<HTMLDivElement>(null);
-  const {
-    awake,
-    start: startAudio,
-    sync: syncAudio,
-  } = useAmbientMixer(rootRef);
+  const clientRef = useRef(getMediaClient());
+  const activatedRef = useRef(false);
+  const [awake, setAwake] = useState(false);
   const [channels, setChannels] = useState<ChannelMap>(initialChannels);
   const [master, setMaster] = useState(INITIAL_MASTER);
   const [muted, setMuted] = useState(false);
@@ -457,12 +456,95 @@ export function EtherBubbles() {
   );
   const audible = awake && !muted && activeCount > 0;
 
+  const applyNoise = useCallback((state: NoiseState) => {
+    const next = initialChannels();
+    for (const sound of SOUNDS) {
+      const layer = state.layers.find((item) => item.soundId === sound.id);
+      if (!layer) continue;
+      next[sound.id] = {
+        enabled: layer.enabled,
+        level: Math.round(layer.volume * 100),
+      };
+    }
+    setChannels(next);
+    setMaster(Math.round(state.master * 100));
+    setMuted(state.muted);
+    setSleepMinutes(
+      SLEEP_OPTIONS.find((option) => option === state.sleep.timerMinutes) ?? 0,
+    );
+    setAwake(state.active);
+    if (state.active) activatedRef.current = true;
+  }, []);
+
   useEffect(() => {
-    // 音频图是首次手势后才创建的；`awake` 参与依赖，确保创建完成时立刻把
-    // 当前混音状态灌进各增益节点，否则用户只是轻触空白处唤醒时会是静音。
-    if (!awake) return;
-    syncAudio({ channels, master, muted });
-  }, [syncAudio, awake, channels, master, muted]);
+    const client = clientRef.current;
+    if (!client) return;
+    let alive = true;
+    let ready = false;
+    let snapshotRevision = 0;
+    const pending: NoiseState[] = [];
+    const apply = (state: NoiseState): void => {
+      if (alive) applyNoise(state);
+    };
+    const stop = client.events.on((event) => {
+      if (event.topic === "noise.state") {
+        const state = event.payload as NoiseState;
+        if (!ready) {
+          pending.push(state);
+        } else if (state.revision > snapshotRevision) {
+          apply(state);
+        }
+      } else if (event.topic === "noise.level") {
+        const payload = event.payload as { noise: number };
+        rootRef.current?.style.setProperty(
+          "--ether-pulse",
+          payload.noise.toFixed(3),
+        );
+      }
+    });
+    void client
+      .connect({
+        topics: ["noise.state", "noise.level"],
+        levels: true,
+      })
+      .then((snapshot) => {
+        if (!alive) return;
+        snapshotRevision = snapshot.revision;
+        apply(snapshot.noise);
+        ready = true;
+        for (const state of pending) {
+          if (state.revision > snapshotRevision) apply(state);
+        }
+        pending.length = 0;
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+      stop();
+      void client.disconnect();
+    };
+  }, [applyNoise]);
+
+  const activateNoise = useCallback(
+    (unmute = false): void => {
+      const firstActivation = !activatedRef.current;
+      activatedRef.current = true;
+      setAwake(true);
+      const client = clientRef.current;
+      if (!client) return;
+      void client.noise
+        .activate()
+        .then(() => {
+          if (unmute) {
+            void client.noise.setMuted(false);
+          } else if (firstActivation && startupMode === "silent") {
+            void client.noise.setMuted(true);
+          }
+        })
+        .catch(() => {});
+    },
+    [startupMode],
+  );
 
   // 启动行为：挂载后读取偏好，选择「静默启动」时先保持主泡静音。
   useEffect(() => {
@@ -485,9 +567,9 @@ export function EtherBubbles() {
     return () => root.classList.remove("lull-transparent-window");
   }, []);
 
-  // 睡眠定时器：设定后到点自动静音并归零。
+  // 浏览器预览没有 Rust 服务时保留一个本地睡眠定时器；Tauri 里由服务端负责。
   useEffect(() => {
-    if (sleepMinutes === 0) return;
+    if (sleepMinutes === 0 || clientRef.current) return;
     const timer = window.setTimeout(() => {
       setMuted(true);
       setSleepMinutes(0);
@@ -495,10 +577,10 @@ export function EtherBubbles() {
     return () => window.clearTimeout(timer);
   }, [sleepMinutes]);
 
-  // 首次键盘 / 指针手势里唤醒音频上下文；点击泡泡时也保留它自己的语义。
+  // 首次键盘 / 指针手势里唤醒媒体服务；点击泡泡时也保留它自己的语义。
   useEffect(() => {
     const wake = (): void => {
-      void startAudio();
+      activateNoise();
     };
     window.addEventListener("pointerdown", wake, { capture: true, once: true });
     window.addEventListener("keydown", wake, { capture: true, once: true });
@@ -506,7 +588,7 @@ export function EtherBubbles() {
       window.removeEventListener("pointerdown", wake, { capture: true });
       window.removeEventListener("keydown", wake, { capture: true });
     };
-  }, [startAudio]);
+  }, [activateNoise]);
 
   // 滚轮只作用于泡泡，阻止页面在调节音量时滚动。
   useEffect(() => {
@@ -593,32 +675,39 @@ export function EtherBubbles() {
         [id]: { enabled: level > 0, level },
       }));
       setMuted(false);
-      void startAudio();
+      activateNoise(true);
+      const client = clientRef.current;
+      if (client) {
+        void client.noise.setMuted(false);
+        void client.noise.setLayer(id, {
+          enabled: level > 0,
+          volume: level / 100,
+        });
+      }
       markReadout(id);
     },
-    [markReadout, startAudio],
+    [activateNoise, markReadout],
   );
 
   const toggleChannel = useCallback(
     (id: SoundId): void => {
-      setChannels((prev) => {
-        const current = prev[id];
-        if (current.enabled) {
-          return { ...prev, [id]: { ...current, enabled: false } };
-        }
-        return {
-          ...prev,
-          [id]: {
-            enabled: true,
-            level: current.level < 5 ? 50 : current.level,
-          },
-        };
-      });
+      const current = channels[id];
+      const enabled = !current.enabled;
+      const level = enabled && current.level < 5 ? 50 : current.level;
+      setChannels((prev) => ({
+        ...prev,
+        [id]: { enabled, level },
+      }));
       setMuted(false);
-      void startAudio();
+      activateNoise(true);
+      const client = clientRef.current;
+      if (client) {
+        void client.noise.setMuted(false);
+        void client.noise.setLayer(id, { enabled, volume: level / 100 });
+      }
       markReadout(id);
     },
-    [markReadout, startAudio],
+    [activateNoise, channels, markReadout],
   );
 
   const setMasterVolume = useCallback(
@@ -626,31 +715,43 @@ export function EtherBubbles() {
       const level = clampLevel(value);
       setMaster(level);
       if (level > 0) setMuted(false);
-      void startAudio();
+      activateNoise(level > 0);
+      const client = clientRef.current;
+      if (client) {
+        void client.noise.setMaster(level / 100);
+        if (level > 0) void client.noise.setMuted(false);
+      }
       markReadout("master");
     },
-    [markReadout, startAudio],
+    [activateNoise, markReadout],
   );
 
   const toggleMaster = useCallback((): void => {
-    if (muted) {
-      if (master === 0) setMaster(50);
-      setMuted(false);
-    } else {
-      setMuted(true);
+    const nextMuted = !muted;
+    if (!nextMuted && master === 0) setMaster(50);
+    setMuted(nextMuted);
+    activateNoise(!nextMuted);
+    const client = clientRef.current;
+    if (client) {
+      void client.noise.setMuted(nextMuted);
+      if (!nextMuted && master === 0) void client.noise.setMaster(0.5);
     }
-    void startAudio();
-  }, [master, muted, startAudio]);
+  }, [activateNoise, master, muted]);
 
   const cycleSleep = useCallback((): void => {
     const current = SLEEP_OPTIONS.indexOf(sleepMinutes);
-    setSleepMinutes(SLEEP_OPTIONS[(current + 1) % SLEEP_OPTIONS.length]);
+    const next = SLEEP_OPTIONS[(current + 1) % SLEEP_OPTIONS.length] ?? 0;
+    setSleepMinutes(next);
+    const client = clientRef.current;
+    if (client) void client.noise.setSleepTimer(next);
   }, [sleepMinutes]);
 
   const cycleStartup = useCallback((): void => {
     const next: StartupMode = startupMode === "resume" ? "silent" : "resume";
     setStartupMode(next);
     setMuted(next === "silent");
+    const client = clientRef.current;
+    if (client) void client.noise.setMuted(next === "silent");
     try {
       writeWidgetStorage(NOISE_WIDGET_ID, STARTUP_STORAGE_VERSION, next);
     } catch {
@@ -675,8 +776,9 @@ export function EtherBubbles() {
     setMuted(false);
     setSleepMinutes(0);
     setSettingsOpen(false);
-    void startAudio();
-  }, [startAudio]);
+    activateNoise(true);
+    void clientRef.current?.noise.reset();
+  }, [activateNoise]);
 
   const nextDockSide = dockSide === "right" ? "left" : "right";
   const dockSideLabel =

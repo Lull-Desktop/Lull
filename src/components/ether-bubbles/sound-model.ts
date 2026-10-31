@@ -1,6 +1,6 @@
 /**
  * EtherBubbles 的声景模型：五种可独立混音的环境声及其初始状态。
- * 这里只描述「声音是什么」，不触碰 Web Audio；音频图在 use-ambient-mixer 中构建。
+ * 这里只描述「声音是什么」，不触碰 Web Audio；音频图在隐藏的 media-engine 中构建。
  */
 
 export type SoundId = "rain" | "thunder" | "wind" | "waves" | "fire";

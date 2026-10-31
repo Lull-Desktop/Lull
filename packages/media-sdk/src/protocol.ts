@@ -36,6 +36,12 @@ export interface MediaResponse {
   revision: number;
 }
 
+export interface MediaConnectRequest {
+  topics?: string[];
+  progressMs?: number;
+  levels?: boolean;
+}
+
 export type MediaEventTopic =
   | "player.state"
   | "player.progress"

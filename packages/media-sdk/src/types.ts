@@ -38,7 +38,7 @@ export interface TrackSummary {
   year?: number;
   trackNumber?: number;
   discNumber?: number;
-  source: "local" | "builtin";
+  source: "local" | "online";
   available: boolean;
   hasCover: boolean;
 }
@@ -94,4 +94,67 @@ export interface MediaErrorBody {
   code: string;
   message: string;
   details?: unknown;
+}
+
+export type PlaybackStatus =
+  | "idle"
+  | "loading"
+  | "playing"
+  | "paused"
+  | "ended"
+  | "error";
+
+export type PlayMode = "sequence" | "shuffle" | "repeat-one";
+
+export interface PlayerState {
+  track?: TrackSummary;
+  status: PlaybackStatus;
+  positionMs: number;
+  durationMs?: number;
+  volume: number;
+  muted: boolean;
+  mode: PlayMode;
+  revision: number;
+  error?: MediaErrorBody;
+}
+
+export interface QueueState {
+  trackIds: string[];
+  currentIndex?: number;
+  revision: number;
+}
+
+export interface NoiseLayer {
+  soundId: string;
+  enabled: boolean;
+  volume: number;
+}
+
+export interface NoiseState {
+  sessionId: string;
+  active: boolean;
+  master: number;
+  muted: boolean;
+  layers: NoiseLayer[];
+  sleep: { timerMinutes: number; endsAt?: number };
+  revision: number;
+}
+
+export interface NoiseSound {
+  id: string;
+  name: string;
+}
+
+export interface PlaybackSnapshot {
+  protocol: 1;
+  revision: number;
+  player: PlayerState;
+  queue: QueueState;
+  noise: NoiseState;
+}
+
+export interface ConnectOptions {
+  topics?: string[];
+  progressMs?: number;
+  levels?: boolean;
 }

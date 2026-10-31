@@ -164,7 +164,7 @@ lib.rs
  │    └─ ffi.rs（DLL 加载 / C ABI / 日志）
 ```
 
-依赖方向：`runtime → windows → protocol/topology → ffi`；`watchdog → ffi + windows`；`config` 不依赖任何壁纸模块；`media::video` 只通过 `wallpaper::runtime` 的配置/目标快照与 `windows` 生命周期钩子交互，不直接操作窗口。`media::library` 只依赖 `media::repository` 与 `media::api`，不依赖 `video`；播放/白噪音在后续阶段加入 `media::engine`。
+依赖方向：`runtime → windows → protocol/topology → ffi`；`watchdog → ffi + windows`；`config` 不依赖任何壁纸模块；`media::video` 只通过 `wallpaper::runtime` 的配置/目标快照与 `windows` 生命周期钩子交互，不直接操作窗口。`media::library` 只依赖 `media::repository` 与 `media::api`，不依赖 `video`；`media::playback` 只依赖 `repository`/`api` 与隐藏 `media-engine` WebView，不依赖 `video`。
 
 ## 4. IPC 合约
 
@@ -217,7 +217,9 @@ lib.rs
 | `media_open` / `media_attach` / `media_detach` / `media_degrade` | `sceneId,sessionId,origin` | `MediaOpenResult` / `MediaAttachResult` | `media::video`（壁纸需顶层 token） |
 | `media_play` / `media_pause` / `media_seek` / `media_set_loop` | `sessionId,...` | `()` | `media::video`（settings） |
 | `media_status` / `media_stats` | — | `MediaSessionView[]` / `MediaStats` | `media::video`（settings） |
-| `media_call` | `request: {protocol,requestId,namespace,method,args}` | `{ok,result?,error?,revision}` | `media::api`（P1 仅 settings） |
+| `media_call` | `request: {protocol,requestId,namespace,method,args}` | `{ok,result?,error?,revision}` | `media::api`（settings/player/noise） |
+| `media_connect` / `media_disconnect` | `request: {topics?,progressMs?,levels?}` | `PlaybackSnapshot` / `()` | `media::playback`（player/noise/settings） |
+| `media_engine_ready` / `media_engine_event` | `event: EngineEvent` | `()` | `media::playback`（仅 media-engine） |
 | `content_packages` | — | `ContentPackageInfo[]` | `content_package`（壁纸窗只读） |
 
 所有会写配置的命令遵循同一事务模型：**先改内存 → 写盘 → 失败回滚内存 → 返回错误**。写盘使用临时文件 + 原子替换。
@@ -238,6 +240,8 @@ lib.rs
 | `media-master-visible` | Rust（全局壁纸显隐） | 壁纸 MediaSurface 暂停/恢复 HTML video |
 | `media-degraded` | Rust（原生路径失败） | 壁纸 MediaSurface 切换 HTML 回退 |
 | `library-changed` | Rust（音乐来源/扫描完成） | 设置页音乐库面板刷新 |
+| `media:event` | Rust（播放/队列/白噪音） | 已 `media_connect` 的播放器/白噪音/设置窗口 |
+| `media-engine-command` | Rust（`media::playback::engine`） | 隐藏 `media-engine` 窗口 |
 
 ### 4.3 Widget 上下文注入
 
@@ -262,11 +266,15 @@ lib.rs
 - `scripts/gen-widgets.mjs` 为每个窗口生成一份 `src-tauri/capabilities/window-<label>.json`：
   - `settings`：`core` 窗口权限 + 全部自定义命令（宿主控制面）；
   - `player` / `pomodoro` / `noise`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
+  - `player` / `noise` 额外获得 `allow-media-call/connect/disconnect`，只能走 Media API，不拿引擎命令；
+  - `media-engine`：仅 `core:event:allow-listen/unlisten` + `allow-media-engine-ready/event`，不能打开窗口、读资料库或调用 `media_call`；
   - 壁纸窗口 `wallpaper-*`：`core:event` 的 listen/unlisten + `allow-content-packages`（解析场景 id 用）
     + `allow-media-capabilities/config-get/open/attach/detach/degrade`；媒体命令还必须带 Rust
     在建窗时注入顶层帧的 `__LULL_MEDIA_TOKEN__`，没有窗口、壁纸、插件或内容包安装命令；
   - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten（主题跟随）+ `allow-widget-state-*` + `allow-widget-package-notify` + `allow-widget-set-transparent`，**没有 `core:default`**、**没有 event.emit**，不能调用包管理、壁纸或偏好命令。
 - 构建期 `tauri-build` 会校验 capability 引用的权限是否存在；权限名或命令改名漏同步会直接编译失败。
+- `media-engine` 是隐藏的受信 WebView，不是 Widget；它只拿到引擎命令事件与上报命令，不能反向读曲库或控制窗口。
+- 所有 WebView 共用 `src-tauri/src/webview.rs` 的 Chromium 参数（自动播放、后台节流、occluded/backgrounding），否则隐藏引擎会被暂停；所有窗口必须复用同一份参数，避免 WebView2 environment options 不一致。
 - 已知限制：WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。壁纸媒体命令靠**顶层帧 token** 兜底：注入脚本只在 `window.top === window` 时写 token，sandbox iframe 读不到父 DOM；不要把它当成插件 API，宿主桥仍是唯一受支持入口。
 
 ### 4.5 WebView CSP
@@ -291,7 +299,7 @@ form-action 'none'
 - `connect-src` 必须包含 `ipc:` 与 `http://ipc.localhost`，否则所有 Tauri IPC 失效；已通过调试端口实测。
 - `tauri-build` 会给 HTML 里的内联脚本与所有 JS 资源追加 `sha256`，运行时补进 `script-src`；`'unsafe-inline'` 只是兜底。
 - `devCsp` 额外允许 `http://localhost:3000`、`ws://localhost:3000` 与 `'unsafe-eval'`，避免破坏 Next HMR / React 开发模式。
-- `frame-src 'self' http://lullwidget.localhost lullwidget:` 覆盖外部场景 iframe 与第三方插件 iframe；`media-src blob:` 覆盖播放器的本地文件 object URL；`media-src asset: http://asset.localhost` 覆盖视频壁纸的 HTML 回退（Tauri asset protocol 支持 Range）。
+- `frame-src 'self' http://lullwidget.localhost lullwidget:` 覆盖外部场景 iframe 与第三方插件 iframe；`media-src blob:` 保留给 UI 临时音频；`media-src asset: http://asset.localhost` 同时覆盖视频壁纸 HTML 回退与隐藏音频引擎的本地曲目（Tauri asset protocol 支持 Range）。
 
 ## 5. 配置模型
 
@@ -325,7 +333,7 @@ form-action 'none'
 
 版本必须等于 `2`；不兼容版本回退默认值并记录警告，不覆盖原文件。旧版 `wallpaper.json` 不读取、不迁移。`display.media` 默认值不落盘，旧配置无需迁移；视频素材库单独存 `%APPDATA%\app.lull.desktop\media.json`，只登记路径，不复制大文件。详见 [Media Runtime](media-runtime.md)。
 
-音乐资料库独立于显示配置：`%APPDATA%\app.lull.desktop\music\music.db`（SQLite，WAL），`LULL_MUSIC_DIR` 可覆盖。它只登记本地音频路径与元数据，不复制、不改写用户文件；P1 只读 + 扫描，播放器/白噪音迁移在 P2。详见 [Media Service](media-service.md)。
+音乐资料库独立于显示配置：`%APPDATA%\app.lull.desktop\music\music.db`（SQLite，WAL），`LULL_MUSIC_DIR` 可覆盖。它只登记本地音频路径与元数据，不复制、不改写用户文件；曲库、播放器、队列与白噪音已统一走 Media Service，播放源只在隐藏引擎内解析。详见 [Media Service](media-service.md)。
 
 第三方插件相关路径：
 
@@ -365,8 +373,8 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 45 个测试文件（245 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库面板、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
-cargo test             Rust 151 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描与内置曲 seed）
+pnpm test              前端 45 个测试文件（246 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库面板、播放器/白噪音、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
+cargo test             Rust 156 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描与内置曲 seed / 播放状态、窗口权限与引擎协议）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
@@ -408,4 +416,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
    没有自动更新、版本比较与回滚；安装目录由用户自行维护，卸载即删目录。
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
 9. **视频壁纸的边界**：默认构建走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/WebView2 TextureStream 共享解码在可选 `native-media` feature 下实现，但本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，运行时自动回退。能力探测、构建依赖与验收门见 [Media Runtime](media-runtime.md)。不要把 HTML 回退描述成“单解码器”，也不要把“feature 已实现”描述成“原生已交付”。
-10. **音乐资料库的边界**：P1 只提供 SQLite 来源/扫描/曲目/艺术家/专辑读取与设置页面板；播放器/白噪音仍走旧 React Web Audio，封面/歌词资产、FTS5、歌单/喜欢/历史/标签与第三方媒体权限尚未接入。`media_call` 目前只对设置窗开放，`revision=0`，事件只有 `library-changed`；详见 [Media Service](media-service.md)。
+10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；`media_call` 对 `settings/player/noise` 开放，`media_connect` 返回快照并通过 `media:event` 推送，播放器/白噪音不再持有自己的音频图。封面/歌词资产、歌单/喜欢/历史/标签、第三方媒体权限、扫描进度与多设备输出仍未接入；`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md)。

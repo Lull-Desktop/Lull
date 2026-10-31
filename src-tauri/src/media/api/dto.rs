@@ -106,7 +106,11 @@ impl From<TrackRow> for TrackSummary {
       year: row.year,
       track_number: row.track_number,
       disc_number: row.disc_number,
-      source: row.kind,
+      source: if row.kind == "builtin" {
+        "online".to_string()
+      } else {
+        "local".to_string()
+      },
       available: row.available != 0,
       has_cover: row.cover_asset_id.is_some(),
     }

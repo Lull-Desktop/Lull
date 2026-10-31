@@ -5,7 +5,7 @@
  * 四小节和弦循环 + 低音 + 稀疏铃音 + 空气底噪，全部经过一段程序生成的混响。
  * 这样列表里的曲目在不联网时也能真正播放，并且持续提供主球频响涟漪所需的电平。
  */
-import type { AmbientPreset } from "./player-model";
+import type { AmbientPreset } from "./preset";
 
 type BrowserAudioContext = typeof AudioContext;
 

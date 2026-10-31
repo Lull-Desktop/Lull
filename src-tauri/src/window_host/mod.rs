@@ -103,9 +103,7 @@ pub fn open(app: &AppHandle, spec: &WidgetSpec) {
 
   // WebView2 environment options 必须与壁纸窗一致；否则后建设置/工具窗可能
   // 返回 0x8007139F（组或资源状态不正确），表现为“设置面板无法弹出”。
-  #[cfg(feature = "native-media")]
-  let builder = builder.additional_browser_args(crate::media::video::NATIVE_MEDIA_BROWSER_ARGS);
-  let mut builder = builder;
+  let mut builder = builder.additional_browser_args(crate::webview::browser_args());
 
   if spec.transparent {
     // 播放器 / 白噪音 / 液态番茄钟是透明浮窗：WebView 页面背景 alpha 为 0，

@@ -1,13 +1,14 @@
 /**
  * Lull Media SDK 核心客户端：框架无关，不依赖 React/Vue。
  *
- * P1 只包含资料库读取/扫描与来源管理；播放、队列、白噪音、歌单会在后续阶段
- * 以同样的 namespace/method 形状加入。
+ * 官方窗口通过 Tauri transport 使用；第三方 Widget 后续通过宿主壳 transport，
+ * 单测用 memory transport。业务状态以 Rust 为准，本客户端只做传输与缓存。
  */
 
 import { LullMediaError } from "./errors";
 import {
   MEDIA_PROTOCOL,
+  type MediaConnectRequest,
   type MediaEvent,
   type MediaNamespace,
   type MediaRequest,
@@ -18,7 +19,13 @@ import type { MediaTransport } from "./transport";
 import type {
   AlbumSummary,
   ArtistSummary,
+  ConnectOptions,
+  NoiseSound,
+  NoiseState,
   Page,
+  PlaybackSnapshot,
+  PlayerState,
+  QueueState,
   ScanJobView,
   SourceView,
   TrackDetail,
@@ -33,6 +40,9 @@ export interface CreateMediaClientOptions {
 export interface LullMediaClient {
   readonly protocol: typeof MEDIA_PROTOCOL;
   readonly revision: number;
+  readonly snapshot: PlaybackSnapshot | null;
+  connect(options?: ConnectOptions): Promise<PlaybackSnapshot>;
+  disconnect(): Promise<void>;
   call<T>(
     namespace: MediaNamespace,
     method: string,
@@ -47,6 +57,40 @@ export interface LullMediaClient {
     getTrack(trackId: string): Promise<TrackDetail>;
     listArtists(): Promise<ArtistSummary[]>;
     listAlbums(): Promise<AlbumSummary[]>;
+  };
+  player: {
+    getState(): Promise<PlayerState>;
+    play(trackId?: string): Promise<PlayerState>;
+    pause(): Promise<PlayerState>;
+    resume(): Promise<PlayerState>;
+    stop(): Promise<PlayerState>;
+    seek(positionMs: number): Promise<PlayerState>;
+    next(): Promise<PlayerState>;
+    previous(): Promise<PlayerState>;
+    setVolume(volume: number): Promise<PlayerState>;
+    setMuted(muted: boolean): Promise<PlayerState>;
+    setMode(mode: PlayerState["mode"]): Promise<PlayerState>;
+  };
+  queue: {
+    get(): Promise<QueueState>;
+    add(trackId: string, index?: number): Promise<QueueState>;
+    remove(trackId: string): Promise<QueueState>;
+    clear(): Promise<QueueState>;
+    move(fromIndex: number, toIndex: number): Promise<QueueState>;
+    playAt(index: number): Promise<PlayerState>;
+  };
+  noise: {
+    getState(): Promise<NoiseState>;
+    getSounds(): Promise<NoiseSound[]>;
+    activate(): Promise<NoiseState>;
+    setLayer(
+      soundId: string,
+      patch: { enabled?: boolean; volume?: number },
+    ): Promise<NoiseState>;
+    setMaster(volume: number): Promise<NoiseState>;
+    setMuted(muted: boolean): Promise<NoiseState>;
+    setSleepTimer(minutes: number): Promise<NoiseState>;
+    reset(): Promise<NoiseState>;
   };
   events: {
     on<T = unknown>(listener: (event: MediaEvent<T>) => void): () => void;
@@ -70,13 +114,38 @@ function transportFor(options: CreateMediaClientOptions): MediaTransport {
   });
 }
 
+function unwrap<T>(response: MediaResponse): T {
+  if (response.protocol !== MEDIA_PROTOCOL) {
+    throw new LullMediaError({
+      code: "protocol.unsupported",
+      message: `不支持的媒体协议版本：${response.protocol}`,
+    });
+  }
+  if (!response.ok) {
+    throw new LullMediaError(
+      response.error ?? {
+        code: "internal",
+        message: "媒体请求失败",
+      },
+    );
+  }
+  return response.result as T;
+}
+
+function wrapTransportError(error: unknown): LullMediaError {
+  return new LullMediaError({
+    code: "transport.failed",
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
 /** 创建客户端；官方窗口会自动使用 Tauri 传输。 */
 export function createMediaClient(
   options: CreateMediaClientOptions = {},
 ): LullMediaClient {
   const transport = transportFor(options);
   let revision = 0;
-  let unlisten: (() => void) | null = null;
+  let snapshot: PlaybackSnapshot | null = null;
 
   const call = async <T>(
     namespace: MediaNamespace,
@@ -90,31 +159,39 @@ export function createMediaClient(
       method,
       args,
     };
-    let response: MediaResponse;
     try {
-      response = await transport.call(request);
+      const response = await transport.call(request);
+      revision = Math.max(revision, response.revision);
+      return unwrap<T>(response);
     } catch (error) {
+      if (error instanceof LullMediaError) throw error;
+      throw wrapTransportError(error);
+    }
+  };
+
+  const connect = async (
+    options: ConnectOptions = {},
+  ): Promise<PlaybackSnapshot> => {
+    if (!transport.connect) {
       throw new LullMediaError({
-        code: "transport.failed",
-        message: error instanceof Error ? error.message : String(error),
+        code: "transport.unavailable",
+        message: "当前 transport 不支持 connect",
       });
     }
-    if (response.protocol !== MEDIA_PROTOCOL) {
-      throw new LullMediaError({
-        code: "protocol.unsupported",
-        message: `不支持的媒体协议版本：${response.protocol}`,
-      });
+    const request: MediaConnectRequest = {
+      topics: options.topics,
+      progressMs: options.progressMs,
+      levels: options.levels,
+    };
+    try {
+      const response = await transport.connect(request);
+      revision = Math.max(revision, response.revision);
+      snapshot = unwrap<PlaybackSnapshot>(response);
+      return snapshot;
+    } catch (error) {
+      if (error instanceof LullMediaError) throw error;
+      throw wrapTransportError(error);
     }
-    revision = Math.max(revision, response.revision);
-    if (!response.ok) {
-      throw new LullMediaError(
-        response.error ?? {
-          code: "internal",
-          message: "媒体请求失败",
-        },
-      );
-    }
-    return response.result as T;
   };
 
   const library = {
@@ -124,9 +201,7 @@ export function createMediaClient(
       const result = await call<{ removed: boolean }>(
         "library",
         "removeSource",
-        {
-          sourceId,
-        },
+        { sourceId },
       );
       return result.removed;
     },
@@ -140,13 +215,76 @@ export function createMediaClient(
     listAlbums: () => call<AlbumSummary[]>("library", "listAlbums"),
   };
 
-  const client: LullMediaClient = {
+  const player = {
+    getState: () => call<PlayerState>("player", "getState"),
+    play: (trackId?: string) =>
+      call<PlayerState>("player", "play", trackId ? { trackId } : {}),
+    pause: () => call<PlayerState>("player", "pause"),
+    resume: () => call<PlayerState>("player", "resume"),
+    stop: () => call<PlayerState>("player", "stop"),
+    seek: (positionMs: number) =>
+      call<PlayerState>("player", "seek", { positionMs }),
+    next: () => call<PlayerState>("player", "next"),
+    previous: () => call<PlayerState>("player", "previous"),
+    setVolume: (volume: number) =>
+      call<PlayerState>("player", "setVolume", { volume }),
+    setMuted: (muted: boolean) =>
+      call<PlayerState>("player", "setMuted", { muted }),
+    setMode: (mode: PlayerState["mode"]) =>
+      call<PlayerState>("player", "setMode", { mode }),
+  };
+
+  const queue = {
+    get: () => call<QueueState>("queue", "get"),
+    add: (trackId: string, index?: number) =>
+      call<QueueState>("queue", "add", { trackId, index }),
+    remove: (trackId: string) =>
+      call<QueueState>("queue", "remove", { trackId }),
+    clear: () => call<QueueState>("queue", "clear"),
+    move: (fromIndex: number, toIndex: number) =>
+      call<QueueState>("queue", "move", { fromIndex, toIndex }),
+    playAt: (index: number) => call<PlayerState>("queue", "playAt", { index }),
+  };
+
+  const noise = {
+    getState: () => call<NoiseState>("noise", "getState"),
+    getSounds: () => call<NoiseSound[]>("noise", "getSounds"),
+    activate: () => call<NoiseState>("noise", "activate"),
+    setLayer: (
+      soundId: string,
+      patch: { enabled?: boolean; volume?: number },
+    ) => call<NoiseState>("noise", "setLayer", { soundId, ...patch }),
+    setMaster: (volume: number) =>
+      call<NoiseState>("noise", "setMaster", { volume }),
+    setMuted: (muted: boolean) =>
+      call<NoiseState>("noise", "setMuted", { muted }),
+    setSleepTimer: (minutes: number) =>
+      call<NoiseState>("noise", "setSleepTimer", { minutes }),
+    reset: () => call<NoiseState>("noise", "reset"),
+  };
+
+  return {
     protocol: MEDIA_PROTOCOL,
     get revision() {
       return revision;
     },
+    get snapshot() {
+      return snapshot;
+    },
+    connect,
+    async disconnect() {
+      if (!transport.disconnect) return;
+      try {
+        await transport.disconnect();
+      } catch {
+        // 断开失败不阻塞卸载。
+      }
+    },
     call: call as LullMediaClient["call"],
     library,
+    player,
+    queue,
+    noise,
     events: {
       on<T = unknown>(listener: (event: MediaEvent<T>) => void): () => void {
         if (!transport.subscribe) return () => {};
@@ -154,10 +292,7 @@ export function createMediaClient(
       },
     },
     dispose() {
-      unlisten?.();
-      unlisten = null;
+      void transport.disconnect?.();
     },
   };
-
-  return client;
 }

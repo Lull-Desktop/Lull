@@ -26,17 +26,6 @@ static APP: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
 /// 视频场景 id；生命周期用它判断“是否仍在视频模式”。
 pub(crate) const VIDEO_SCENE: &str = "lull.video";
 
-/// 原生媒体依赖 WebView2 的 `msWebView2TextureStream` 实验特性。
-///
-/// WebView2 对同一 user-data-dir 的 environment options 很敏感：不同窗口如果
-/// 使用不同的 AdditionalBrowserArguments，后建的窗口可能返回
-/// `0x8007139F`。因此所有 Tauri WebView 窗口（壁纸、设置、工具）必须用同一份
-/// 参数；`additional_browser_args` 会替换 wry 默认值，这里显式带回默认禁用项。
-#[cfg(feature = "native-media")]
-pub(crate) const NATIVE_MEDIA_BROWSER_ARGS: &str =
-  "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
-   --enable-features=msWebView2TextureStream";
-
 /// 启动媒体运行时。纯内存初始化；依赖/后端的失败不得阻断应用启动。
 pub fn init(app: tauri::AppHandle) {
   #[cfg(feature = "native-media")]

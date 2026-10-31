@@ -17,6 +17,9 @@
     "core:window:allow-set-size",
     "core:window:allow-outer-position",
     "core:window:allow-set-position",
-    "allow-window-set-frame"
+    "allow-window-set-frame",
+    "allow-media-call",
+    "allow-media-connect",
+    "allow-media-disconnect"
   ]
 }
