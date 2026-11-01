@@ -142,6 +142,8 @@ export function LibraryOrganizerPanel({
   const [searchKeyword, setSearchKeyword] = useState("");
   const [version, setVersion] = useState(0);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const [trackTotal, setTrackTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [tags, setTags] = useState<TagView[]>([]);
   const [artists, setArtists] = useState<ArtistSummary[]>([]);
   const [albums, setAlbums] = useState<AlbumSummary[]>([]);
@@ -159,6 +161,10 @@ export function LibraryOrganizerPanel({
   const [splitAlbumId, setSplitAlbumId] = useState("");
   const [splitAlbumTitle, setSplitAlbumTitle] = useState("");
   const [splitTrackIds, setSplitTrackIds] = useState<string[]>([]);
+  const trackListRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef(1);
+  const loadingMoreRef = useRef(false);
+  const queryGenerationRef = useRef(0);
   const [smartName, setSmartName] = useState("测试智能歌单");
   const [smartGenre, setSmartGenre] = useState("");
   const [smartFavorite, setSmartFavorite] = useState(false);
@@ -218,6 +224,10 @@ export function LibraryOrganizerPanel({
     if (!client) return;
     void version;
     let alive = true;
+    const generation = queryGenerationRef.current + 1;
+    queryGenerationRef.current = generation;
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
     void Promise.all([
       client.library.listTags(),
       client.library.listArtists(),
@@ -225,11 +235,14 @@ export function LibraryOrganizerPanel({
       client.library.listSmartPlaylists(),
       client.library.listTracks({
         keyword: searchKeyword.trim() || undefined,
-        pageSize: 100,
+        page: 1,
+        pageSize: 200,
       }),
     ])
       .then(([nextTags, nextArtists, nextAlbums, nextSmart, page]) => {
-        if (!alive) return;
+        if (!alive || generation !== queryGenerationRef.current) return;
+        pageRef.current = 1;
+        setTrackTotal(page.total);
         setTags(nextTags);
         setArtists(nextArtists);
         setAlbums(nextAlbums);
@@ -255,6 +268,52 @@ export function LibraryOrganizerPanel({
       alive = false;
     };
   }, [client, searchKeyword, version]);
+
+  const loadMoreTracks = useCallback(async (): Promise<void> => {
+    if (
+      !client ||
+      loadingMoreRef.current ||
+      tracks.length >= trackTotal
+    ) {
+      return;
+    }
+    const generation = queryGenerationRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const nextPage = pageRef.current + 1;
+    try {
+      const next = await client.library.listTracks({
+        keyword: searchKeyword.trim() || undefined,
+        page: nextPage,
+        pageSize: 200,
+      });
+      if (generation !== queryGenerationRef.current) return;
+      pageRef.current = nextPage;
+      setTrackTotal(next.total);
+      setTracks((previous) => {
+        const seen = new Set(previous.map((track) => track.id));
+        return [
+          ...previous,
+          ...next.items.filter((track) => !seen.has(track.id)),
+        ];
+      });
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      if (generation === queryGenerationRef.current) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [client, searchKeyword, trackTotal, tracks.length]);
+
+  const onTrackListScroll = useCallback((): void => {
+    const list = trackListRef.current;
+    if (!list || tracks.length >= trackTotal) return;
+    if (list.scrollHeight - list.scrollTop - list.clientHeight < 120) {
+      void loadMoreTracks();
+    }
+  }, [loadMoreTracks, trackTotal, tracks.length]);
 
   const selected = useMemo(
     () => tracks.find((track) => track.id === selectedId) ?? null,
@@ -481,7 +540,11 @@ export function LibraryOrganizerPanel({
               搜索
             </Button>
           </div>
-          <div className="grid max-h-64 gap-1 overflow-auto rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-2">
+          <div
+            ref={trackListRef}
+            onScroll={onTrackListScroll}
+            className="grid max-h-64 gap-1 overflow-auto rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-2"
+          >
             {tracks.map((track) => (
               <button
                 key={track.id}
@@ -513,6 +576,16 @@ export function LibraryOrganizerPanel({
             ))}
             {tracks.length === 0 ? (
               <p className="py-6 text-center text-xs text-ink-faint">没有曲目</p>
+            ) : null}
+            {tracks.length > 0 && tracks.length < trackTotal ? (
+              <p
+                className="py-2 text-center text-[11px] text-ink-faint"
+                aria-live="polite"
+              >
+                {loadingMore
+                  ? "加载中…"
+                  : `继续下滑加载更多（${tracks.length}/${trackTotal}）`}
+              </p>
             ) : null}
           </div>
         </CardContent>

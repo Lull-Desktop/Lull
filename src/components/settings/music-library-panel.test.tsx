@@ -1,8 +1,13 @@
-import type { MediaRequest, Page, TrackSummary } from "@lull/media-sdk";
+import type {
+  MediaRequest,
+  Page,
+  TrackQuery,
+  TrackSummary,
+} from "@lull/media-sdk";
 import { createMediaClient } from "@lull/media-sdk";
 import { createMemoryTransport } from "@lull/media-sdk/testing";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { MusicLibraryPanel } from "./music-library-panel";
 
 const tracks: TrackSummary[] = [
@@ -81,6 +86,67 @@ test("展示来源、统计与曲目，并提交搜索", async () => {
     );
     expect(requests.at(-1)?.args).toMatchObject({ keyword: "夜" });
   });
+});
+
+test("滚动到列表底部时加载下一页曲目", async () => {
+  const firstPageTracks: TrackSummary[] = [
+    { ...tracks[0]!, id: "trk_1", title: "第一页 A" },
+    { ...tracks[0]!, id: "trk_2", title: "第一页 B" },
+  ];
+  class ImmediateObserver {
+    root = null;
+    rootMargin = "";
+    thresholds = [];
+    constructor(private readonly callback: IntersectionObserverCallback) {}
+    observe(target: Element): void {
+      this.callback(
+        [{ isIntersecting: true, target } as IntersectionObserverEntry],
+        this as unknown as IntersectionObserver,
+      );
+    }
+    disconnect(): void {}
+    unobserve(): void {}
+    takeRecords(): IntersectionObserverEntry[] {
+      return [];
+    }
+  }
+  vi.stubGlobal("IntersectionObserver", ImmediateObserver);
+
+  const transport = createMemoryTransport((request) => {
+    if (request.method === "listTracks") {
+      const args = request.args as TrackQuery;
+      const page = args.page ?? 1;
+      return {
+        items:
+          page === 1
+            ? firstPageTracks
+            : [{ ...tracks[0]!, id: "trk_3", title: "第二页 C" }],
+        total: 3,
+        page,
+        pageSize: 200,
+        hasMore: page < 2,
+      } satisfies Page<TrackSummary>;
+    }
+    if (request.method === "listSources") return [];
+    if (request.method === "listArtists") return [];
+    if (request.method === "listAlbums") return [];
+    if (request.method === "listGenres") return [];
+    return null;
+  });
+  const client = createMediaClient({ transport });
+
+  render(<MusicLibraryPanel client={client} />);
+  await waitFor(() => {
+    expect(screen.getByText("第二页 C")).toBeDefined();
+  });
+  expect(
+    transport.requests.some(
+      (request) =>
+        request.method === "listTracks" &&
+        (request.args as TrackQuery).page === 2,
+    ),
+  ).toBe(true);
+  vi.unstubAllGlobals();
 });
 
 test("按艺术家、格式与年份筛选曲目", async () => {

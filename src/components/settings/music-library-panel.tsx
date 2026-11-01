@@ -15,7 +15,7 @@ import {
   type TrackSummary,
 } from "@lull/media-sdk";
 import { Download, FolderPlus, Library, Music, RefreshCw, Search, Upload } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -59,7 +59,11 @@ const EMPTY_FILTERS: LibraryFilters = {
 
 const FORMATS = ["mp3", "flac", "m4a", "aac", "wav", "ogg", "opus", "aiff"];
 
-function toTrackQuery(keyword: string, filters: LibraryFilters): TrackQuery {
+function toTrackQuery(
+  keyword: string,
+  filters: LibraryFilters,
+  page = 1,
+): TrackQuery {
   const year = Number.parseInt(filters.year, 10);
   return {
     keyword: keyword.trim() || undefined,
@@ -68,7 +72,8 @@ function toTrackQuery(keyword: string, filters: LibraryFilters): TrackQuery {
     genre: filters.genre.trim() || undefined,
     format: filters.format || undefined,
     year: Number.isFinite(year) ? year : undefined,
-    pageSize: 50,
+    page,
+    pageSize: 200,
   };
 }
 
@@ -108,6 +113,11 @@ export function MusicLibraryPanel({
   const [scanProgress, setScanProgress] = useState<
     Record<string, { processed: number; total: number }>
   >({});
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const pageRef = useRef(1);
+  const queryGenerationRef = useRef(0);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(
     async (
@@ -115,6 +125,10 @@ export function MusicLibraryPanel({
       search = "",
       nextFilters: LibraryFilters = EMPTY_FILTERS,
     ) => {
+      const generation = queryGenerationRef.current + 1;
+      queryGenerationRef.current = generation;
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
       const [nextSources, page, nextArtists, nextAlbums, nextGenres] =
         await Promise.all([
           target.library.listSources(),
@@ -123,6 +137,8 @@ export function MusicLibraryPanel({
           target.library.listAlbums(),
           target.library.listGenres(),
         ]);
+      if (generation !== queryGenerationRef.current) return;
+      pageRef.current = 1;
       setSources(nextSources);
       setTracks(page.items);
       setTotal(page.total);
@@ -132,6 +148,42 @@ export function MusicLibraryPanel({
     },
     [],
   );
+
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (!client || loadingMoreRef.current || tracks.length >= total) return;
+    const generation = queryGenerationRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const nextPage = pageRef.current + 1;
+    try {
+      const next = await client.library.listTracks(
+        toTrackQuery(appliedKeyword, appliedFilters, nextPage),
+      );
+      if (generation !== queryGenerationRef.current) return;
+      pageRef.current = nextPage;
+      setTracks((previous) => {
+        const seen = new Set(previous.map((track) => track.id));
+        return [
+          ...previous,
+          ...next.items.filter((track) => !seen.has(track.id)),
+        ];
+      });
+      setTotal(next.total);
+    } catch (reason) {
+      setError(m.settings_library_error({ reason: errorText(reason) }));
+    } finally {
+      if (generation === queryGenerationRef.current) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  }, [
+    appliedFilters,
+    appliedKeyword,
+    client,
+    total,
+    tracks.length,
+  ]);
 
   useEffect(() => {
     if (providedClient) {
@@ -203,6 +255,23 @@ export function MusicLibraryPanel({
     () => sources.some((source) => source.status === "scanning"),
     [sources],
   );
+  const hasMore = tracks.length < total;
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasMore || loadingMore) return;
+    if (typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void loadMore();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore, loadingMore]);
 
   useEffect(() => {
     if (!client || !hasScanning) return;
@@ -622,6 +691,17 @@ export function MusicLibraryPanel({
               ))}
             </ul>
           )}
+          {tracks.length > 0 && hasMore ? (
+            <div
+              ref={loadMoreRef}
+              className="py-3 text-center text-xs text-muted-foreground"
+              aria-live="polite"
+            >
+              {loadingMore
+                ? "加载中…"
+                : `继续下滑加载更多（${tracks.length}/${total}）`}
+            </div>
+          ) : null}
         </section>
       </CardContent>
     </Card>
