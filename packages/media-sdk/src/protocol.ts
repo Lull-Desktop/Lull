@@ -8,6 +8,7 @@ export const MEDIA_PROTOCOL = 1 as const;
 
 export type MediaNamespace =
   | "library"
+  | "folders"
   | "playlists"
   | "favorites"
   | "tags"

@@ -1,6 +1,6 @@
 # Lull Media Service 与音乐资料库
 
-> 状态：P0 + P1 + P2 + N1 + P3 + N2 + N3 + N3.5 + N4 + N5/P5 + N6 + P4 已落地；P6 部分落地（`.lrc/.txt/.srt` sidecar、组织数据备份/恢复），在线元数据、文件监听、缩略图未开始（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列、官方播放器迁移、Shared AudioGraph/engine protocol v2/全局输出音量、订阅与快照基础、歌单/喜欢/历史、M3U 导入导出与资料库窗口、Noise Asset/Track/Session 与旧 5 层兼容门面、Noise 本地素材导入/分类/标签/收藏/搜索/缺失检测、分类/标签独立 CRUD、Preset 保存/加载/导入导出/缺失映射、Widget 媒体桥/bridge token/8 个 Noise capability/React hooks/示例、官方 Noise UI 动态轨道/Preset/本地轨、P4 元数据编辑/标签/实体合并拆分/智能歌单）。Noise 决策见 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
+> 状态：P0 + P1 + P2 + N1 + P3 + N2 + N3 + N3.5 + N4 + N5/P5 + N6 + P4 + P7 已落地；P6 部分落地（`.lrc/.txt/.srt` sidecar、组织数据备份/恢复），在线元数据、文件监听、缩略图未开始（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列、官方播放器迁移、Shared AudioGraph/engine protocol v2/全局输出音量、订阅与快照基础、歌单/喜欢/历史、M3U 导入导出与资料库窗口、Noise Asset/Track/Session 与旧 5 层兼容门面、Noise 本地素材导入/分类/标签/收藏/搜索/缺失检测、分类/标签独立 CRUD、Preset 保存/加载/导入导出/缺失映射、Widget 媒体桥/bridge token/8 个 Noise capability/React hooks/示例、官方 Noise UI 动态轨道/Preset/本地轨、P4 元数据编辑/标签/实体合并拆分/智能歌单、P7 物理目录 1:N Track/`folders` API/我的目录与最近添加 UI）。Noise 决策见 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
 
 ## 1. 边界
 
@@ -33,16 +33,16 @@ Media Service（Rust）
 
 - 路径：`%APPDATA%\app.lull.desktop\music\music.db`；`LULL_MUSIC_DIR` 可覆盖。
 - SQLite WAL、`foreign_keys=ON`、`busy_timeout=5s`；SQLx migration 编译期嵌入。
-- 迁移：`0001_library.sql`、`0002_search_fts.sql`、`0003_playback.sql`、`0004_library_filters.sql`、`0005_media_output.sql`、`0006_library_p3.sql`、`0007_noise.sql`。
+- 迁移：`0001_library.sql`、`0002_search_fts.sql`、`0003_playback.sql`、`0004_library_filters.sql`、`0005_media_output.sql`、`0006_library_p3.sql`、`0007_noise.sql`、`0008_music_p4.sql`、`0009_music_folders.sql`。
 - 播放状态：`player_state`（当前曲目/进度/音量/模式）、`player_queue`（Track 引用顺序）、`noise_state`（旧五层，仅保留作回滚/一次性偏好迁移）。进度每 250ms 只走内存与事件，暂停/停止/切歌/退出才落盘。
 - 输出音量：`media_output` 单行表保存 Music + Noise 共享的 master output volume；与 `player.volume`、Noise master、Windows 系统音量分离。
 - 歌单/喜欢/历史：`music_playlists`、`music_playlist_tracks`（只存 Track 引用与顺序）、`music_favorites`、`music_play_history`（按播放尝试记录，最多保留 2000 条）。
 - Noise：`noise_sources`、`noise_assets`、`noise_categories`、`noise_tags`、`noise_asset_tags`、`noise_favorites`、`noise_presets`、`noise_preset_tracks`、`noise_preset_favorites`、`noise_preferences`；N2 seed builtin procedural Asset 与默认/示例 Preset，N3 把本地文件复制到 `<music>/noise/assets/<sha256>.<ext>` 后写 Asset；Session/Track 仍不落盘。
 - 封面/歌词：`music/assets/` 下按 SHA-256 内容寻址保存二进制；`music_assets.storage_key` 只存文件名，`music_track_assets` 关联主封面，`music_lyrics` 存内嵌/同名 `.lrc` 文本。扫描只读用户文件，资产是 Lull 副本。
 - 核心表：
-  - `music_sources`：本地/内置来源；`root_path` 不返回第三方。
-  - `music_folders`、`music_files`：磁盘目录与真实文件；文件按 `source_id + path_key` 唯一。
-  - `music_tracks`：可播放实体；`kind=file|builtin`；一个 Track 可有多个文件。
+  - `music_sources`：本地/内置来源。`kind='local'` 的行就是对外的 **MusicFolder**（root_path 唯一、显示名、recursive、status、last_scan_at）；`kind='builtin'` 只标记内置曲来源，`folders` API 不返回。
+  - `music_tracks`：可播放实体。一个物理文件只对应一条 Track；物理文件曲目直接持有 `folder_id`（指向 `music_sources.id`）、`relative_path` 与 `file_name/file_size/file_modified_at/format/bitrate/sample_rate`；内置曲 `folder_id` 为 NULL，仍出现在全部歌曲/播放器列表中。
+  - 旧的 `music_files` 中间层与虚拟 `music_folders` 表已在 `0009_music_folders.sql` 删除；绝对路径由 `source.root_path + track.relative_path` 计算，不再落库。
   - `music_artists` / `music_albums` + aliases：稳定实体，支持后续合并/拆分。
   - `music_track_artists` / `music_track_albums`：多艺术家、多角色、专辑关系与来源。
   - `music_track_metadata` / `music_field_sources`：导入快照、规范化、用户覆盖、逐字段来源。
@@ -70,12 +70,16 @@ Media Service（Rust）
 
 | 方法 | 参数 | 结果 |
 | --- | --- | --- |
-| `library.listSources` | `{}` | `SourceView[]` |
-| `library.addSource` | `{}` | `SourceView \| null`（系统目录选择器） |
-| `library.removeSource` | `{sourceId}` | `{removed: boolean}` |
-| `library.startScan` | `{sourceId}` | `ScanJobView`（立即返回，扫描后台执行） |
-| `library.cancelScan` | `{sourceId}` | `{cancelled: boolean}` |
-| `library.listTracks` | `{keyword?, sourceIds?, artistId?, albumId?, genre?, format?, year?, yearFrom?, yearTo?, page?, pageSize?, sortBy?, sortOrder?, includeUnavailable?}` | `Page<TrackSummary>` |
+| `folders.list` | `{}` | `MusicFolderView[]`（仅 local 目录，含 trackCount） |
+| `folders.get` | `{folderId}` | `MusicFolderView` |
+| `folders.add` | `{path?, recursive?}` | `MusicFolderView \| null`（无 path 时打开系统目录选择器） |
+| `folders.rename` | `{folderId, name}` | `MusicFolderView`（只改显示名） |
+| `folders.remove` | `{folderId}` | `{removed: boolean}`（只删库记录，不删磁盘文件） |
+| `folders.scan` | `{folderId}` | `ScanJobView`（立即返回，扫描后台执行） |
+| `folders.cancelScan` | `{folderId}` | `{cancelled: boolean}` |
+| `folders.getTracks` | `{folderId, ...TrackQuery}` | `Page<FolderTrackView>`（host 窗口可读 relativePath） |
+| `library.listSources` / `addSource` / `removeSource` / `startScan` / `cancelScan` | 旧参数 | 兼容别名，内部委托 `folders`，逐步弃用 |
+| `library.listTracks` | `{keyword?, sourceIds?, folderId?, artistId?, albumId?, genre?, format?, year?, yearFrom?, yearTo?, page?, pageSize?, sortBy?, sortOrder?, includeUnavailable?}` | `Page<TrackSummary>` |
 | `library.getTrack` | `{trackId}` | `TrackDetail`（含文件格式/码率、元数据 JSON 与主歌词，不含路径） |
 | `library.getCoverUrl` | `{trackId}` | `{url: string \| null}`（仅官方窗口） |
 | `library.listArtists` | `{}` | `ArtistSummary[]` |
@@ -114,7 +118,7 @@ Media Service（Rust）
 
 约定：
 
-- 结果不含 `path/storage_key` 之外的文件系统细节；`rootPath` 只给 host 设置窗。
+- 结果不含 `path/storage_key` 之外的文件系统细节；`rootPath` 只给 settings/library 窗口，相对路径只给 host-only 的 `folders.getTracks`。
 - 错误用 `{code,message,details?}`；前端按 `code` 分支。
 - `media_connect({topics,progressMs,levels})` 原子注册订阅并返回 `PlaybackSnapshot`；事件 envelope 为 `{protocol,topic,revision,at,eventId,payload}`。顶层 revision 取 Player/Output/Noise 最大值；过滤事件时用各自 domain 的 revision（如 `snapshot.player.revision` / `snapshot.noise.revision`），不要用顶层值。
 - 资料库事件也走 `media:event`：`library.changed`、`library.scan.started`、`library.scan.progress`、`library.scan.finished`；Noise 素材库变更发 `noise.library.changed`。`app_meta.revision` 持久化，列表响应同时带 revision。
@@ -131,7 +135,7 @@ Media Service（Rust）
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
 - `@lull/media-sdk/widget`：`createWidgetTransport` / `createWidgetMediaClient`，翻译为 Widget 桥的 `media.call/connect/disconnect`，并通过 `onMediaEvent` 接收宿主转发事件。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
-- 设置页音乐库面板、官方播放器、白噪音与资料库窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。资料库窗口（label `library`）包含曲库/歌单/喜欢/历史/队列/智能歌单六页。
+- 设置页音乐库面板、官方播放器、白噪音与资料库窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。资料库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单；设置页「我的目录」负责导入、扫描、重命名与移除。
 
 P5 已落地：`./widget` 传输、8 个 Noise capability、Rust bridge token、`noise-mixer` 示例；`./vue` 与查询缓存仍未实现。
 
@@ -145,17 +149,18 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 - 官方窗口矩阵：`settings` 全部；`noise` Noise 读写但不导入/删除 Asset、不导入/导出 Preset 文件；`player` 仅播放/队列；`library` 读取 Noise Library。Widget 不获得 `system.snapshot`、Asset 写与 Preset 文件导入导出。
 - Widget `media_connect` 至少需要一项读能力；snapshot 按授权裁剪：`player` 需 `media.player.read`，`queue` 需 `media.queue.read`，output/noise 维持现状；topic 白名单 = 已授权读能力的并集。
 - bridge token 只注入顶层壳页，插件 iframe 拿不到；`media_call`/`media_connect`/`media_disconnect` 都校验 token，伪造 label/token 失败。
-- 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.*` 八项，以及 `media.player.read/control/volume.write`、`media.queue.read/write`、`media.library.read/favorites.write`、`media.library.sources.write`（最后一项只打开系统文件夹选择器并触发扫描）。
-- 添加/移除音乐目录的**路径**仍只允许 host；带 `media.library.sources.write` 的 Widget 只能通过系统选择器添加来源，永远拿不到根路径或音频源。
-- 音频播放源只在宿主引擎内部解析；DTO/事件不传文件路径。
+- 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.*` 八项，以及 `media.player.read/control/volume.write`、`media.queue.read/write`、`media.library.read/favorites.write`、`media.library.sources.write`（最后一项只允许 `folders.add` / `folders.scan`，通过系统选择器添加并扫描）。
+- 目录的 `rootPath` 与 `folders.getTracks` 的 `relativePath` 只允许 host 窗口读取；带 `media.library.sources.write` 的 Widget 只能通过系统选择器添加目录，返回的目录视图也会去掉 `rootPath`。
+- 音频播放源只在宿主引擎内部解析；绝对路径不进入 DTO/事件。
 - 扫描只读；文件解析失败回退文件名，不阻断整次扫描。
 - 全局 Chromium 参数关闭自动播放限制与后台定时器节流，供隐藏引擎使用；所有 WebView 必须共用同一份参数。
 
 ## 6. 当前限制
 
-- 扫描每个文件一个小事务；取消只在文件之间生效，大文件解析期间不会立即中断。
-- 已接入内嵌/文件夹封面与内嵌/同名 `.lrc` 歌词；歌词 UI、文件移动检测、`.lullignore` 尚未接入。
-- `library.listTracks` 已支持艺术家/专辑/流派(genre)/标签/格式/年份筛选；P4 已接入标签实体、多值标签、元数据编辑、艺术家/专辑合并拆分与智能歌单。
+- 扫描每个文件一个小事务；取消只在文件之间生效，大文件解析期间不会立即中断。未变化文件（size/mtime/format 相同）跳过；成功完成后才移除本次未发现的 Track（不删除磁盘文件）。
+- 遍历发现阶段出现错误时跳过缺失清理；目录整体不可达时目录标记 `missing` 并保留 Track。文件移动/重命名在下一次扫描按“旧 Track 移除 + 新 Track 新增”处理，不按标题/Hash 合并。
+- 已接入内嵌/文件夹封面与内嵌/同名 `.lrc` 歌词；歌词 UI、文件监听、`.lullignore` 尚未接入。
+- `library.listTracks` 已支持关键词、艺术家/专辑/流派(genre)/标签/格式/年份与 `folderId` 筛选；P4 已接入标签实体、多值标签、元数据编辑、艺术家/专辑合并拆分与智能歌单。
 - 播放/队列/白噪音已迁移到 Media Service；N1 起统一走共享 `AudioGraph`（本地音频 `MediaElementAudioSource`、内置曲 `AmbientStream`、Noise `noiseBus`），不再各自建 `AudioContext`。播放器队列 UI 仍未内置到播放器窗口；P3 在资料库窗口提供队列视图与移出/播放操作。
 - P3 已支持歌单、喜欢、历史与 M3U 导入导出；本地音频元素已设置 `crossOrigin="anonymous"`，以配合 asset protocol 的 CORS 让 `MediaElementAudioSourceNode` 正常输出。
 - N2 起 Noise 使用独立 `NoiseSession`/`NoiseTrack` 运行时；旧 5 层 `noise.*` 由兼容门面映射到同一 Session。Session/Track 不持久化，退出即停止；只保存 master/muted 等偏好。睡眠定时到点会暂停 Session（保留 muted 偏好），不会自动恢复播放。
@@ -188,6 +193,7 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 | N5/P5 | 公开 Media SDK、Widget 桥、8 个 Noise 权限、token、React hooks、示例 | 代码已落地，待手工验收 |
 | N6 | 官方 Noise Mixer/Library/Preset UI | 代码已落地，待手工验收 |
 | P6 | 在线元数据、歌词格式、监听、缩略图、备份 | 部分落地：歌词 sidecar/备份；在线/监听/缩略图未开始 |
+| P7 | 物理目录模型：文件字段前移、`folders` API、我的目录/最近添加 UI、删除 `music_files` | 代码已落地，待手工迁移/目录验收 |
 
 推荐顺序：`N1 → P3 → N2 → N3 → N4 → N5/P5 → N6 → P4 → P6`。N1 必须先于 Noise；P3 与 N2 可互换；N5/P5 必须等 P3 与 N4。
 

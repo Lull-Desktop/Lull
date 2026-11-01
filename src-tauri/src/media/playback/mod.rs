@@ -717,15 +717,7 @@ async fn resolve_source(
       .map_err(|error| MediaError::internal(format!("内置曲预设损坏：{error}")))?;
     json!({ "kind": "ambient", "preset": preset })
   } else {
-    let path: Option<String> = sqlx::query_scalar(
-      "SELECT path FROM music_files WHERE track_id = ? AND available = 1 \
-       ORDER BY format LIMIT 1",
-    )
-    .bind(track_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|error| MediaError::internal(format!("读取曲目文件失败：{error}")))?
-    .flatten();
+    let path = tracks::playable_path(pool, track_id).await?;
     let path = path.ok_or_else(|| MediaError::new("track.unavailable", "曲目文件不可用"))?;
     app
       .asset_protocol_scope()

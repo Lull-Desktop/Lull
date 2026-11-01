@@ -1,13 +1,13 @@
 //! 本地音乐目录扫描。
 //!
-//! 第一版是同步、可取消性待补的增量扫描：按 source + 规范化路径识别文件，
-//! 每个文件一个小事务，写入 Track/艺术家/专辑/元数据/搜索文本；扫描结束后
-//! 把本次未看到的文件标记不可用。文件本身只读，不写标签、不移动、不删除。
+//! 目录就是 `music_sources(kind='local')`：扫描按 `folder_id + relative_path`
+//! 识别 Track，文件元数据直接写在 `music_tracks` 上，不再维护 `music_files`。
+//! 文件本身只读，不写标签、不移动、不删除。
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use walkdir::WalkDir;
 
@@ -26,6 +26,7 @@ pub const AUDIO_EXTENSIONS: &[&str] = &[
 pub struct ScanOutcome {
   pub added: i64,
   pub updated: i64,
+  pub skipped: i64,
   pub removed: i64,
   pub errors: Vec<String>,
   pub cancelled: bool,
@@ -37,6 +38,7 @@ pub struct ScanProgress {
   pub total: u64,
   pub added: i64,
   pub updated: i64,
+  pub skipped: i64,
 }
 
 /// 扫描所需的宿主上下文；测试可传空的取消/进度。
@@ -52,6 +54,35 @@ enum UpsertResult {
   Updated,
 }
 
+#[derive(Debug)]
+struct ExistingTrack {
+  id: String,
+  status: String,
+  file_size: i64,
+  file_modified_at: Option<i64>,
+  format: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExistingTrackRow {
+  id: String,
+  relative_path: Option<String>,
+  status: String,
+  file_size: i64,
+  file_modified_at: Option<i64>,
+  format: Option<String>,
+}
+
+#[derive(Debug)]
+struct FileEntry {
+  path: PathBuf,
+  relative: String,
+  file_name: String,
+  format: String,
+  size: i64,
+  mtime: Option<i64>,
+}
+
 fn is_audio(path: &Path) -> bool {
   path
     .extension()
@@ -60,21 +91,15 @@ fn is_audio(path: &Path) -> bool {
     .is_some_and(|extension| AUDIO_EXTENSIONS.contains(&extension.as_str()))
 }
 
-fn file_id(source_id: &str, path_key: &str) -> String {
-  let mut hasher = Sha256::new();
-  hasher.update(source_id.as_bytes());
-  hasher.update([0]);
-  hasher.update(path_key.as_bytes());
-  let digest = hasher.finalize();
-  let hex = format!("{digest:x}");
-  format!("file_{}", &hex[..16])
+/// 与旧 `path_key` 对齐：统一分隔符并小写，用于同目录内匹配。
+fn normalize_relative(relative: &str) -> String {
+  relative.replace('\\', "/").to_lowercase()
 }
 
-fn path_string(path: &Path) -> Result<String, MediaError> {
-  path
-    .to_str()
-    .map(str::to_string)
-    .ok_or_else(|| MediaError::unavailable("文件路径不是合法 UTF-8"))
+fn push_error(outcome: &mut ScanOutcome, message: String) {
+  if outcome.errors.len() < 100 {
+    outcome.errors.push(message);
+  }
 }
 
 fn collection_error(path: &Path) -> String {
@@ -87,28 +112,62 @@ fn collection_error(path: &Path) -> String {
   )
 }
 
-/// 扫描一个本地 source。调用方负责把 source 标记为 scanning/active。
+fn build_entry(canonical: PathBuf, relative: String) -> Result<FileEntry, MediaError> {
+  let file_meta = std::fs::metadata(&canonical)
+    .map_err(|error| MediaError::unavailable(format!("读取文件信息失败：{error}")))?;
+  let size = i64::try_from(file_meta.len()).unwrap_or(i64::MAX);
+  let mtime = file_meta
+    .modified()
+    .ok()
+    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+    .and_then(|duration| i64::try_from(duration.as_millis()).ok());
+  let format = canonical
+    .extension()
+    .and_then(std::ffi::OsStr::to_str)
+    .map(str::to_ascii_lowercase)
+    .unwrap_or_else(|| "unknown".to_string());
+  let file_name = canonical
+    .file_name()
+    .and_then(|value| value.to_str())
+    .unwrap_or(&relative)
+    .to_string();
+  Ok(FileEntry {
+    path: canonical,
+    relative,
+    file_name,
+    format,
+    size,
+    mtime,
+  })
+}
+
+/// 扫描一个本地目录。调用方负责把目录标记为 scanning/active。
 pub async fn scan_source(
   pool: &SqlitePool,
   source: &SourceRow,
-  run_id: &str,
+  _run_id: &str,
   control: &ScanControl<'_>,
 ) -> Result<ScanOutcome, MediaError> {
   let root = source
     .root_path
     .as_deref()
-    .ok_or_else(|| MediaError::invalid("该来源没有本地目录"))?;
+    .ok_or_else(|| MediaError::invalid("该目录没有本地路径"))?;
   let root = PathBuf::from(root);
   let root = dunce::canonicalize(&root)
-    .map_err(|error| MediaError::unavailable(format!("音乐目录不可用：{error}")))?;
+    .map_err(|error| MediaError::new("folders.unavailable", format!("音乐目录不可用：{error}")))?;
   if !root.is_dir() {
-    return Err(MediaError::unavailable("音乐目录不存在"));
+    return Err(MediaError::new("folders.unavailable", "音乐目录不存在"));
   }
   let assets_dir = control.assets_dir;
 
   let mut outcome = ScanOutcome::default();
   let mut files = Vec::new();
-  for entry in WalkDir::new(&root).follow_links(false) {
+  let mut discovery_error = false;
+  let mut walker = WalkDir::new(&root).follow_links(false);
+  if source.recursive == 0 {
+    walker = walker.max_depth(1);
+  }
+  for entry in walker {
     if control
       .cancel
       .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
@@ -119,9 +178,8 @@ pub async fn scan_source(
     let entry = match entry {
       Ok(entry) => entry,
       Err(error) => {
-        if outcome.errors.len() < 100 {
-          outcome.errors.push(format!("遍历失败：{error}"));
-        }
+        discovery_error = true;
+        push_error(&mut outcome, format!("遍历失败：{error}"));
         continue;
       }
     };
@@ -130,7 +188,33 @@ pub async fn scan_source(
     }
   }
 
+  let existing_rows = sqlx::query_as::<_, ExistingTrackRow>(
+    "SELECT id, relative_path, status, file_size, file_modified_at, format \
+     FROM music_tracks WHERE folder_id = ? AND kind = 'file'",
+  )
+  .bind(&source.id)
+  .fetch_all(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取已有曲目失败：{error}")))?;
+  let mut existing: HashMap<String, ExistingTrack> = HashMap::new();
+  for row in existing_rows {
+    let Some(relative) = row.relative_path else {
+      continue;
+    };
+    existing.insert(
+      normalize_relative(&relative),
+      ExistingTrack {
+        id: row.id,
+        status: row.status,
+        file_size: row.file_size,
+        file_modified_at: row.file_modified_at,
+        format: row.format,
+      },
+    );
+  }
+
   let total = u64::try_from(files.len()).unwrap_or(u64::MAX);
+  let mut seen: HashSet<String> = HashSet::new();
   for (index, path) in files.iter().enumerate() {
     if control
       .cancel
@@ -139,23 +223,78 @@ pub async fn scan_source(
       outcome.cancelled = true;
       break;
     }
-    match upsert_file(pool, source, run_id, path, &root, assets_dir).await {
-      Ok(UpsertResult::Added) => outcome.added += 1,
-      Ok(UpsertResult::Updated) => outcome.updated += 1,
+    let canonical = match dunce::canonicalize(path) {
+      Ok(canonical) => canonical,
       Err(error) => {
-        if outcome.errors.len() < 100 {
-          outcome
-            .errors
-            .push(format!("{}（{}）", collection_error(path), error));
-        }
+        discovery_error = true;
+        push_error(
+          &mut outcome,
+          format!("{}（文件不可用：{error}）", collection_error(path)),
+        );
+        continue;
+      }
+    };
+    let relative = match canonical.strip_prefix(&root) {
+      Ok(relative) => relative.to_string_lossy().replace('\\', "/"),
+      Err(_) => {
+        discovery_error = true;
+        push_error(
+          &mut outcome,
+          format!("{}（文件不在音乐目录内）", collection_error(path)),
+        );
+        continue;
+      }
+    };
+    let key = normalize_relative(&relative);
+    // 先记 seen：即使后续元数据读取失败，也不要把它当成“已删除”。
+    seen.insert(key.clone());
+    let entry = match build_entry(canonical, relative) {
+      Ok(entry) => entry,
+      Err(error) => {
+        push_error(
+          &mut outcome,
+          format!("{}（{error}）", collection_error(path)),
+        );
+        continue;
+      }
+    };
+
+    let existing_track = existing.get(&key);
+    let unchanged = existing_track.is_some_and(|track| {
+      track.file_size == entry.size
+        && track.file_modified_at == entry.mtime
+        && track.format.as_deref() == Some(entry.format.as_str())
+    });
+
+    if unchanged {
+      outcome.skipped += 1;
+      // 旧库迁移后可能有文件已恢复但 Track 仍是 missing；未变化也要恢复可用。
+      if let Some(track) = existing_track.filter(|track| track.status != "active") {
+        sqlx::query("UPDATE music_tracks SET status = 'active' WHERE id = ?")
+          .bind(&track.id)
+          .execute(pool)
+          .await
+          .map_err(|error| MediaError::internal(format!("恢复曲目状态失败：{error}")))?;
+      }
+    } else {
+      let existing_id = existing_track.map(|track| track.id.as_str());
+      match upsert_track(pool, source, &entry, existing_id, assets_dir).await {
+        Ok(UpsertResult::Added) => outcome.added += 1,
+        Ok(UpsertResult::Updated) => outcome.updated += 1,
+        Err(error) => push_error(
+          &mut outcome,
+          format!("{}（{error}）", collection_error(path)),
+        ),
       }
     }
+
     if let Some(progress) = control.on_progress {
       progress(ScanProgress {
         processed: u64::try_from(index + 1).unwrap_or(u64::MAX),
         total,
         added: outcome.added,
         updated: outcome.updated,
+        skipped: outcome.skipped,
       });
     }
   }
@@ -164,36 +303,41 @@ pub async fn scan_source(
     return Ok(outcome);
   }
 
-  let now = now_ms();
-  let removed = sqlx::query(
-    "UPDATE music_files SET available = 0, updated_at = ? \
-     WHERE source_id = ? AND COALESCE(last_seen_scan_id, '') <> ?",
-  )
-  .bind(now)
-  .bind(&source.id)
-  .bind(run_id)
-  .execute(pool)
-  .await
-  .map_err(|error| MediaError::internal(format!("标记缺失文件失败：{error}")))?;
-  outcome.removed = i64::try_from(removed.rows_affected()).unwrap_or(i64::MAX);
-
-  sqlx::query(
-    "UPDATE music_tracks SET status = 'missing' \
-     WHERE kind = 'file' AND NOT EXISTS \
-       (SELECT 1 FROM music_files f WHERE f.track_id = music_tracks.id AND f.available = 1)",
-  )
-  .execute(pool)
-  .await
-  .map_err(|error| MediaError::internal(format!("更新曲目状态失败：{error}")))?;
-
-  sqlx::query(
-    "UPDATE music_tracks SET status = 'active' \
-     WHERE kind = 'file' AND EXISTS \
-       (SELECT 1 FROM music_files f WHERE f.track_id = music_tracks.id AND f.available = 1)",
-  )
-  .execute(pool)
-  .await
-  .map_err(|error| MediaError::internal(format!("更新曲目状态失败：{error}")))?;
+  // 遍历有错误时宁可保留旧记录，也不要把不可读子目录里的曲目误删。
+  if !discovery_error {
+    let stale: Vec<String> = existing
+      .iter()
+      .filter(|(key, _)| !seen.contains(*key))
+      .map(|(_, track)| track.id.clone())
+      .collect();
+    if !stale.is_empty() {
+      let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| MediaError::internal(format!("开启清理事务失败：{error}")))?;
+      let mut removed = 0_i64;
+      for chunk in stale.chunks(200) {
+        let mut builder = sqlx::QueryBuilder::new("DELETE FROM music_tracks WHERE id IN (");
+        {
+          let mut separated = builder.separated(", ");
+          for id in chunk {
+            separated.push_bind(id.clone());
+          }
+        }
+        builder.push(")");
+        let result = builder
+          .build()
+          .execute(&mut *tx)
+          .await
+          .map_err(|error| MediaError::internal(format!("移除缺失曲目失败：{error}")))?;
+        removed += i64::try_from(result.rows_affected()).unwrap_or(i64::MAX);
+      }
+      tx.commit()
+        .await
+        .map_err(|error| MediaError::internal(format!("提交清理事务失败：{error}")))?;
+      outcome.removed = removed;
+    }
+  }
 
   if total == 0 && outcome.errors.is_empty() {
     outcome
@@ -204,39 +348,15 @@ pub async fn scan_source(
   Ok(outcome)
 }
 
-async fn upsert_file(
+async fn upsert_track(
   pool: &SqlitePool,
   source: &SourceRow,
-  run_id: &str,
-  path: &Path,
-  root: &Path,
+  file: &FileEntry,
+  existing_track: Option<&str>,
   assets_dir: &Path,
 ) -> Result<UpsertResult, MediaError> {
-  let canonical = dunce::canonicalize(path)
-    .map_err(|error| MediaError::unavailable(format!("文件不可用：{error}")))?;
-  let path_text = path_string(&canonical)?;
-  let path_key = path_text.replace('\\', "/").to_lowercase();
-  let relative = canonical
-    .strip_prefix(root)
-    .map_err(|_| MediaError::internal("文件不在音乐来源目录内"))?
-    .to_string_lossy()
-    .replace('\\', "/");
-  let format = canonical
-    .extension()
-    .and_then(std::ffi::OsStr::to_str)
-    .map(str::to_ascii_lowercase)
-    .unwrap_or_else(|| "unknown".to_string());
-  let file_meta = std::fs::metadata(&canonical)
-    .map_err(|error| MediaError::unavailable(format!("读取文件信息失败：{error}")))?;
-  let size_bytes = i64::try_from(file_meta.len()).unwrap_or(i64::MAX);
-  let mtime_ms = file_meta
-    .modified()
-    .ok()
-    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-    .and_then(|duration| i64::try_from(duration.as_millis()).ok());
-
-  let parsed = metadata::parse_file(&canonical).unwrap_or_else(|error| {
-    let (title, artists) = metadata::parse_filename(&canonical);
+  let parsed = metadata::parse_file(&file.path).unwrap_or_else(|error| {
+    let (title, artists) = metadata::parse_filename(&file.path);
     ParsedMetadata {
       title,
       artists,
@@ -260,29 +380,13 @@ async fn upsert_file(
     .clone()
     .or_else(|| artists.first().cloned());
 
-  let id = file_id(&source.id, &path_key);
   let now = now_ms();
   let mut tx = pool
     .begin()
     .await
     .map_err(|error| MediaError::internal(format!("开启扫描事务失败：{error}")))?;
 
-  let existing_track: Option<String> =
-    sqlx::query_scalar("SELECT track_id FROM music_files WHERE source_id = ? AND path_key = ?")
-      .bind(&source.id)
-      .bind(&path_key)
-      .fetch_optional(&mut *tx)
-      .await
-      .map_err(|error| MediaError::internal(format!("查询已有文件失败：{error}")))?
-      .flatten();
-
-  let result = if existing_track.is_some() {
-    UpsertResult::Updated
-  } else {
-    UpsertResult::Added
-  };
-
-  let protected: Vec<String> = match &existing_track {
+  let protected: Vec<String> = match existing_track {
     Some(track_id) => sqlx::query_scalar(
       "SELECT field FROM music_field_sources \
        WHERE track_id = ? AND source IN ('manual', 'split', 'online')",
@@ -307,7 +411,9 @@ async fn upsert_file(
          sort_title = CASE WHEN ? THEN sort_title ELSE ? END, \
          genre = CASE WHEN ? THEN genre ELSE ? END, \
          year = CASE WHEN ? THEN year ELSE ? END, \
-         duration_ms = ?, status = 'active', updated_at = ?, version = version + 1 WHERE id = ?",
+         duration_ms = ?, folder_id = ?, relative_path = ?, file_name = ?, \
+         file_size = ?, file_modified_at = ?, format = ?, bitrate = ?, sample_rate = ?, \
+         status = 'active', updated_at = ?, version = version + 1 WHERE id = ?",
       )
       .bind(protected_title)
       .bind(&title)
@@ -318,19 +424,29 @@ async fn upsert_file(
       .bind(protected_year)
       .bind(parsed.year)
       .bind(parsed.duration_ms)
+      .bind(&source.id)
+      .bind(&file.relative)
+      .bind(&file.file_name)
+      .bind(file.size)
+      .bind(file.mtime)
+      .bind(&file.format)
+      .bind(parsed.bitrate)
+      .bind(parsed.sample_rate)
       .bind(now)
-      .bind(&track_id)
+      .bind(track_id)
       .execute(&mut *tx)
       .await
       .map_err(|error| MediaError::internal(format!("更新曲目失败：{error}")))?;
-      track_id
+      track_id.to_string()
     }
     None => {
       let track_id = new_id("trk");
       sqlx::query(
         "INSERT INTO music_tracks \
-         (id, kind, title, sort_title, duration_ms, year, genre, status, added_at, updated_at) \
-         VALUES (?, 'file', ?, ?, ?, ?, ?, 'active', ?, ?)",
+         (id, kind, title, sort_title, duration_ms, year, genre, status, \
+          folder_id, relative_path, file_name, file_size, file_modified_at, format, \
+          bitrate, sample_rate, added_at, updated_at) \
+         VALUES (?, 'file', ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .bind(&track_id)
       .bind(&title)
@@ -338,6 +454,14 @@ async fn upsert_file(
       .bind(parsed.duration_ms)
       .bind(parsed.year)
       .bind(&parsed.genre)
+      .bind(&source.id)
+      .bind(&file.relative)
+      .bind(&file.file_name)
+      .bind(file.size)
+      .bind(file.mtime)
+      .bind(&file.format)
+      .bind(parsed.bitrate)
+      .bind(parsed.sample_rate)
       .bind(now)
       .bind(now)
       .execute(&mut *tx)
@@ -346,40 +470,6 @@ async fn upsert_file(
       track_id
     }
   };
-
-  sqlx::query(
-    "INSERT INTO music_files \
-     (id, source_id, track_id, path, path_key, relative_path, format, size_bytes, mtime_ms, \
-      raw_tags_json, duration_ms, bitrate, sample_rate, channels, available, last_seen_scan_id, \
-      added_at, updated_at) \
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?) \
-     ON CONFLICT(source_id, path_key) DO UPDATE SET \
-       track_id = excluded.track_id, path = excluded.path, relative_path = excluded.relative_path, \
-       format = excluded.format, size_bytes = excluded.size_bytes, mtime_ms = excluded.mtime_ms, \
-       raw_tags_json = excluded.raw_tags_json, duration_ms = excluded.duration_ms, \
-       bitrate = excluded.bitrate, sample_rate = excluded.sample_rate, channels = excluded.channels, \
-       available = 1, last_seen_scan_id = excluded.last_seen_scan_id, updated_at = excluded.updated_at",
-  )
-  .bind(&id)
-  .bind(&source.id)
-  .bind(&track_id)
-  .bind(&path_text)
-  .bind(&path_key)
-  .bind(&relative)
-  .bind(&format)
-  .bind(size_bytes)
-  .bind(mtime_ms)
-  .bind(serde_json::to_string(&parsed.raw).unwrap_or_else(|_| "{}".to_string()))
-  .bind(parsed.duration_ms)
-  .bind(parsed.bitrate)
-  .bind(parsed.sample_rate)
-  .bind(parsed.channels)
-  .bind(run_id)
-  .bind(now)
-  .bind(now)
-  .execute(&mut *tx)
-  .await
-  .map_err(|error| MediaError::internal(format!("写入文件记录失败：{error}")))?;
 
   let imported = serde_json::json!({
     "title": title,
@@ -496,7 +586,7 @@ async fn upsert_file(
       title,
       artists.join(" "),
       album.clone().unwrap_or_default(),
-      relative
+      file.relative
     ));
     sqlx::query(
       "INSERT INTO music_search_text (track_id, search_text) VALUES (?, ?) \
@@ -510,7 +600,7 @@ async fn upsert_file(
   }
 
   let folder = if parsed.cover.is_none() {
-    assets::folder_cover(&canonical)
+    assets::folder_cover(&file.path)
   } else {
     None
   };
@@ -520,7 +610,7 @@ async fn upsert_file(
     _ => (None, CoverSource::Embedded),
   };
   assets::ingest_cover(&mut tx, assets_dir, &track_id, cover, cover_source, now).await?;
-  let sidecar = assets::sidecar_lyrics(&canonical);
+  let sidecar = assets::sidecar_lyrics(&file.path);
   assets::ingest_lyrics(
     &mut tx,
     &track_id,
@@ -534,7 +624,11 @@ async fn upsert_file(
     .await
     .map_err(|error| MediaError::internal(format!("提交扫描事务失败：{error}")))?;
 
-  Ok(result)
+  Ok(if existing_track.is_some() {
+    UpsertResult::Updated
+  } else {
+    UpsertResult::Added
+  })
 }
 
 #[cfg(test)]
@@ -567,13 +661,9 @@ mod tests {
   }
 
   #[test]
-  fn file_id_is_stable_and_source_scoped() {
-    let one = file_id("src_a", r"c:/music/a.mp3");
-    let two = file_id("src_a", r"c:/music/a.mp3");
-    let three = file_id("src_b", r"c:/music/a.mp3");
-    assert_eq!(one, two);
-    assert_ne!(one, three);
-    assert!(one.starts_with("file_"));
+  fn relative_keys_are_case_and_separator_insensitive() {
+    assert_eq!(normalize_relative(r"Album\Song.MP3"), "album/song.mp3");
+    assert_eq!(normalize_relative("Album/Song.mp3"), "album/song.mp3");
   }
 
   #[test]
@@ -591,11 +681,12 @@ mod tests {
       crate::media::library::scan_path(&pool, &root)
         .await
         .expect("first scan");
-      let track_id: String =
-        sqlx::query_scalar("SELECT track_id FROM music_files WHERE path LIKE '%Manual.wav'")
-          .fetch_one(&pool)
-          .await
-          .expect("track id");
+      let track_id: String = sqlx::query_scalar(
+        "SELECT id FROM music_tracks WHERE relative_path = 'Artist - Manual.wav' LIMIT 1",
+      )
+      .fetch_one(&pool)
+      .await
+      .expect("track id");
       sqlx::query("UPDATE music_tracks SET title = '人工标题' WHERE id = ?")
         .bind(&track_id)
         .execute(&pool)
@@ -651,21 +742,19 @@ mod tests {
         .expect("first scan");
       assert_eq!(first.added, 1);
       assert_eq!(first.updated, 0);
+      assert_eq!(first.skipped, 0);
 
       let second = crate::media::library::scan_path(&pool, &root)
         .await
         .expect("second scan");
       assert_eq!(second.added, 0);
-      assert_eq!(second.updated, 1);
+      assert_eq!(second.updated, 0);
+      assert_eq!(second.skipped, 1);
 
       let tracks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_tracks")
         .fetch_one(&pool)
         .await
         .expect("count tracks");
-      let files: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_files")
-        .fetch_one(&pool)
-        .await
-        .expect("count files");
       let search: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_search_text")
         .fetch_one(&pool)
         .await
@@ -682,6 +771,11 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("cover storage key");
+      let (relative, format, folder_id): (String, String, String) =
+        sqlx::query_as("SELECT relative_path, format, folder_id FROM music_tracks LIMIT 1")
+          .fetch_one(&pool)
+          .await
+          .expect("track file fields");
 
       sqlx::query("UPDATE music_tracks SET genre = 'Ambient', year = 2024")
         .execute(&pool)
@@ -702,9 +796,11 @@ mod tests {
         .await
         .expect("genres");
       crate::media::repository::db::close(&pool).await;
+      assert_eq!(relative, "Artist - Tree.wav");
+      assert_eq!(format, "wav");
+      assert!(!folder_id.is_empty());
       assert_eq!(genres, vec!["Ambient".to_string()]);
       assert_eq!(tracks, 1);
-      assert_eq!(files, 1);
       assert_eq!(search, 1);
       assert_eq!(covers, 1);
       assert_eq!(lyrics, 1);
@@ -714,6 +810,125 @@ mod tests {
     });
 
     let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn scan_skips_unchanged_and_removes_missing_files() {
+    let root = std::env::temp_dir().join(format!("lull-scan-missing-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).expect("create scan dir");
+    write_silence_wav(&root.join("one.wav"));
+    write_silence_wav(&root.join("two.wav"));
+    let db_path = root.join("music.db");
+
+    tauri::async_runtime::block_on(async {
+      let pool = crate::media::repository::db::open_at(&db_path)
+        .await
+        .expect("open db");
+      let first = crate::media::library::scan_path(&pool, &root)
+        .await
+        .expect("first scan");
+      assert_eq!(first.added, 2);
+
+      std::fs::remove_file(root.join("two.wav")).expect("remove file");
+      let second = crate::media::library::scan_path(&pool, &root)
+        .await
+        .expect("second scan");
+      let tracks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_tracks")
+        .fetch_one(&pool)
+        .await
+        .expect("count tracks");
+      crate::media::repository::db::close(&pool).await;
+      assert_eq!(second.added, 0);
+      assert_eq!(second.skipped, 1);
+      assert_eq!(second.removed, 1);
+      assert_eq!(tracks, 1);
+    });
+
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn recursive_flag_limits_discovery() {
+    let root = std::env::temp_dir().join(format!("lull-scan-recursive-{}", uuid::Uuid::now_v7()));
+    let nested = root.join("album");
+    std::fs::create_dir_all(&nested).expect("create scan dir");
+    write_silence_wav(&root.join("top.wav"));
+    write_silence_wav(&nested.join("nested.wav"));
+    let assets = root.join("assets");
+    std::fs::create_dir_all(&assets).expect("assets");
+    let db_path = root.join("music.db");
+
+    tauri::async_runtime::block_on(async {
+      let pool = crate::media::repository::db::open_at(&db_path)
+        .await
+        .expect("open db");
+      let source = crate::media::repository::sources::insert_local(
+        &pool,
+        "测试音乐",
+        root.to_str().expect("root utf8"),
+        false,
+      )
+      .await
+      .expect("source");
+      let control = ScanControl {
+        assets_dir: &assets,
+        cancel: None,
+        on_progress: None,
+      };
+      let outcome = scan_source(&pool, &source, "run-recursive", &control)
+        .await
+        .expect("scan");
+      crate::media::repository::db::close(&pool).await;
+      assert_eq!(outcome.added, 1);
+    });
+
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn missing_root_keeps_tracks_and_reports_unavailable() {
+    let root = std::env::temp_dir().join(format!("lull-scan-root-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).expect("create scan dir");
+    write_silence_wav(&root.join("one.wav"));
+    let db_path = std::env::temp_dir().join(format!("lull-scan-root-{}.db", uuid::Uuid::now_v7()));
+    let assets = std::env::temp_dir().join(format!("lull-scan-assets-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&assets).expect("assets");
+
+    tauri::async_runtime::block_on(async {
+      let pool = crate::media::repository::db::open_at(&db_path)
+        .await
+        .expect("open db");
+      let source = crate::media::repository::sources::insert_local(
+        &pool,
+        "测试音乐",
+        root.to_str().expect("root utf8"),
+        true,
+      )
+      .await
+      .expect("source");
+      let control = ScanControl {
+        assets_dir: &assets,
+        cancel: None,
+        on_progress: None,
+      };
+      scan_source(&pool, &source, "run-1", &control)
+        .await
+        .expect("first scan");
+      std::fs::remove_dir_all(&root).expect("remove root");
+      let error = scan_source(&pool, &source, "run-2", &control)
+        .await
+        .expect_err("missing root");
+      let tracks: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM music_tracks")
+        .fetch_one(&pool)
+        .await
+        .expect("count tracks");
+      crate::media::repository::db::close(&pool).await;
+      assert_eq!(error.code, "folders.unavailable");
+      assert_eq!(tracks, 1);
+    });
+
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_dir_all(&assets);
   }
 
   #[test]
@@ -734,6 +949,7 @@ mod tests {
         &pool,
         "测试音乐",
         root.to_str().expect("root utf8"),
+        true,
       )
       .await
       .expect("source");

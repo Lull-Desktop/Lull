@@ -2,8 +2,11 @@
 //!
 //! 写入与扫描在 `media::library` 中完成，这里保持查询可测试、可复用。
 
+use std::path::{Path, PathBuf};
+
 use sqlx::{FromRow, QueryBuilder, Sqlite, SqlitePool};
 
+use super::sources;
 use crate::media::api::dto::TrackQuery;
 use crate::media::api::errors::MediaError;
 
@@ -17,6 +20,7 @@ pub struct TrackRow {
   pub kind: String,
   #[allow(dead_code)]
   pub status: String,
+  pub added_at: i64,
   pub artist_names: Option<String>,
   pub album_title: Option<String>,
   pub album_id: Option<String>,
@@ -26,15 +30,15 @@ pub struct TrackRow {
   pub tags_json: String,
   pub available: i64,
   pub favorite: i64,
-}
-
-#[derive(Debug, Clone, FromRow)]
-pub struct TrackFileRow {
-  pub format: String,
-  pub size_bytes: i64,
+  pub folder_id: Option<String>,
+  pub folder_name: Option<String>,
+  pub relative_path: Option<String>,
+  pub file_name: Option<String>,
+  pub file_size: i64,
+  pub file_modified_at: Option<i64>,
+  pub format: Option<String>,
   pub bitrate: Option<i64>,
   pub sample_rate: Option<i64>,
-  pub available: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -75,7 +79,7 @@ pub struct AlbumRow {
 }
 
 pub(crate) const TRACK_SELECT: &str = "\
-SELECT t.id, t.title, t.duration_ms, t.year, t.genre, t.kind, t.status, \
+SELECT t.id, t.title, t.duration_ms, t.year, t.genre, t.kind, t.status, t.added_at, \
   (SELECT group_concat(a.name, char(31)) \
      FROM music_track_artists ta JOIN music_artists a ON a.id = ta.artist_id \
     WHERE ta.track_id = t.id AND ta.role IN ('primary', 'featured')) AS artist_names, \
@@ -92,8 +96,14 @@ SELECT t.id, t.title, t.duration_ms, t.year, t.genre, t.kind, t.status, \
   COALESCE((SELECT json_group_array(json_object('id', tg.id, 'name', tg.name)) \
     FROM music_track_tags mtt JOIN music_tags tg ON tg.id = mtt.tag_id \
     WHERE mtt.track_id = t.id), '[]') AS tags_json, \
+  t.folder_id, \
+  (SELECT s.name FROM music_sources s WHERE s.id = t.folder_id) AS folder_name, \
+  t.relative_path, t.file_name, t.file_size, t.file_modified_at, \
+  t.format, t.bitrate, t.sample_rate, \
   CASE WHEN t.kind = 'builtin' THEN 1 \
-       WHEN EXISTS (SELECT 1 FROM music_files f WHERE f.track_id = t.id AND f.available = 1) THEN 1 \
+       WHEN t.status <> 'active' THEN 0 \
+       WHEN EXISTS (SELECT 1 FROM music_sources s \
+         WHERE s.id = t.folder_id AND s.status IN ('active', 'scanning')) THEN 1 \
        ELSE 0 END AS available, \
   EXISTS (SELECT 1 FROM music_favorites fav WHERE fav.track_id = t.id) AS favorite \
 FROM music_tracks t";
@@ -145,6 +155,17 @@ fn push_filters(builder: &mut QueryBuilder<'_, Sqlite>, query: &TrackQuery) {
     builder.push(")");
   }
 
+  if let Some(folder_id) = query
+    .folder_id
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  {
+    builder
+      .push(" AND t.folder_id = ")
+      .push_bind(folder_id.to_string());
+  }
+
   if let Some(source_ids) = query.source_ids.as_ref().filter(|ids| !ids.is_empty()) {
     builder.push(" AND (");
     for (index, source_id) in source_ids.iter().enumerate() {
@@ -154,10 +175,7 @@ fn push_filters(builder: &mut QueryBuilder<'_, Sqlite>, query: &TrackQuery) {
       if source_id == "builtin" {
         builder.push("t.kind = 'builtin'");
       } else {
-        builder
-          .push("EXISTS (SELECT 1 FROM music_files f WHERE f.track_id = t.id AND f.source_id = ")
-          .push_bind(source_id.clone())
-          .push(")");
+        builder.push("t.folder_id = ").push_bind(source_id.clone());
       }
     }
     builder.push(")");
@@ -212,9 +230,9 @@ fn push_filters(builder: &mut QueryBuilder<'_, Sqlite>, query: &TrackQuery) {
     .filter(|value| !value.is_empty())
   {
     builder
-      .push(" AND EXISTS (SELECT 1 FROM music_files f WHERE f.track_id = t.id AND f.format = ")
+      .push(" AND t.format = ")
       .push_bind(format.to_ascii_lowercase())
-      .push(" COLLATE NOCASE)");
+      .push(" COLLATE NOCASE");
   }
 
   if let Some(year) = query.year {
@@ -243,8 +261,9 @@ fn push_filters(builder: &mut QueryBuilder<'_, Sqlite>, query: &TrackQuery) {
 
   if !query.include_unavailable.unwrap_or(false) {
     builder.push(
-      " AND (t.kind = 'builtin' OR EXISTS \
-       (SELECT 1 FROM music_files f WHERE f.track_id = t.id AND f.available = 1))",
+      " AND (t.kind = 'builtin' OR (t.status = 'active' AND EXISTS \
+       (SELECT 1 FROM music_sources s \
+        WHERE s.id = t.folder_id AND s.status IN ('active', 'scanning'))))",
     );
   }
 }
@@ -332,30 +351,78 @@ pub async fn list_by_ids(pool: &SqlitePool, ids: &[String]) -> Result<Vec<TrackR
     .map_err(|error| MediaError::internal(format!("批量读取曲目失败：{error}")))
 }
 
-/// 返回一个可播放的本地文件路径；内置曲没有文件时返回 None。
+/// 返回一个可播放的本地文件路径；内置曲、目录缺失或文件被移动时返回 None。
 pub async fn playable_path(
   pool: &SqlitePool,
   track_id: &str,
 ) -> Result<Option<String>, MediaError> {
-  sqlx::query_scalar::<_, String>(
-    "SELECT path FROM music_files WHERE track_id = ? AND available = 1 \
-     ORDER BY format LIMIT 1",
+  #[derive(sqlx::FromRow)]
+  struct PlayableRow {
+    root_path: String,
+    relative_path: String,
+  }
+
+  let row = sqlx::query_as::<_, PlayableRow>(
+    "SELECT s.root_path, t.relative_path FROM music_tracks t \
+     JOIN music_sources s ON s.id = t.folder_id \
+     WHERE t.id = ? AND t.kind = 'file' AND t.status = 'active' \
+       AND s.status IN ('active', 'scanning') AND t.relative_path IS NOT NULL",
   )
   .bind(track_id)
   .fetch_optional(pool)
   .await
-  .map_err(|error| MediaError::internal(format!("读取曲目文件路径失败：{error}")))
+  .map_err(|error| MediaError::internal(format!("读取曲目文件路径失败：{error}")))?;
+  let Some(row) = row else {
+    return Ok(None);
+  };
+  if !safe_relative_path(&row.relative_path) {
+    return Ok(None);
+  }
+  let path = std::path::Path::new(&row.root_path).join(&row.relative_path);
+  if !path.is_file() {
+    return Ok(None);
+  }
+  Ok(path.to_str().map(str::to_string))
 }
 
-pub async fn files(pool: &SqlitePool, track_id: &str) -> Result<Vec<TrackFileRow>, MediaError> {
-  sqlx::query_as::<_, TrackFileRow>(
-    "SELECT format, size_bytes, bitrate, sample_rate, available \
-     FROM music_files WHERE track_id = ? ORDER BY available DESC, format",
-  )
-  .bind(track_id)
-  .fetch_all(pool)
-  .await
-  .map_err(|error| MediaError::internal(format!("读取曲目文件失败：{error}")))
+fn safe_relative_path(relative: &str) -> bool {
+  !relative.is_empty()
+    && relative
+      .split('/')
+      .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
+/// M3U 导入：把绝对路径解析回 (folder_id, relative_path) 对应的 Track。
+pub async fn find_by_path(pool: &SqlitePool, path: &Path) -> Result<Option<String>, MediaError> {
+  let canonical = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+  if canonical.to_str().is_none() {
+    return Ok(None);
+  }
+  let roots = sources::list_local_roots(pool).await?;
+  for (folder_id, root) in roots {
+    let root_path = PathBuf::from(&root);
+    let Ok(relative) = canonical.strip_prefix(&root_path) else {
+      continue;
+    };
+    let relative = relative.to_string_lossy().replace('\\', "/");
+    if relative.is_empty() {
+      continue;
+    }
+    let track_id = sqlx::query_scalar::<_, String>(
+      "SELECT t.id FROM music_tracks t JOIN music_sources s ON s.id = t.folder_id \
+       WHERE t.folder_id = ? AND t.kind = 'file' AND t.relative_path = ? COLLATE NOCASE \
+         AND t.status = 'active' AND s.status IN ('active', 'scanning') LIMIT 1",
+    )
+    .bind(&folder_id)
+    .bind(&relative)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("匹配 M3U 曲目失败：{error}")))?;
+    if track_id.is_some() {
+      return Ok(track_id);
+    }
+  }
+  Ok(None)
 }
 
 pub async fn metadata(

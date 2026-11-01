@@ -7,6 +7,7 @@ mod backup;
 pub mod catalog;
 pub mod events;
 pub mod favorites;
+pub mod folders;
 pub mod history;
 pub mod metadata;
 mod p3;
@@ -83,6 +84,9 @@ pub fn init(app: tauri::AppHandle) {
         )
         .execute(&pool)
         .await;
+        if let Err(error) = folders::revalidate(&pool).await {
+          crate::wallpaper::wlog(&format!("音乐目录可用性检查失败：{error}"));
+        }
         if let Err(error) = catalog::seed(&pool).await {
           crate::wallpaper::wlog(&format!("内置曲目 seed 失败：{error}"));
         }
@@ -139,39 +143,27 @@ pub async fn list_sources() -> Result<Vec<SourceView>, MediaError> {
 }
 
 /// 添加本地音乐根目录；只允许 host 窗口调用。
-pub async fn add_source(app: tauri::AppHandle) -> Result<Option<SourceView>, MediaError> {
-  let picked = tauri::async_runtime::spawn_blocking(|| {
-    rfd::FileDialog::new()
-      .set_title("选择音乐文件夹")
-      .pick_folder()
-  })
-  .await
-  .map_err(|error| MediaError::internal(format!("打开目录选择器失败：{error}")))?;
-  let Some(path) = picked else {
+///
+/// 兼容旧 `library.addSource`：内部走同一套 folders 导入规则。
+pub async fn add_source(
+  app: tauri::AppHandle,
+  label: &str,
+) -> Result<Option<SourceView>, MediaError> {
+  let Some(folder) = folders::add(&app, label, None, true).await? else {
     return Ok(None);
   };
-  let path = dunce::canonicalize(&path)
-    .map_err(|error| MediaError::invalid(format!("目录不可用：{error}")))?;
-  if !path.is_dir() {
-    return Err(MediaError::invalid("选择的路径不是目录"));
+  let row = sources::get(pool()?, &folder.id)
+    .await?
+    .ok_or_else(|| MediaError::internal("添加音乐目录后读取失败"))?;
+  let mut view = SourceView::from(row);
+  if !matches!(label, "settings" | "library") {
+    view.root_path = None;
   }
-  let name = path
-    .file_name()
-    .and_then(|value| value.to_str())
-    .unwrap_or("音乐")
-    .to_string();
-  let path_text = path
-    .to_str()
-    .ok_or_else(|| MediaError::invalid("目录路径不是合法 UTF-8"))?;
-  let row = sources::insert_local(pool()?, &name, path_text).await?;
-  events::changed(&app);
-  Ok(Some(SourceView::from(row)))
+  Ok(Some(view))
 }
 
 pub async fn remove_source(app: tauri::AppHandle, source_id: &str) -> Result<bool, MediaError> {
-  let removed = sources::remove(pool()?, source_id).await?;
-  events::changed(&app);
-  Ok(removed)
+  folders::remove(&app, source_id).await
 }
 
 /// 启动扫描并立即返回 job；扫描在 Tauri 异步运行时中执行。
@@ -179,12 +171,12 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
   let pool = pool()?;
   let source = sources::get(pool, source_id)
     .await?
-    .ok_or_else(|| MediaError::new("library.source-not-found", "音乐来源不存在"))?;
-  if source.kind != "local" {
-    return Err(MediaError::invalid("内置来源不需要扫描"));
+    .ok_or_else(|| MediaError::new("folders.not-found", "音乐目录不存在"))?;
+  if source.kind != "local" || source.root_path.is_none() {
+    return Err(MediaError::new("folders.not-found", "音乐目录不存在"));
   }
   if source.status == "scanning" {
-    return Err(MediaError::new("library.scan-busy", "该来源正在扫描"));
+    return Err(MediaError::new("folders.scan-busy", "该目录正在扫描"));
   }
   let job_id = super::repository::new_id("scan");
   let now = now_ms();
@@ -203,6 +195,7 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
   let job = ScanJobView {
     job_id: job_id.clone(),
     source_id: source.id.clone(),
+    folder_id: source.id.clone(),
     status: "running".to_string(),
   };
   let source_for_task = source.clone();
@@ -219,6 +212,7 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
       serde_json::json!({
         "jobId": job_for_task.clone(),
         "sourceId": source_for_task.id.clone(),
+        "folderId": source_for_task.id.clone(),
       }),
     );
     let progress_app = app.clone();
@@ -242,10 +236,12 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
           serde_json::json!({
             "jobId": progress_job,
             "sourceId": progress_source,
+            "folderId": progress_source,
             "processed": progress.processed,
             "total": progress.total,
             "added": progress.added,
             "updated": progress.updated,
+            "skipped": progress.skipped,
           }),
         );
       }
@@ -260,7 +256,7 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
       map.remove(&source_for_task.id);
     }
     let now = now_ms();
-    let (status, added, updated, removed, errors) = match result {
+    let (status, added, updated, skipped, removed, errors) = match result {
       Ok(outcome) => {
         let errors = serde_json::to_string(&outcome.errors).unwrap_or_else(|_| "[]".to_string());
         let status = if outcome.cancelled {
@@ -290,6 +286,7 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
           status,
           outcome.added,
           outcome.updated,
+          outcome.skipped,
           outcome.removed,
           errors,
         )
@@ -307,8 +304,13 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
         .bind(&job_for_task)
         .execute(pool)
         .await;
-        let _ = sources::set_status(pool, &source_for_task.id, "error", Some(&message)).await;
-        ("failed", 0, 0, 0, errors)
+        let folder_status = if error.code == "folders.unavailable" {
+          "missing"
+        } else {
+          "error"
+        };
+        let _ = sources::set_status(pool, &source_for_task.id, folder_status, Some(&message)).await;
+        ("failed", 0, 0, 0, 0, errors)
       }
     };
     events::emit(
@@ -317,9 +319,11 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
       serde_json::json!({
         "jobId": job_for_task,
         "sourceId": source_for_task.id,
+        "folderId": source_for_task.id,
         "status": status,
         "added": added,
         "updated": updated,
+        "skipped": skipped,
         "removed": removed,
         "errors": serde_json::from_str::<serde_json::Value>(&errors).unwrap_or_default(),
       }),
@@ -368,17 +372,29 @@ pub async fn get_track(track_id: &str) -> Result<TrackDetailView, MediaError> {
   let row = tracks::get(pool, track_id)
     .await?
     .ok_or_else(|| MediaError::new("track.not-found", "曲目不存在"))?;
-  let files = tracks::files(pool, track_id)
-    .await?
-    .into_iter()
-    .map(|file| TrackFileView {
-      format: file.format,
-      size_bytes: file.size_bytes,
-      bitrate: file.bitrate,
-      sample_rate: file.sample_rate,
-      available: file.available != 0,
-    })
-    .collect();
+  let is_file = row.kind == "file";
+  let available = row.available != 0;
+  let file_name = row.file_name.clone().or_else(|| {
+    row
+      .relative_path
+      .as_deref()
+      .and_then(|path| path.rsplit('/').next())
+      .filter(|name| !name.is_empty())
+      .map(str::to_string)
+  });
+  let files = if is_file {
+    vec![TrackFileView {
+      format: row.format.clone().unwrap_or_else(|| "unknown".to_string()),
+      size_bytes: row.file_size,
+      bitrate: row.bitrate,
+      sample_rate: row.sample_rate,
+      available,
+      file_name,
+      file_modified_at: row.file_modified_at,
+    }]
+  } else {
+    Vec::new()
+  };
   let metadata = tracks::metadata(pool, track_id)
     .await?
     .map_or(serde_json::Value::Null, |row| {
@@ -488,7 +504,10 @@ pub async fn scan_path(
   let path_text = path
     .to_str()
     .ok_or_else(|| MediaError::invalid("路径不是合法 UTF-8"))?;
-  let row = sources::insert_local(pool, "测试音乐", path_text).await?;
+  let row = match sources::find_by_root(pool, path_text).await? {
+    Some(row) => row,
+    None => sources::insert_local(pool, "测试音乐", path_text, true).await?,
+  };
   let run_id = super::repository::new_id("scan");
   sqlx::query(
     "INSERT INTO music_scan_runs (id, source_id, status, started_at) VALUES (?, ?, 'running', ?)",
@@ -521,9 +540,10 @@ pub async fn call_media(
     return p3::call(window, request_id, namespace, method, args).await;
   }
   let app = window.app_handle().clone();
+  let label = window.label().to_string();
   let result = match (namespace, method) {
     ("library", "listSources") => list_sources().await.map(|rows| serde_json::json!(rows)),
-    ("library", "addSource") => add_source(app)
+    ("library", "addSource") => add_source(app, &label)
       .await
       .map(|source| serde_json::json!(source)),
     ("library", "removeSource") => {
@@ -613,6 +633,7 @@ pub async fn call_media(
     ("library", "exportBackup") | ("library", "importBackup") => {
       backup::call(&app, method, args).await
     }
+    ("folders", _) => folders::call(&app, &label, method, args).await,
     _ => Err(MediaError::new(
       "method.unknown",
       format!("不支持的媒体方法：{namespace}.{method}"),

@@ -55,6 +55,10 @@ pub async fn open_at(path: &Path) -> Result<SqlitePool, MediaError> {
     .await
     .map_err(|error| MediaError::unavailable(format!("打开音乐资料库失败：{error}")))?;
 
+  if let Err(error) = backup_before_folder_migration(&pool, path).await {
+    crate::wallpaper::wlog(&format!("迁移前备份音乐资料库失败：{error}"));
+  }
+
   if let Err(error) = sqlx::migrate!("./migrations").run(&pool).await {
     pool.close().await;
     return Err(MediaError::unavailable(format!(
@@ -63,6 +67,36 @@ pub async fn open_at(path: &Path) -> Result<SqlitePool, MediaError> {
   }
 
   Ok(pool)
+}
+
+/// 0009 会删除 music_files 并重写 Track 文件列；首次升级前尽力留一份快照。
+async fn backup_before_folder_migration(pool: &SqlitePool, path: &Path) -> Result<(), MediaError> {
+  let has_migrations: i64 = sqlx::query_scalar(
+    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
+  )
+  .fetch_one(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("检查迁移状态失败：{error}")))?;
+  if has_migrations == 0 {
+    return Ok(());
+  }
+  let version: Option<i64> = sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+    .fetch_one(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("读取迁移版本失败：{error}")))?;
+  if version.unwrap_or(0) >= 9 {
+    return Ok(());
+  }
+  let backup = path.with_extension("db.pre-0009.bak");
+  if backup.exists() {
+    return Ok(());
+  }
+  let escaped = backup.to_string_lossy().replace('\'', "''");
+  sqlx::query(&format!("VACUUM INTO '{escaped}'"))
+    .execute(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("备份音乐资料库失败：{error}")))?;
+  Ok(())
 }
 
 /// 生产入口：按应用数据目录打开。
@@ -94,11 +128,11 @@ mod tests {
   #[test]
   fn migrations_create_core_tables_and_fts5_status() {
     let path = temp_db();
-    let (tables, fts5): (i64, i64) = tauri::async_runtime::block_on(async {
+    let (tables, removed, fts5): (i64, i64, i64) = tauri::async_runtime::block_on(async {
       let pool = open_at(&path).await.expect("open music db");
       let tables: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN \
-         ('music_sources', 'music_files', 'music_tracks', 'music_artists', \
+         ('music_sources', 'music_tracks', 'music_artists', \
           'music_albums', 'music_track_metadata', 'music_search_text', 'media_output', \
           'music_playlists', 'music_playlist_tracks', 'music_favorites', 'music_play_history', \
           'noise_sources', 'noise_categories', 'noise_tags', 'noise_assets', \
@@ -109,34 +143,139 @@ mod tests {
       .fetch_one(&pool)
       .await
       .expect("count tables");
+      let removed: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' \
+         AND name IN ('music_files', 'music_folders')",
+      )
+      .fetch_one(&pool)
+      .await
+      .expect("count removed tables");
       let fts5: i64 = sqlx::query_scalar("SELECT sqlite_compileoption_used('ENABLE_FTS5')")
         .fetch_one(&pool)
         .await
         .expect("check fts5");
       close(&pool).await;
-      (tables, fts5)
+      (tables, removed, fts5)
     });
     cleanup(&path);
-    assert_eq!(tables, 25);
+    assert_eq!(tables, 24);
+    assert_eq!(removed, 0);
     eprintln!("SQLite FTS5 enabled = {fts5}");
   }
 
   #[test]
-  fn source_insert_is_idempotent_by_root() {
+  fn folder_insert_rejects_duplicate_root() {
     let path = temp_db();
     tauri::async_runtime::block_on(async {
       let pool = open_at(&path).await.expect("open music db");
-      let first = sources::insert_local(&pool, "音乐", r"C:\Music")
+      let first = sources::insert_local(&pool, "音乐", r"C:\Music", true)
         .await
-        .expect("insert source");
-      let second = sources::insert_local(&pool, "重复名称", r"C:\Music")
-        .await
-        .expect("insert duplicate source");
+        .expect("insert folder");
+      let second = sources::insert_local(&pool, "重复名称", r"C:\Music", true).await;
       let all = sources::list(&pool).await.expect("list sources");
       close(&pool).await;
-      assert_eq!(first.id, second.id);
+      assert!(second.is_err());
+      assert_eq!(first.name, "音乐");
       assert_eq!(all.len(), 1);
       assert_eq!(all[0].root_path.as_deref(), Some(r"C:\Music"));
+      assert_eq!(all[0].recursive, 1);
+    });
+    cleanup(&path);
+  }
+
+  #[test]
+  fn legacy_files_migrate_into_track_columns() {
+    let path = temp_db();
+    tauri::async_runtime::block_on(async {
+      let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true)
+        .foreign_keys(true);
+      let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("open legacy db");
+      for sql in [
+        include_str!("../../../migrations/0001_library.sql"),
+        include_str!("../../../migrations/0002_search_fts.sql"),
+        include_str!("../../../migrations/0003_playback.sql"),
+        include_str!("../../../migrations/0004_library_filters.sql"),
+        include_str!("../../../migrations/0005_media_output.sql"),
+        include_str!("../../../migrations/0006_library_p3.sql"),
+        include_str!("../../../migrations/0007_noise.sql"),
+        include_str!("../../../migrations/0008_music_p4.sql"),
+      ] {
+        sqlx::raw_sql(sql)
+          .execute(&pool)
+          .await
+          .expect("legacy schema");
+      }
+      sqlx::raw_sql(
+        "INSERT INTO music_sources \
+           (id, kind, name, root_path, status, created_at, updated_at) \
+         VALUES ('src_1', 'local', '音乐', 'C:/Music', 'active', 1, 1); \
+         INSERT INTO music_tracks \
+           (id, kind, title, status, added_at, updated_at) \
+         VALUES ('trk_1', 'file', '旧歌', 'active', 10, 10); \
+         INSERT INTO music_files \
+           (id, source_id, track_id, path, path_key, relative_path, format, size_bytes, \
+            mtime_ms, bitrate, sample_rate, available, added_at, updated_at) \
+         VALUES ('file_1', 'src_1', 'trk_1', 'C:/Music/Album/Song.mp3', \
+                 'c:/music/album/song.mp3', 'Album/Song.mp3', 'mp3', 1234, 5678, \
+                 192000, 44100, 1, 10, 10); \
+         INSERT INTO music_playlists (id, name, created_at, updated_at) \
+         VALUES ('pl_1', '旧歌单', 1, 1); \
+         INSERT INTO music_playlist_tracks (playlist_id, track_id, position, added_at) \
+         VALUES ('pl_1', 'trk_1', 0, 1); \
+         INSERT INTO music_favorites (track_id, created_at) VALUES ('trk_1', 1); \
+         INSERT INTO music_tags (id, name, normalized_name, created_at) \
+         VALUES ('tag_1', '旧标签', '旧标签', 1); \
+         INSERT INTO music_track_tags (track_id, tag_id, created_at) \
+         VALUES ('trk_1', 'tag_1', 1);",
+      )
+      .execute(&pool)
+      .await
+      .expect("legacy rows");
+      sqlx::raw_sql(include_str!("../../../migrations/0009_music_folders.sql"))
+        .execute(&pool)
+        .await
+        .expect("run 0009");
+
+      let (folder_id, relative, format, size, recursive): (String, String, String, i64, i64) =
+        sqlx::query_as(
+          "SELECT t.folder_id, t.relative_path, t.format, t.file_size, s.recursive \
+           FROM music_tracks t JOIN music_sources s ON s.id = t.folder_id WHERE t.id = 'trk_1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("migrated track");
+      let (playlist_refs, favorite_refs, tag_refs): (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM music_playlist_tracks WHERE track_id = 'trk_1'), \
+                (SELECT COUNT(*) FROM music_favorites WHERE track_id = 'trk_1'), \
+                (SELECT COUNT(*) FROM music_track_tags WHERE track_id = 'trk_1')",
+      )
+      .fetch_one(&pool)
+      .await
+      .expect("references");
+      let removed_tables: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' \
+         AND name IN ('music_files', 'music_folders')",
+      )
+      .fetch_one(&pool)
+      .await
+      .expect("removed tables");
+      pool.close().await;
+
+      assert_eq!(folder_id, "src_1");
+      assert_eq!(relative, "Album/Song.mp3");
+      assert_eq!(format, "mp3");
+      assert_eq!(size, 1234);
+      assert_eq!(recursive, 1);
+      assert_eq!(playlist_refs, 1);
+      assert_eq!(favorite_refs, 1);
+      assert_eq!(tag_refs, 1);
+      assert_eq!(removed_tables, 0);
     });
     cleanup(&path);
   }

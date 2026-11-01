@@ -22,10 +22,12 @@ import type {
   BackupCounts,
   ConnectOptions,
   FavoriteView,
+  FolderTrack,
   HistoryEntry,
   M3uExportResult,
   M3uImportResult,
   MediaOutput,
+  MusicFolderView,
   NoiseAsset,
   NoiseAssetQuery,
   NoiseCategory,
@@ -127,6 +129,22 @@ export interface LullMediaClient {
     ): Promise<Page<TrackSummary>>;
     exportBackup(): Promise<BackupCounts | null>;
     importBackup(): Promise<BackupCounts | null>;
+  };
+  folders: {
+    list(): Promise<MusicFolderView[]>;
+    get(folderId: string): Promise<MusicFolderView>;
+    add(options?: {
+      path?: string;
+      recursive?: boolean;
+    }): Promise<MusicFolderView | null>;
+    rename(folderId: string, name: string): Promise<MusicFolderView>;
+    remove(folderId: string): Promise<boolean>;
+    scan(folderId: string): Promise<ScanJobView>;
+    cancelScan(folderId: string): Promise<boolean>;
+    getTracks(
+      folderId: string,
+      query?: TrackQuery,
+    ): Promise<Page<FolderTrack>>;
   };
   player: {
     getState(): Promise<PlayerState>;
@@ -516,6 +534,36 @@ export function createMediaClient(
       call<BackupCounts | null>("library", "importBackup"),
   };
 
+  const folders = {
+    list: () => call<MusicFolderView[]>("folders", "list"),
+    get: (folderId: string) =>
+      call<MusicFolderView>("folders", "get", { folderId }),
+    add: (options: { path?: string; recursive?: boolean } = {}) =>
+      call<MusicFolderView | null>("folders", "add", options),
+    rename: (folderId: string, name: string) =>
+      call<MusicFolderView>("folders", "rename", { folderId, name }),
+    remove: async (folderId: string) => {
+      const result = await call<{ removed: boolean }>(
+        "folders",
+        "remove",
+        { folderId },
+      );
+      return result.removed;
+    },
+    scan: (folderId: string) =>
+      call<ScanJobView>("folders", "scan", { folderId }),
+    cancelScan: async (folderId: string) => {
+      const result = await call<{ cancelled: boolean }>(
+        "folders",
+        "cancelScan",
+        { folderId },
+      );
+      return result.cancelled;
+    },
+    getTracks: (folderId: string, query: TrackQuery = {}) =>
+      call<Page<FolderTrack>>("folders", "getTracks", { ...query, folderId }),
+  };
+
   const player = {
     getState: () => call<PlayerState>("player", "getState"),
     play: (trackId?: string) =>
@@ -810,6 +858,7 @@ export function createMediaClient(
       }
     },
     call: call as LullMediaClient["call"],
+    folders,
     library,
     player,
     queue,

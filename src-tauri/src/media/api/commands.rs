@@ -77,6 +77,12 @@ fn p3_access(namespace: &str, method: &str, label: &str) -> Result<(), MediaErro
 }
 
 fn host_only(namespace: &str, method: &str, label: &str) -> Result<(), MediaError> {
+  if namespace == "folders" && !matches!(label, "settings" | "library") {
+    return Err(MediaError::new(
+      "capability.denied",
+      "当前窗口没有音乐目录权限",
+    ));
+  }
   if namespace == "library" && label != "settings" {
     // 播放器/白噪音只需要曲目读取；来源列表含 rootPath，扫描/增删只属于 host。
     if !matches!(
@@ -141,7 +147,7 @@ pub async fn media_call(window: WebviewWindow, request: MediaRequest) -> MediaRe
 
   if matches!(
     request.namespace.as_str(),
-    "library" | "playlists" | "favorites" | "history"
+    "library" | "folders" | "playlists" | "favorites" | "history"
   ) {
     return library::call_media(
       window.clone(),
@@ -375,5 +381,9 @@ mod tests {
       assert!(host_only("library", method, "player").is_err());
     }
     assert!(host_only("library", "listSources", "settings").is_ok());
+    assert!(host_only("folders", "list", "library").is_ok());
+    assert!(host_only("folders", "add", "settings").is_ok());
+    assert!(host_only("folders", "list", "player").is_err());
+    assert!(host_only("folders", "getTracks", "noise").is_err());
   }
 }

@@ -259,13 +259,13 @@ export function MediaApiTestPanel() {
     );
   }, [client, playlistId, run]);
 
-  const addSource = useCallback((): void => {
+  const addFolder = useCallback((): void => {
     if (!client) return;
-    void run("library.addSource + startScan", async () => {
-      const source = await client.library.addSource();
-      if (!source) return { cancelled: true };
-      const job = await client.library.startScan(source.id);
-      return { source, job };
+    void run("folders.add + scan", async () => {
+      const folder = await client.folders.add();
+      if (!folder) return { cancelled: true };
+      const job = await client.folders.scan(folder.id);
+      return { folder, job };
     });
   }, [client, run]);
 
@@ -307,8 +307,8 @@ export function MediaApiTestPanel() {
           <Button type="button" size="sm" onClick={() => void refresh()}>
             刷新全部
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={addSource}>
-            添加音乐文件夹并扫描
+          <Button type="button" size="sm" variant="outline" onClick={addFolder}>
+            导入音乐目录并扫描
           </Button>
           <Button
             type="button"

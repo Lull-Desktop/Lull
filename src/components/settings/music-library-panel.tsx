@@ -10,11 +10,21 @@ import {
   type ArtistSummary,
   createMediaClient,
   type LullMediaClient,
-  type SourceView,
+  type MusicFolderView,
   type TrackQuery,
   type TrackSummary,
 } from "@lull/media-sdk";
-import { Download, FolderPlus, Library, Music, RefreshCw, Search, Upload } from "lucide-react";
+import {
+  Download,
+  FolderPlus,
+  Library,
+  Music,
+  Pencil,
+  RefreshCw,
+  Search,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -77,7 +87,7 @@ function toTrackQuery(
   };
 }
 
-function sourceStatusLabel(status: SourceView["status"]): string {
+function sourceStatusLabel(status: MusicFolderView["status"]): string {
   switch (status) {
     case "scanning":
       return m.settings_library_status_scanning();
@@ -90,6 +100,15 @@ function sourceStatusLabel(status: SourceView["status"]): string {
   }
 }
 
+function formatScannedAt(timestamp?: number): string {
+  if (!timestamp) return "";
+  try {
+    return new Date(timestamp).toLocaleString();
+  } catch {
+    return "";
+  }
+}
+
 export function MusicLibraryPanel({
   client: providedClient,
 }: {
@@ -97,7 +116,8 @@ export function MusicLibraryPanel({
   client?: LullMediaClient;
 } = {}) {
   const [client, setClient] = useState<LullMediaClient | null>(null);
-  const [sources, setSources] = useState<SourceView[]>([]);
+  const [sources, setSources] = useState<MusicFolderView[]>([]);
+  const [recursive, setRecursive] = useState(true);
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [artists, setArtists] = useState<ArtistSummary[]>([]);
@@ -131,7 +151,7 @@ export function MusicLibraryPanel({
       setLoadingMore(false);
       const [nextSources, page, nextArtists, nextAlbums, nextGenres] =
         await Promise.all([
-          target.library.listSources(),
+          target.folders.list(),
           target.library.listTracks(toTrackQuery(search, nextFilters)),
           target.library.listArtists(),
           target.library.listAlbums(),
@@ -217,14 +237,16 @@ export function MusicLibraryPanel({
         );
       } else if (event.topic === "library.scan.progress") {
         const payload = event.payload as {
+          folderId?: string;
           sourceId?: string;
           processed?: number;
           total?: number;
         };
-        if (!payload.sourceId) return;
+        const folderId = payload.folderId ?? payload.sourceId;
+        if (!folderId) return;
         setScanProgress((previous) => ({
           ...previous,
-          [payload.sourceId as string]: {
+          [folderId]: {
             processed: payload.processed ?? 0,
             total: payload.total ?? 0,
           },
@@ -303,19 +325,19 @@ export function MusicLibraryPanel({
   const addSource = useCallback(() => {
     if (!client) return;
     void run("add", async () => {
-      const added = await client.library.addSource();
+      const added = await client.folders.add({ recursive });
       if (added) {
-        await client.library.startScan(added.id);
+        await client.folders.scan(added.id);
         await refresh(client, appliedKeyword, appliedFilters);
       }
     });
-  }, [appliedFilters, appliedKeyword, client, refresh, run]);
+  }, [appliedFilters, appliedKeyword, client, recursive, refresh, run]);
 
   const scan = useCallback(
-    (source: SourceView) => {
+    (source: MusicFolderView) => {
       if (!client) return;
       void run(`scan:${source.id}`, async () => {
-        await client.library.startScan(source.id);
+        await client.folders.scan(source.id);
         await refresh(client, appliedKeyword, appliedFilters);
       });
     },
@@ -323,13 +345,40 @@ export function MusicLibraryPanel({
   );
 
   const cancelScan = useCallback(
-    (source: SourceView) => {
+    (source: MusicFolderView) => {
       if (!client) return;
       void run(`cancel:${source.id}`, async () => {
-        await client.library.cancelScan(source.id);
+        await client.folders.cancelScan(source.id);
       });
     },
     [client, run],
+  );
+
+  const renameSource = useCallback(
+    (source: MusicFolderView): void => {
+      if (!client) return;
+      const next = window.prompt(m.settings_library_rename(), source.name);
+      if (!next || next.trim() === source.name) return;
+      void run(`rename:${source.id}`, async () => {
+        await client.folders.rename(source.id, next.trim());
+        await refresh(client, appliedKeyword, appliedFilters);
+      });
+    },
+    [appliedFilters, appliedKeyword, client, refresh, run],
+  );
+
+  const removeSource = useCallback(
+    (source: MusicFolderView): void => {
+      if (!client) return;
+      if (!window.confirm(m.library_folder_remove_confirm({ name: source.name }))) {
+        return;
+      }
+      void run(`remove:${source.id}`, async () => {
+        await client.folders.remove(source.id);
+        await refresh(client, appliedKeyword, appliedFilters);
+      });
+    },
+    [appliedFilters, appliedKeyword, client, refresh, run],
   );
 
   const exportBackup = useCallback((): void => {
@@ -403,7 +452,15 @@ export function MusicLibraryPanel({
             <h3 className="text-sm font-medium text-ink-soft">
               {m.settings_library_sources()}
             </h3>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={recursive}
+                  onChange={(event) => setRecursive(event.target.checked)}
+                />
+                {m.settings_library_recursive()}
+              </label>
               <Button
                 type="button"
                 variant="outline"
@@ -441,7 +498,18 @@ export function MusicLibraryPanel({
                   <div className="min-w-0">
                     <p className="truncate text-sm text-ink">{source.name}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {source.rootPath ?? source.kind}
+                      {source.rootPath ?? ""}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {m.settings_library_track_count({
+                        count: source.trackCount,
+                      })}
+                      {source.recursive
+                        ? ` · ${m.settings_library_recursive()}`
+                        : ""}
+                      {source.lastScannedAt
+                        ? ` · ${formatScannedAt(source.lastScannedAt)}`
+                        : ""}
                     </p>
                     {sourceStatusLabel(source.status) && (
                       <p className="mt-0.5 text-xs text-muted-foreground">
@@ -452,45 +520,65 @@ export function MusicLibraryPanel({
                       </p>
                     )}
                   </div>
-                  {source.kind === "local" && (
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      {source.status === "scanning" &&
-                        scanProgress[source.id] && (
-                          <span className="text-xs tabular-nums text-muted-foreground">
-                            {scanProgress[source.id]?.processed ?? 0}/
-                            {scanProgress[source.id]?.total ?? 0}
-                          </span>
-                        )}
-                      <div className="flex gap-1">
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    {source.status === "scanning" && scanProgress[source.id] && (
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {scanProgress[source.id]?.processed ?? 0}/
+                        {scanProgress[source.id]?.total ?? 0}
+                      </span>
+                    )}
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                          !client ||
+                          busy !== null ||
+                          source.status === "scanning"
+                        }
+                        onClick={() => scan(source)}
+                      >
+                        {source.status === "scanning"
+                          ? m.settings_library_scanning()
+                          : m.settings_library_scan()}
+                      </Button>
+                      {source.status === "scanning" ? (
                         <Button
                           type="button"
-                          variant="outline"
+                          variant="ghost"
                           size="sm"
-                          disabled={
-                            !client ||
-                            busy !== null ||
-                            source.status === "scanning"
-                          }
-                          onClick={() => scan(source)}
+                          disabled={!client || busy !== null}
+                          onClick={() => cancelScan(source)}
                         >
-                          {source.status === "scanning"
-                            ? m.settings_library_scanning()
-                            : m.settings_library_scan()}
+                          {m.settings_library_cancel_scan()}
                         </Button>
-                        {source.status === "scanning" && (
+                      ) : (
+                        <>
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
                             disabled={!client || busy !== null}
-                            onClick={() => cancelScan(source)}
+                            onClick={() => renameSource(source)}
+                            title={m.settings_library_rename()}
                           >
-                            {m.settings_library_cancel_scan()}
+                            <Pencil className="h-4 w-4" aria-hidden="true" />
                           </Button>
-                        )}
-                      </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={!client || busy !== null}
+                            onClick={() => removeSource(source)}
+                            title={m.settings_library_remove()}
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden="true" />
+                          </Button>
+                        </>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </li>
               ))}
             </ul>

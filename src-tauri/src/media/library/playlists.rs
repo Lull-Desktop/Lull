@@ -293,18 +293,7 @@ fn parse_m3u_paths(text: &str, parent: &Path) -> Vec<PathBuf> {
 
 async fn resolve_path(path: &Path) -> Result<Option<String>, MediaError> {
   let canonical = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-  let Some(path_text) = canonical.to_str() else {
-    return Ok(None);
-  };
-  let path_key = path_text.replace('\\', "/").to_lowercase();
-  let track_id = sqlx::query_scalar::<_, String>(
-    "SELECT track_id FROM music_files WHERE path_key = ? AND available = 1 LIMIT 1",
-  )
-  .bind(path_key)
-  .fetch_optional(pool()?)
-  .await
-  .map_err(|error| MediaError::internal(format!("匹配 M3U 曲目失败：{error}")))?;
-  Ok(track_id)
+  tracks::find_by_path(pool()?, &canonical).await
 }
 
 #[cfg(test)]

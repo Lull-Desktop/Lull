@@ -18,9 +18,34 @@ export interface SourceView {
   lastScanError?: string;
 }
 
+/** 物理目录（内部复用 music_sources 的 local 行）。 */
+export type MusicFolderStatus =
+  | "available"
+  | "scanning"
+  | "missing"
+  | "error";
+
+export interface MusicFolderView {
+  id: string;
+  name: string;
+  rootPath?: string;
+  recursive: boolean;
+  status: MusicFolderStatus;
+  trackCount: number;
+  lastScannedAt?: number;
+  lastScanError?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface FolderTrack extends TrackSummary {
+  relativePath: string;
+}
+
 export interface TrackQuery {
   keyword?: string;
   sourceIds?: string[];
+  folderId?: string;
   artistId?: string;
   albumId?: string;
   genre?: string;
@@ -85,6 +110,16 @@ export interface TrackSummary {
   available: boolean;
   hasCover: boolean;
   favorite?: boolean;
+  folderId?: string;
+  folderName?: string;
+  addedAt?: number;
+  fileName?: string;
+  format?: string;
+  fileSize?: number;
+  bitrate?: number;
+  sampleRate?: number;
+  fileModifiedAt?: number;
+  albumArtId?: string;
 }
 
 export interface Page<T> {
@@ -101,6 +136,8 @@ export interface TrackFileView {
   bitrate?: number;
   sampleRate?: number;
   available: boolean;
+  fileName?: string;
+  fileModifiedAt?: number;
 }
 
 export interface TrackLyrics {
@@ -140,6 +177,7 @@ export type ScanJobStatus = "running" | "completed" | "failed" | "cancelled";
 export interface ScanJobView {
   jobId: string;
   sourceId: string;
+  folderId?: string;
   status: ScanJobStatus;
 }
 

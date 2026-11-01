@@ -238,7 +238,7 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 | `media.queue.write` | `queue.add` / `remove` / `clear` / `move` / `playAt` | — | 加入队列与队列调整 |
 | `media.library.read` | `listTracks` / `getTrack` / `getCoverUrl` / `listArtists` / `listAlbums` | `library.changed` | 曲目与封面 |
 | `media.library.favorites.write` | `favorites.set` | — | 播放器喜欢按钮 |
-| `media.library.sources.write` | `library.addSource` / `startScan` | — | 播放器「添加音乐文件夹」（见 §13） |
+| `media.library.sources.write` | `folders.add` / `folders.scan`（旧 `library.addSource` / `startScan` 兼容） | — | 播放器「添加音乐文件夹」（见 §13） |
 
 现有 8 个 `media.noise.*` 能力不变；`widget.media` 仍是总开关。
 

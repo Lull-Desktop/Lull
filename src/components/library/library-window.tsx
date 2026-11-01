@@ -9,6 +9,7 @@
 import type {
   HistoryEntry,
   LullMediaClient,
+  MusicFolderView,
   PlaylistDetail,
   PlaylistSummary,
   QueueState,
@@ -19,7 +20,9 @@ import type {
 import {
   ChevronDown,
   ChevronUp,
+  Clock,
   Download,
+  FolderOpen,
   Heart,
   History,
   ListMusic,
@@ -43,7 +46,15 @@ import { getMediaClient } from "@/hooks/use-media-client";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 
-type LibraryTab = "tracks" | "playlists" | "favorites" | "history" | "queue" | "smart";
+type LibraryTab =
+  | "tracks"
+  | "recent"
+  | "folders"
+  | "playlists"
+  | "favorites"
+  | "history"
+  | "queue"
+  | "smart";
 
 type LibraryWindowProps = {
   /** 测试/嵌入时注入；不传则使用官方 Tauri 单例。 */
@@ -52,6 +63,8 @@ type LibraryWindowProps = {
 
 const TABS: { id: LibraryTab; label: () => string; icon: typeof Music }[] = [
   { id: "tracks", label: m.library_tracks, icon: Music },
+  { id: "recent", label: m.library_recent_added, icon: Clock },
+  { id: "folders", label: m.library_my_folders, icon: FolderOpen },
   { id: "playlists", label: m.library_playlists, icon: ListMusic },
   { id: "favorites", label: m.library_favorites, icon: Heart },
   { id: "history", label: m.library_history, icon: History },
@@ -81,6 +94,19 @@ function formatTime(timestamp: number): string {
   }
 }
 
+function folderStatusLabel(status: MusicFolderView["status"]): string {
+  switch (status) {
+    case "scanning":
+      return m.library_folder_scanning();
+    case "missing":
+      return m.library_folder_status_missing();
+    case "error":
+      return m.library_folder_status_error();
+    default:
+      return "";
+  }
+}
+
 export function LibraryWindow({
   client: providedClient,
 }: LibraryWindowProps = {}) {
@@ -88,6 +114,10 @@ export function LibraryWindow({
   const [tab, setTab] = useState<LibraryTab>("tracks");
   const [keyword, setKeyword] = useState("");
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const [recentTracks, setRecentTracks] = useState<TrackSummary[]>([]);
+  const [folders, setFolders] = useState<MusicFolderView[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [folderTracks, setFolderTracks] = useState<TrackSummary[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selected, setSelected] = useState<PlaylistDetail | null>(null);
@@ -176,6 +206,34 @@ export function LibraryWindow({
         if (alive) setTracks(page.items);
         return;
       }
+      if (tab === "recent") {
+        const page = await client.library.listTracks({
+          sortBy: "addedAt",
+          sortOrder: "desc",
+          pageSize: 100,
+        });
+        if (alive) setRecentTracks(page.items);
+        return;
+      }
+      if (tab === "folders") {
+        const list = await client.folders.list();
+        if (!alive) return;
+        setFolders(list);
+        const folderId =
+          selectedFolderId && list.some((item) => item.id === selectedFolderId)
+            ? selectedFolderId
+            : (list[0]?.id ?? null);
+        if (folderId !== selectedFolderId) setSelectedFolderId(folderId);
+        if (folderId) {
+          const page = await client.folders.getTracks(folderId, {
+            pageSize: 100,
+          });
+          if (alive) setFolderTracks(page.items);
+        } else if (alive) {
+          setFolderTracks([]);
+        }
+        return;
+      }
       if (tab === "playlists") {
         const list = await client.playlists.list();
         if (!alive) return;
@@ -247,7 +305,7 @@ export function LibraryWindow({
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [client, keyword, queueTracks, selectedId, tab, version]);
+  }, [client, keyword, queueTracks, selectedFolderId, selectedId, tab, version]);
 
   const run = useCallback(
     async (label: string, action: () => Promise<void>): Promise<void> => {
@@ -481,6 +539,67 @@ export function LibraryWindow({
     });
   }, [client, run]);
 
+  const importFolder = useCallback((): void => {
+    if (!client) return;
+    void run("folder-import", async () => {
+      const added = await client.folders.add({ recursive: true });
+      if (!added) return;
+      setSelectedFolderId(added.id);
+      await client.folders.scan(added.id);
+    });
+  }, [client, run]);
+
+  const scanFolder = useCallback(
+    (folder: MusicFolderView): void => {
+      if (!client) return;
+      void run(`folder-scan:${folder.id}`, async () => {
+        await client.folders.scan(folder.id);
+      });
+    },
+    [client, run],
+  );
+
+  const cancelFolderScan = useCallback(
+    (folder: MusicFolderView): void => {
+      if (!client) return;
+      void run(`folder-cancel:${folder.id}`, async () => {
+        await client.folders.cancelScan(folder.id);
+      });
+    },
+    [client, run],
+  );
+
+  const renameFolder = useCallback(
+    (folder: MusicFolderView): void => {
+      if (!client) return;
+      const next = window.prompt(m.library_folder_rename(), folder.name);
+      if (!next || next.trim() === folder.name) return;
+      void run(`folder-rename:${folder.id}`, async () => {
+        await client.folders.rename(folder.id, next.trim());
+      });
+    },
+    [client, run],
+  );
+
+  const removeFolder = useCallback(
+    (folder: MusicFolderView): void => {
+      if (!client) return;
+      if (!window.confirm(m.library_folder_remove_confirm({ name: folder.name }))) {
+        return;
+      }
+      void run(`folder-remove:${folder.id}`, async () => {
+        await client.folders.remove(folder.id);
+        setSelectedFolderId(null);
+      });
+    },
+    [client, run],
+  );
+
+  const selectedFolder = useMemo(
+    () => folders.find((folder) => folder.id === selectedFolderId) ?? null,
+    [folders, selectedFolderId],
+  );
+
   const playlistOptions = useMemo(
     () =>
       playlists.map((playlist) => ({
@@ -588,6 +707,175 @@ export function LibraryWindow({
             onEdit={setEditingTrack}
             empty={m.library_empty()}
           />
+        )}
+
+        {tab === "recent" && (
+          <TrackTable
+            tracks={recentTracks}
+            playlists={playlistOptions}
+            busy={busy}
+            onPlay={play}
+            onQueue={addToQueue}
+            onFavorite={toggleFavorite}
+            onAddToPlaylist={addToPlaylist}
+            onEdit={setEditingTrack}
+            empty={m.library_empty()}
+          />
+        )}
+
+        {tab === "folders" && (
+          <div className="grid gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
+            <Card className="h-fit">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-base">
+                    {m.library_my_folders()}
+                  </CardTitle>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!client || busy !== null}
+                    onClick={importFolder}
+                  >
+                    <FolderOpen className="mr-1 h-4 w-4" aria-hidden="true" />
+                    {m.library_folder_import()}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                {folders.length === 0 ? (
+                  <p className="px-1 py-3 text-sm text-ink-faint">
+                    {m.library_folder_empty()}
+                  </p>
+                ) : (
+                  folders.map((folder) => {
+                    const status = folderStatusLabel(folder.status);
+                    return (
+                      <button
+                        key={folder.id}
+                        type="button"
+                        onClick={() => setSelectedFolderId(folder.id)}
+                        className={cn(
+                          "w-full rounded-lg px-2 py-2 text-left transition-colors",
+                          selectedFolderId === folder.id
+                            ? "bg-bamboo-mist/60 text-ink"
+                            : "text-ink-soft hover:bg-paper-warm",
+                        )}
+                      >
+                        <span className="block truncate text-sm">
+                          {folder.name}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-ink-faint">
+                          {m.library_folder_tracks({
+                            count: folder.trackCount,
+                          })}
+                          {folder.recursive
+                            ? ` · ${m.settings_library_recursive()}`
+                            : ""}
+                        </span>
+                        {status ? (
+                          <span className="mt-0.5 block text-xs text-destructive">
+                            {status}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="min-w-0 space-y-3">
+              {selectedFolder ? (
+                <>
+                  <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-paper-deep/60 bg-paper-warm/40 p-3">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-base font-medium">
+                        {selectedFolder.name}
+                      </h2>
+                      <p className="truncate text-xs text-ink-faint">
+                        {selectedFolder.rootPath ?? ""}
+                      </p>
+                      <p className="mt-0.5 text-xs text-ink-faint">
+                        {m.library_folder_tracks({
+                          count: selectedFolder.trackCount,
+                        })}
+                        {selectedFolder.lastScannedAt
+                          ? ` · ${formatTime(selectedFolder.lastScannedAt)}`
+                          : ""}
+                        {folderStatusLabel(selectedFolder.status)
+                          ? ` · ${folderStatusLabel(selectedFolder.status)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedFolder.status === "scanning" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() => cancelFolderScan(selectedFolder)}
+                        >
+                          {m.library_folder_cancel_scan()}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!client || busy !== null}
+                          onClick={() => scanFolder(selectedFolder)}
+                        >
+                          <RefreshCw
+                            className="mr-1 h-4 w-4"
+                            aria-hidden="true"
+                          />
+                          {m.library_folder_scan()}
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy !== null || selectedFolder.status === "scanning"}
+                        onClick={() => renameFolder(selectedFolder)}
+                        title={m.library_folder_rename()}
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy !== null || selectedFolder.status === "scanning"}
+                        onClick={() => removeFolder(selectedFolder)}
+                        title={m.library_folder_remove()}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </div>
+                  <TrackTable
+                    tracks={folderTracks}
+                    playlists={playlistOptions}
+                    busy={busy}
+                    onPlay={play}
+                    onQueue={addToQueue}
+                    onFavorite={toggleFavorite}
+                    onAddToPlaylist={addToPlaylist}
+                    onEdit={setEditingTrack}
+                    showFileName
+                    empty={m.library_empty()}
+                  />
+                </>
+              ) : (
+                <p className="py-16 text-center text-sm text-ink-faint">
+                  {m.library_folder_select()}
+                </p>
+              )}
+            </div>
+          </div>
         )}
 
         {tab === "favorites" && (
@@ -970,6 +1258,7 @@ type TrackTableProps = {
   playlists: { id: string; name: string }[];
   busy: string | null;
   empty: string;
+  showFileName?: boolean;
   onPlay: (track: TrackSummary) => void;
   onQueue: (track: TrackSummary) => void;
   onFavorite: (track: TrackSummary) => void;
@@ -996,6 +1285,9 @@ function TrackTable(props: TrackTableProps) {
               {track.artists.join(", ") || "—"}
               {track.album ? ` · ${track.album}` : ""}
               {track.year ? ` · ${track.year}` : ""}
+              {props.showFileName && track.fileName
+                ? ` · ${track.fileName}`
+                : ""}
             </p>
           </div>
           <span className="w-14 text-right text-xs text-ink-faint">

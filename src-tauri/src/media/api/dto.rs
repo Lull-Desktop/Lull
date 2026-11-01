@@ -2,13 +2,13 @@
 //!
 //! 规则：
 //! - 这些类型只用于 IPC，不直接映射数据库行；
-//! - 不包含 `path` / `root_path` 以外的文件系统细节，且 `root_path` 只允许
-//!   host 窗口读取（当前 `library.listSources` 只对设置窗开放）；
+//! - 不暴露绝对路径；`rootPath` 只允许 settings/library 窗口读取，
+//!   `relativePath` 只在 host-only 的 `folders.getTracks` 中返回；
 //! - 字段以 camelCase 输出，与 TypeScript SDK 对齐。
 
 use serde::{Deserialize, Serialize};
 
-use crate::media::repository::sources::SourceRow;
+use crate::media::repository::sources::{FolderRow, SourceRow};
 use crate::media::repository::tracks::TrackRow;
 
 #[derive(Debug, Clone, Serialize)]
@@ -40,6 +40,51 @@ impl From<SourceRow> for SourceView {
   }
 }
 
+/// 对外的物理目录视图。内部仍复用 `music_sources(kind='local')`。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicFolderView {
+  pub id: String,
+  pub name: String,
+  pub root_path: String,
+  pub recursive: bool,
+  /// `active` 在 DTO 层映射为 `available`；其余值保持一致。
+  pub status: String,
+  pub track_count: i64,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub last_scanned_at: Option<i64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub last_scan_error: Option<String>,
+  pub created_at: i64,
+  pub updated_at: i64,
+}
+
+/// 内部 status 的历史值是 active；对外的 MusicFolder 语义使用 available。
+#[must_use]
+pub fn folder_status(status: &str) -> String {
+  match status {
+    "active" => "available".to_string(),
+    other => other.to_string(),
+  }
+}
+
+impl From<FolderRow> for MusicFolderView {
+  fn from(row: FolderRow) -> Self {
+    Self {
+      id: row.id,
+      name: row.name,
+      root_path: row.root_path,
+      recursive: row.recursive != 0,
+      status: folder_status(&row.status),
+      track_count: row.track_count,
+      last_scanned_at: row.last_scan_at,
+      last_scan_error: row.last_scan_error,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }
+  }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackQuery {
@@ -47,6 +92,9 @@ pub struct TrackQuery {
   pub keyword: Option<String>,
   #[serde(default)]
   pub source_ids: Option<Vec<String>>,
+  /// 物理目录筛选；与 source_ids 指向同一 id 空间。
+  #[serde(default)]
+  pub folder_id: Option<String>,
   #[serde(default)]
   pub artist_id: Option<String>,
   #[serde(default)]
@@ -115,10 +163,38 @@ pub struct TrackSummary {
   pub available: bool,
   pub has_cover: bool,
   pub favorite: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub folder_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub folder_name: Option<String>,
+  pub added_at: i64,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub file_name: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub format: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub file_size: Option<i64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub bitrate: Option<i64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub sample_rate: Option<i64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub file_modified_at: Option<i64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub album_art_id: Option<String>,
 }
 
 impl From<TrackRow> for TrackSummary {
   fn from(row: TrackRow) -> Self {
+    let is_file = row.kind != "builtin";
+    let file_name = row.file_name.clone().or_else(|| {
+      row
+        .relative_path
+        .as_deref()
+        .and_then(|path| path.rsplit('/').next())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+    });
     Self {
       id: row.id,
       title: row.title,
@@ -131,14 +207,24 @@ impl From<TrackRow> for TrackSummary {
       track_number: row.track_number,
       disc_number: row.disc_number,
       tags: serde_json::from_str(&row.tags_json).unwrap_or_default(),
-      source: if row.kind == "builtin" {
-        "online".to_string()
-      } else {
+      source: if is_file {
         "local".to_string()
+      } else {
+        "online".to_string()
       },
       available: row.available != 0,
       has_cover: row.cover_asset_id.is_some(),
       favorite: row.favorite != 0,
+      folder_id: row.folder_id,
+      folder_name: row.folder_name,
+      added_at: row.added_at,
+      file_name,
+      format: row.format,
+      file_size: if is_file { Some(row.file_size) } else { None },
+      bitrate: row.bitrate,
+      sample_rate: row.sample_rate,
+      file_modified_at: row.file_modified_at,
+      album_art_id: row.cover_asset_id,
     }
   }
 }
@@ -189,6 +275,19 @@ pub struct TrackFileView {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sample_rate: Option<i64>,
   pub available: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub file_name: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub file_modified_at: Option<i64>,
+}
+
+/// 目录详情里的曲目：在 TrackSummary 之外只多暴露 host 窗口可读的相对路径。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderTrackView {
+  #[serde(flatten)]
+  pub summary: TrackSummary,
+  pub relative_path: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -263,6 +362,7 @@ pub struct SmartPlaylistView {
 pub struct ScanJobView {
   pub job_id: String,
   pub source_id: String,
+  pub folder_id: String,
   pub status: String,
 }
 

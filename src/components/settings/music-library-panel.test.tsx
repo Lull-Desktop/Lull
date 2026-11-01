@@ -33,14 +33,17 @@ const page: Page<TrackSummary> = {
 
 function handler(request: MediaRequest): unknown {
   switch (`${request.namespace}.${request.method}`) {
-    case "library.listSources":
+    case "folders.list":
       return [
         {
           id: "src_1",
-          kind: "local",
           name: "测试音乐",
-          status: "active",
           rootPath: "C:\\Music",
+          recursive: true,
+          status: "available",
+          trackCount: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       ];
     case "library.listTracks":
@@ -113,8 +116,7 @@ test("滚动到列表底部时加载下一页曲目", async () => {
   vi.stubGlobal("IntersectionObserver", ImmediateObserver);
 
   const transport = createMemoryTransport((request) => {
-    if (request.method === "listTracks") {
-      const args = request.args as TrackQuery;
+    if (request.method === "listTracks") {      const args = request.args as TrackQuery;
       const page = args.page ?? 1;
       return {
         items:
@@ -127,7 +129,7 @@ test("滚动到列表底部时加载下一页曲目", async () => {
         hasMore: page < 2,
       } satisfies Page<TrackSummary>;
     }
-    if (request.method === "listSources") return [];
+    if (request.namespace === "folders" && request.method === "list") return [];
     if (request.method === "listArtists") return [];
     if (request.method === "listAlbums") return [];
     if (request.method === "listGenres") return [];
@@ -182,14 +184,17 @@ test("按艺术家、格式与年份筛选曲目", async () => {
 
 test("扫描中显示取消按钮并调用 cancelScan", async () => {
   const transport = createMemoryTransport((request) => {
-    if (request.method === "listSources") {
+    if (request.namespace === "folders" && request.method === "list") {
       return [
         {
           id: "src_1",
-          kind: "local",
           name: "测试音乐",
-          status: "scanning",
           rootPath: "C:\\Music",
+          recursive: true,
+          status: "scanning",
+          trackCount: 1,
+          createdAt: 1,
+          updatedAt: 1,
         },
       ];
     }

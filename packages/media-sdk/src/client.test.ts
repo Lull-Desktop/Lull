@@ -362,6 +362,79 @@ describe("media client", () => {
     });
   });
 
+  test("routes folder methods", async () => {
+    const transport = createMemoryTransport((request) => {
+      if (request.method === "list") {
+        return [
+          {
+            id: "src_1",
+            name: "Pop",
+            rootPath: "C:\\Music\\Pop",
+            recursive: true,
+            status: "available",
+            trackCount: 128,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ];
+      }
+      if (request.method === "getTracks") {
+        return {
+          items: [{ ...track, relativePath: "song.mp3" }],
+          total: 1,
+          page: 1,
+          pageSize: 200,
+          hasMore: false,
+        };
+      }
+      if (request.method === "remove") return { removed: true };
+      if (request.method === "cancelScan") return { cancelled: true };
+      if (request.method === "scan") {
+        return { jobId: "scan_1", sourceId: "src_1", status: "running" };
+      }
+      return {
+        id: "src_1",
+        name: "Pop",
+        rootPath: "C:\\Music\\Pop",
+        recursive: false,
+        status: "available",
+        trackCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      };
+    });
+    const media = createMediaClient({ transport });
+
+    await expect(media.folders.list()).resolves.toHaveLength(1);
+    await media.folders.add({ recursive: false });
+    await media.folders.rename("src_1", "My Pop");
+    await expect(media.folders.remove("src_1")).resolves.toBe(true);
+    await media.folders.scan("src_1");
+    await expect(media.folders.cancelScan("src_1")).resolves.toBe(true);
+    await expect(
+      media.folders.getTracks("src_1", { pageSize: 200 }),
+    ).resolves.toMatchObject({ total: 1 });
+
+    expect(transport.requests.map((request) => request.namespace)).toEqual([
+      "folders",
+      "folders",
+      "folders",
+      "folders",
+      "folders",
+      "folders",
+      "folders",
+    ]);
+    expect(transport.requests[1]?.args).toEqual({ recursive: false });
+    expect(transport.requests[2]?.args).toEqual({
+      folderId: "src_1",
+      name: "My Pop",
+    });
+    expect(transport.requests[6]?.args).toEqual({
+      pageSize: 200,
+      folderId: "src_1",
+    });
+  });
+
   test("routes Noise preset methods", async () => {
     const transport = createMemoryTransport((request) => {
       if (request.method === "listPresets") {
