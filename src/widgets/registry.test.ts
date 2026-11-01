@@ -8,11 +8,12 @@ describe("builtin widget registry", () => {
       "player",
       "pomodoro",
       "noise",
+      "library",
     ]);
     for (const widget of BUILTIN_WIDGETS) {
       expect(widget.role).toBe("tool");
     }
-    expect(WINDOW_MANIFESTS).toHaveLength(4);
+    expect(WINDOW_MANIFESTS).toHaveLength(5);
     expect(WINDOW_MANIFESTS[0]?.role).toBe("shell");
   });
 
@@ -36,6 +37,11 @@ describe("builtin widget registry", () => {
 
   test("immersive tools stay transparent and fixed-size", () => {
     for (const widget of BUILTIN_WIDGETS) {
+      if (widget.id === "library") {
+        expect(widget.window.transparent).toBe(false);
+        expect(widget.window.resizable).toBe(true);
+        continue;
+      }
       expect(widget.window.transparent).toBe(true);
       expect(widget.window.resizable).toBe(false);
       expect(widget.window.minWidth).toBeLessThanOrEqual(widget.window.width);

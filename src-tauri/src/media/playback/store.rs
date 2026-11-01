@@ -1,12 +1,14 @@
-//! 播放状态、队列与噪声混音的持久化。
+//! 音乐播放状态与队列的持久化。
+//!
+//! Noise Session/Track 不落盘；Noise 偏好由 `media::noise` 自己的仓储保存。
 
 use sqlx::SqlitePool;
 
-use super::{NoiseData, PlayerData};
+use super::PlayerData;
 use crate::media::api::errors::MediaError;
 use crate::media::repository::now_ms;
 
-pub async fn load(pool: &SqlitePool) -> Result<(PlayerData, Vec<String>, NoiseData), MediaError> {
+pub async fn load(pool: &SqlitePool) -> Result<(PlayerData, Vec<String>), MediaError> {
   let player = sqlx::query_as::<_, PlayerRow>(
     "SELECT current_track_id, position_ms, volume, muted, mode \
      FROM player_state WHERE id = 1",
@@ -29,21 +31,6 @@ pub async fn load(pool: &SqlitePool) -> Result<(PlayerData, Vec<String>, NoiseDa
       .await
       .map_err(|error| MediaError::internal(format!("读取播放队列失败：{error}")))?;
 
-  let noise = sqlx::query_as::<_, NoiseRow>(
-    "SELECT active, master, muted, sleep_minutes, sleep_ends_at, layers_json \
-     FROM noise_state WHERE id = 1",
-  )
-  .fetch_optional(pool)
-  .await
-  .map_err(|error| MediaError::internal(format!("读取噪声状态失败：{error}")))?;
-
-  let noise = noise.unwrap_or_else(NoiseRow::default);
-  let mut layers: Vec<crate::media::playback::model::NoiseLayerView> =
-    serde_json::from_str(&noise.layers_json).unwrap_or_default();
-  if layers.is_empty() {
-    layers = super::default_layers();
-  }
-
   Ok((
     PlayerData {
       current_track_id: player.current_track_id,
@@ -53,14 +40,6 @@ pub async fn load(pool: &SqlitePool) -> Result<(PlayerData, Vec<String>, NoiseDa
       mode: player.mode,
     },
     queue,
-    NoiseData {
-      active: noise.active != 0,
-      master: noise.master.clamp(0.0, 1.0),
-      muted: noise.muted != 0,
-      layers,
-      sleep_minutes: noise.sleep_minutes.max(0),
-      sleep_ends_at: noise.sleep_ends_at,
-    },
   ))
 }
 
@@ -125,31 +104,6 @@ pub async fn save_queue(pool: &SqlitePool, ids: &[String]) -> Result<(), MediaEr
   Ok(())
 }
 
-pub async fn save_noise(pool: &SqlitePool, noise: &NoiseData) -> Result<(), MediaError> {
-  let layers = serde_json::to_string(&noise.layers)
-    .map_err(|error| MediaError::internal(format!("序列化噪声图层失败：{error}")))?;
-  sqlx::query(
-    "INSERT INTO noise_state \
-     (id, active, master, muted, sleep_minutes, sleep_ends_at, layers_json, updated_at) \
-     VALUES (1, ?, ?, ?, ?, ?, ?, ?) \
-     ON CONFLICT(id) DO UPDATE SET \
-       active = excluded.active, master = excluded.master, muted = excluded.muted, \
-       sleep_minutes = excluded.sleep_minutes, sleep_ends_at = excluded.sleep_ends_at, \
-       layers_json = excluded.layers_json, updated_at = excluded.updated_at",
-  )
-  .bind(if noise.active { 1_i64 } else { 0_i64 })
-  .bind(noise.master)
-  .bind(if noise.muted { 1_i64 } else { 0_i64 })
-  .bind(noise.sleep_minutes)
-  .bind(noise.sleep_ends_at)
-  .bind(layers)
-  .bind(now_ms())
-  .execute(pool)
-  .await
-  .map_err(|error| MediaError::internal(format!("保存噪声状态失败：{error}")))?;
-  Ok(())
-}
-
 #[derive(Debug, sqlx::FromRow)]
 struct PlayerRow {
   current_track_id: Option<String>,
@@ -157,29 +111,6 @@ struct PlayerRow {
   volume: f64,
   muted: i64,
   mode: String,
-}
-
-#[derive(Debug, sqlx::FromRow)]
-struct NoiseRow {
-  active: i64,
-  master: f64,
-  muted: i64,
-  sleep_minutes: i64,
-  sleep_ends_at: Option<i64>,
-  layers_json: String,
-}
-
-impl Default for NoiseRow {
-  fn default() -> Self {
-    Self {
-      active: 0,
-      master: 0.75,
-      muted: 0,
-      sleep_minutes: 0,
-      sleep_ends_at: None,
-      layers_json: "[]".to_string(),
-    }
-  }
 }
 
 #[cfg(test)]
@@ -195,11 +126,9 @@ mod tests {
         .await
         .expect("open db");
       catalog::seed(&pool).await.expect("seed catalog");
-      let (player, queue, noise) = load(&pool).await.expect("load defaults");
+      let (player, queue) = load(&pool).await.expect("load defaults");
       assert!((player.volume - 0.78).abs() < f64::EPSILON);
       assert!(queue.is_empty());
-      assert!(!noise.active);
-      assert_eq!(noise.layers.len(), 5);
 
       let queue = ensure_queue(&pool, &queue).await.expect("seed queue");
       assert_eq!(
@@ -215,7 +144,7 @@ mod tests {
         mode: "repeat-one".to_string(),
       };
       save_player(&pool, &player).await.expect("save player");
-      let (restored, _, _) = load(&pool).await.expect("reload");
+      let (restored, _) = load(&pool).await.expect("reload");
       assert_eq!(restored.current_track_id, player.current_track_id);
       assert_eq!(restored.position_ms, 1234);
       assert!(restored.muted);

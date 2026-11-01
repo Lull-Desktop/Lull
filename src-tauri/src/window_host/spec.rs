@@ -85,6 +85,7 @@ mod tests {
   #[test]
   fn find_matches_kind_and_label_management() {
     assert_eq!(find("player").map(|spec| spec.label), Some("player"));
+    assert_eq!(find("library").map(|spec| spec.label), Some("library"));
     assert!(find("nope").is_none());
     assert!(is_managed("settings"));
     assert!(is_managed("noise"));
@@ -97,6 +98,7 @@ mod tests {
     assert!(!POMODORO.resizable);
     assert!(!NOISE.resizable);
     assert!(SETTINGS.resizable);
+    assert!(LIBRARY.resizable);
   }
 
   #[test]
@@ -105,6 +107,7 @@ mod tests {
     assert!(POMODORO.transparent);
     assert!(NOISE.transparent);
     assert!(!SETTINGS.transparent);
+    assert!(!LIBRARY.transparent);
   }
 
   #[test]
@@ -128,7 +131,7 @@ mod tests {
 
   #[test]
   fn tool_windows_declare_chrome_and_shell_keeps_window() {
-    for spec in [&PLAYER, &POMODORO, &NOISE] {
+    for spec in [&PLAYER, &POMODORO, &NOISE, &LIBRARY] {
       assert!(
         spec.capabilities.contains(&"widget.chrome"),
         "{} 缺少 chrome 能力",

@@ -13,6 +13,31 @@ export type NoiseLayer = {
   volume: number;
 };
 
+export type NoiseTrackSource =
+  | { kind: "procedural"; profile: string; version: number }
+  | { kind: "asset"; assetKey: string; url: string };
+
+export type NoiseTrackCommand = {
+  trackId: string;
+  assetId: string;
+  source: NoiseTrackSource;
+  volume: number;
+  enabled: boolean;
+  loop: boolean;
+  fadeInMs: number | null;
+  fadeOutMs: number | null;
+  state: "playing" | "paused" | "stopped";
+};
+
+export type NoiseSessionCommand = {
+  v: typeof ENGINE_PROTOCOL;
+  type: "noise.session.sync";
+  state: "idle" | "playing" | "paused";
+  master: number;
+  muted: boolean;
+  tracks: NoiseTrackCommand[];
+};
+
 export type EngineCommand =
   | {
       v: typeof ENGINE_PROTOCOL;
@@ -39,14 +64,7 @@ export type EngineCommand =
       volume: number;
       muted: boolean;
     }
-  | {
-      v: typeof ENGINE_PROTOCOL;
-      type: "noise.sync";
-      active: boolean;
-      master: number;
-      muted: boolean;
-      layers: NoiseLayer[];
-    }
+  | NoiseSessionCommand
   | {
       v: typeof ENGINE_PROTOCOL;
       type: "meters";

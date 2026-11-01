@@ -14,12 +14,21 @@ import { useWindowFit } from "@/hooks/use-window-fit";
 type WindowShellProps = {
   /** 顶栏里的窗口名（设置 / 播放器 / 番茄钟 / 白噪音），传消息函数以跟随语言切换。 */
   section: () => string;
+  /**
+   * 是否按内容高度贴合窗口。设置/资料库这类可缩放窗口传 false，保持清单里的
+   * 初始尺寸；沉浸式工具窗保持默认 true。
+   */
+  fit?: boolean;
   children: React.ReactNode;
 };
 
-export function WindowShell({ section, children }: WindowShellProps) {
+export function WindowShell({
+  section,
+  fit = true,
+  children,
+}: WindowShellProps) {
   const contentRef = useRef<HTMLDivElement>(null);
-  useWindowFit(contentRef);
+  useWindowFit(contentRef, { fit });
 
   return (
     <ThemeProvider>
@@ -28,8 +37,10 @@ export function WindowShell({ section, children }: WindowShellProps) {
         {/* 是否真的渲染最小化按钮由全局偏好（窗口 minimizable）决定，见 window_prefs.rs */}
         <WindowTopbar section={section} allowMinimize className="flow-topbar" />
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {/* 这层随内容伸缩，是「窗口贴合内容」的测量基准，不要加 h-full/min-h */}
-          <div ref={contentRef}>{children}</div>
+          {/* fit=true 时这层随内容伸缩；fit=false（资料库）时撑满可用高度。 */}
+          <div ref={contentRef} className={fit ? undefined : "h-full"}>
+            {children}
+          </div>
         </div>
         <Toaster
           position="top-right"

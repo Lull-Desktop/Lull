@@ -24,6 +24,7 @@ pub struct TrackRow {
   pub disc_number: Option<i64>,
   pub cover_asset_id: Option<String>,
   pub available: i64,
+  pub favorite: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -72,7 +73,7 @@ pub struct AlbumRow {
   pub has_cover: i64,
 }
 
-const TRACK_SELECT: &str = "\
+pub(crate) const TRACK_SELECT: &str = "\
 SELECT t.id, t.title, t.duration_ms, t.year, t.genre, t.kind, t.status, \
   (SELECT group_concat(a.name, char(31)) \
      FROM music_track_artists ta JOIN music_artists a ON a.id = ta.artist_id \
@@ -89,7 +90,8 @@ SELECT t.id, t.title, t.duration_ms, t.year, t.genre, t.kind, t.status, \
     WHERE mta.track_id = t.id AND mta.role = 'cover' AND mta.is_primary = 1 LIMIT 1) AS cover_asset_id, \
   CASE WHEN t.kind = 'builtin' THEN 1 \
        WHEN EXISTS (SELECT 1 FROM music_files f WHERE f.track_id = t.id AND f.available = 1) THEN 1 \
-       ELSE 0 END AS available \
+       ELSE 0 END AS available, \
+  EXISTS (SELECT 1 FROM music_favorites fav WHERE fav.track_id = t.id) AS favorite \
 FROM music_tracks t";
 
 fn like_pattern(keyword: &str) -> String {
@@ -221,6 +223,10 @@ fn push_filters(builder: &mut QueryBuilder<'_, Sqlite>, query: &TrackQuery) {
     builder.push(" AND t.year <= ").push_bind(year_to);
   }
 
+  if query.favorite_only.unwrap_or(false) {
+    builder.push(" AND EXISTS (SELECT 1 FROM music_favorites fav WHERE fav.track_id = t.id)");
+  }
+
   if !query.include_unavailable.unwrap_or(false) {
     builder.push(
       " AND (t.kind = 'builtin' OR EXISTS \
@@ -289,6 +295,42 @@ pub async fn get(pool: &SqlitePool, id: &str) -> Result<Option<TrackRow>, MediaE
     .fetch_optional(pool)
     .await
     .map_err(|error| MediaError::internal(format!("读取曲目失败：{error}")))
+}
+
+/// 批量读取曲目；用于历史/队列等只需要一次查询的场景。
+pub async fn list_by_ids(pool: &SqlitePool, ids: &[String]) -> Result<Vec<TrackRow>, MediaError> {
+  if ids.is_empty() {
+    return Ok(Vec::new());
+  }
+  let mut builder = QueryBuilder::<Sqlite>::new(TRACK_SELECT);
+  builder.push(" WHERE t.id IN (");
+  for (index, id) in ids.iter().enumerate() {
+    if index > 0 {
+      builder.push(", ");
+    }
+    builder.push_bind(id.clone());
+  }
+  builder.push(")");
+  builder
+    .build_query_as::<TrackRow>()
+    .fetch_all(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("批量读取曲目失败：{error}")))
+}
+
+/// 返回一个可播放的本地文件路径；内置曲没有文件时返回 None。
+pub async fn playable_path(
+  pool: &SqlitePool,
+  track_id: &str,
+) -> Result<Option<String>, MediaError> {
+  sqlx::query_scalar::<_, String>(
+    "SELECT path FROM music_files WHERE track_id = ? AND available = 1 \
+     ORDER BY format LIMIT 1",
+  )
+  .bind(track_id)
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取曲目文件路径失败：{error}")))
 }
 
 pub async fn files(pool: &SqlitePool, track_id: &str) -> Result<Vec<TrackFileRow>, MediaError> {

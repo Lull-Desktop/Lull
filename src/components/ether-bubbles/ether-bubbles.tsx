@@ -509,7 +509,7 @@ export function EtherBubbles() {
       })
       .then((snapshot) => {
         if (!alive) return;
-        snapshotRevision = snapshot.revision;
+        snapshotRevision = snapshot.noise.revision;
         apply(snapshot.noise);
         ready = true;
         for (const state of pending) {

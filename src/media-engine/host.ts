@@ -96,14 +96,9 @@ export async function startMediaEngineHost(): Promise<void> {
       case "output.volume":
         graph.setOutputVolume(command.volume, command.muted);
         return;
-      case "noise.sync":
-        void noise.start();
-        noise.sync(
-          command.active,
-          command.master,
-          command.muted,
-          command.layers,
-        );
+      case "noise.session.sync":
+        noise.start();
+        noise.sync(command);
         return;
       case "meters":
         if (command.player || command.noise) updateLevels();

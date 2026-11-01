@@ -33,6 +33,7 @@ export interface TrackQuery {
   sortBy?: "title" | "addedAt" | "year" | "duration" | "artist" | "genre";
   sortOrder?: "asc" | "desc";
   includeUnavailable?: boolean;
+  favoriteOnly?: boolean;
 }
 
 export interface TrackSummary {
@@ -49,6 +50,7 @@ export interface TrackSummary {
   source: "local" | "online";
   available: boolean;
   hasCover: boolean;
+  favorite?: boolean;
 }
 
 export interface Page<T> {
@@ -162,6 +164,124 @@ export interface NoiseSound {
   name: string;
 }
 
+export interface NoiseSleep {
+  timerMinutes: number;
+  endsAt?: number;
+}
+
+export type NoiseSessionState = "idle" | "playing" | "paused";
+
+export type NoiseTrackState = "playing" | "paused" | "stopped";
+
+export interface NoiseTrackError {
+  code: string;
+  message: string;
+}
+
+export interface NoiseTrack {
+  id: string;
+  assetId: string;
+  name: string;
+  state: NoiseTrackState;
+  volume: number;
+  enabled: boolean;
+  loop: boolean;
+  positionMs: number;
+  fadeInMs?: number;
+  fadeOutMs?: number;
+  order: number;
+  error?: NoiseTrackError;
+}
+
+export interface NoiseAssetCategory {
+  id: string;
+  name: string;
+}
+
+export interface NoiseTag {
+  id: string;
+  name: string;
+  assetCount?: number;
+}
+
+export interface NoiseAssetCapabilities {
+  loop: boolean;
+  seek: boolean;
+  fade: boolean;
+}
+
+export interface NoiseAsset {
+  id: string;
+  name: string;
+  description?: string;
+  mediaKind: "procedural" | "file";
+  format: string;
+  durationMs?: number;
+  sampleRate?: number;
+  channels?: number;
+  sizeBytes: number;
+  category?: NoiseAssetCategory;
+  tags: NoiseTag[];
+  favorite: boolean;
+  status: "available" | "missing" | "invalid";
+  source: string;
+  capabilities: NoiseAssetCapabilities;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface NoiseCategory {
+  id: string;
+  name: string;
+  parentId?: string;
+  icon?: string;
+  sortOrder: number;
+  assetCount: number;
+}
+
+export interface NoiseAssetQuery {
+  keyword?: string;
+  categoryId?: string;
+  tagId?: string;
+  favoriteOnly?: boolean;
+  status?: NoiseAsset["status"];
+  mediaKind?: NoiseAsset["mediaKind"];
+  page?: number;
+  pageSize?: number;
+  sortBy?: "name" | "duration" | "created_at" | "updated_at";
+  sortOrder?: "asc" | "desc";
+}
+
+export interface NoiseImportFailure {
+  fileName: string;
+  code: string;
+  reason: string;
+}
+
+export interface NoiseImportResult {
+  imported: NoiseAsset[];
+  duplicates: NoiseAsset[];
+  failed: NoiseImportFailure[];
+}
+
+export interface NoiseRevalidateResult {
+  checked: number;
+  missing: number;
+  restored: number;
+}
+
+export interface NoiseSession {
+  id: string;
+  name?: string;
+  state: NoiseSessionState;
+  masterVolume: number;
+  muted: boolean;
+  tracks: NoiseTrack[];
+  sleep: NoiseSleep;
+  revision: number;
+  createdAt: number;
+}
+
 export interface MediaOutput {
   volume: number;
   muted: boolean;
@@ -174,10 +294,53 @@ export interface PlaybackSnapshot {
   queue: QueueState;
   output: MediaOutput;
   noise: NoiseState;
+  noiseSession: NoiseSession;
 }
 
 export interface ConnectOptions {
   topics?: string[];
   progressMs?: number;
   levels?: boolean;
+}
+
+export interface PlaylistSummary {
+  id: string;
+  name: string;
+  description?: string;
+  trackCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PlaylistEntry {
+  trackId: string;
+  track?: TrackSummary;
+}
+
+export interface PlaylistDetail extends PlaylistSummary {
+  entries: PlaylistEntry[];
+}
+
+export interface FavoriteView {
+  trackId: string;
+  favorite: boolean;
+}
+
+export interface HistoryEntry {
+  id: string;
+  trackId: string;
+  track?: TrackSummary;
+  playedAt: number;
+  completed: boolean;
+}
+
+export interface M3uImportResult {
+  playlist: PlaylistDetail;
+  imported: number;
+  missing: string[];
+}
+
+export interface M3uExportResult {
+  exported: number;
+  skipped: number;
 }

@@ -7,6 +7,7 @@
  */
 import { m } from "@/paraglide/messages";
 import { parseWidgetManifest, type WidgetManifest } from "@/sdk/widget";
+import libraryManifest from "./manifests/library.json" with { type: "json" };
 import noiseManifest from "./manifests/noise.json" with { type: "json" };
 import playerManifest from "./manifests/player.json" with { type: "json" };
 import pomodoroManifest from "./manifests/pomodoro.json" with { type: "json" };
@@ -18,6 +19,7 @@ export const WINDOW_MANIFESTS: readonly WidgetManifest[] = [
   playerManifest,
   pomodoroManifest,
   noiseManifest,
+  libraryManifest,
 ].map((input, index) => parseWidgetManifest(input, `manifests[${index}]`));
 
 /** 设置页 / 托盘消费的工具窗（不含设置外壳）。 */
@@ -36,12 +38,14 @@ const DISPLAY_NAME: Record<string, () => string> = {
   player: m.widget_player_name,
   pomodoro: m.widget_pomodoro_name,
   noise: m.widget_noise_name,
+  library: m.widget_library_name,
 };
 
 const DISPLAY_DESCRIPTION: Record<string, () => string> = {
   player: m.widget_player_description,
   pomodoro: m.widget_pomodoro_description,
   noise: m.widget_noise_description,
+  library: m.widget_library_description,
 };
 
 export function widgetDisplayName(widget: WidgetManifest): string {

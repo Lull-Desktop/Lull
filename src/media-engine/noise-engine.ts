@@ -1,17 +1,40 @@
 /**
- * 引擎侧白噪音混音图。逻辑从 `use-ambient-mixer` 迁出，去掉 React/授权判断；
- * 状态由 Rust 服务下发，这里只同步增益并输出 RMS 电平。
+ * 引擎侧 Noise 多轨混音图。
  *
- * N1 起不再自建 AudioContext：所有轨道接入共享 `AudioGraph.noiseBus`，由 graph
- * 统一控制 Noise master、输出 master 和 limiter。
+ * Rust 下发完整的 Session 快照（trackId + source + gain + enabled + state），
+ * 这里按 trackId 维护动态声道；内置 procedural profile 由本地合成器生成，
+ * 本地文件用 `<audio>` 接入共享 `noiseBus`。
  */
 import type { AudioGraph } from "./audio-graph";
 import { trackGain } from "./gain";
-import type { NoiseLayer } from "./protocol";
+import type { NoiseSessionCommand, NoiseTrackCommand } from "./protocol";
+
+type Buffers = {
+  white: AudioBuffer;
+  brown: AudioBuffer;
+  crackle: AudioBuffer;
+};
+
+type ProceduralVoice = {
+  kind: "procedural";
+  gain: GainNode;
+  sources: AudioScheduledSourceNode[];
+  nodes: AudioNode[];
+};
+
+type AssetVoice = {
+  kind: "asset";
+  gain: GainNode;
+  audio: HTMLAudioElement;
+  detach: () => void;
+};
+
+type Voice = ProceduralVoice | AssetVoice;
 
 type Engine = {
   context: AudioContext;
-  gains: Record<string, GainNode>;
+  buffers: Buffers;
+  tracks: Map<string, Voice>;
 };
 
 type BufferKind = "white" | "brown";
@@ -67,11 +90,13 @@ function makeCrackleBuffer(context: AudioContext): AudioBuffer {
 function loopSource(
   context: AudioContext,
   buffer: AudioBuffer,
+  voice: ProceduralVoice,
 ): AudioBufferSourceNode {
   const source = context.createBufferSource();
   source.buffer = buffer;
   source.loop = true;
   source.start();
+  voice.sources.push(source);
   return source;
 }
 
@@ -85,8 +110,9 @@ function connectLayer(
   q: number,
   gainValue: number,
   destination: AudioNode,
+  voice: ProceduralVoice,
 ): Layer {
-  const source = loopSource(context, buffer);
+  const source = loopSource(context, buffer, voice);
   const filter = context.createBiquadFilter();
   filter.type = type;
   filter.frequency.value = frequency;
@@ -96,6 +122,7 @@ function connectLayer(
   source.connect(filter);
   filter.connect(gain);
   gain.connect(destination);
+  voice.nodes.push(filter, gain);
   return { gain, filter };
 }
 
@@ -105,6 +132,7 @@ function addLfo(
   rate: number,
   depth: number,
   center: number,
+  voice: ProceduralVoice,
 ): void {
   param.value = center;
   const oscillator = context.createOscillator();
@@ -115,96 +143,139 @@ function addLfo(
   oscillator.connect(amount);
   amount.connect(param);
   oscillator.start();
+  voice.sources.push(oscillator);
+  voice.nodes.push(amount);
 }
 
 function buildChannel(
   context: AudioContext,
   id: string,
   destination: AudioNode,
-  white: AudioBuffer,
-  brown: AudioBuffer,
-  crackle: AudioBuffer,
+  buffers: Buffers,
+  voice: ProceduralVoice,
 ): void {
   switch (id) {
     case "rain": {
-      connectLayer(context, white, "highpass", 850, 0.7, 0.5, destination);
+      connectLayer(
+        context,
+        buffers.white,
+        "highpass",
+        850,
+        0.7,
+        0.5,
+        destination,
+        voice,
+      );
       const detail = connectLayer(
         context,
-        white,
+        buffers.white,
         "bandpass",
         3600,
         0.85,
         0.2,
         destination,
+        voice,
       );
-      addLfo(context, detail.gain.gain, 0.13, 0.06, 0.2);
+      addLfo(context, detail.gain.gain, 0.13, 0.06, 0.2, voice);
       break;
     }
     case "thunder": {
       const rumble = connectLayer(
         context,
-        brown,
+        buffers.brown,
         "lowpass",
         115,
         1.1,
         0.72,
         destination,
+        voice,
       );
-      addLfo(context, rumble.gain.gain, 0.043, 0.25, 0.72);
+      addLfo(context, rumble.gain.gain, 0.043, 0.25, 0.72, voice);
       const sub = connectLayer(
         context,
-        brown,
+        buffers.brown,
         "lowpass",
         56,
         0.8,
         0.38,
         destination,
+        voice,
       );
-      addLfo(context, sub.gain.gain, 0.027, 0.18, 0.38);
+      addLfo(context, sub.gain.gain, 0.027, 0.18, 0.38, voice);
       break;
     }
     case "wind": {
       const body = connectLayer(
         context,
-        white,
+        buffers.white,
         "bandpass",
         520,
         1.4,
         0.34,
         destination,
+        voice,
       );
-      addLfo(context, body.filter.frequency, 0.068, 260, 520);
-      addLfo(context, body.gain.gain, 0.11, 0.14, 0.34);
-      connectLayer(context, white, "highpass", 2400, 0.6, 0.055, destination);
+      addLfo(context, body.filter.frequency, 0.068, 260, 520, voice);
+      addLfo(context, body.gain.gain, 0.11, 0.14, 0.34, voice);
+      connectLayer(
+        context,
+        buffers.white,
+        "highpass",
+        2400,
+        0.6,
+        0.055,
+        destination,
+        voice,
+      );
       break;
     }
     case "waves": {
       const swell = connectLayer(
         context,
-        brown,
+        buffers.brown,
         "lowpass",
         680,
         0.75,
         0.6,
         destination,
+        voice,
       );
-      addLfo(context, swell.gain.gain, 0.058, 0.28, 0.6);
-      addLfo(context, swell.filter.frequency, 0.041, 180, 680);
-      connectLayer(context, white, "bandpass", 1400, 0.7, 0.08, destination);
+      addLfo(context, swell.gain.gain, 0.058, 0.28, 0.6, voice);
+      addLfo(context, swell.filter.frequency, 0.041, 180, 680, voice);
+      connectLayer(
+        context,
+        buffers.white,
+        "bandpass",
+        1400,
+        0.7,
+        0.08,
+        destination,
+        voice,
+      );
       break;
     }
     case "fire": {
       const bed = connectLayer(
         context,
-        brown,
+        buffers.brown,
         "lowpass",
         1100,
         0.6,
         0.34,
         destination,
+        voice,
       );
-      addLfo(context, bed.gain.gain, 0.19, 0.05, 0.34);
-      connectLayer(context, crackle, "highpass", 1700, 0.7, 0.32, destination);
+      addLfo(context, bed.gain.gain, 0.19, 0.05, 0.34, voice);
+      connectLayer(
+        context,
+        buffers.crackle,
+        "highpass",
+        1700,
+        0.7,
+        0.32,
+        destination,
+        voice,
+      );
       break;
     }
     default:
@@ -212,19 +283,101 @@ function buildChannel(
   }
 }
 
-function buildEngine(context: AudioContext, graph: AudioGraph): Engine {
-  const white = makeNoiseBuffer(context, "white");
-  const brown = makeNoiseBuffer(context, "brown");
-  const crackle = makeCrackleBuffer(context);
-  const gains: Record<string, GainNode> = {};
-  for (const id of ["rain", "thunder", "wind", "waves", "fire"]) {
-    const gain = context.createGain();
-    gain.gain.value = 0;
-    gain.connect(graph.noiseBus);
-    gains[id] = gain;
-    buildChannel(context, id, gain, white, brown, crackle);
+function buildVoice(
+  context: AudioContext,
+  profile: string,
+  buffers: Buffers,
+  destination: AudioNode,
+): ProceduralVoice {
+  const gain = context.createGain();
+  gain.gain.value = 0;
+  gain.connect(destination);
+  const voice: ProceduralVoice = {
+    kind: "procedural",
+    gain,
+    sources: [],
+    nodes: [],
+  };
+  buildChannel(context, profile, gain, buffers, voice);
+  return voice;
+}
+
+function buildAssetVoice(
+  graph: AudioGraph,
+  track: NoiseTrackCommand,
+  destination: AudioNode,
+): AssetVoice {
+  if (track.source.kind !== "asset") {
+    throw new Error("asset voice 需要 asset source");
   }
-  return { context, gains };
+  const context = graph.ensure();
+  const gain = context.createGain();
+  gain.gain.value = 0;
+  gain.connect(destination);
+  const audio = new Audio();
+  audio.crossOrigin = "anonymous";
+  audio.preload = "auto";
+  audio.loop = track.loop;
+  audio.src = track.source.url;
+  const source = graph.attachMediaElementTo(audio, gain);
+  audio.load();
+  return {
+    kind: "asset",
+    gain,
+    audio,
+    detach: () => graph.detachMediaElement(source),
+  };
+}
+
+function disposeVoice(voice: Voice): void {
+  if (voice.kind === "asset") {
+    try {
+      voice.audio.pause();
+      voice.audio.removeAttribute("src");
+      voice.audio.load();
+    } catch {
+      // 已释放时忽略。
+    }
+    voice.detach();
+    try {
+      voice.gain.disconnect();
+    } catch {
+      // 已断开时忽略。
+    }
+    return;
+  }
+  for (const source of voice.sources) {
+    try {
+      source.stop();
+    } catch {
+      // 已停止的源重复 stop 会抛错，忽略。
+    }
+    try {
+      source.disconnect();
+    } catch {
+      // 已断开时忽略。
+    }
+  }
+  for (const node of voice.nodes) {
+    try {
+      node.disconnect();
+    } catch {
+      // 已断开时忽略。
+    }
+  }
+  try {
+    voice.gain.disconnect();
+  } catch {
+    // 已断开时忽略。
+  }
+}
+
+function ensureBuffers(context: AudioContext): Buffers {
+  return {
+    white: makeNoiseBuffer(context, "white"),
+    brown: makeNoiseBuffer(context, "brown"),
+    crackle: makeCrackleBuffer(context),
+  };
 }
 
 function ramp(param: AudioParam, value: number, now: number): void {
@@ -244,34 +397,67 @@ export class NoiseEngine {
     if (this.engine) return this.engine;
     try {
       const context = this.graph.ensure();
-      this.engine = buildEngine(context, this.graph);
+      this.engine = {
+        context,
+        buffers: ensureBuffers(context),
+        tracks: new Map(),
+      };
       return this.engine;
     } catch {
       return null;
     }
   }
 
-  async start(): Promise<void> {
-    const engine = this.ensure();
-    if (!engine) return;
+  start(): void {
+    if (!this.ensure()) return;
     this.graph.resume();
   }
 
-  sync(
-    active: boolean,
-    master: number,
-    muted: boolean,
-    layers: NoiseLayer[],
-  ): void {
+  sync(command: NoiseSessionCommand): void {
     const engine = this.ensure();
     if (!engine) return;
-    void this.start();
-    this.graph.setNoiseVolume(active ? master : 0, muted);
+    this.start();
+    this.graph.setNoiseVolume(
+      command.state === "playing" ? command.master : 0,
+      command.muted,
+    );
     const now = engine.context.currentTime;
-    for (const layer of layers) {
-      const gain = engine.gains[layer.soundId];
-      if (!gain) continue;
-      ramp(gain.gain, trackGain(layer.volume, layer.enabled, active), now);
+    const live = new Set<string>();
+    for (const track of command.tracks) {
+      live.add(track.trackId);
+      let voice = engine.tracks.get(track.trackId);
+      if (!voice) {
+        voice =
+          track.source.kind === "procedural"
+            ? buildVoice(
+                engine.context,
+                track.source.profile,
+                engine.buffers,
+                this.graph.noiseBus,
+              )
+            : buildAssetVoice(this.graph, track, this.graph.noiseBus);
+        engine.tracks.set(track.trackId, voice);
+      }
+      const active = track.enabled && command.state === "playing";
+      if (voice.kind === "asset") {
+        voice.audio.loop = track.loop;
+        if (active && voice.audio.paused) {
+          void voice.audio.play().catch(() => {});
+        } else if (!active && !voice.audio.paused) {
+          voice.audio.pause();
+        }
+      }
+      ramp(
+        voice.gain.gain,
+        trackGain(track.volume, track.enabled, command.state === "playing"),
+        now,
+      );
+    }
+    for (const [trackId, voice] of engine.tracks) {
+      if (!live.has(trackId)) {
+        disposeVoice(voice);
+        engine.tracks.delete(trackId);
+      }
     }
   }
 
@@ -280,6 +466,11 @@ export class NoiseEngine {
   }
 
   dispose(): void {
-    this.engine = null;
+    if (this.engine) {
+      for (const voice of this.engine.tracks.values()) {
+        disposeVoice(voice);
+      }
+      this.engine = null;
+    }
   }
 }

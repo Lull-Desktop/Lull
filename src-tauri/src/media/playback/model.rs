@@ -1,6 +1,6 @@
-//! P2 播放 / 队列 / 白噪音的公开 DTO 与内部状态。
+//! 音乐播放 / 队列的公开 DTO 与内部状态。
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::media::api::dto::TrackSummary;
 
@@ -28,41 +28,6 @@ pub struct QueueStateView {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub current_index: Option<usize>,
   pub revision: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NoiseLayerView {
-  pub sound_id: String,
-  pub enabled: bool,
-  pub volume: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NoiseSleepView {
-  pub timer_minutes: i64,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub ends_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NoiseStateView {
-  pub session_id: String,
-  pub active: bool,
-  pub master: f64,
-  pub muted: bool,
-  pub layers: Vec<NoiseLayerView>,
-  pub sleep: NoiseSleepView,
-  pub revision: u64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NoiseSoundView {
-  pub id: String,
-  pub name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

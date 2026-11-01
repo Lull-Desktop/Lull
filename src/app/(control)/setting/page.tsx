@@ -1,5 +1,5 @@
 /**
- * 设置窗口页面：偏好（主题 / 窗口 / 关于）、壁纸、音乐库与扩展页签。
+ * 设置窗口页面：偏好（主题 / 窗口 / 关于）、壁纸、音乐库、媒体测试与扩展页签。
  * 壁纸层的显示与场景配置在 WallpaperPanel，本页只保留全局偏好卡片。
  */
 "use client";
@@ -15,7 +15,10 @@ import {
   useState,
 } from "react";
 import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
+import { MediaApiTestPanel } from "@/components/settings/media-api-test-panel";
 import { MusicLibraryPanel } from "@/components/settings/music-library-panel";
+import { NoiseApiTestPanel } from "@/components/settings/noise-api-test-panel";
+import { NoiseLibraryPanel } from "@/components/settings/noise-library-panel";
 import { WallpaperPanel } from "@/components/settings/wallpaper-panel";
 import {
   Card,
@@ -67,6 +70,9 @@ const SETTINGS_TABS = [
   "preferences",
   "wallpaper",
   "library",
+  "noise-library",
+  "media-test",
+  "noise-test",
   "extensions",
 ] as const;
 
@@ -76,6 +82,9 @@ const TAB_LABELS: Record<SettingsTab, () => string> = {
   preferences: m.settings_tab_preferences,
   wallpaper: m.settings_tab_wallpaper,
   library: m.settings_tab_library,
+  "noise-library": m.settings_tab_noise_library,
+  "media-test": m.settings_tab_media_test,
+  "noise-test": m.settings_tab_noise_test,
   extensions: m.settings_tab_extensions,
 };
 
@@ -675,6 +684,21 @@ export default function Settings() {
       {tab === "library" && (
         <main className="space-y-6">
           <MusicLibraryPanel />
+        </main>
+      )}
+      {tab === "noise-library" && (
+        <main className="space-y-6">
+          <NoiseLibraryPanel />
+        </main>
+      )}
+      {tab === "media-test" && (
+        <main className="space-y-6">
+          <MediaApiTestPanel />
+        </main>
+      )}
+      {tab === "noise-test" && (
+        <main className="space-y-6">
+          <NoiseApiTestPanel />
         </main>
       )}
       {tab === "extensions" && (

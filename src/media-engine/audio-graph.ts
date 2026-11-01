@@ -153,10 +153,17 @@ export class AudioGraph {
   }
 
   attachMediaElement(element: HTMLMediaElement): MediaElementAudioSourceNode {
-    const context = this.ensure();
     if (!this.musicGain) throw new Error("AudioGraph musicBus 未初始化");
+    return this.attachMediaElementTo(element, this.musicGain);
+  }
+
+  attachMediaElementTo(
+    element: HTMLMediaElement,
+    destination: AudioNode,
+  ): MediaElementAudioSourceNode {
+    const context = this.ensure();
     const source = context.createMediaElementSource(element);
-    source.connect(this.musicGain);
+    source.connect(destination);
     this.mediaSources.add(source);
     return source;
   }

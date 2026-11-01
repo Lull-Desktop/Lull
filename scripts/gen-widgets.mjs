@@ -311,7 +311,11 @@ function permissionsFor(manifest) {
     }
   } else if (manifest.capabilities.includes("widget.chrome")) {
     for (const permission of TOOL_APP_PERMISSIONS) permissions.add(permission);
-    if (manifest.id === "player" || manifest.id === "noise") {
+    if (
+      manifest.id === "player" ||
+      manifest.id === "noise" ||
+      manifest.id === "library"
+    ) {
       for (const permission of MEDIA_TOOL_PERMISSIONS) permissions.add(permission);
     }
   }

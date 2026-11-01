@@ -71,6 +71,8 @@ pub struct TrackQuery {
   pub sort_order: Option<String>,
   #[serde(default)]
   pub include_unavailable: Option<bool>,
+  #[serde(default)]
+  pub favorite_only: Option<bool>,
 }
 
 impl TrackQuery {
@@ -108,6 +110,7 @@ pub struct TrackSummary {
   pub source: String,
   pub available: bool,
   pub has_cover: bool,
+  pub favorite: bool,
 }
 
 impl From<TrackRow> for TrackSummary {
@@ -130,6 +133,7 @@ impl From<TrackRow> for TrackSummary {
       },
       available: row.available != 0,
       has_cover: row.cover_asset_id.is_some(),
+      favorite: row.favorite != 0,
     }
   }
 }
@@ -234,4 +238,65 @@ pub struct ScanJobView {
   pub job_id: String,
   pub source_id: String,
   pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistSummary {
+  pub id: String,
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub description: Option<String>,
+  pub track_count: i64,
+  pub created_at: i64,
+  pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistEntry {
+  pub track_id: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub track: Option<TrackSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistDetail {
+  #[serde(flatten)]
+  pub summary: PlaylistSummary,
+  pub entries: Vec<PlaylistEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FavoriteView {
+  pub track_id: String,
+  pub favorite: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+  pub id: String,
+  pub track_id: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub track: Option<TrackSummary>,
+  pub played_at: i64,
+  pub completed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct M3uImportResult {
+  pub playlist: PlaylistDetail,
+  pub imported: i64,
+  pub missing: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct M3uExportResult {
+  pub exported: i64,
+  pub skipped: i64,
 }

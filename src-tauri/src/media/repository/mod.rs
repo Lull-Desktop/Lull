@@ -5,6 +5,9 @@
 
 pub mod artists;
 pub mod db;
+pub mod favorites;
+pub mod history;
+pub mod playlists;
 pub mod sources;
 pub mod tracks;
 

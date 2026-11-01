@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "type": "widget",
+  "role": "tool",
+  "id": "library",
+  "name": "音乐库",
+  "version": "1.0.0",
+  "description": "曲库、歌单、收藏、历史与播放队列。",
+  "author": "Lull",
+  "license": "GPL-3.0-or-later",
+  "builtin": true,
+  "order": 40,
+  "capabilities": [
+    "widget.ui",
+    "widget.theme",
+    "widget.state",
+    "widget.chrome"
+  ],
+  "window": {
+    "label": "library",
+    "route": "library",
+    "title": "Lull 音乐库",
+    "width": 1080,
+    "height": 760,
+    "minWidth": 900,
+    "minHeight": 600,
+    "resizable": true,
+    "transparent": false
+  }
+}

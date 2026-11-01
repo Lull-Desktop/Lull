@@ -35,7 +35,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 
 - 单进程、多窗口；所有窗口关闭都只隐藏，托盘「退出」才结束进程。
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
-- 工具窗口 label 固定为 `settings` / `player` / `pomodoro` / `noise`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。
+- 工具窗口 label 固定为 `settings` / `player` / `pomodoro` / `noise` / `library`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。
 - 第三方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
 - 壁纸窗口只有一条**只读** capability 基础（`window-wallpaper`：`content_packages` +
   事件订阅 + 视频会话命令）：
@@ -96,7 +96,7 @@ app/(wallpaper) ──► scenes/host ──► hooks/use-scene-catalog ──�
 app/(control) ──► components/settings ──► widgets/registry ──► widgets/manifests/*.json
        │                └──► components/settings/media-panel ──► core/media
        │
-app/(widgets) ──► components/{liquid-player,liquid-pomodoro,ether-bubbles}
+app/(widgets) ──► components/{liquid-player,liquid-pomodoro,ether-bubbles,library}
                          │
                          ├──► sdk/widget/react ──► sdk/widget ──► core/window + hooks
                          │        （theme / fit / state）   （能力 / 状态 / chrome / 音频闸门）
@@ -156,7 +156,8 @@ lib.rs
  │    ├─ events（`media:event` 订阅、revision/eventId）
  │    ├─ output（Music + Noise 共享的全局输出音量）
  │    ├─ library（音乐资料库门面、lofty 元数据、扫描进度/取消、封面/歌词资产、revision 事件）
- │    ├─ playback（Music 播放/队列；旧 5 层 Noise 在 N2 前兼容保留）
+ │    ├─ noise（Noise Session/Track、内置 procedural Asset、本地素材导入/分类/标签/收藏、旧 5 层兼容门面）
+ │    ├─ playback（Music 播放/队列与隐藏音频引擎）
  │    ├─ repository（SQLx：music.db 迁移、来源/曲目/艺术家/专辑查询）
  │    └─ mod.rs（init/shutdown；初始化视频运行时、引擎与音乐资料库）
  ├─ wallpaper
@@ -221,8 +222,8 @@ lib.rs
 | `media_open` / `media_attach` / `media_detach` / `media_degrade` | `sceneId,sessionId,origin` | `MediaOpenResult` / `MediaAttachResult` | `media::video`（壁纸需顶层 token） |
 | `media_play` / `media_pause` / `media_seek` / `media_set_loop` | `sessionId,...` | `()` | `media::video`（settings） |
 | `media_status` / `media_stats` | — | `MediaSessionView[]` / `MediaStats` | `media::video`（settings） |
-| `media_call` | `request: {protocol,requestId,namespace,method,args}` | `{ok,result?,error?,revision}` | `media::api`（settings/player/noise） |
-| `media_connect` / `media_disconnect` | `request: {topics?,progressMs?,levels?}` | `PlaybackSnapshot` / `()` | `media::playback`（player/noise/settings） |
+| `media_call` | `request: {protocol,requestId,namespace,method,args}` | `{ok,result?,error?,revision}` | `media::api`（settings/player/noise/library） |
+| `media_connect` / `media_disconnect` | `request: {topics?,progressMs?,levels?}` | `PlaybackSnapshot` / `()` | `media::playback`（player/noise/settings/library） |
 | `media_engine_ready` / `media_engine_event` | `event: EngineEvent` | `()` | `media::playback`（仅 media-engine） |
 | `content_packages` | — | `ContentPackageInfo[]` | `content_package`（壁纸窗只读） |
 
@@ -243,7 +244,7 @@ lib.rs
 | `media-changed` / `media-config-changed` | Rust（会话/配置） | 设置页、壁纸媒体面板 |
 | `media-master-visible` | Rust（全局壁纸显隐） | 壁纸 MediaSurface 暂停/恢复 HTML video |
 | `media-degraded` | Rust（原生路径失败） | 壁纸 MediaSurface 切换 HTML 回退 |
-| `media:event` | Rust（资料库 revision、扫描进度、播放/队列/白噪音、输出音量） | 设置页、已订阅的播放器/白噪音窗口 |
+| `media:event` | Rust（资料库 revision、扫描进度、歌单/收藏/历史、播放/队列、Noise Session/Track/Library、输出音量） | 设置页、资料库、已订阅的播放器/白噪音窗口 |
 | `media-engine-command` | Rust（`media::engine`） | 隐藏 `media-engine` 窗口 |
 
 ### 4.3 Widget 上下文注入
@@ -269,6 +270,7 @@ lib.rs
 - `scripts/gen-widgets.mjs` 为每个窗口生成一份 `src-tauri/capabilities/window-<label>.json`：
   - `settings`：`core` 窗口权限 + 全部自定义命令（宿主控制面）；
   - `player` / `pomodoro` / `noise`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
+  - `library`：`core` 窗口权限 + `allow-window-set-frame` + `allow-media-call/connect/disconnect`，可管理歌单/收藏/历史/队列，但不读来源根路径、不能扫描；
   - `player` / `noise` 额外获得 `allow-media-call/connect/disconnect`，只能走 Media API，不拿引擎命令；
   - `media-engine`：仅 `core:event:allow-listen/unlisten` + `allow-media-engine-ready/event`，不能打开窗口、读资料库或调用 `media_call`；
   - 壁纸窗口 `wallpaper-*`：`core:event` 的 listen/unlisten + `allow-content-packages`（解析场景 id 用）
@@ -376,8 +378,8 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 46 个测试文件（254 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描、播放器/白噪音、共享音频增益、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
-cargo test             Rust 160 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描/取消、资产、筛选与内置曲 seed / 播放状态、窗口权限、订阅/快照与引擎协议）
+pnpm test              前端 46 个测试文件（258 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、播放器/白噪音、共享音频增益、资料库窗口、Noise 素材库面板、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
+cargo test             Rust 174 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、内置曲 seed / Noise 迁移、catalog 与 Session、素材导入/hash/查询 / 播放状态、窗口权限、订阅/快照与引擎协议）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
@@ -419,4 +421,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
    没有自动更新、版本比较与回滚；安装目录由用户自行维护，卸载即删目录。
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
 9. **视频壁纸的边界**：默认构建走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/WebView2 TextureStream 共享解码在可选 `native-media` feature 下实现，但本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，运行时自动回退。能力探测、构建依赖与验收门见 [Media Runtime](media-runtime.md)。不要把 HTML 回退描述成“单解码器”，也不要把“feature 已实现”描述成“原生已交付”。
-10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。`media_call` 对 `settings/player/noise` 开放，`media_connect` 返回快照并通过 `media:event` 推送，播放器/白噪音不再持有自己的音频图。P1 已补封面/歌词资产、艺术家/专辑/流派/格式/年份筛选、扫描进度/取消与资料库 revision；歌单/喜欢/历史、完整标签实体、Noise 业务域、第三方媒体权限、队列 UI 与多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
+10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。P3 已补歌单/喜欢/历史、M3U 导入导出与独立 `library` 资料库窗口（含队列视图）；N2 已把 Noise 从 `playback` 迁到独立 `media::noise`，引入 Asset/Track/Session 与旧 5 层兼容门面，Session/Track 不持久化；N3 已补 Noise 本地文件导入（受管复制 + SHA-256 + 缺失检测）、分类/标签/收藏/搜索与设置页功能面板，文件轨道通过 `<audio>` 接入 `noiseBus`。`media_call` 对 `settings/player/noise/library` 开放，`media_connect` 返回快照并通过 `media:event` 推送。完整标签实体、Noise Preset UI、第三方媒体权限、多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。

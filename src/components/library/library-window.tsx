@@ -1,0 +1,1001 @@
+/**
+ * 官方资料库窗口：曲库 / 歌单 / 喜欢 / 历史 / 队列。
+ *
+ * 只通过 `@lull/media-sdk` 访问 Media Service；不直接 invoke、不读 SQLite、
+ * 不解析音频文件。窗口关闭不停止播放，重开时重新取快照。
+ */
+"use client";
+
+import type {
+  HistoryEntry,
+  LullMediaClient,
+  PlaylistDetail,
+  PlaylistSummary,
+  QueueState,
+  TrackSummary,
+} from "@lull/media-sdk";
+import {
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Heart,
+  History,
+  ListMusic,
+  ListOrdered,
+  Music,
+  Play,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getMediaClient } from "@/hooks/use-media-client";
+import { cn } from "@/lib/utils";
+import { m } from "@/paraglide/messages";
+
+type LibraryTab = "tracks" | "playlists" | "favorites" | "history" | "queue";
+
+type LibraryWindowProps = {
+  /** 测试/嵌入时注入；不传则使用官方 Tauri 单例。 */
+  client?: LullMediaClient;
+};
+
+const TABS: { id: LibraryTab; label: () => string; icon: typeof Music }[] = [
+  { id: "tracks", label: m.library_tracks, icon: Music },
+  { id: "playlists", label: m.library_playlists, icon: ListMusic },
+  { id: "favorites", label: m.library_favorites, icon: Heart },
+  { id: "history", label: m.library_history, icon: History },
+  { id: "queue", label: m.library_queue, icon: ListOrdered },
+];
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function formatDuration(durationMs?: number): string {
+  if (!durationMs || !Number.isFinite(durationMs) || durationMs <= 0) {
+    return "--:--";
+  }
+  const total = Math.round(durationMs / 1000);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(
+    total % 60,
+  ).padStart(2, "0")}`;
+}
+
+function formatTime(timestamp: number): string {
+  try {
+    return new Date(timestamp).toLocaleString();
+  } catch {
+    return "";
+  }
+}
+
+export function LibraryWindow({
+  client: providedClient,
+}: LibraryWindowProps = {}) {
+  const [client, setClient] = useState<LullMediaClient | null>(null);
+  const [tab, setTab] = useState<LibraryTab>("tracks");
+  const [keyword, setKeyword] = useState("");
+  const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<PlaylistDetail | null>(null);
+  const [favorites, setFavorites] = useState<TrackSummary[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [queue, setQueue] = useState<QueueState | null>(null);
+  const [queueTracks, setQueueTracks] = useState<Record<string, TrackSummary>>(
+    {},
+  );
+  const [newName, setNewName] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    if (providedClient) {
+      setClient(providedClient);
+      return;
+    }
+    setClient(getMediaClient());
+  }, [providedClient]);
+
+  const refresh = useCallback((): void => {
+    setVersion((value) => value + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!client) return;
+    const stop = client.events.on((event) => {
+      if (
+        event.topic === "library.changed" ||
+        event.topic === "playlists.changed" ||
+        event.topic === "favorites.changed" ||
+        event.topic === "history.changed" ||
+        event.topic === "queue.changed" ||
+        event.topic === "player.state"
+      ) {
+        refresh();
+      }
+    });
+    return stop;
+  }, [client, refresh]);
+
+  useEffect(() => {
+    if (!client) return;
+    let alive = true;
+    // 资料库窗口需要 player/queue 的实时事件；library/favorites/history 事件
+    // 走 Media Service 的全局广播，不需要额外 topic。
+    void client
+      .connect({ topics: ["player.state", "queue.changed"] })
+      .catch((reason: unknown) => {
+        if (alive) {
+          setError(m.library_error({ reason: errorText(reason) }));
+        }
+      });
+    return () => {
+      alive = false;
+      void client.disconnect();
+    };
+  }, [client]);
+
+  useEffect(() => {
+    if (!client) return;
+    let alive = true;
+    // version 只是刷新触发器；读取一次避免 lint 把它当成多余依赖。
+    void version;
+    setError(null);
+    const run = async (): Promise<void> => {
+      if (tab !== "playlists") {
+        // 曲库/喜欢页也提供“加入歌单”，因此这些页签也要拉一次歌单列表。
+        const list = await client.playlists.list();
+        if (alive) setPlaylists(list);
+      }
+      if (tab === "tracks") {
+        const page = await client.library.listTracks({
+          keyword: keyword.trim() || undefined,
+          pageSize: 100,
+        });
+        if (alive) setTracks(page.items);
+        return;
+      }
+      if (tab === "playlists") {
+        const list = await client.playlists.list();
+        if (!alive) return;
+        setPlaylists(list);
+        if (selectedId) {
+          const detail = await client.playlists.get(selectedId);
+          if (alive) setSelected(detail);
+        } else {
+          setSelected(null);
+        }
+        return;
+      }
+      if (tab === "favorites") {
+        const page = await client.favorites.list(1, 100);
+        if (alive) setFavorites(page.items);
+        return;
+      }
+      if (tab === "history") {
+        const page = await client.history.list(1, 100);
+        if (alive) setHistory(page.items);
+        return;
+      }
+      const state = await client.queue.get();
+      if (!alive) return;
+      setQueue(state);
+      const missing = state.trackIds.filter((id) => !queueTracks[id]);
+      if (missing.length === 0) return;
+      const loaded = await Promise.all(
+        missing.map(async (id) => {
+          try {
+            return [id, await client.library.getTrack(id)] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (!alive) return;
+      setQueueTracks((previous) => {
+        const next = { ...previous };
+        for (const item of loaded) {
+          if (item) next[item[0]] = item[1];
+        }
+        return next;
+      });
+    };
+    const timer = window.setTimeout(
+      () => {
+        void run().catch((reason: unknown) => {
+          if (alive) setError(m.library_error({ reason: errorText(reason) }));
+        });
+      },
+      tab === "tracks" ? 220 : 0,
+    );
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [client, keyword, queueTracks, selectedId, tab, version]);
+
+  const run = useCallback(
+    async (label: string, action: () => Promise<void>): Promise<void> => {
+      setBusy(label);
+      setError(null);
+      try {
+        await action();
+        refresh();
+      } catch (reason) {
+        setError(m.library_error({ reason: errorText(reason) }));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refresh],
+  );
+
+  const play = useCallback(
+    (track: TrackSummary): void => {
+      if (!client) return;
+      void client.player
+        .play(track.id)
+        .catch((reason: unknown) =>
+          setError(m.library_error({ reason: errorText(reason) })),
+        );
+    },
+    [client],
+  );
+
+  const addToQueue = useCallback(
+    (track: TrackSummary): void => {
+      if (!client) return;
+      void run("queue", async () => {
+        await client.queue.add(track.id);
+        setNotice(m.library_track_added());
+      });
+    },
+    [client, run],
+  );
+
+  const toggleFavorite = useCallback(
+    (track: TrackSummary): void => {
+      if (!client) return;
+      void run(`favorite:${track.id}`, async () => {
+        const result = await client.favorites.set(track.id, !track.favorite);
+        const update = (items: TrackSummary[]): TrackSummary[] =>
+          items.map((item) =>
+            item.id === track.id
+              ? { ...item, favorite: result.favorite }
+              : item,
+          );
+        setTracks(update);
+        setFavorites((items) =>
+          result.favorite
+            ? update(items)
+            : items.filter((item) => item.id !== track.id),
+        );
+        setSelected((current) =>
+          current
+            ? {
+                ...current,
+                entries: current.entries.map((entry) =>
+                  entry.track?.id === track.id
+                    ? {
+                        ...entry,
+                        track: { ...entry.track, favorite: result.favorite },
+                      }
+                    : entry,
+                ),
+              }
+            : current,
+        );
+      });
+    },
+    [client, run],
+  );
+
+  const addToPlaylist = useCallback(
+    (playlistId: string, track: TrackSummary): void => {
+      if (!client || !playlistId) return;
+      void run("playlist-add", async () => {
+        await client.playlists.addTrack(playlistId, track.id);
+        setNotice(m.library_playlist_track_added());
+      });
+    },
+    [client, run],
+  );
+
+  const createPlaylist = useCallback((): void => {
+    if (!client || !newName.trim()) return;
+    void run("playlist-create", async () => {
+      const detail = await client.playlists.create(newName.trim());
+      setNewName("");
+      setSelectedId(detail.id);
+      setSelected(detail);
+    });
+  }, [client, newName, run]);
+
+  const renamePlaylist = useCallback(
+    (name: string): void => {
+      if (!client || !selected) return;
+      const next = name.trim();
+      if (!next || next === selected.name) return;
+      void run("playlist-rename", async () => {
+        await client.playlists.update(selected.id, { name: next });
+      });
+    },
+    [client, run, selected],
+  );
+
+  const deletePlaylist = useCallback((): void => {
+    if (!client || !selected) return;
+    void run("playlist-delete", async () => {
+      await client.playlists.delete(selected.id);
+      setSelectedId(null);
+      setSelected(null);
+    });
+  }, [client, run, selected]);
+
+  const removeFromPlaylist = useCallback(
+    (trackId: string): void => {
+      if (!client || !selected) return;
+      void run("playlist-remove", async () => {
+        await client.playlists.removeTrack(selected.id, trackId);
+        setNotice(m.library_playlist_track_removed());
+      });
+    },
+    [client, run, selected],
+  );
+
+  const moveTrack = useCallback(
+    (trackId: string, current: number, direction: -1 | 1): void => {
+      if (!client || !selected) return;
+      const target = current + direction;
+      if (target < 0 || target >= selected.entries.length) return;
+      void run("playlist-move", async () => {
+        await client.playlists.reorder(selected.id, trackId, target);
+      });
+    },
+    [client, run, selected],
+  );
+
+  const importM3u = useCallback((): void => {
+    if (!client) return;
+    void run("m3u-import", async () => {
+      const result = await client.playlists.importM3u();
+      setSelectedId(result.playlist.id);
+      setSelected(result.playlist);
+      setNotice(
+        m.library_m3u_imported({
+          imported: result.imported,
+          missing: result.missing.length,
+        }),
+      );
+    });
+  }, [client, run]);
+
+  const exportM3u = useCallback((): void => {
+    if (!client || !selected) return;
+    void run("m3u-export", async () => {
+      const result = await client.playlists.exportM3u(selected.id);
+      setNotice(
+        m.library_m3u_exported({
+          exported: result.exported,
+          skipped: result.skipped,
+        }),
+      );
+    });
+  }, [client, run, selected]);
+
+  const clearHistory = useCallback((): void => {
+    if (!client) return;
+    void run("history-clear", async () => {
+      await client.history.clear();
+      setNotice(m.library_history_cleared());
+    });
+  }, [client, run]);
+
+  const playlistOptions = useMemo(
+    () =>
+      playlists.map((playlist) => ({
+        id: playlist.id,
+        name: playlist.name,
+      })),
+    [playlists],
+  );
+
+  return (
+    <div className="mx-auto flex h-full min-h-[560px] w-full max-w-[1180px] flex-col gap-4 p-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="font-semibold text-2xl text-ink">
+            {m.library_title()}
+          </h1>
+          <p className="mt-1 text-sm text-ink-soft">
+            {m.widget_library_description()}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {tab === "tracks" && (
+            <label className="flex items-center gap-2 rounded-full border border-paper-deep/70 bg-paper-warm/70 px-3 py-1.5 text-sm">
+              <Search className="h-4 w-4 text-ink-faint" aria-hidden="true" />
+              <input
+                value={keyword}
+                onChange={(event) => setKeyword(event.target.value)}
+                placeholder={m.library_search_placeholder()}
+                className="w-56 bg-transparent outline-none placeholder:text-ink-faint"
+              />
+            </label>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={refresh}
+            disabled={busy !== null}
+          >
+            <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            {m.library_refresh()}
+          </Button>
+        </div>
+      </header>
+
+      <nav className="flex flex-wrap gap-2" aria-label={m.library_title()}>
+        {TABS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Button
+              key={item.id}
+              type="button"
+              variant={tab === item.id ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setTab(item.id);
+                if (item.id !== "playlists") {
+                  setSelectedId(null);
+                  setSelected(null);
+                }
+              }}
+            >
+              <Icon className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              {item.label()}
+            </Button>
+          );
+        })}
+      </nav>
+
+      {(error || notice) && (
+        <div
+          className={cn(
+            "rounded-lg border px-3 py-2 text-sm",
+            error
+              ? "border-destructive/30 bg-destructive/5 text-destructive"
+              : "border-bamboo/30 bg-bamboo-mist/40 text-bamboo",
+          )}
+          role={error ? "alert" : "status"}
+        >
+          {error ?? notice}
+          <button
+            type="button"
+            className="float-right ml-3 text-current/70"
+            onClick={() => {
+              setError(null);
+              setNotice(null);
+            }}
+            aria-label="关闭"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
+      <section className="min-h-0 flex-1">
+        {tab === "tracks" && (
+          <TrackTable
+            tracks={tracks}
+            playlists={playlistOptions}
+            busy={busy}
+            onPlay={play}
+            onQueue={addToQueue}
+            onFavorite={toggleFavorite}
+            onAddToPlaylist={addToPlaylist}
+            empty={m.library_empty()}
+          />
+        )}
+
+        {tab === "favorites" && (
+          <TrackTable
+            tracks={favorites}
+            playlists={playlistOptions}
+            busy={busy}
+            onPlay={play}
+            onQueue={addToQueue}
+            onFavorite={toggleFavorite}
+            onAddToPlaylist={addToPlaylist}
+            empty={m.library_empty()}
+          />
+        )}
+
+        {tab === "playlists" && (
+          <div className="grid gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
+            <Card className="h-fit">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">
+                  {m.library_playlists()}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <input
+                    value={newName}
+                    onChange={(event) => setNewName(event.target.value)}
+                    placeholder={m.library_playlist_new_placeholder()}
+                    className="min-w-0 flex-1 rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm outline-none"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") createPlaylist();
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={createPlaylist}
+                    disabled={busy !== null || !newName.trim()}
+                    aria-label={m.library_playlist_create()}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={importM3u}
+                  disabled={busy !== null}
+                >
+                  <Upload className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  {m.library_m3u_import()}
+                </Button>
+                <div className="space-y-1">
+                  {playlists.map((playlist) => (
+                    <button
+                      key={playlist.id}
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-paper-warm",
+                        selectedId === playlist.id &&
+                          "bg-paper-warm font-medium",
+                      )}
+                      onClick={() => {
+                        setSelectedId(playlist.id);
+                        setSelected(null);
+                      }}
+                    >
+                      <span className="truncate">{playlist.name}</span>
+                      <span className="ml-2 text-xs text-ink-faint">
+                        {playlist.trackCount}
+                      </span>
+                    </button>
+                  ))}
+                  {playlists.length === 0 && (
+                    <p className="px-2 py-3 text-xs text-ink-faint">
+                      {m.library_playlist_empty()}
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex-row items-center justify-between gap-3 pb-3">
+                {selected ? (
+                  <CardTitle className="min-w-0 flex-1">
+                    <input
+                      key={selected.id}
+                      defaultValue={selected.name}
+                      aria-label={m.library_playlist_rename()}
+                      className="w-full min-w-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-base font-semibold outline-none hover:border-paper-deep/70 focus:border-paper-deep"
+                      onBlur={(event) => renamePlaylist(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                    />
+                  </CardTitle>
+                ) : (
+                  <CardTitle className="truncate text-base">
+                    {m.library_playlists()}
+                  </CardTitle>
+                )}
+                {selected && (
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={exportM3u}
+                      disabled={busy !== null}
+                    >
+                      <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                      {m.library_m3u_export()}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={deletePlaylist}
+                      disabled={busy !== null}
+                    >
+                      <Trash2 className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                      {m.library_playlist_delete()}
+                    </Button>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent>
+                {selected ? (
+                  <PlaylistTracks
+                    detail={selected}
+                    busy={busy}
+                    onPlay={play}
+                    onQueue={addToQueue}
+                    onFavorite={toggleFavorite}
+                    onRemove={removeFromPlaylist}
+                    onMove={moveTrack}
+                  />
+                ) : (
+                  <p className="py-10 text-center text-sm text-ink-faint">
+                    {m.library_playlist_empty()}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {tab === "history" && (
+          <Card>
+            <CardHeader className="flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">{m.library_history()}</CardTitle>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={clearHistory}
+                disabled={busy !== null || history.length === 0}
+              >
+                <Trash2 className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {m.library_history_clear()}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {history.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-paper-warm"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">
+                      {entry.track?.title ?? entry.trackId}
+                    </p>
+                    <p className="truncate text-xs text-ink-faint">
+                      {entry.track?.artists.join(", ")} {" · "}
+                      {formatTime(entry.playedAt)}
+                    </p>
+                  </div>
+                  {entry.track && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => play(entry.track as TrackSummary)}
+                    >
+                      <Play className="mr-1 h-4 w-4" aria-hidden="true" />
+                      {m.library_play()}
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {history.length === 0 && (
+                <p className="py-10 text-center text-sm text-ink-faint">
+                  {m.library_history_empty()}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {tab === "queue" && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">{m.library_queue()}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {queue?.trackIds.map((trackId, index) => {
+                const track = queueTracks[trackId];
+                return (
+                  <div
+                    key={trackId}
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-2 py-2 hover:bg-paper-warm",
+                      queue.currentIndex === index && "bg-bamboo-mist/40",
+                    )}
+                  >
+                    <span className="w-6 text-right text-xs text-ink-faint">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {track?.title ?? trackId}
+                      </p>
+                      <p className="truncate text-xs text-ink-faint">
+                        {track?.artists.join(", ")}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        void client?.queue
+                          .playAt(index)
+                          .catch((reason: unknown) =>
+                            setError(
+                              m.library_error({ reason: errorText(reason) }),
+                            ),
+                          )
+                      }
+                    >
+                      <Play className="mr-1 h-4 w-4" aria-hidden="true" />
+                      {m.library_queue_play()}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        void client?.queue
+                          .remove(trackId)
+                          .catch((reason: unknown) =>
+                            setError(
+                              m.library_error({ reason: errorText(reason) }),
+                            ),
+                          )
+                      }
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                      {m.library_queue_remove()}
+                    </Button>
+                  </div>
+                );
+              })}
+              {(!queue || queue.trackIds.length === 0) && (
+                <p className="py-10 text-center text-sm text-ink-faint">
+                  {m.library_queue_empty()}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </section>
+    </div>
+  );
+}
+
+type TrackTableProps = {
+  tracks: TrackSummary[];
+  playlists: { id: string; name: string }[];
+  busy: string | null;
+  empty: string;
+  onPlay: (track: TrackSummary) => void;
+  onQueue: (track: TrackSummary) => void;
+  onFavorite: (track: TrackSummary) => void;
+  onAddToPlaylist: (playlistId: string, track: TrackSummary) => void;
+};
+
+function TrackTable(props: TrackTableProps) {
+  if (props.tracks.length === 0) {
+    return (
+      <p className="py-16 text-center text-sm text-ink-faint">{props.empty}</p>
+    );
+  }
+  return (
+    <div className="divide-y divide-paper-deep/50 rounded-xl border border-paper-deep/60 bg-paper-warm/40">
+      {props.tracks.map((track) => (
+        <div
+          key={track.id}
+          className="flex flex-wrap items-center gap-3 px-3 py-2.5"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{track.title}</p>
+            <p className="truncate text-xs text-ink-faint">
+              {track.artists.join(", ") || "—"}
+              {track.album ? ` · ${track.album}` : ""}
+              {track.year ? ` · ${track.year}` : ""}
+            </p>
+          </div>
+          <span className="w-14 text-right text-xs text-ink-faint">
+            {formatDuration(track.durationMs)}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => props.onFavorite(track)}
+            disabled={props.busy !== null}
+            title={
+              track.favorite
+                ? m.library_favorite_remove()
+                : m.library_favorite_add()
+            }
+          >
+            <Heart
+              className={cn(
+                "h-4 w-4",
+                track.favorite && "fill-current text-destructive",
+              )}
+              aria-hidden="true"
+            />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => props.onPlay(track)}
+            disabled={!track.available}
+          >
+            <Play className="mr-1 h-4 w-4" aria-hidden="true" />
+            {m.library_play()}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => props.onQueue(track)}
+            disabled={props.busy !== null}
+          >
+            <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+            {m.library_queue_add()}
+          </Button>
+          {props.playlists.length > 0 && (
+            <select
+              className="max-w-[10rem] rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1 text-xs"
+              defaultValue=""
+              onChange={(event) => {
+                const playlistId = event.target.value;
+                if (playlistId) props.onAddToPlaylist(playlistId, track);
+                event.target.value = "";
+              }}
+              aria-label={m.library_playlist_add_to()}
+            >
+              <option value="">{m.library_playlist_add_to()}</option>
+              {props.playlists.map((playlist) => (
+                <option key={playlist.id} value={playlist.id}>
+                  {playlist.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type PlaylistTracksProps = {
+  detail: PlaylistDetail;
+  busy: string | null;
+  onPlay: (track: TrackSummary) => void;
+  onQueue: (track: TrackSummary) => void;
+  onFavorite: (track: TrackSummary) => void;
+  onRemove: (trackId: string) => void;
+  onMove: (trackId: string, current: number, direction: -1 | 1) => void;
+};
+
+function PlaylistTracks(props: PlaylistTracksProps) {
+  const entries = props.detail.entries;
+  if (entries.length === 0) {
+    return (
+      <p className="py-10 text-center text-sm text-ink-faint">
+        {m.library_playlist_empty()}
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      {entries.map((entry, index) => {
+        const track = entry.track;
+        return (
+          <div
+            key={entry.trackId}
+            className="flex flex-wrap items-center gap-2 rounded-md px-2 py-2 hover:bg-paper-warm"
+          >
+            <span className="w-6 text-right text-xs text-ink-faint">
+              {index + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">
+                {track?.title ?? entry.trackId}
+              </p>
+              <p className="truncate text-xs text-ink-faint">
+                {track?.artists.join(", ")}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => props.onMove(entry.trackId, index, -1)}
+              disabled={index === 0 || props.busy !== null}
+              aria-label={m.library_playlist_move_up()}
+            >
+              <ChevronUp className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => props.onMove(entry.trackId, index, 1)}
+              disabled={index === entries.length - 1 || props.busy !== null}
+              aria-label={m.library_playlist_move_down()}
+            >
+              <ChevronDown className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            {track && (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => props.onFavorite(track)}
+                  disabled={props.busy !== null}
+                >
+                  <Heart
+                    className={cn(
+                      "h-4 w-4",
+                      track.favorite && "fill-current text-destructive",
+                    )}
+                    aria-hidden="true"
+                  />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => props.onPlay(track)}
+                >
+                  <Play className="mr-1 h-4 w-4" aria-hidden="true" />
+                  {m.library_play()}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => props.onQueue(track)}
+                  disabled={props.busy !== null}
+                >
+                  <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+                  {m.library_queue_add()}
+                </Button>
+              </>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => props.onRemove(entry.trackId)}
+              disabled={props.busy !== null}
+            >
+              <Trash2 className="mr-1 h-4 w-4" aria-hidden="true" />
+              {m.library_playlist_remove_track()}
+            </Button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

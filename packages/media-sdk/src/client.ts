@@ -20,12 +20,26 @@ import type {
   AlbumSummary,
   ArtistSummary,
   ConnectOptions,
+  FavoriteView,
+  HistoryEntry,
+  M3uExportResult,
+  M3uImportResult,
   MediaOutput,
+  NoiseAsset,
+  NoiseAssetQuery,
+  NoiseCategory,
+  NoiseImportResult,
+  NoiseRevalidateResult,
+  NoiseSession,
   NoiseSound,
   NoiseState,
+  NoiseTag,
+  NoiseTrack,
   Page,
   PlaybackSnapshot,
   PlayerState,
+  PlaylistDetail,
+  PlaylistSummary,
   QueueState,
   ScanJobView,
   SourceView,
@@ -83,6 +97,33 @@ export interface LullMediaClient {
     move(fromIndex: number, toIndex: number): Promise<QueueState>;
     playAt(index: number): Promise<PlayerState>;
   };
+  playlists: {
+    list(): Promise<PlaylistSummary[]>;
+    get(playlistId: string): Promise<PlaylistDetail>;
+    create(name: string, description?: string): Promise<PlaylistDetail>;
+    update(
+      playlistId: string,
+      patch: { name?: string; description?: string },
+    ): Promise<PlaylistDetail>;
+    delete(playlistId: string): Promise<boolean>;
+    addTrack(playlistId: string, trackId: string): Promise<void>;
+    removeTrack(playlistId: string, trackId: string): Promise<boolean>;
+    reorder(
+      playlistId: string,
+      trackId: string,
+      position: number,
+    ): Promise<boolean>;
+    importM3u(): Promise<M3uImportResult>;
+    exportM3u(playlistId: string): Promise<M3uExportResult>;
+  };
+  favorites: {
+    list(page?: number, pageSize?: number): Promise<Page<TrackSummary>>;
+    set(trackId: string, favorite: boolean): Promise<FavoriteView>;
+  };
+  history: {
+    list(page?: number, pageSize?: number): Promise<Page<HistoryEntry>>;
+    clear(): Promise<number>;
+  };
   noise: {
     getState(): Promise<NoiseState>;
     getSounds(): Promise<NoiseSound[]>;
@@ -95,6 +136,52 @@ export interface LullMediaClient {
     setMuted(muted: boolean): Promise<NoiseState>;
     setSleepTimer(minutes: number): Promise<NoiseState>;
     reset(): Promise<NoiseState>;
+    session: {
+      getCurrent(): Promise<NoiseSession>;
+      create(): Promise<NoiseSession>;
+      play(): Promise<NoiseSession>;
+      pause(): Promise<NoiseSession>;
+      stop(): Promise<NoiseSession>;
+      setMasterVolume(volume: number): Promise<NoiseSession>;
+      setMuted(muted: boolean): Promise<NoiseSession>;
+      setSleepTimer(minutes: number): Promise<NoiseSession>;
+    };
+    tracks: {
+      add(assetId: string): Promise<NoiseTrack>;
+      remove(trackId: string): Promise<void>;
+      setVolume(trackId: string, volume: number): Promise<void>;
+      setEnabled(trackId: string, enabled: boolean): Promise<void>;
+      setLoop(trackId: string, loop: boolean): Promise<void>;
+      reorder(trackId: string, position: number): Promise<void>;
+    };
+    library: {
+      listAssets(query?: NoiseAssetQuery): Promise<Page<NoiseAsset>>;
+      getAsset(assetId: string): Promise<NoiseAsset>;
+      getCategories(): Promise<NoiseCategory[]>;
+      getTags(): Promise<NoiseTag[]>;
+      importAssets(options?: {
+        paths?: string[];
+        categoryId?: string;
+        tagIds?: string[];
+      }): Promise<NoiseImportResult>;
+      importFolder(options?: {
+        path?: string;
+        categoryId?: string;
+        tagIds?: string[];
+      }): Promise<NoiseImportResult>;
+      updateAsset(
+        assetId: string,
+        patch: {
+          name?: string;
+          description?: string | null;
+          categoryId?: string | null;
+          tagIds?: string[];
+        },
+      ): Promise<NoiseAsset>;
+      removeAsset(assetId: string): Promise<void>;
+      revalidateAssets(): Promise<NoiseRevalidateResult>;
+      setAssetFavorite(assetId: string, favorite: boolean): Promise<NoiseAsset>;
+    };
   };
   system: {
     getOutput(): Promise<MediaOutput>;
@@ -274,6 +361,69 @@ export function createMediaClient(
     playAt: (index: number) => call<PlayerState>("queue", "playAt", { index }),
   };
 
+  const playlists = {
+    list: () => call<PlaylistSummary[]>("playlists", "list"),
+    get: (playlistId: string) =>
+      call<PlaylistDetail>("playlists", "get", { playlistId }),
+    create: (name: string, description?: string) =>
+      call<PlaylistDetail>("playlists", "create", { name, description }),
+    update: (
+      playlistId: string,
+      patch: { name?: string; description?: string },
+    ) =>
+      call<PlaylistDetail>("playlists", "update", {
+        playlistId,
+        ...patch,
+      }),
+    delete: async (playlistId: string) => {
+      const result = await call<{ removed: boolean }>("playlists", "delete", {
+        playlistId,
+      });
+      return result.removed;
+    },
+    addTrack: async (playlistId: string, trackId: string) => {
+      await call<{ ok: boolean }>("playlists", "addTrack", {
+        playlistId,
+        trackId,
+      });
+    },
+    removeTrack: async (playlistId: string, trackId: string) => {
+      const result = await call<{ removed: boolean }>(
+        "playlists",
+        "removeTrack",
+        { playlistId, trackId },
+      );
+      return result.removed;
+    },
+    reorder: async (playlistId: string, trackId: string, position: number) => {
+      const result = await call<{ moved: boolean }>("playlists", "reorder", {
+        playlistId,
+        trackId,
+        position,
+      });
+      return result.moved;
+    },
+    importM3u: () => call<M3uImportResult>("playlists", "importM3u"),
+    exportM3u: (playlistId: string) =>
+      call<M3uExportResult>("playlists", "exportM3u", { playlistId }),
+  };
+
+  const favorites = {
+    list: (page = 1, pageSize = 50) =>
+      call<Page<TrackSummary>>("favorites", "list", { page, pageSize }),
+    set: (trackId: string, favorite: boolean) =>
+      call<FavoriteView>("favorites", "set", { trackId, favorite }),
+  };
+
+  const history = {
+    list: (page = 1, pageSize = 50) =>
+      call<Page<HistoryEntry>>("history", "list", { page, pageSize }),
+    clear: async () => {
+      const result = await call<{ cleared: number }>("history", "clear");
+      return result.cleared;
+    },
+  };
+
   const noise = {
     getState: () => call<NoiseState>("noise", "getState"),
     getSounds: () => call<NoiseSound[]>("noise", "getSounds"),
@@ -289,6 +439,75 @@ export function createMediaClient(
     setSleepTimer: (minutes: number) =>
       call<NoiseState>("noise", "setSleepTimer", { minutes }),
     reset: () => call<NoiseState>("noise", "reset"),
+    session: {
+      getCurrent: () => call<NoiseSession>("noise", "getSession"),
+      create: () => call<NoiseSession>("noise", "createSession"),
+      play: () => call<NoiseSession>("noise", "playSession"),
+      pause: () => call<NoiseSession>("noise", "pauseSession"),
+      stop: () => call<NoiseSession>("noise", "stopSession"),
+      setMasterVolume: (volume: number) =>
+        call<NoiseSession>("noise", "setSessionVolume", { volume }),
+      setMuted: (muted: boolean) =>
+        call<NoiseSession>("noise", "setSessionMuted", { muted }),
+      setSleepTimer: (minutes: number) =>
+        call<NoiseSession>("noise", "setSessionSleepTimer", { minutes }),
+    },
+    tracks: {
+      add: (assetId: string) =>
+        call<NoiseTrack>("noise", "addTrack", { assetId }),
+      remove: async (trackId: string) => {
+        await call<NoiseSession>("noise", "removeTrack", { trackId });
+      },
+      setVolume: async (trackId: string, volume: number) => {
+        await call<NoiseSession>("noise", "setTrackVolume", {
+          trackId,
+          volume,
+        });
+      },
+      setEnabled: async (trackId: string, enabled: boolean) => {
+        await call<NoiseSession>("noise", "setTrackEnabled", {
+          trackId,
+          enabled,
+        });
+      },
+      setLoop: async (trackId: string, loop: boolean) => {
+        await call<NoiseSession>("noise", "setTrackLoop", { trackId, loop });
+      },
+      reorder: async (trackId: string, position: number) => {
+        await call<NoiseSession>("noise", "reorderTracks", {
+          trackId,
+          position,
+        });
+      },
+    },
+    library: {
+      listAssets: (query: NoiseAssetQuery = {}) =>
+        call<Page<NoiseAsset>>("noise", "listAssets", query),
+      getAsset: (assetId: string) =>
+        call<NoiseAsset>("noise", "getAsset", { assetId }),
+      getCategories: () => call<NoiseCategory[]>("noise", "getCategories"),
+      getTags: () => call<NoiseTag[]>("noise", "getTags"),
+      importAssets: (options = {}) =>
+        call<NoiseImportResult>("noise", "importAssets", options),
+      importFolder: (options = {}) =>
+        call<NoiseImportResult>("noise", "importFolder", options),
+      updateAsset: (
+        assetId: string,
+        patch: {
+          name?: string;
+          description?: string | null;
+          categoryId?: string | null;
+          tagIds?: string[];
+        },
+      ) => call<NoiseAsset>("noise", "updateAsset", { assetId, ...patch }),
+      removeAsset: async (assetId: string) => {
+        await call<{ removed: boolean }>("noise", "removeAsset", { assetId });
+      },
+      revalidateAssets: () =>
+        call<NoiseRevalidateResult>("noise", "revalidateAssets"),
+      setAssetFavorite: (assetId: string, favorite: boolean) =>
+        call<NoiseAsset>("noise", "setAssetFavorite", { assetId, favorite }),
+    },
   };
 
   const system = {
@@ -318,6 +537,9 @@ export function createMediaClient(
     library,
     player,
     queue,
+    playlists,
+    favorites,
+    history,
     noise,
     system,
     events: {

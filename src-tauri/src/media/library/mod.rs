@@ -5,7 +5,11 @@
 pub mod assets;
 pub mod catalog;
 pub mod events;
+pub mod favorites;
+pub mod history;
 pub mod metadata;
+mod p3;
+pub mod playlists;
 pub mod scanner;
 
 use std::collections::HashMap;
@@ -85,6 +89,9 @@ pub fn init(app: tauri::AppHandle) {
         }
         if let Err(error) = super::playback::init(&pool).await {
           crate::wallpaper::wlog(&format!("播放服务初始化失败：{error}"));
+        }
+        if let Err(error) = super::noise::init(&pool).await {
+          crate::wallpaper::wlog(&format!("Noise 服务初始化失败：{error}"));
         }
         let _ = POOL.set(pool);
       }
@@ -341,6 +348,13 @@ pub async fn list_tracks(query: &TrackQuery) -> Result<Page<TrackSummary>, Media
   ))
 }
 
+/// 播放历史由 playback 在真正开始播放时写入；失败只记录日志，不阻断播放。
+pub async fn record_history(app: &tauri::AppHandle, track_id: &str, duration_ms: Option<i64>) {
+  if let Err(error) = history::record(app, track_id, duration_ms).await {
+    crate::wallpaper::wlog(&format!("记录播放历史失败：{error}"));
+  }
+}
+
 pub async fn get_track(track_id: &str) -> Result<TrackDetailView, MediaError> {
   let pool = pool()?;
   let row = tracks::get(pool, track_id)
@@ -495,6 +509,9 @@ pub async fn call_media(
   method: &str,
   args: &serde_json::Value,
 ) -> MediaResponse {
+  if matches!(namespace, "playlists" | "favorites" | "history") {
+    return p3::call(window, request_id, namespace, method, args).await;
+  }
   let app = window.app_handle().clone();
   let result = match (namespace, method) {
     ("library", "listSources") => list_sources().await.map(|rows| serde_json::json!(rows)),

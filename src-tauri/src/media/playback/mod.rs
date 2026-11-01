@@ -1,21 +1,18 @@
-//! P2 播放服务：全局播放器、队列、白噪音混音与隐藏音频引擎。
+//! 音乐播放服务：全局播放器、队列与隐藏音频引擎。
 //!
 //! 状态由 Rust 持有；引擎只负责发声。播放进度高频更新只存在内存与事件里，
-//! 暂停/停止/切歌/音量/队列/噪声参数写入 SQLite。
+//! 暂停/停止/切歌/音量/队列写入 SQLite。Noise 业务在 `media::noise`。
 
 pub mod model;
 pub mod store;
 
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
-use std::time::Duration;
 
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
-use self::model::{
-  NoiseLayerView, NoiseSleepView, NoiseSoundView, NoiseStateView, PlayerStateView, QueueStateView,
-};
+use self::model::{PlayerStateView, QueueStateView};
 use super::api::dto::TrackSummary;
 use super::api::errors::MediaError;
 use super::engine;
@@ -44,59 +41,6 @@ impl Default for PlayerData {
   }
 }
 
-#[derive(Debug, Clone)]
-pub struct NoiseData {
-  pub active: bool,
-  pub master: f64,
-  pub muted: bool,
-  pub layers: Vec<NoiseLayerView>,
-  pub sleep_minutes: i64,
-  pub sleep_ends_at: Option<i64>,
-}
-
-impl Default for NoiseData {
-  fn default() -> Self {
-    Self {
-      active: false,
-      master: 0.75,
-      muted: false,
-      layers: default_layers(),
-      sleep_minutes: 0,
-      sleep_ends_at: None,
-    }
-  }
-}
-
-fn default_layers() -> Vec<NoiseLayerView> {
-  vec![
-    NoiseLayerView {
-      sound_id: "rain".to_string(),
-      enabled: true,
-      volume: 0.7,
-    },
-    NoiseLayerView {
-      sound_id: "thunder".to_string(),
-      enabled: false,
-      volume: 0.45,
-    },
-    NoiseLayerView {
-      sound_id: "wind".to_string(),
-      enabled: true,
-      volume: 0.3,
-    },
-    NoiseLayerView {
-      sound_id: "waves".to_string(),
-      enabled: false,
-      volume: 0.4,
-    },
-    NoiseLayerView {
-      sound_id: "fire".to_string(),
-      enabled: true,
-      volume: 0.5,
-    },
-  ]
-}
-
 struct Service {
   player: PlayerData,
   current_track: Option<TrackSummary>,
@@ -104,14 +48,12 @@ struct Service {
   duration_ms: Option<i64>,
   error: Option<Value>,
   queue: Vec<String>,
-  noise: NoiseData,
   revision: u64,
   engine_ready: bool,
   syncing: bool,
   sync_pending: bool,
   load_seq: u64,
   current_load_id: Option<String>,
-  sleep_generation: u64,
 }
 
 static SERVICE: OnceLock<Mutex<Service>> = OnceLock::new();
@@ -158,30 +100,10 @@ fn queue_view(service: &Service) -> QueueStateView {
   }
 }
 
-fn noise_view(service: &Service) -> NoiseStateView {
-  NoiseStateView {
-    session_id: "default".to_string(),
-    active: service.noise.active,
-    master: service.noise.master.clamp(0.0, 1.0),
-    muted: service.noise.muted,
-    layers: service.noise.layers.clone(),
-    sleep: NoiseSleepView {
-      timer_minutes: service.noise.sleep_minutes,
-      ends_at: service.noise.sleep_ends_at,
-    },
-    revision: service.revision,
-  }
-}
-
-/// 一次加锁取出 Player/Queue/Noise 视图，避免快照内部出现跨 revision 的撕裂。
-pub(crate) fn snapshot_parts(
-) -> Result<(PlayerStateView, QueueStateView, NoiseStateView), MediaError> {
+/// 一次加锁取出 Player/Queue 视图，避免快照内部出现跨 revision 的撕裂。
+pub(crate) fn snapshot_parts() -> Result<(PlayerStateView, QueueStateView), MediaError> {
   let service = lock()?;
-  Ok((
-    player_view(&service),
-    queue_view(&service),
-    noise_view(&service),
-  ))
+  Ok((player_view(&service), queue_view(&service)))
 }
 
 fn emit(app: &AppHandle, service: &Service, topic: &str, payload: Value) {
@@ -200,15 +122,6 @@ fn emit_state(app: &AppHandle, service: &Service) {
     service,
     "queue.changed",
     serde_json::to_value(queue_view(service)).unwrap_or(Value::Null),
-  );
-}
-
-fn emit_noise(app: &AppHandle, service: &Service) {
-  emit(
-    app,
-    service,
-    "noise.state",
-    serde_json::to_value(noise_view(service)).unwrap_or(Value::Null),
   );
 }
 
@@ -236,36 +149,17 @@ fn save_queue(app: &AppHandle, pool: &SqlitePool, queue: &[String]) {
   });
 }
 
-fn save_noise(app: &AppHandle, pool: &SqlitePool, noise: &NoiseData) {
-  let pool = pool.clone();
-  let noise = noise.clone();
-  let app = app.clone();
-  tauri::async_runtime::spawn(async move {
-    if let Err(error) = store::save_noise(&pool, &noise).await {
-      crate::wallpaper::wlog(&format!("保存噪声状态失败：{error}"));
-    }
-    let _ = app;
-  });
-}
-
 /// 资料库初始化完成后加载播放状态；引擎窗口仍按需创建。
 pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
   if SERVICE.get().is_some() {
     return Ok(());
   }
-  let (mut player, queue, mut noise) = store::load(pool).await?;
+  let (mut player, queue) = store::load(pool).await?;
   // 旧播放器把“静音”写成 volume=0 且 muted=false；这种状态重启后无法出声。
   // 新 UI 只用 muted 表达静音，这里把历史坏状态修回默认音量（muted 保持原值）。
   if player.volume <= f64::EPSILON && !player.muted {
     player.volume = PlayerData::default().volume;
     let _ = store::save_player(pool, &player).await;
-  }
-  // 应用重启只恢复混音参数，不自动播放白噪音；首次用户手势才 activate。
-  if noise.active || noise.sleep_minutes != 0 || noise.sleep_ends_at.is_some() {
-    noise.active = false;
-    noise.sleep_minutes = 0;
-    noise.sleep_ends_at = None;
-    let _ = store::save_noise(pool, &noise).await;
   }
   let queue = store::ensure_queue(pool, &queue).await?;
   let current_track_id = player
@@ -290,14 +184,12 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     duration_ms,
     error: None,
     queue,
-    noise,
     revision: 0,
     engine_ready: false,
     syncing: false,
     sync_pending: false,
     load_seq: 0,
     current_load_id: None,
-    sleep_generation: 0,
   };
   let _ = SERVICE.set(Mutex::new(service));
   Ok(())
@@ -320,12 +212,8 @@ pub fn on_window_destroyed(app: &AppHandle, label: &str) {
 }
 
 pub fn shutdown() {
-  let (player, queue, noise) = match lock() {
-    Ok(service) => (
-      service.player.clone(),
-      service.queue.clone(),
-      service.noise.clone(),
-    ),
+  let (player, queue) = match lock() {
+    Ok(service) => (service.player.clone(), service.queue.clone()),
     Err(_) => return,
   };
   if let Ok(pool) = super::library::pool() {
@@ -333,8 +221,7 @@ pub fn shutdown() {
     // 退出事件里 spawn 的任务可能来不及跑完；这里同步等一次小写入。
     let _ = tauri::async_runtime::block_on(async {
       store::save_player(&pool, &player).await?;
-      store::save_queue(&pool, &queue).await?;
-      store::save_noise(&pool, &noise).await
+      store::save_queue(&pool, &queue).await
     });
   }
 }
@@ -477,64 +364,6 @@ pub async fn call(
       let service = lock()?;
       Ok(serde_json::to_value(player_view(&service)).unwrap_or(Value::Null))
     }
-    ("noise", "getState") => {
-      let service = lock()?;
-      Ok(serde_json::to_value(noise_view(&service)).unwrap_or(Value::Null))
-    }
-    ("noise", "getSounds") => serde_json::to_value(noise_sounds())
-      .map_err(|error| MediaError::internal(format!("序列化噪声声景失败：{error}"))),
-    ("noise", "activate") => {
-      noise_activate(&app, &pool)?;
-      let service = lock()?;
-      Ok(serde_json::to_value(noise_view(&service)).unwrap_or(Value::Null))
-    }
-    ("noise", "setLayer") => {
-      let sound_id = args
-        .get("soundId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| MediaError::invalid("缺少 soundId"))?;
-      noise_set_layer(
-        &app,
-        &pool,
-        sound_id,
-        args.get("enabled").and_then(Value::as_bool),
-        args.get("volume").and_then(Value::as_f64),
-      )?;
-      let service = lock()?;
-      Ok(serde_json::to_value(noise_view(&service)).unwrap_or(Value::Null))
-    }
-    ("noise", "setMaster") => {
-      let volume = args
-        .get("volume")
-        .and_then(Value::as_f64)
-        .ok_or_else(|| MediaError::invalid("缺少 volume"))?;
-      noise_set_master(&app, &pool, volume)?;
-      let service = lock()?;
-      Ok(serde_json::to_value(noise_view(&service)).unwrap_or(Value::Null))
-    }
-    ("noise", "setMuted") => {
-      let muted = args
-        .get("muted")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| MediaError::invalid("缺少 muted"))?;
-      noise_set_muted(&app, &pool, muted)?;
-      let service = lock()?;
-      Ok(serde_json::to_value(noise_view(&service)).unwrap_or(Value::Null))
-    }
-    ("noise", "setSleepTimer") => {
-      let minutes = args
-        .get("minutes")
-        .and_then(Value::as_i64)
-        .ok_or_else(|| MediaError::invalid("缺少 minutes"))?;
-      noise_set_sleep(&app, &pool, minutes)?;
-      let service = lock()?;
-      Ok(serde_json::to_value(noise_view(&service)).unwrap_or(Value::Null))
-    }
-    ("noise", "reset") => {
-      noise_reset(&app, &pool)?;
-      let service = lock()?;
-      Ok(serde_json::to_value(noise_view(&service)).unwrap_or(Value::Null))
-    }
     _ => Err(MediaError::new(
       "method.unknown",
       format!("不支持的播放方法：{namespace}.{method}（{label}）"),
@@ -550,31 +379,6 @@ pub fn revision() -> u64 {
 #[must_use]
 pub fn is_engine_ready() -> bool {
   lock().is_ok_and(|service| service.engine_ready)
-}
-
-fn noise_sounds() -> Vec<NoiseSoundView> {
-  vec![
-    NoiseSoundView {
-      id: "rain".to_string(),
-      name: "Rain".to_string(),
-    },
-    NoiseSoundView {
-      id: "thunder".to_string(),
-      name: "Thunder".to_string(),
-    },
-    NoiseSoundView {
-      id: "wind".to_string(),
-      name: "Wind".to_string(),
-    },
-    NoiseSoundView {
-      id: "waves".to_string(),
-      name: "Waves".to_string(),
-    },
-    NoiseSoundView {
-      id: "fire".to_string(),
-      name: "Fire".to_string(),
-    },
-  ]
 }
 
 async fn play(
@@ -599,6 +403,7 @@ async fn play(
   let track = tracks::get(pool, &id)
     .await?
     .ok_or_else(|| MediaError::new("track.not-found", "曲目不存在"))?;
+  super::library::record_history(app, &id, track.duration_ms).await;
   let player = {
     let mut service = lock()?;
     service.player.current_track_id = Some(id);
@@ -820,14 +625,13 @@ async fn sync_engine(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaErro
 async fn sync_engine_inner(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
   let progress_ms = super::events::min_progress_ms();
   let levels = super::events::any_levels();
-  let (ready, track_id, position, status, noise, volume, muted) = {
+  let (ready, track_id, position, status, volume, muted) = {
     let service = lock()?;
     (
       service.engine_ready,
       service.player.current_track_id.clone(),
       service.player.position_ms,
       service.status.clone(),
-      service.noise.clone(),
       service.player.volume,
       service.player.muted,
     )
@@ -863,10 +667,6 @@ async fn sync_engine_inner(app: &AppHandle, pool: &SqlitePool) -> Result<(), Med
     engine::send(app, engine::player_volume(volume, muted));
   }
 
-  engine::send(
-    app,
-    engine::noise_sync(noise.active, noise.master, noise.muted, &noise.layers),
-  );
   super::output::sync(app);
   engine::send(app, engine::meters(true, levels, progress_ms));
   Ok(())
@@ -1152,172 +952,6 @@ async fn queue_play_at(app: &AppHandle, pool: &SqlitePool, index: u64) -> Result
       .ok_or_else(|| MediaError::invalid("队列索引越界"))?
   };
   play(app, pool, Some(track_id)).await
-}
-
-fn noise_activate(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
-  let noise = {
-    let mut service = lock()?;
-    service.noise.active = true;
-    touch(&mut service);
-    emit_noise(app, &service);
-    service.noise.clone()
-  };
-  engine::ensure_window(app);
-  engine::send(
-    app,
-    engine::noise_sync(noise.active, noise.master, noise.muted, &noise.layers),
-  );
-  save_noise(app, pool, &noise);
-  Ok(())
-}
-
-fn noise_set_layer(
-  app: &AppHandle,
-  pool: &SqlitePool,
-  sound_id: &str,
-  enabled: Option<bool>,
-  volume: Option<f64>,
-) -> Result<(), MediaError> {
-  let noise = {
-    let mut service = lock()?;
-    let layer = service
-      .noise
-      .layers
-      .iter_mut()
-      .find(|layer| layer.sound_id == sound_id)
-      .ok_or_else(|| MediaError::invalid("未知的噪声声景"))?;
-    if let Some(enabled) = enabled {
-      layer.enabled = enabled;
-    }
-    if let Some(volume) = volume {
-      layer.volume = if volume.is_finite() {
-        volume.clamp(0.0, 1.0)
-      } else {
-        0.0
-      };
-    }
-    touch(&mut service);
-    emit_noise(app, &service);
-    service.noise.clone()
-  };
-  engine::send(
-    app,
-    engine::noise_sync(noise.active, noise.master, noise.muted, &noise.layers),
-  );
-  save_noise(app, pool, &noise);
-  Ok(())
-}
-
-fn noise_set_master(app: &AppHandle, pool: &SqlitePool, volume: f64) -> Result<(), MediaError> {
-  let noise = {
-    let mut service = lock()?;
-    service.noise.master = if volume.is_finite() {
-      volume.clamp(0.0, 1.0)
-    } else {
-      0.0
-    };
-    touch(&mut service);
-    emit_noise(app, &service);
-    service.noise.clone()
-  };
-  engine::send(
-    app,
-    engine::noise_sync(noise.active, noise.master, noise.muted, &noise.layers),
-  );
-  save_noise(app, pool, &noise);
-  Ok(())
-}
-
-fn noise_set_muted(app: &AppHandle, pool: &SqlitePool, muted: bool) -> Result<(), MediaError> {
-  let noise = {
-    let mut service = lock()?;
-    service.noise.muted = muted;
-    touch(&mut service);
-    emit_noise(app, &service);
-    service.noise.clone()
-  };
-  engine::send(
-    app,
-    engine::noise_sync(noise.active, noise.master, noise.muted, &noise.layers),
-  );
-  save_noise(app, pool, &noise);
-  Ok(())
-}
-
-fn noise_set_sleep(app: &AppHandle, pool: &SqlitePool, minutes: i64) -> Result<(), MediaError> {
-  let minutes = minutes.clamp(0, 180);
-  let (noise, generation) = {
-    let mut service = lock()?;
-    service.sleep_generation = service.sleep_generation.saturating_add(1);
-    let generation = service.sleep_generation;
-    service.noise.sleep_minutes = minutes;
-    service.noise.sleep_ends_at = if minutes > 0 {
-      Some(now_ms() + minutes * 60_000)
-    } else {
-      None
-    };
-    touch(&mut service);
-    emit_noise(app, &service);
-    (service.noise.clone(), generation)
-  };
-  save_noise(app, pool, &noise);
-  if minutes > 0 {
-    let app = app.clone();
-    let pool = pool.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-      std::thread::sleep(Duration::from_secs(
-        u64::try_from(minutes * 60).unwrap_or(u64::MAX),
-      ));
-      let fired = {
-        let mut service = match lock() {
-          Ok(service) => service,
-          Err(_) => return,
-        };
-        if service.sleep_generation != generation {
-          false
-        } else {
-          service.noise.muted = true;
-          service.noise.sleep_minutes = 0;
-          service.noise.sleep_ends_at = None;
-          touch(&mut service);
-          emit_noise(&app, &service);
-          true
-        }
-      };
-      if fired {
-        let noise = lock()
-          .map(|service| service.noise.clone())
-          .unwrap_or_default();
-        save_noise(&app, &pool, &noise);
-        engine::send(
-          &app,
-          engine::noise_sync(noise.active, noise.master, noise.muted, &noise.layers),
-        );
-      }
-    });
-  }
-  Ok(())
-}
-
-fn noise_reset(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
-  let noise = {
-    let mut service = lock()?;
-    service.noise.layers = default_layers();
-    service.noise.master = 0.75;
-    service.noise.muted = false;
-    service.noise.sleep_minutes = 0;
-    service.noise.sleep_ends_at = None;
-    service.sleep_generation = service.sleep_generation.saturating_add(1);
-    touch(&mut service);
-    emit_noise(app, &service);
-    service.noise.clone()
-  };
-  engine::send(
-    app,
-    engine::noise_sync(noise.active, noise.master, noise.muted, &noise.layers),
-  );
-  save_noise(app, pool, &noise);
-  Ok(())
 }
 
 /// 引擎命令入口：校验调用窗口后转发事件。

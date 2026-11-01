@@ -12,14 +12,37 @@ use super::protocol::{MediaRequest, MediaResponse, PROTOCOL_VERSION};
 use super::snapshot;
 use crate::media::engine::{self, EngineEvent, ENGINE_LABEL};
 use crate::media::events::{self, ConnectRequest};
-use crate::media::{library, output, playback};
+use crate::media::{library, noise, output, playback};
 
 fn media_window(label: &str) -> Result<(), MediaError> {
-  if matches!(label, "settings" | "player" | "noise") {
+  if matches!(label, "settings" | "player" | "noise" | "library") {
     Ok(())
   } else {
     Err(MediaError::new("capability.denied", "当前窗口没有媒体权限"))
   }
+}
+
+fn p3_access(namespace: &str, method: &str, label: &str) -> Result<(), MediaError> {
+  if !matches!(namespace, "playlists" | "favorites" | "history") {
+    return Ok(());
+  }
+  if matches!(label, "settings" | "library") {
+    return Ok(());
+  }
+  if label == "player" {
+    let allowed = match namespace {
+      "favorites" => true,
+      "playlists" => matches!(method, "list" | "get"),
+      _ => false,
+    };
+    if allowed {
+      return Ok(());
+    }
+  }
+  Err(MediaError::new(
+    "capability.denied",
+    "当前窗口没有该媒体库权限",
+  ))
 }
 
 fn host_only(namespace: &str, method: &str, label: &str) -> Result<(), MediaError> {
@@ -55,8 +78,14 @@ pub async fn media_call(window: WebviewWindow, request: MediaRequest) -> MediaRe
   if let Err(error) = host_only(&request.namespace, &request.method, &label) {
     return MediaResponse::error(&request_id, &error, 0);
   }
+  if let Err(error) = p3_access(&request.namespace, &request.method, &label) {
+    return MediaResponse::error(&request_id, &error, 0);
+  }
 
-  if request.namespace == "library" {
+  if matches!(
+    request.namespace.as_str(),
+    "library" | "playlists" | "favorites" | "history"
+  ) {
     return library::call_media(
       window.clone(),
       &request_id,
@@ -69,6 +98,20 @@ pub async fn media_call(window: WebviewWindow, request: MediaRequest) -> MediaRe
 
   if request.namespace == "system" {
     let result = system_call(&window, &request.method, &request.args).await;
+    return match result {
+      Ok(value) => MediaResponse::ok(&request_id, value, snapshot::revision()),
+      Err(error) => MediaResponse::error(&request_id, &error, snapshot::revision()),
+    };
+  }
+
+  if request.namespace == "noise" {
+    let result = noise::call(
+      window.app_handle().clone(),
+      &label,
+      &request.method,
+      &request.args,
+    )
+    .await;
     return match result {
       Ok(value) => MediaResponse::ok(&request_id, value, snapshot::revision()),
       Err(error) => MediaResponse::error(&request_id, &error, snapshot::revision()),
@@ -158,7 +201,9 @@ pub fn media_engine_ready(window: WebviewWindow) -> Result<(), String> {
   if window.label() != ENGINE_LABEL {
     return Err("只有媒体引擎窗口可以上报 ready".to_string());
   }
-  playback::on_engine_ready(&window.app_handle().clone());
+  let app = window.app_handle().clone();
+  playback::on_engine_ready(&app);
+  noise::on_engine_ready(&app);
   Ok(())
 }
 
@@ -180,8 +225,19 @@ mod tests {
     assert!(media_window("settings").is_ok());
     assert!(media_window("player").is_ok());
     assert!(media_window("noise").is_ok());
+    assert!(media_window("library").is_ok());
     assert!(media_window("wallpaper-0").is_err());
     assert!(media_window("widget-rain").is_err());
+  }
+
+  #[test]
+  fn p3_access_is_window_scoped() {
+    assert!(p3_access("playlists", "create", "library").is_ok());
+    assert!(p3_access("playlists", "list", "player").is_ok());
+    assert!(p3_access("playlists", "create", "player").is_err());
+    assert!(p3_access("favorites", "set", "player").is_ok());
+    assert!(p3_access("history", "clear", "player").is_err());
+    assert!(p3_access("history", "list", "noise").is_err());
   }
 
   #[test]

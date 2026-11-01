@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "source": {
+    "id": "noise_src_builtin",
+    "name": "Lull 内置声景"
+  },
+  "categories": [
+    {
+      "id": "noise_cat_nature",
+      "name": "自然",
+      "icon": "leaf",
+      "parentId": null,
+      "sortOrder": 0
+    },
+    {
+      "id": "noise_cat_weather",
+      "name": "天气",
+      "icon": "cloud-rain",
+      "parentId": "noise_cat_nature",
+      "sortOrder": 1
+    },
+    {
+      "id": "noise_cat_water",
+      "name": "水",
+      "icon": "waves",
+      "parentId": "noise_cat_nature",
+      "sortOrder": 2
+    },
+    {
+      "id": "noise_cat_fire",
+      "name": "火",
+      "icon": "flame",
+      "parentId": "noise_cat_nature",
+      "sortOrder": 3
+    },
+    {
+      "id": "noise_cat_focus",
+      "name": "专注",
+      "icon": "target",
+      "parentId": null,
+      "sortOrder": 4
+    }
+  ],
+  "tags": [
+    { "id": "noise_tag_nature", "name": "自然" },
+    { "id": "noise_tag_rain", "name": "雨" },
+    { "id": "noise_tag_water", "name": "水" },
+    { "id": "noise_tag_warm", "name": "暖" },
+    { "id": "noise_tag_focus", "name": "专注" }
+  ],
+  "assets": [
+    {
+      "id": "noise:builtin:rain",
+      "name": "雨声",
+      "description": "持续的细雨与树叶摩擦声。",
+      "profile": "rain",
+      "categoryId": "noise_cat_weather",
+      "tags": ["noise_tag_nature", "noise_tag_rain"],
+      "sortOrder": 0
+    },
+    {
+      "id": "noise:builtin:thunder",
+      "name": "远雷",
+      "description": "低沉、缓慢的雷声与空气震动。",
+      "profile": "thunder",
+      "categoryId": "noise_cat_weather",
+      "tags": ["noise_tag_nature"],
+      "sortOrder": 1
+    },
+    {
+      "id": "noise:builtin:wind",
+      "name": "风声",
+      "description": "穿过林间的风与轻微的气流。",
+      "profile": "wind",
+      "categoryId": "noise_cat_nature",
+      "tags": ["noise_tag_nature"],
+      "sortOrder": 2
+    },
+    {
+      "id": "noise:builtin:waves",
+      "name": "海浪",
+      "description": "缓慢涨落的海浪与远处的潮声。",
+      "profile": "waves",
+      "categoryId": "noise_cat_water",
+      "tags": ["noise_tag_nature", "noise_tag_water"],
+      "sortOrder": 3
+    },
+    {
+      "id": "noise:builtin:fire",
+      "name": "篝火",
+      "description": "木柴燃烧的低鸣与细碎爆裂。",
+      "profile": "fire",
+      "categoryId": "noise_cat_fire",
+      "tags": ["noise_tag_warm"],
+      "sortOrder": 4
+    }
+  ],
+  "presets": [
+    {
+      "id": "noise:preset:default",
+      "name": "默认混音",
+      "description": "雨、风与篝火的初始声场。",
+      "masterVolume": 0.75,
+      "tracks": [
+        { "assetId": "noise:builtin:rain", "volume": 0.7, "enabled": true },
+        { "assetId": "noise:builtin:thunder", "volume": 0.45, "enabled": false },
+        { "assetId": "noise:builtin:wind", "volume": 0.3, "enabled": true },
+        { "assetId": "noise:builtin:waves", "volume": 0.4, "enabled": false },
+        { "assetId": "noise:builtin:fire", "volume": 0.5, "enabled": true }
+      ]
+    },
+    {
+      "id": "noise:preset:rainy-night",
+      "name": "雨夜阅读",
+      "description": "细雨、远雷与壁炉。",
+      "masterVolume": 0.8,
+      "tracks": [
+        { "assetId": "noise:builtin:rain", "volume": 0.65, "enabled": true },
+        { "assetId": "noise:builtin:thunder", "volume": 0.25, "enabled": true },
+        { "assetId": "noise:builtin:fire", "volume": 0.35, "enabled": true }
+      ]
+    },
+    {
+      "id": "noise:preset:ocean",
+      "name": "海边",
+      "description": "潮声、风与很轻的雨。",
+      "masterVolume": 0.8,
+      "tracks": [
+        { "assetId": "noise:builtin:waves", "volume": 0.7, "enabled": true },
+        { "assetId": "noise:builtin:wind", "volume": 0.2, "enabled": true },
+        { "assetId": "noise:builtin:rain", "volume": 0.2, "enabled": true }
+      ]
+    },
+    {
+      "id": "noise:preset:fireplace",
+      "name": "壁炉边",
+      "description": "篝火、微风与远雷的暖场。",
+      "masterVolume": 0.8,
+      "tracks": [
+        { "assetId": "noise:builtin:fire", "volume": 0.6, "enabled": true },
+        { "assetId": "noise:builtin:wind", "volume": 0.15, "enabled": true },
+        { "assetId": "noise:builtin:thunder", "volume": 0.1, "enabled": true }
+      ]
+    }
+  ]
+}

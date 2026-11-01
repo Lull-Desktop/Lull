@@ -8,7 +8,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -144,16 +144,21 @@ pub fn output_volume(volume: f64, muted: bool) -> Value {
   json!({ "v": ENGINE_PROTOCOL, "type": "output.volume", "volume": volume, "muted": muted })
 }
 
-/// Noise 同步：N1 仍是 legacy 5 层视图；N2 会替换为 Session/Track。
+/// N2 Noise Session 同步：Rust 只下发期望状态，引擎负责多轨混音。
 #[must_use]
-pub fn noise_sync<T: Serialize>(active: bool, master: f64, muted: bool, layers: &[T]) -> Value {
+pub fn noise_session_sync(
+  session_state: &str,
+  master: f64,
+  muted: bool,
+  tracks: &[Value],
+) -> Value {
   json!({
     "v": ENGINE_PROTOCOL,
-    "type": "noise.sync",
-    "active": active,
+    "type": "noise.session.sync",
+    "state": session_state,
     "master": master,
     "muted": muted,
-    "layers": layers,
+    "tracks": tracks,
   })
 }
 
@@ -235,9 +240,14 @@ mod tests {
     assert_eq!(output_volume(0.8, false)["type"], "output.volume");
     assert_eq!(meters(true, false, 500)["intervalMs"], 500);
     assert_eq!(shutdown()["type"], "engine.shutdown");
-    assert_eq!(
-      noise_sync(true, 0.5, false, &[json!({ "soundId": "rain" })])["v"],
-      json!(ENGINE_PROTOCOL)
+    let noise = noise_session_sync(
+      "playing",
+      0.5,
+      false,
+      &[json!({ "trackId": "track-1", "source": { "kind": "procedural", "profile": "rain" } })],
     );
+    assert_eq!(noise["v"], json!(ENGINE_PROTOCOL));
+    assert_eq!(noise["type"], "noise.session.sync");
+    assert_eq!(noise["tracks"][0]["trackId"], "track-1");
   }
 }

@@ -147,4 +147,165 @@ describe("media client", () => {
     ]);
     expect(transport.requests[1]?.args).toEqual({ volume: 0.7 });
   });
+
+  test("routes playlists, favorites and history", async () => {
+    const transport = createMemoryTransport((request) => {
+      if (request.namespace === "playlists") {
+        if (request.method === "list") return [];
+        return {
+          id: "pl_1",
+          name: "Mix",
+          trackCount: 0,
+          createdAt: 1,
+          updatedAt: 2,
+          entries: [],
+        };
+      }
+      if (request.namespace === "favorites") {
+        return { items: [], total: 0, page: 1, pageSize: 50, hasMore: false };
+      }
+      return { cleared: 0 };
+    });
+    const media = createMediaClient({ transport });
+
+    await media.playlists.list();
+    await media.playlists.create("Mix");
+    await media.playlists.addTrack("pl_1", "trk_1");
+    await media.favorites.set("trk_1", true);
+    await media.history.clear();
+
+    expect(transport.requests.map((request) => request.method)).toEqual([
+      "list",
+      "create",
+      "addTrack",
+      "set",
+      "clear",
+    ]);
+    expect(transport.requests[1]?.args).toEqual({
+      name: "Mix",
+      description: undefined,
+    });
+    expect(transport.requests[2]?.args).toEqual({
+      playlistId: "pl_1",
+      trackId: "trk_1",
+    });
+    expect(transport.requests[3]?.args).toEqual({
+      trackId: "trk_1",
+      favorite: true,
+    });
+  });
+
+  test("routes Noise session and track methods", async () => {
+    const transport = createMemoryTransport((request) => {
+      if (request.method === "addTrack") {
+        return {
+          id: "track-1",
+          assetId: "noise:builtin:rain",
+          name: "Rain",
+          state: "stopped",
+          volume: 0.7,
+          enabled: true,
+          loop: true,
+          positionMs: 0,
+          order: 0,
+        };
+      }
+      return {
+        id: "session-1",
+        state: "idle",
+        masterVolume: 0.75,
+        muted: false,
+        tracks: [],
+        sleep: { timerMinutes: 0 },
+        revision: 1,
+        createdAt: 1,
+      };
+    });
+    const media = createMediaClient({ transport });
+
+    await media.noise.session.getCurrent();
+    await media.noise.session.play();
+    await media.noise.tracks.add("noise:builtin:rain");
+    await media.noise.tracks.setVolume("track-1", 0.4);
+    await media.noise.tracks.setEnabled("track-1", false);
+    await media.noise.tracks.reorder("track-1", 0);
+
+    expect(transport.requests.map((request) => request.method)).toEqual([
+      "getSession",
+      "playSession",
+      "addTrack",
+      "setTrackVolume",
+      "setTrackEnabled",
+      "reorderTracks",
+    ]);
+    expect(transport.requests[2]?.args).toEqual({
+      assetId: "noise:builtin:rain",
+    });
+    expect(transport.requests[3]?.args).toEqual({
+      trackId: "track-1",
+      volume: 0.4,
+    });
+    expect(transport.requests[4]?.args).toEqual({
+      trackId: "track-1",
+      enabled: false,
+    });
+  });
+
+  test("routes Noise library methods", async () => {
+    const transport = createMemoryTransport((request) => {
+      if (request.method === "listAssets") {
+        return { items: [], total: 0, page: 1, pageSize: 30, hasMore: false };
+      }
+      if (request.method === "revalidateAssets") {
+        return { checked: 2, missing: 1, restored: 0 };
+      }
+      return {
+        id: "asset-1",
+        name: "Rain",
+        mediaKind: "file",
+        format: "wav",
+        sizeBytes: 10,
+        tags: [],
+        favorite: true,
+        status: "available",
+        source: "local",
+        capabilities: { loop: true, seek: true, fade: true },
+        createdAt: 1,
+        updatedAt: 2,
+      };
+    });
+    const media = createMediaClient({ transport });
+
+    await media.noise.library.listAssets({
+      keyword: "rain",
+      favoriteOnly: true,
+    });
+    await media.noise.library.setAssetFavorite("asset-1", true);
+    await media.noise.library.importAssets({ paths: ["rain.wav"] });
+    await media.noise.library.updateAsset("asset-1", {
+      name: "Rain",
+      categoryId: null,
+    });
+    await media.noise.library.removeAsset("asset-1");
+    await media.noise.library.revalidateAssets();
+
+    expect(transport.requests.map((request) => request.method)).toEqual([
+      "listAssets",
+      "setAssetFavorite",
+      "importAssets",
+      "updateAsset",
+      "removeAsset",
+      "revalidateAssets",
+    ]);
+    expect(transport.requests[0]?.args).toEqual({
+      keyword: "rain",
+      favoriteOnly: true,
+    });
+    expect(transport.requests[2]?.args).toEqual({ paths: ["rain.wav"] });
+    expect(transport.requests[3]?.args).toEqual({
+      assetId: "asset-1",
+      name: "Rain",
+      categoryId: null,
+    });
+  });
 });
