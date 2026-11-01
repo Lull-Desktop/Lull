@@ -227,7 +227,6 @@ pub fn collect_folder(root: &Path) -> Vec<PathBuf> {
     .filter(|entry| entry.file_type().is_file())
     .filter(|entry| supported_extension(entry.path()).is_some())
     .map(walkdir::DirEntry::into_path)
-    .take(1000)
     .collect()
 }
 

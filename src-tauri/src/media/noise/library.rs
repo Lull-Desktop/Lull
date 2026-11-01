@@ -177,6 +177,46 @@ fn emit_changed(app: &AppHandle) {
   );
 }
 
+async fn revalidate_assets(
+  app: &AppHandle,
+  pool: &sqlx::SqlitePool,
+) -> Result<NoiseRevalidateResult, MediaError> {
+  let mut checked = 0_i64;
+  let mut missing = 0_i64;
+  let mut restored = 0_i64;
+  for row in repository::file_assets(pool).await? {
+    checked += 1;
+    let exists = row
+      .storage_key
+      .as_deref()
+      .is_some_and(|key| assets::stored_exists(app, key));
+    let next = if exists { "available" } else { "missing" };
+    if row.status != next {
+      repository::set_status(pool, &row.id, next).await?;
+    }
+    if exists {
+      if row.status == "missing" {
+        restored += 1;
+      }
+    } else {
+      missing += 1;
+    }
+  }
+  emit_changed(app);
+  session::sync_engine(app);
+  Ok(NoiseRevalidateResult {
+    checked,
+    missing,
+    restored,
+  })
+}
+
+/// 启动时轻量检查文件是否存在；失败由调用方记录日志，不阻断启动。
+pub async fn revalidate_startup(app: &AppHandle) -> Result<NoiseRevalidateResult, MediaError> {
+  let pool = crate::media::library::pool()?;
+  revalidate_assets(app, pool).await
+}
+
 pub async fn call(
   app: &AppHandle,
   label: &str,
@@ -379,35 +419,9 @@ pub async fn call(
     "revalidateAssets" => {
       require_write(label)?;
       let pool = crate::media::library::pool()?;
-      let mut checked = 0_i64;
-      let mut missing = 0_i64;
-      let mut restored = 0_i64;
-      for row in repository::file_assets(pool).await? {
-        checked += 1;
-        let exists = row
-          .storage_key
-          .as_deref()
-          .is_some_and(|key| assets::stored_exists(app, key));
-        let next = if exists { "available" } else { "missing" };
-        if row.status != next {
-          repository::set_status(pool, &row.id, next).await?;
-        }
-        if exists {
-          if row.status == "missing" {
-            restored += 1;
-          }
-        } else {
-          missing += 1;
-        }
-      }
-      emit_changed(app);
-      session::sync_engine(app);
-      serde_json::to_value(NoiseRevalidateResult {
-        checked,
-        missing,
-        restored,
-      })
-      .map_err(|error| MediaError::internal(format!("序列化 Noise 检查结果失败：{error}")))
+      let result = revalidate_assets(app, pool).await?;
+      serde_json::to_value(result)
+        .map_err(|error| MediaError::internal(format!("序列化 Noise 检查结果失败：{error}")))
     }
     _ => Err(MediaError::new(
       "method.unknown",
@@ -466,6 +480,9 @@ async fn import_files(
     };
 
     if let Some(existing) = repository::find_by_hash(pool, &prepared.content_hash).await? {
+      if assets::stored_exists(app, &prepared.storage_key) {
+        repository::set_status(pool, &existing, "available").await?;
+      }
       result.duplicates.push(detail(pool, &existing).await?);
       continue;
     }
@@ -542,6 +559,77 @@ mod tests {
     assert!(read_allowed("noise"));
     assert!(favorite_allowed("library"));
     assert!(!read_allowed("player"));
+  }
+
+  #[test]
+  fn deleting_asset_nulls_preset_reference_instead_of_breaking_preset() {
+    let path =
+      std::env::temp_dir().join(format!("lull-noise-preset-fk-{}.db", uuid::Uuid::now_v7()));
+    tauri::async_runtime::block_on(async {
+      let pool = crate::media::repository::db::open_at(&path)
+        .await
+        .expect("open db");
+      super::super::catalog::seed(&pool).await.expect("seed");
+      let source = repository::ensure_local_source(&pool)
+        .await
+        .expect("local source");
+      let item = repository::NewAsset {
+        id: "noise_asset_fk",
+        source_id: &source,
+        name: "FK Asset",
+        description: None,
+        media_kind: "file",
+        format: "wav",
+        storage_key: "fk.wav",
+        size_bytes: 10,
+        mtime_ms: None,
+        duration_ms: Some(1000),
+        sample_rate: Some(8000),
+        channels: Some(1),
+        content_hash: "hash-fk",
+        category_id: None,
+        capabilities_json: r#"{"loop":true,"seek":true,"fade":true}"#,
+      };
+      repository::insert_asset(&pool, &item, &[])
+        .await
+        .expect("asset");
+      sqlx::query(
+        "INSERT INTO noise_presets \
+         (id, name, source_type, schema_version, master_volume, created_at, updated_at) \
+         VALUES ('preset-fk', 'FK preset', 'user', 1, 0.8, 1, 1)",
+      )
+      .execute(&pool)
+      .await
+      .expect("preset");
+      sqlx::query(
+        "INSERT INTO noise_preset_tracks \
+         (id, preset_id, asset_id, expected_name, volume, enabled, loop, sort_order) \
+         VALUES ('track-fk', 'preset-fk', 'noise_asset_fk', 'FK Asset', 0.5, 1, 1, 0)",
+      )
+      .execute(&pool)
+      .await
+      .expect("preset track");
+      repository::delete_asset(&pool, "noise_asset_fk")
+        .await
+        .expect("delete asset");
+      let asset_id = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT asset_id FROM noise_preset_tracks WHERE id = 'track-fk'",
+      )
+      .fetch_one(&pool)
+      .await
+      .expect("read preset track");
+      assert!(asset_id.is_none());
+      let preset_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM noise_presets WHERE id = 'preset-fk'")
+          .fetch_one(&pool)
+          .await
+          .expect("preset survives");
+      assert_eq!(preset_count, 1);
+      crate::media::repository::db::close(&pool).await;
+    });
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+    let _ = std::fs::remove_file(format!("{}-shm", path.display()));
   }
 
   #[test]

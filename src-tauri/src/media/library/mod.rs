@@ -94,6 +94,12 @@ pub fn init(app: tauri::AppHandle) {
           crate::wallpaper::wlog(&format!("Noise 服务初始化失败：{error}"));
         }
         let _ = POOL.set(pool);
+        let app_for_noise = app.clone();
+        tauri::async_runtime::spawn(async move {
+          if let Err(error) = super::noise::library::revalidate_startup(&app_for_noise).await {
+            crate::wallpaper::wlog(&format!("Noise 素材检查失败：{error}"));
+          }
+        });
       }
       Err(error) => {
         let message = error.to_string();
