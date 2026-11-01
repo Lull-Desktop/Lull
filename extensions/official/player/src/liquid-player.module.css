@@ -1443,6 +1443,14 @@
   transform: rotate(90deg);
 }
 
+.locateButton {
+  margin-left: 0;
+}
+
+.locateButton:hover {
+  transform: scale(1.08);
+}
+
 .drawerAdd svg {
   width: 12px;
   height: 12px;
@@ -1521,6 +1529,12 @@
   gap: 5px;
   list-style: none;
   animation: listReveal 0.28s ease both;
+}
+
+/* 长曲库只绘制视口附近的行，避免 200+ 条 SVG 封面同时参与布局与合成。 */
+.trackList > li {
+  content-visibility: auto;
+  contain-intrinsic-size: 51px;
 }
 
 .trackRow {

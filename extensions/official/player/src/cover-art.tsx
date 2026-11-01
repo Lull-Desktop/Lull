@@ -3,7 +3,7 @@
  * 同一张封面在 300px 的主球里作为内嵌透镜画面，也在列表里缩成 38px 缩略图；
  * 不依赖任何图片资源，本地文件也能根据文件名稳定映射到一组封面色。
  */
-import { useEffect, useId, useState } from "react";
+import { memo, useEffect, useId, useState } from "react";
 import { type CoverPalette, coverPalette } from "./player-model";
 
 const STARS = [
@@ -48,7 +48,7 @@ function safeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "");
 }
 
-export function CoverArt({
+export const CoverArt = memo(function CoverArt({
   tone,
   className,
   imageUrl,
@@ -274,4 +274,4 @@ export function CoverArt({
       <rect width="300" height="300" fill={`url(#${vignetteId})`} />
     </svg>
   );
-}
+});

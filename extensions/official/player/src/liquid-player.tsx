@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeftRight,
+  Crosshair,
   FolderOpen,
   Heart,
   Library,
@@ -37,9 +38,11 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import {
+  memo,
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -180,6 +183,34 @@ function resolveAudioContextCtor(): typeof AudioContext | null {
 }
 
 const rowCoverCache = new Map<string, string | null>();
+const coverLoaders = new WeakMap<Element, () => void>();
+let coverObserver: IntersectionObserver | null = null;
+
+/** 所有行共享一个 observer，避免 200+ 行各建一个 IntersectionObserver。 */
+function observeCover(element: Element, load: () => void): () => void {
+  if (typeof IntersectionObserver === "undefined") {
+    load();
+    return () => {};
+  }
+  if (!coverObserver) {
+    coverObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const callback = coverLoaders.get(entry.target);
+        if (!callback) continue;
+        coverLoaders.delete(entry.target);
+        coverObserver?.unobserve(entry.target);
+        callback();
+      }
+    });
+  }
+  coverLoaders.set(element, load);
+  coverObserver.observe(element);
+  return () => {
+    coverLoaders.delete(element);
+    coverObserver?.unobserve(element);
+  };
+}
 
 /**
  * 列表缩略图：有封面才请求 `getCoverUrl`，并用 IntersectionObserver 延迟到
@@ -202,15 +233,11 @@ function TrackCover({
   const hostRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    if (!track.hasCover) {
-      setImageUrl(null);
-      return;
-    }
     const cached = rowCoverCache.get(track.id);
-    if (cached !== undefined) {
-      setImageUrl(cached);
-      return;
-    }
+    // 行组件可能在页签切换时被复用；先切到当前 trackId 的缓存/空图。
+    setImageUrl(cached ?? null);
+    if (!track.hasCover) return;
+    if (cached !== undefined) return;
     let alive = true;
     const load = (): void => {
       void getCoverUrl(track.id)
@@ -224,21 +251,16 @@ function TrackCover({
         });
     };
     const node = hostRef.current;
-    if (!node || typeof IntersectionObserver === "undefined") {
+    if (!node) {
       load();
       return () => {
         alive = false;
       };
     }
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
-      observer.disconnect();
-      load();
-    });
-    observer.observe(node);
+    const stopObserving = observeCover(node, load);
     return () => {
       alive = false;
-      observer.disconnect();
+      stopObserving();
     };
   }, [getCoverUrl, track.hasCover, track.id]);
 
@@ -259,6 +281,107 @@ function TrackCover({
     </span>
   );
 }
+
+const TrackRow = memo(function TrackRow({
+  track,
+  active,
+  selected,
+  activePlaying,
+  favorite,
+  onSelect,
+  getCoverUrl,
+}: {
+  track: PlayerTrack;
+  active: boolean;
+  selected: boolean;
+  activePlaying: boolean;
+  favorite: boolean;
+  onSelect: (track: PlayerTrack) => void;
+  getCoverUrl: (trackId: string) => Promise<string | null>;
+}): React.ReactElement {
+  const durationLabel = formatTrackDuration(track.duration);
+  return (
+    <li>
+      <button
+        type="button"
+        className={styles.trackRow}
+        data-active={active ? "true" : "false"}
+        data-selected={selected ? "true" : "false"}
+        data-playing={activePlaying ? "true" : "false"}
+        data-track-id={track.id}
+        aria-label={`${track.title}，${track.artist}，${durationLabel}${favorite ? "，已喜欢" : "，未喜欢"}`}
+        aria-current={active ? "true" : undefined}
+        onClick={() => onSelect(track)}
+      >
+        <span className={styles.rowGlow} aria-hidden="true" />
+        <TrackCover
+          track={track}
+          active={active}
+          playing={activePlaying}
+          getCoverUrl={getCoverUrl}
+        />
+        <span className={styles.rowText}>
+          <strong title={track.title}>{track.title}</strong>
+          <em title={track.artist}>{track.artist}</em>
+        </span>
+        <span className={styles.rowMeta}>
+          <Heart
+            className={styles.rowHeart}
+            data-liked={favorite ? "true" : "false"}
+            fill={favorite ? "currentColor" : "none"}
+            role="img"
+            aria-label={favorite ? "已喜欢" : "未喜欢"}
+          />
+          {track.duration > 0 ? (
+            <span>{durationLabel}</span>
+          ) : (
+            <LoaderCircle className={styles.rowSpinner} aria-hidden="true" />
+          )}
+        </span>
+      </button>
+    </li>
+  );
+});
+
+const TrackList = memo(function TrackList({
+  tracks,
+  currentId,
+  selectedId,
+  playing,
+  favoriteOverrides,
+  onSelect,
+  getCoverUrl,
+}: {
+  tracks: readonly PlayerTrack[];
+  currentId: string | null;
+  selectedId: string | null;
+  playing: boolean;
+  favoriteOverrides: Record<string, boolean>;
+  onSelect: (track: PlayerTrack) => void;
+  getCoverUrl: (trackId: string) => Promise<string | null>;
+}): React.ReactElement {
+  return (
+    <ul className={styles.trackList}>
+      {tracks.map((track, index) => {
+        const active = track.id === currentId;
+        return (
+          <TrackRow
+            key={`${track.id}-${index}`}
+            track={track}
+            active={active}
+            selected={track.id === selectedId}
+            activePlaying={active && playing}
+            favorite={
+              favoriteOverrides[track.id] ?? track.favorite === true
+            }
+            onSelect={onSelect}
+            getCoverUrl={getCoverUrl}
+          />
+        );
+      })}
+    </ul>
+  );
+});
 
 /**
  * 主球进度环的几何：0 在正上方，顺时针增长。
@@ -326,12 +449,18 @@ export function LiquidPlayer(): React.ReactElement {
   const drawerSlotRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
-  const autoLoadAttemptsRef = useRef(0);
+  const scrollPositionsRef = useRef<Record<DrawerTab, number>>({
+    library: 0,
+    queue: 0,
+  });
+  const pendingScrollRef = useRef<number | null>(null);
+  const lastAutoScrolledIdRef = useRef<string | null>(null);
   const libraryTabRef = useRef<HTMLButtonElement>(null);
   const queueTabRef = useRef<HTMLButtonElement>(null);
 
   const currentRef = useRef<PlayerTrack | null>(DEFAULT_TRACK);
   const currentIdRef = useRef(DEFAULT_TRACK_ID);
+  const playerRef = useRef(session.player);
   const playingRef = useRef(false);
   const progressRef = useRef(0);
   const seekPendingRef = useRef(false);
@@ -445,6 +574,10 @@ export function LiquidPlayer(): React.ReactElement {
     currentRef.current = current;
     currentIdRef.current = current?.id ?? currentId;
   }, [current, currentId]);
+
+  useEffect(() => {
+    playerRef.current = session.player;
+  }, [session.player]);
 
   useEffect(() => {
     playingRef.current = playing;
@@ -709,10 +842,11 @@ export function LiquidPlayer(): React.ReactElement {
       setProgress(0);
       progressRef.current = 0;
     }
+    const player = playerRef.current;
     const resumable =
-      session.player?.track?.id === track.id &&
-      session.player.positionMs > 0 &&
-      session.player.status !== "idle";
+      player?.track?.id === track.id &&
+      player.positionMs > 0 &&
+      player.status !== "idle";
     const action = resumable
       ? session.actions.resume
       : () => session.actions.play(track.id);
@@ -721,7 +855,7 @@ export function LiquidPlayer(): React.ReactElement {
       playingRef.current = false;
       showNotice("音频播放失败，请重试");
     });
-  }, [session.actions, session.player, setDrawer, showNotice]);
+  }, [session.actions, setDrawer, showNotice]);
 
   const togglePlayback = useCallback((): void => {
     if (playingRef.current) pausePlayback();
@@ -758,15 +892,45 @@ export function LiquidPlayer(): React.ReactElement {
     [playDropSound, session.actions, showNotice, startPlayback],
   );
 
+  const handleSelectTrack = useCallback(
+    (track: PlayerTrack): void => {
+      selectTrack(track, true);
+    },
+    [selectTrack],
+  );
+
+  const scrollTrackIntoView = useCallback(
+    (trackId: string, block: "nearest" | "center" = "nearest"): void => {
+      const row = listRef.current?.querySelector<HTMLElement>(
+        `[data-track-id="${trackId}"]`,
+      );
+      row?.scrollIntoView({ block, behavior: "smooth" });
+    },
+    [],
+  );
+
   const moveTrack = useCallback(
     (direction: 1 | -1): void => {
-      const action =
-        direction > 0 ? session.actions.next : session.actions.previous;
-      void action().catch(() => {
-        showNotice("播放队列为空");
-      });
+      const list = visibleTracks;
+      if (list.length === 0) {
+        showNotice(tab === "queue" ? "播放队列为空" : "曲库为空");
+        return;
+      }
+      const index = list.findIndex(
+        (track) => track.id === currentIdRef.current,
+      );
+      // 当前曲目不在当前列表（例如从另一页签播放）时，下一首从表头开始，
+      // 上一首从表尾开始；否则沿当前页签的列表顺序循环。
+      const target =
+        index < 0
+          ? direction > 0
+            ? list[0]
+            : list[list.length - 1]
+          : list[(index + direction + list.length) % list.length];
+      if (!target) return;
+      selectTrack(target, true);
     },
-    [session.actions, showNotice],
+    [selectTrack, showNotice, tab, visibleTracks],
   );
 
   const commitSeek = useCallback(
@@ -889,10 +1053,32 @@ export function LiquidPlayer(): React.ReactElement {
       });
   }, [current, liked, session.actions, showNotice]);
 
-  const switchTab = useCallback((next: DrawerTab): void => {
-    setTab(next);
-    listRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
-  }, []);
+  const switchTab = useCallback(
+    (next: DrawerTab): void => {
+      if (next === tab) return;
+      const list = listRef.current;
+      if (list) scrollPositionsRef.current[tab] = list.scrollTop;
+      pendingScrollRef.current = scrollPositionsRef.current[next];
+      setTab(next);
+    },
+    [tab],
+  );
+
+  /** 只由右侧瞄准按钮触发：当前曲目在当前列表里才滚动定位。 */
+  const locateCurrentInList = useCallback((): void => {
+    const track = current ?? currentRef.current;
+    if (!track) {
+      showNotice("当前没有播放曲目");
+      return;
+    }
+    if (!visibleTracks.some((item) => item.id === track.id)) {
+      showNotice("当前播放曲目不在当前列表");
+      return;
+    }
+    setSelectedId(track.id);
+    lastAutoScrolledIdRef.current = track.id;
+    scrollTrackIntoView(track.id, "center");
+  }, [current, scrollTrackIntoView, showNotice, visibleTracks]);
 
   const openFilePicker = useCallback((): void => {
     setTab("library");
@@ -1073,48 +1259,51 @@ export function LiquidPlayer(): React.ReactElement {
   // 频响电平由音频引擎 20Hz 上报；rAF 只写 CSS 变量，不触发 React 重渲染。
   useEffect(() => {
     const stage = stageRef.current;
+    if (!playing) {
+      stage?.style.setProperty("--level", "0.045");
+      return;
+    }
     let frame = 0;
-    const paint = (): void => {
-      const level = playing ? session.levelRef.current : 0;
-      stage?.style.setProperty("--level", Math.max(0.045, level).toFixed(3));
+    let lastPaint = 0;
+    const paint = (time: number): void => {
+      // 频响只为视觉服务，30fps 足够，避免每帧触发布局/合成。
+      if (time - lastPaint >= 33) {
+        lastPaint = time;
+        const level = session.levelRef.current;
+        stage?.style.setProperty(
+          "--level",
+          Math.max(0.045, level).toFixed(3),
+        );
+      }
       frame = window.requestAnimationFrame(paint);
     };
     frame = window.requestAnimationFrame(paint);
     return () => window.cancelAnimationFrame(frame);
   }, [playing, session.levelRef]);
 
-  // 把当前播放行平滑吸附到可视区，避免长列表里选中后还要手动滚。
+  // 页签切换后在新列表 commit 完成、绘制前恢复滚动位置，避免先闪到顶部。
+  useLayoutEffect(() => {
+    const target = pendingScrollRef.current;
+    if (target === null) return;
+    pendingScrollRef.current = null;
+    const node = listRef.current;
+    if (node) node.scrollTop = target;
+  }, [tab, visibleTracks]);
+
+  // 播放曲目变化时定位（含上一首/下一首、播放结束自动切歌、点选行）。
+  // 切换页签不会改变 current.id，因此不会覆盖页签滚动缓存。
   useEffect(() => {
     if (!drawerOpen || !current) return;
+    if (lastAutoScrolledIdRef.current === current.id) return;
+    // 标记本次曲目变化，即使目标行还没加载/不在列表，也避免之后滚动
+    // 缓存恢复或分页追加时突然抢走用户位置。
+    lastAutoScrolledIdRef.current = current.id;
     const row = listRef.current?.querySelector<HTMLElement>(
       `[data-track-id="${current.id}"]`,
     );
-    row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [current, drawerOpen, tab, visibleTracks]);
-
-  // 曲库页：当前曲目不在已加载页时，自动逐页懒加载直到找到或到底。
-  useEffect(() => {
-    if (tab !== "library" || !current) {
-      autoLoadAttemptsRef.current = 0;
-      return;
-    }
-    if (findTrackById(allTracks, current.id)) {
-      autoLoadAttemptsRef.current = 0;
-      return;
-    }
-    if (!session.hasMore || session.loadingMore) return;
-    // 失败时 loadingMore 会回落，避免 effect 无限重试。
-    if (autoLoadAttemptsRef.current >= 10) return;
-    autoLoadAttemptsRef.current += 1;
-    void session.loadMore();
-  }, [
-    allTracks,
-    current,
-    session.hasMore,
-    session.loadMore,
-    session.loadingMore,
-    tab,
-  ]);
 
   // 全局快捷键：空格播放 / 暂停，Shift + 左右切歌，左右快退 / 快进，M 静音。
   useEffect(() => {
@@ -1621,7 +1810,7 @@ export function LiquidPlayer(): React.ReactElement {
             >
               <span className={styles.libraryHalo} aria-hidden="true" />
               <FolderOpen aria-hidden="true" />
-              <span>曲库</span>
+             
             </button>
           </div>
         </section>
@@ -1698,6 +1887,15 @@ export function LiquidPlayer(): React.ReactElement {
                   <AudioLines aria-hidden="true" />
                 </span>
               )}
+              <button
+                type="button"
+                className={`${styles.drawerAdd} ${styles.locateButton}`}
+                aria-label="定位当前播放"
+                title="定位当前播放"
+                onClick={locateCurrentInList}
+              >
+                <Crosshair />
+              </button>
             </header>
 
             <div
@@ -1739,58 +1937,15 @@ export function LiquidPlayer(): React.ReactElement {
                   </button>
                 </div>
               ) : (
-                <ul className={styles.trackList} key={tab}>
-                  {visibleTracks.map((track, index) => {
-                    const active = track.id === current?.id;
-                    const selected = track.id === selectedTrack?.id;
-                    const favorite = favoriteOf(track);
-                    const durationLabel = formatTrackDuration(track.duration);
-                    return (
-                      <li key={`${track.id}-${index}`}>
-                        <button
-                          type="button"
-                          className={styles.trackRow}
-                          data-active={active ? "true" : "false"}
-                          data-selected={selected ? "true" : "false"}
-                          data-playing={active && playing ? "true" : "false"}
-                          data-track-id={track.id}
-                          aria-label={`${track.title}，${track.artist}，${durationLabel}${favorite ? "，已喜欢" : "，未喜欢"}`}
-                          aria-current={active ? "true" : undefined}
-                          onClick={() => selectTrack(track, true)}
-                        >
-                          <span className={styles.rowGlow} aria-hidden="true" />
-                          <TrackCover
-                            track={track}
-                            active={active}
-                            playing={playing}
-                            getCoverUrl={session.getCoverUrl}
-                          />
-                          <span className={styles.rowText}>
-                            <strong title={track.title}>{track.title}</strong>
-                            <em title={track.artist}>{track.artist}</em>
-                          </span>
-                          <span className={styles.rowMeta}>
-                            <Heart
-                              className={styles.rowHeart}
-                              data-liked={favorite ? "true" : "false"}
-                              fill={favorite ? "currentColor" : "none"}
-                              role="img"
-                              aria-label={favorite ? "已喜欢" : "未喜欢"}
-                            />
-                            {track.duration > 0 ? (
-                              <span>{durationLabel}</span>
-                            ) : (
-                              <LoaderCircle
-                                className={styles.rowSpinner}
-                                aria-hidden="true"
-                              />
-                            )}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <TrackList
+                  tracks={visibleTracks}
+                  currentId={current?.id ?? null}
+                  selectedId={selectedTrack?.id ?? null}
+                  playing={playing}
+                  favoriteOverrides={favoriteOverrides}
+                  onSelect={handleSelectTrack}
+                  getCoverUrl={session.getCoverUrl}
+                />
               )}
               {tab === "library" && session.hasMore ? (
                 <div
