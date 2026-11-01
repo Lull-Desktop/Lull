@@ -8,7 +8,9 @@ pub mod db;
 pub mod favorites;
 pub mod history;
 pub mod playlists;
+pub mod smart;
 pub mod sources;
+pub mod tags;
 pub mod tracks;
 
 use std::time::{SystemTime, UNIX_EPOCH};

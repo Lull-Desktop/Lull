@@ -26,6 +26,8 @@ pub struct WidgetSpec {
   pub min_width: f64,
   /// 最小内高；液态番茄钟的固定玻璃舱需要完整高度，其余窗口允许上下压缩。
   pub min_height: f64,
+  /// 可选最大内高；超过后由窗口内容区滚动，而不是继续拉高窗口。
+  pub max_height: Option<f64>,
   /// 是否允许用户拖拽边缘缩放 / 最大化。沉浸式浮窗固定为 false。
   pub resizable: bool,
   /// 是否为透明 WebView：页面不铺底色，桌面内容从玻璃件之间透出。
@@ -99,6 +101,12 @@ mod tests {
     assert!(!NOISE.resizable);
     assert!(SETTINGS.resizable);
     assert!(LIBRARY.resizable);
+  }
+
+  #[test]
+  fn settings_has_a_bounded_height() {
+    assert_eq!(SETTINGS.max_height, Some(980.0));
+    assert!(LIBRARY.max_height.is_none());
   }
 
   #[test]

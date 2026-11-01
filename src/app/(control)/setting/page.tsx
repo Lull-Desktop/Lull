@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
+import { LibraryOrganizerPanel } from "@/components/settings/library-organizer-panel";
 import { MediaApiTestPanel } from "@/components/settings/media-api-test-panel";
 import { MusicLibraryPanel } from "@/components/settings/music-library-panel";
 import { NoiseApiTestPanel } from "@/components/settings/noise-api-test-panel";
@@ -71,6 +72,7 @@ const SETTINGS_TABS = [
   "preferences",
   "wallpaper",
   "library",
+  "library-organizer",
   "noise-library",
   "noise-presets",
   "media-test",
@@ -84,6 +86,7 @@ const TAB_LABELS: Record<SettingsTab, () => string> = {
   preferences: m.settings_tab_preferences,
   wallpaper: m.settings_tab_wallpaper,
   library: m.settings_tab_library,
+  "library-organizer": m.settings_tab_library_organizer,
   "noise-library": m.settings_tab_noise_library,
   "noise-presets": m.settings_tab_noise_presets,
   "media-test": m.settings_tab_media_test,
@@ -262,7 +265,7 @@ export default function Settings() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-4">
       <div
-        className="mb-4 flex gap-1 rounded-full border border-border/60 bg-paper-warm/60 p-1 text-xs"
+        className="sticky top-0 z-10 mb-4 grid grid-cols-5 gap-1 rounded-2xl border border-border/60 bg-paper-warm/95 p-1 text-xs shadow-sm backdrop-blur"
         role="tablist"
         aria-label={m.settings_tabs_label()}
       >
@@ -273,7 +276,7 @@ export default function Settings() {
             role="tab"
             aria-selected={tab === value}
             onClick={() => setTab(value)}
-            className={`flex-1 rounded-full px-3 py-1.5 transition-colors ${
+            className={`min-w-0 truncate rounded-full px-3 py-1.5 text-center transition-colors ${
               tab === value
                 ? "bg-paper text-ink shadow-sm"
                 : "text-muted-foreground hover:text-ink-soft"
@@ -687,6 +690,11 @@ export default function Settings() {
       {tab === "library" && (
         <main className="space-y-6">
           <MusicLibraryPanel />
+        </main>
+      )}
+      {tab === "library-organizer" && (
+        <main className="space-y-6">
+          <LibraryOrganizerPanel />
         </main>
       )}
       {tab === "noise-library" && (

@@ -16,7 +16,9 @@ export default function ControlLayout({
     <>
       {/* 主题流光桥只挂在应用窗口组；壁纸页保持零 Tauri 依赖。 */}
       <FlowThemeRoot />
-      <WindowShell section={m.window_section_settings}>{children}</WindowShell>
+      <WindowShell section={m.window_section_settings} fit={false}>
+        {children}
+      </WindowShell>
     </>
   );
 }

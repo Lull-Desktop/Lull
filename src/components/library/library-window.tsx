@@ -12,6 +12,8 @@ import type {
   PlaylistDetail,
   PlaylistSummary,
   QueueState,
+  SmartPlaylistView,
+  TagView,
   TrackSummary,
 } from "@lull/media-sdk";
 import {
@@ -23,22 +25,25 @@ import {
   ListMusic,
   ListOrdered,
   Music,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
   Trash2,
   Upload,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CoverPreview } from "@/components/library/cover-preview";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getMediaClient } from "@/hooks/use-media-client";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 
-type LibraryTab = "tracks" | "playlists" | "favorites" | "history" | "queue";
+type LibraryTab = "tracks" | "playlists" | "favorites" | "history" | "queue" | "smart";
 
 type LibraryWindowProps = {
   /** 测试/嵌入时注入；不传则使用官方 Tauri 单例。 */
@@ -51,6 +56,7 @@ const TABS: { id: LibraryTab; label: () => string; icon: typeof Music }[] = [
   { id: "favorites", label: m.library_favorites, icon: Heart },
   { id: "history", label: m.library_history, icon: History },
   { id: "queue", label: m.library_queue, icon: ListOrdered },
+  { id: "smart", label: m.library_smart_playlists, icon: Sparkles },
 ];
 
 function errorText(error: unknown): string {
@@ -91,6 +97,12 @@ export function LibraryWindow({
   const [queueTracks, setQueueTracks] = useState<Record<string, TrackSummary>>(
     {},
   );
+  const [editingTrack, setEditingTrack] = useState<TrackSummary | null>(null);
+  const [smartPlaylists, setSmartPlaylists] = useState<SmartPlaylistView[]>([]);
+  const [smartTracks, setSmartTracks] = useState<TrackSummary[]>([]);
+  const [smartName, setSmartName] = useState("");
+  const [smartGenre, setSmartGenre] = useState("");
+  const [smartFavorite, setSmartFavorite] = useState(false);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -173,6 +185,20 @@ export function LibraryWindow({
           if (alive) setSelected(detail);
         } else {
           setSelected(null);
+        }
+        return;
+      }
+      if (tab === "smart") {
+        const list = await client.library.listSmartPlaylists();
+        if (!alive) return;
+        setSmartPlaylists(list);
+        if (list[0]) {
+          const page = await client.library.runSmartPlaylist(list[0].id, {
+            pageSize: 100,
+          });
+          if (alive) setSmartTracks(page.items);
+        } else {
+          setSmartTracks([]);
         }
         return;
       }
@@ -392,6 +418,61 @@ export function LibraryWindow({
     });
   }, [client, run, selected]);
 
+  const createSmartPlaylist = useCallback((): void => {
+    if (!client) return;
+    const name = smartName.trim();
+    if (!name) return;
+    void run("smart-create", async () => {
+      const playlist = await client.library.createSmartPlaylist(name, {
+        genre: smartGenre.trim() || undefined,
+        favoriteOnly: smartFavorite || undefined,
+        pageSize: 100,
+      });
+      setSmartName("");
+      setSmartGenre("");
+      setSmartFavorite(false);
+      const list = await client.library.listSmartPlaylists();
+      setSmartPlaylists(list);
+      const page = await client.library.runSmartPlaylist(playlist.id, {
+        pageSize: 100,
+      });
+      setSmartTracks(page.items);
+    });
+  }, [client, run, smartFavorite, smartGenre, smartName]);
+
+  const runSmartPlaylist = useCallback(
+    (playlist: SmartPlaylistView): void => {
+      if (!client) return;
+      void run(`smart:${playlist.id}`, async () => {
+        const page = await client.library.runSmartPlaylist(playlist.id, {
+          pageSize: 100,
+        });
+        setSmartTracks(page.items);
+      });
+    },
+    [client, run],
+  );
+
+  const deleteSmartPlaylist = useCallback(
+    (playlist: SmartPlaylistView): void => {
+      if (!client) return;
+      void run(`smart-delete:${playlist.id}`, async () => {
+        await client.library.deleteSmartPlaylist(playlist.id);
+        const list = await client.library.listSmartPlaylists();
+        setSmartPlaylists(list);
+        if (list[0]) {
+          const page = await client.library.runSmartPlaylist(list[0].id, {
+            pageSize: 100,
+          });
+          setSmartTracks(page.items);
+        } else {
+          setSmartTracks([]);
+        }
+      });
+    },
+    [client, run],
+  );
+
   const clearHistory = useCallback((): void => {
     if (!client) return;
     void run("history-clear", async () => {
@@ -504,6 +585,7 @@ export function LibraryWindow({
             onQueue={addToQueue}
             onFavorite={toggleFavorite}
             onAddToPlaylist={addToPlaylist}
+            onEdit={setEditingTrack}
             empty={m.library_empty()}
           />
         )}
@@ -517,6 +599,7 @@ export function LibraryWindow({
             onQueue={addToQueue}
             onFavorite={toggleFavorite}
             onAddToPlaylist={addToPlaylist}
+            onEdit={setEditingTrack}
             empty={m.library_empty()}
           />
         )}
@@ -657,6 +740,88 @@ export function LibraryWindow({
           </div>
         )}
 
+        {tab === "smart" && (
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">智能歌单</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+                  <input
+                    className="rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm"
+                    placeholder="名称"
+                    value={smartName}
+                    onChange={(event) => setSmartName(event.target.value)}
+                  />
+                  <input
+                    className="rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm"
+                    placeholder="流派（可选）"
+                    value={smartGenre}
+                    onChange={(event) => setSmartGenre(event.target.value)}
+                  />
+                  <label className="flex items-center gap-1.5 text-xs text-ink-soft">
+                    <input
+                      type="checkbox"
+                      checked={smartFavorite}
+                      onChange={(event) => setSmartFavorite(event.target.checked)}
+                    />
+                    仅喜欢
+                  </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={busy !== null || !smartName.trim()}
+                    onClick={createSmartPlaylist}
+                  >
+                    创建
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {smartPlaylists.map((playlist) => (
+                    <div
+                      key={playlist.id}
+                      className="flex items-center gap-1 rounded-lg border border-paper-deep/60 bg-paper-warm/50 px-2 py-1"
+                    >
+                      <button
+                        type="button"
+                        className="text-xs text-ink hover:underline"
+                        onClick={() => runSmartPlaylist(playlist)}
+                      >
+                        {playlist.name}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`删除 ${playlist.name}`}
+                        className="rounded p-0.5 text-ink-faint hover:text-destructive"
+                        onClick={() => deleteSmartPlaylist(playlist)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
+                  ))}
+                  {smartPlaylists.length === 0 ? (
+                    <span className="text-xs text-ink-faint">
+                      还没有智能歌单；按流派或喜欢创建，结果会实时查询。
+                    </span>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+            <TrackTable
+              tracks={smartTracks}
+              playlists={playlistOptions}
+              busy={busy}
+              onPlay={play}
+              onQueue={addToQueue}
+              onFavorite={toggleFavorite}
+              onAddToPlaylist={addToPlaylist}
+              onEdit={setEditingTrack}
+              empty="当前规则没有匹配曲目"
+            />
+          </div>
+        )}
+
         {tab === "history" && (
           <Card>
             <CardHeader className="flex-row items-center justify-between pb-3">
@@ -782,6 +947,20 @@ export function LibraryWindow({
           </Card>
         )}
       </section>
+
+      {editingTrack && client ? (
+        <MetadataEditor
+          key={editingTrack.id}
+          client={client}
+          track={editingTrack}
+          onClose={() => setEditingTrack(null)}
+          onSaved={(updated) => {
+            setEditingTrack(null);
+            setNotice(`已更新「${updated.title}」`);
+            refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -795,6 +974,7 @@ type TrackTableProps = {
   onQueue: (track: TrackSummary) => void;
   onFavorite: (track: TrackSummary) => void;
   onAddToPlaylist: (playlistId: string, track: TrackSummary) => void;
+  onEdit?: (track: TrackSummary) => void;
 };
 
 function TrackTable(props: TrackTableProps) {
@@ -861,6 +1041,18 @@ function TrackTable(props: TrackTableProps) {
             <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
             {m.library_queue_add()}
           </Button>
+          {props.onEdit ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => props.onEdit?.(track)}
+              disabled={props.busy !== null}
+              title="编辑元数据与标签"
+            >
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          ) : null}
           {props.playlists.length > 0 && (
             <select
               className="max-w-[10rem] rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1 text-xs"
@@ -882,6 +1074,278 @@ function TrackTable(props: TrackTableProps) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+type MetadataEditorProps = {
+  client: LullMediaClient;
+  track: TrackSummary;
+  onClose: () => void;
+  onSaved: (track: TrackSummary) => void;
+};
+
+function MetadataEditor({
+  client,
+  track,
+  onClose,
+  onSaved,
+}: MetadataEditorProps) {
+  const [title, setTitle] = useState(track.title);
+  const [artists, setArtists] = useState(track.artists.join(", "));
+  const [album, setAlbum] = useState(track.album ?? "");
+  const [genre, setGenre] = useState(track.genre ?? "");
+  const [year, setYear] = useState(track.year ? String(track.year) : "");
+  const [tags, setTags] = useState<TagView[]>([]);
+  const [tagIds, setTagIds] = useState<string[]>(
+    (track.tags ?? []).map((tag) => tag.id),
+  );
+  const [newTag, setNewTag] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void client.library
+      .listTags()
+      .then((items) => {
+        if (alive) setTags(items);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [client]);
+
+  const toggleTag = (tagId: string): void => {
+    setTagIds((current) =>
+      current.includes(tagId)
+        ? current.filter((id) => id !== tagId)
+        : [...current, tagId],
+    );
+  };
+
+  const createTag = async (): Promise<void> => {
+    const name = newTag.trim();
+    if (!name || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const tag = await client.library.createTag(name);
+      setTags((current) => [...current, tag]);
+      setTagIds((current) => [...current, tag.id]);
+      setNewTag("");
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = async (): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const parsedYear = Number.parseInt(year, 10);
+      const nextArtists = artists
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const nextAlbum = album.trim();
+      const nextGenre = genre.trim();
+      const currentArtistKey = [...track.artists].sort().join("\u001f");
+      const nextArtistKey = [...nextArtists].sort().join("\u001f");
+      const currentTagKey = [...(track.tags ?? []).map((tag) => tag.id)]
+        .sort()
+        .join("\u001f");
+      const nextTagKey = [...tagIds].sort().join("\u001f");
+      const patch: {
+        trackId: string;
+        title?: string;
+        artists?: string[];
+        album?: string | null;
+        genre?: string | null;
+        year?: number | null;
+      } = { trackId: track.id };
+      if (title.trim() !== track.title) patch.title = title.trim();
+      if (nextArtistKey !== currentArtistKey) patch.artists = nextArtists;
+      if (nextAlbum !== (track.album ?? "")) {
+        patch.album = nextAlbum || null;
+      }
+      if (nextGenre !== (track.genre ?? "")) {
+        patch.genre = nextGenre || null;
+      }
+      const currentYear = track.year ?? null;
+      const nextYear = Number.isFinite(parsedYear) ? parsedYear : null;
+      if (nextYear !== currentYear) patch.year = nextYear;
+
+      const metadataChanged =
+        patch.title !== undefined ||
+        patch.artists !== undefined ||
+        patch.album !== undefined ||
+        patch.genre !== undefined ||
+        patch.year !== undefined;
+      const updated = metadataChanged
+        ? await client.library.updateTrackMetadata(patch)
+        : track;
+      if (nextTagKey !== currentTagKey) {
+        await client.library.setTrackTags(track.id, tagIds);
+      }
+      onSaved(updated);
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-ink/30 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="编辑曲目元数据"
+    >
+      <Card className="max-h-[90vh] w-full max-w-xl overflow-auto shadow-xl">
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle className="text-base">编辑元数据</CardTitle>
+          <button
+            type="button"
+            className="rounded-md p-1 text-ink-faint hover:bg-paper-deep/40"
+            aria-label="关闭"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-start gap-3 rounded-lg border border-paper-deep/50 bg-paper-warm/40 p-3">
+            <CoverPreview
+              client={client}
+              track={track}
+              className="w-28"
+            />
+            <div className="min-w-0 space-y-1 text-xs text-ink-soft">
+              <p className="font-medium text-ink">封面</p>
+              <p>
+                {track.hasCover
+                  ? "来自音频内嵌或文件夹封面，经 Rust 资产协议授权后预览。"
+                  : "当前曲目没有封面资产。"}
+              </p>
+              <p className="text-ink-faint">
+                封面读取走 library.getCoverUrl；当前 API 没有用户上传/替换封面的保存入口。
+              </p>
+            </div>
+          </div>
+          <label className="grid gap-1 text-xs text-ink-soft">
+            标题
+            <input
+              className="rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+          <label className="grid gap-1 text-xs text-ink-soft">
+            艺术家（逗号分隔）
+            <input
+              className="rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm"
+              value={artists}
+              onChange={(event) => setArtists(event.target.value)}
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1 text-xs text-ink-soft">
+              专辑
+              <input
+                className="rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm"
+                value={album}
+                onChange={(event) => setAlbum(event.target.value)}
+              />
+            </label>
+            <label className="grid gap-1 text-xs text-ink-soft">
+              流派
+              <input
+                className="rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm"
+                value={genre}
+                onChange={(event) => setGenre(event.target.value)}
+              />
+            </label>
+            <label className="grid gap-1 text-xs text-ink-soft">
+              年份
+              <input
+                className="rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm"
+                value={year}
+                inputMode="numeric"
+                onChange={(event) => setYear(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs text-ink-soft">标签</p>
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((tag) => (
+                <button
+                  key={tag.id}
+                  type="button"
+                  aria-pressed={tagIds.includes(tag.id)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs",
+                    tagIds.includes(tag.id)
+                      ? "border-accent bg-accent/15 text-ink"
+                      : "border-paper-deep/70 text-ink-faint",
+                  )}
+                  onClick={() => toggleTag(tag.id)}
+                >
+                  {tag.name}
+                  {tag.trackCount > 0 ? ` · ${tag.trackCount}` : ""}
+                </button>
+              ))}
+              {tags.length === 0 ? (
+                <span className="text-xs text-ink-faint">还没有标签</span>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <input
+                className="min-w-0 flex-1 rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm"
+                placeholder="新标签"
+                value={newTag}
+                onChange={(event) => setNewTag(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void createTag();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={busy || !newTag.trim()}
+                onClick={() => void createTag()}
+              >
+                添加
+              </Button>
+            </div>
+          </div>
+
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              取消
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || !title.trim()}
+              onClick={() => void save()}
+            >
+              {busy ? "保存中…" : "保存"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

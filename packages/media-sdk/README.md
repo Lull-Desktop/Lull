@@ -48,6 +48,27 @@ function Mixer() {
 Hooks 按 client 共享一次 `connect`；最后一个订阅卸载时 disconnect。
 `useNoiseLibrary` / `useNoisePresets` 提供列表、loading/error 与 refresh。
 
+## 音乐库 P4
+
+```ts
+const tags = await media.library.listTags();
+await media.library.setTrackTags(trackId, [tags[0].id]);
+const updated = await media.library.updateTrackMetadata({
+  trackId,
+  title: "新标题",
+  artists: ["Artist A", "Artist B"],
+  genre: null,
+});
+const smart = await media.library.createSmartPlaylist("夜间氛围", {
+  genre: "Ambient",
+  favoriteOnly: true,
+});
+const page = await media.library.runSmartPlaylist(smart.id);
+```
+
+元数据编辑写 `overrides_json` 与 `field_sources(manual)`；重扫不会覆盖人工字段。
+合并/拆分为 `mergeArtists` / `splitArtist` / `mergeAlbums` / `splitAlbum`。
+
 ## 约定
 
 - 结果/事件不包含文件路径或 `storage_key`。

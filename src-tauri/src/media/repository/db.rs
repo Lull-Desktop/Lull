@@ -103,7 +103,8 @@ mod tests {
           'music_playlists', 'music_playlist_tracks', 'music_favorites', 'music_play_history', \
           'noise_sources', 'noise_categories', 'noise_tags', 'noise_assets', \
           'noise_asset_tags', 'noise_favorites', 'noise_presets', 'noise_preset_tracks', \
-          'noise_preset_favorites', 'noise_preferences')",
+          'noise_preset_favorites', 'noise_preferences', 'music_tags', 'music_track_tags', \
+          'music_smart_playlists')",
       )
       .fetch_one(&pool)
       .await
@@ -116,7 +117,7 @@ mod tests {
       (tables, fts5)
     });
     cleanup(&path);
-    assert_eq!(tables, 22);
+    assert_eq!(tables, 25);
     eprintln!("SQLite FTS5 enabled = {fts5}");
   }
 

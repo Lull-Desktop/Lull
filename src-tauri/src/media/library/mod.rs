@@ -9,6 +9,7 @@ pub mod favorites;
 pub mod history;
 pub mod metadata;
 mod p3;
+mod p4;
 pub mod playlists;
 pub mod scanner;
 
@@ -593,6 +594,21 @@ pub async fn call_media(
       .map(|artists| serde_json::json!(artists)),
     ("library", "listAlbums") => list_albums().await.map(|albums| serde_json::json!(albums)),
     ("library", "listGenres") => list_genres().await.map(|genres| serde_json::json!(genres)),
+    ("library", "listTags")
+    | ("library", "createTag")
+    | ("library", "renameTag")
+    | ("library", "deleteTag")
+    | ("library", "setTrackTags")
+    | ("library", "updateTrackMetadata")
+    | ("library", "mergeArtists")
+    | ("library", "splitArtist")
+    | ("library", "mergeAlbums")
+    | ("library", "splitAlbum")
+    | ("library", "listSmartPlaylists")
+    | ("library", "createSmartPlaylist")
+    | ("library", "updateSmartPlaylist")
+    | ("library", "deleteSmartPlaylist")
+    | ("library", "runSmartPlaylist") => p4::call(&app, method, args).await,
     _ => Err(MediaError::new(
       "method.unknown",
       format!("不支持的媒体方法：{namespace}.{method}"),

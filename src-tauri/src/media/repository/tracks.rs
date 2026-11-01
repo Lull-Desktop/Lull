@@ -23,6 +23,7 @@ pub struct TrackRow {
   pub track_number: Option<i64>,
   pub disc_number: Option<i64>,
   pub cover_asset_id: Option<String>,
+  pub tags_json: String,
   pub available: i64,
   pub favorite: i64,
 }
@@ -88,6 +89,9 @@ SELECT t.id, t.title, t.duration_ms, t.year, t.genre, t.kind, t.status, \
     WHERE taa.track_id = t.id AND taa.is_primary = 1 LIMIT 1) AS disc_number, \
   (SELECT ma.id FROM music_track_assets mta JOIN music_assets ma ON ma.id = mta.asset_id \
     WHERE mta.track_id = t.id AND mta.role = 'cover' AND mta.is_primary = 1 LIMIT 1) AS cover_asset_id, \
+  COALESCE((SELECT json_group_array(json_object('id', tg.id, 'name', tg.name)) \
+    FROM music_track_tags mtt JOIN music_tags tg ON tg.id = mtt.tag_id \
+    WHERE mtt.track_id = t.id), '[]') AS tags_json, \
   CASE WHEN t.kind = 'builtin' THEN 1 \
        WHEN EXISTS (SELECT 1 FROM music_files f WHERE f.track_id = t.id AND f.available = 1) THEN 1 \
        ELSE 0 END AS available, \
@@ -225,6 +229,16 @@ fn push_filters(builder: &mut QueryBuilder<'_, Sqlite>, query: &TrackQuery) {
 
   if query.favorite_only.unwrap_or(false) {
     builder.push(" AND EXISTS (SELECT 1 FROM music_favorites fav WHERE fav.track_id = t.id)");
+  }
+
+  if let Some(tag_id) = query.tag_id.as_deref().filter(|value| !value.is_empty()) {
+    builder
+      .push(
+        " AND EXISTS (SELECT 1 FROM music_track_tags mtt \
+       WHERE mtt.track_id = t.id AND mtt.tag_id = ",
+      )
+      .push_bind(tag_id.to_string())
+      .push(")");
   }
 
   if !query.include_unavailable.unwrap_or(false) {

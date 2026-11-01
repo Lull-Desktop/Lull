@@ -112,6 +112,16 @@ fn number_field(value: &Value, key: &str, file: &str) -> f64 {
   }
 }
 
+fn optional_number_field(value: &Value, key: &str, file: &str) -> Option<f64> {
+  match value.get(key) {
+    None | Some(Value::Null) => None,
+    Some(candidate) => match candidate.as_f64() {
+      Some(number) if number.is_finite() && number > 0.0 => Some(number),
+      _ => fail(&format!("{file}: 字段 {key} 必须是正数或省略")),
+    },
+  }
+}
+
 fn bool_field(value: &Value, key: &str, file: &str) -> bool {
   match value.get(key).and_then(Value::as_bool) {
     Some(flag) => flag,
@@ -215,6 +225,11 @@ fn read_manifests(dir: &Path) -> Vec<Manifest> {
     if min_width > width || min_height > height {
       fail(&format!("{file}: 最小尺寸不能大于初始尺寸"));
     }
+    if let Some(max_height) = optional_number_field(&window, "maxHeight", file) {
+      if max_height < height {
+        fail(&format!("{file}: maxHeight 不能小于初始高度"));
+      }
+    }
     let order = value.get("order").and_then(Value::as_f64).unwrap_or(100.0);
     manifests.push(Manifest { order, id, value });
   }
@@ -264,10 +279,12 @@ fn generate(manifests: &[Manifest]) -> String {
     let height_value = number_field(&window, "height", "manifest");
     let min_width_value = number_field(&window, "minWidth", "manifest");
     let min_height_value = number_field(&window, "minHeight", "manifest");
+    let max_height_value = optional_number_field(&window, "maxHeight", "manifest");
     let width = format!("{width_value:?}");
     let height = format!("{height_value:?}");
     let min_width = format!("{min_width_value:?}");
     let min_height = format!("{min_height_value:?}");
+    let max_height = max_height_value.map_or_else(|| "None".to_string(), |value| format!("Some({value:?})"));
     code.push_str(&format!(
       "pub static {constant}: WidgetSpec = WidgetSpec {{\n\
        \x20 kind: {kind},\n\
@@ -279,6 +296,7 @@ fn generate(manifests: &[Manifest]) -> String {
        \x20 height: {height},\n\
        \x20 min_width: {min_width},\n\
        \x20 min_height: {min_height},\n\
+       \x20 max_height: {max_height},\n\
        \x20 resizable: {resizable},\n\
        \x20 transparent: {transparent},\n\
        \x20 version: {version},\n\

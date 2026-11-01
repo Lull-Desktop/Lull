@@ -282,16 +282,42 @@ async fn upsert_file(
     UpsertResult::Added
   };
 
+  let protected: Vec<String> = match &existing_track {
+    Some(track_id) => sqlx::query_scalar(
+      "SELECT field FROM music_field_sources \
+       WHERE track_id = ? AND source IN ('manual', 'split', 'online')",
+    )
+    .bind(track_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|error| MediaError::internal(format!("读取字段保护失败：{error}")))?,
+    None => Vec::new(),
+  };
+  let protected_title = protected.iter().any(|field| field == "title");
+  let protected_genre = protected.iter().any(|field| field == "genre");
+  let protected_year = protected.iter().any(|field| field == "year");
+  let protected_artists = protected.iter().any(|field| field == "artists");
+  let protected_album = protected.iter().any(|field| field == "album");
+
   let track_id = match existing_track {
     Some(track_id) => {
       sqlx::query(
-        "UPDATE music_tracks SET title = ?, duration_ms = ?, year = ?, genre = ?, status = 'active', \
-         updated_at = ?, version = version + 1 WHERE id = ?",
+        "UPDATE music_tracks SET \
+         title = CASE WHEN ? THEN title ELSE ? END, \
+         sort_title = CASE WHEN ? THEN sort_title ELSE ? END, \
+         genre = CASE WHEN ? THEN genre ELSE ? END, \
+         year = CASE WHEN ? THEN year ELSE ? END, \
+         duration_ms = ?, status = 'active', updated_at = ?, version = version + 1 WHERE id = ?",
       )
+      .bind(protected_title)
       .bind(&title)
-      .bind(parsed.duration_ms)
-      .bind(parsed.year)
+      .bind(protected_title)
+      .bind(normalize_name(&title))
+      .bind(protected_genre)
       .bind(&parsed.genre)
+      .bind(protected_year)
+      .bind(parsed.year)
+      .bind(parsed.duration_ms)
       .bind(now)
       .bind(&track_id)
       .execute(&mut *tx)
@@ -381,27 +407,38 @@ async fn upsert_file(
   .await
   .map_err(|error| MediaError::internal(format!("写入曲目元数据失败：{error}")))?;
 
-  sqlx::query("DELETE FROM music_track_artists WHERE track_id = ? AND source = 'import'")
-    .bind(&track_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|error| MediaError::internal(format!("清理艺术家关系失败：{error}")))?;
   let mut artist_ids = Vec::new();
-  for (position, artist) in artists.iter().enumerate() {
-    let artist_id = ensure_artist(&mut tx, artist, "unknown").await?;
-    sqlx::query(
-      "INSERT OR REPLACE INTO music_track_artists \
-       (track_id, artist_id, role, position, source, updated_at) \
-       VALUES (?, ?, 'primary', ?, 'import', ?)",
+  if protected_artists {
+    artist_ids = sqlx::query_scalar(
+      "SELECT artist_id FROM music_track_artists WHERE track_id = ? \
+       AND role IN ('primary', 'featured') ORDER BY position, artist_id",
     )
     .bind(&track_id)
-    .bind(&artist_id)
-    .bind(i64::try_from(position).unwrap_or(i64::MAX))
-    .bind(now)
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await
-    .map_err(|error| MediaError::internal(format!("写入艺术家关系失败：{error}")))?;
-    artist_ids.push(artist_id);
+    .map_err(|error| MediaError::internal(format!("读取受保护艺术家失败：{error}")))?;
+  } else {
+    sqlx::query("DELETE FROM music_track_artists WHERE track_id = ? AND source = 'import'")
+      .bind(&track_id)
+      .execute(&mut *tx)
+      .await
+      .map_err(|error| MediaError::internal(format!("清理艺术家关系失败：{error}")))?;
+    for (position, artist) in artists.iter().enumerate() {
+      let artist_id = ensure_artist(&mut tx, artist, "unknown").await?;
+      sqlx::query(
+        "INSERT OR REPLACE INTO music_track_artists \
+         (track_id, artist_id, role, position, source, updated_at) \
+         VALUES (?, ?, 'primary', ?, 'import', ?)",
+      )
+      .bind(&track_id)
+      .bind(&artist_id)
+      .bind(i64::try_from(position).unwrap_or(i64::MAX))
+      .bind(now)
+      .execute(&mut *tx)
+      .await
+      .map_err(|error| MediaError::internal(format!("写入艺术家关系失败：{error}")))?;
+      artist_ids.push(artist_id);
+    }
   }
 
   let album_artist_id = match album_artist_name.as_deref() {
@@ -413,30 +450,37 @@ async fn upsert_file(
     None => None,
   };
 
-  sqlx::query("DELETE FROM music_track_albums WHERE track_id = ? AND source = 'import'")
-    .bind(&track_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|error| MediaError::internal(format!("清理专辑关系失败：{error}")))?;
-  if let Some(album_id) = album_id {
-    sqlx::query(
-      "INSERT OR REPLACE INTO music_track_albums \
-       (track_id, album_id, disc_number, track_number, is_primary, source) \
-       VALUES (?, ?, ?, ?, 1, 'import')",
-    )
-    .bind(&track_id)
-    .bind(&album_id)
-    .bind(parsed.disc_number)
-    .bind(parsed.track_number)
-    .execute(&mut *tx)
-    .await
-    .map_err(|error| MediaError::internal(format!("写入专辑关系失败：{error}")))?;
+  if !protected_album {
+    sqlx::query("DELETE FROM music_track_albums WHERE track_id = ? AND source = 'import'")
+      .bind(&track_id)
+      .execute(&mut *tx)
+      .await
+      .map_err(|error| MediaError::internal(format!("清理专辑关系失败：{error}")))?;
+    if let Some(album_id) = album_id {
+      sqlx::query(
+        "INSERT OR REPLACE INTO music_track_albums \
+         (track_id, album_id, disc_number, track_number, is_primary, source) \
+         VALUES (?, ?, ?, ?, 1, 'import')",
+      )
+      .bind(&track_id)
+      .bind(&album_id)
+      .bind(parsed.disc_number)
+      .bind(parsed.track_number)
+      .execute(&mut *tx)
+      .await
+      .map_err(|error| MediaError::internal(format!("写入专辑关系失败：{error}")))?;
+    }
   }
 
-  for field in ["title", "artists", "album", "year"] {
+  for field in ["title", "artists", "album", "genre", "year"] {
+    if protected.iter().any(|item| item == field) {
+      continue;
+    }
     sqlx::query(
-      "INSERT OR REPLACE INTO music_field_sources \
-       (track_id, field, source, confidence, updated_at) VALUES (?, ?, 'import', NULL, ?)",
+      "INSERT INTO music_field_sources \
+       (track_id, field, source, confidence, updated_at) VALUES (?, ?, 'import', NULL, ?) \
+       ON CONFLICT(track_id, field) DO UPDATE SET source = 'import', \
+         confidence = NULL, updated_at = excluded.updated_at",
     )
     .bind(&track_id)
     .bind(field)
@@ -446,22 +490,24 @@ async fn upsert_file(
     .map_err(|error| MediaError::internal(format!("写入字段来源失败：{error}")))?;
   }
 
-  let search_text = normalize_name(&format!(
-    "{} {} {} {}",
-    title,
-    artists.join(" "),
-    album.clone().unwrap_or_default(),
-    relative
-  ));
-  sqlx::query(
-    "INSERT INTO music_search_text (track_id, search_text) VALUES (?, ?) \
-     ON CONFLICT(track_id) DO UPDATE SET search_text = excluded.search_text",
-  )
-  .bind(&track_id)
-  .bind(search_text)
-  .execute(&mut *tx)
-  .await
-  .map_err(|error| MediaError::internal(format!("更新搜索文本失败：{error}")))?;
+  if !(protected_title || protected_artists || protected_album) {
+    let search_text = normalize_name(&format!(
+      "{} {} {} {}",
+      title,
+      artists.join(" "),
+      album.clone().unwrap_or_default(),
+      relative
+    ));
+    sqlx::query(
+      "INSERT INTO music_search_text (track_id, search_text) VALUES (?, ?) \
+       ON CONFLICT(track_id) DO UPDATE SET search_text = excluded.search_text",
+    )
+    .bind(&track_id)
+    .bind(search_text)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| MediaError::internal(format!("更新搜索文本失败：{error}")))?;
+  }
 
   let folder = if parsed.cover.is_none() {
     assets::folder_cover(&canonical)
@@ -494,6 +540,7 @@ async fn upsert_file(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::io::Write;
 
   fn write_silence_wav(path: &Path) {
     let mut bytes = Vec::new();
@@ -527,6 +574,59 @@ mod tests {
     assert_eq!(one, two);
     assert_ne!(one, three);
     assert!(one.starts_with("file_"));
+  }
+
+  #[test]
+  fn manual_title_survives_rescan() {
+    let root = std::env::temp_dir().join(format!("lull-scan-manual-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).expect("create scan dir");
+    let file = root.join("Artist - Manual.wav");
+    write_silence_wav(&file);
+    let db_path = root.join("music.db");
+
+    tauri::async_runtime::block_on(async {
+      let pool = crate::media::repository::db::open_at(&db_path)
+        .await
+        .expect("open db");
+      crate::media::library::scan_path(&pool, &root)
+        .await
+        .expect("first scan");
+      let track_id: String =
+        sqlx::query_scalar("SELECT track_id FROM music_files WHERE path LIKE '%Manual.wav'")
+          .fetch_one(&pool)
+          .await
+          .expect("track id");
+      sqlx::query("UPDATE music_tracks SET title = '人工标题' WHERE id = ?")
+        .bind(&track_id)
+        .execute(&pool)
+        .await
+        .expect("manual title");
+      sqlx::query(
+        "INSERT INTO music_field_sources (track_id, field, source, confidence, updated_at) \
+         VALUES (?, 'title', 'manual', 1.0, 1) \
+         ON CONFLICT(track_id, field) DO UPDATE SET source = 'manual', confidence = 1.0",
+      )
+      .bind(&track_id)
+      .execute(&pool)
+      .await
+      .expect("field source");
+
+      std::fs::OpenOptions::new()
+        .append(true)
+        .open(&file)
+        .expect("open wav")
+        .write_all(b"\0")
+        .expect("append");
+      crate::media::library::scan_path(&pool, &root)
+        .await
+        .expect("second scan");
+      let title: String = sqlx::query_scalar("SELECT title FROM music_tracks WHERE id = ?")
+        .bind(&track_id)
+        .fetch_one(&pool)
+        .await
+        .expect("title");
+      assert_eq!(title, "人工标题");
+    });
   }
 
   #[test]

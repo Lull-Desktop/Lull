@@ -47,8 +47,11 @@ import type {
   PlaylistSummary,
   QueueState,
   ScanJobView,
+  SmartPlaylistView,
   SourceView,
+  TagView,
   TrackDetail,
+  TrackMetadataPatch,
   TrackQuery,
   TrackSummary,
 } from "./types";
@@ -80,6 +83,47 @@ export interface LullMediaClient {
     listArtists(): Promise<ArtistSummary[]>;
     listAlbums(): Promise<AlbumSummary[]>;
     listGenres(): Promise<string[]>;
+    listTags(): Promise<TagView[]>;
+    createTag(name: string): Promise<TagView>;
+    renameTag(tagId: string, name: string): Promise<TagView>;
+    deleteTag(tagId: string): Promise<boolean>;
+    setTrackTags(trackId: string, tagIds: string[]): Promise<void>;
+    updateTrackMetadata(patch: TrackMetadataPatch): Promise<TrackSummary>;
+    mergeArtists(
+      sourceId: string,
+      targetId: string,
+    ): Promise<{ merged: boolean; artist: ArtistSummary }>;
+    splitArtist(
+      artistId: string,
+      trackIds: string[],
+      name: string,
+    ): Promise<{ artist: { id: string; name: string } }>;
+    mergeAlbums(
+      sourceId: string,
+      targetId: string,
+    ): Promise<{ merged: boolean; album: AlbumSummary }>;
+    splitAlbum(
+      albumId: string,
+      trackIds: string[],
+      title: string,
+    ): Promise<{ album: { id: string; title: string } }>;
+    listSmartPlaylists(): Promise<SmartPlaylistView[]>;
+    createSmartPlaylist(
+      name: string,
+      rules: TrackQuery,
+      description?: string,
+    ): Promise<SmartPlaylistView>;
+    updateSmartPlaylist(
+      playlistId: string,
+      name: string,
+      rules: TrackQuery,
+      description?: string,
+    ): Promise<SmartPlaylistView>;
+    deleteSmartPlaylist(playlistId: string): Promise<boolean>;
+    runSmartPlaylist(
+      playlistId: string,
+      options?: { page?: number; pageSize?: number },
+    ): Promise<Page<TrackSummary>>;
   };
   player: {
     getState(): Promise<PlayerState>;
@@ -381,6 +425,86 @@ export function createMediaClient(
     listArtists: () => call<ArtistSummary[]>("library", "listArtists"),
     listAlbums: () => call<AlbumSummary[]>("library", "listAlbums"),
     listGenres: () => call<string[]>("library", "listGenres"),
+    listTags: () => call<TagView[]>("library", "listTags"),
+    createTag: (name: string) => call<TagView>("library", "createTag", { name }),
+    renameTag: (tagId: string, name: string) =>
+      call<TagView>("library", "renameTag", { tagId, name }),
+    deleteTag: async (tagId: string) => {
+      const result = await call<{ deleted: boolean }>("library", "deleteTag", {
+        tagId,
+      });
+      return result.deleted;
+    },
+    setTrackTags: async (trackId: string, tagIds: string[]) => {
+      await call<{ updated: boolean }>("library", "setTrackTags", {
+        trackId,
+        tagIds,
+      });
+    },
+    updateTrackMetadata: (patch: TrackMetadataPatch) =>
+      call<TrackSummary>("library", "updateTrackMetadata", patch),
+    mergeArtists: (sourceId: string, targetId: string) =>
+      call<{ merged: boolean; artist: ArtistSummary }>("library", "mergeArtists", {
+        sourceId,
+        targetId,
+      }),
+    splitArtist: (artistId: string, trackIds: string[], name: string) =>
+      call<{ artist: { id: string; name: string } }>("library", "splitArtist", {
+        artistId,
+        trackIds,
+        name,
+      }),
+    mergeAlbums: (sourceId: string, targetId: string) =>
+      call<{ merged: boolean; album: AlbumSummary }>("library", "mergeAlbums", {
+        sourceId,
+        targetId,
+      }),
+    splitAlbum: (albumId: string, trackIds: string[], title: string) =>
+      call<{ album: { id: string; title: string } }>("library", "splitAlbum", {
+        albumId,
+        trackIds,
+        title,
+      }),
+    listSmartPlaylists: () =>
+      call<SmartPlaylistView[]>("library", "listSmartPlaylists"),
+    createSmartPlaylist: (
+      name: string,
+      rules: TrackQuery,
+      description?: string,
+    ) =>
+      call<SmartPlaylistView>("library", "createSmartPlaylist", {
+        name,
+        rules,
+        description,
+      }),
+    updateSmartPlaylist: (
+      playlistId: string,
+      name: string,
+      rules: TrackQuery,
+      description?: string,
+    ) =>
+      call<SmartPlaylistView>("library", "updateSmartPlaylist", {
+        playlistId,
+        name,
+        rules,
+        description,
+      }),
+    deleteSmartPlaylist: async (playlistId: string) => {
+      const result = await call<{ deleted: boolean }>(
+        "library",
+        "deleteSmartPlaylist",
+        { playlistId },
+      );
+      return result.deleted;
+    },
+    runSmartPlaylist: (
+      playlistId: string,
+      options: { page?: number; pageSize?: number } = {},
+    ) =>
+      call<Page<TrackSummary>>("library", "runSmartPlaylist", {
+        playlistId,
+        ...options,
+      }),
   };
 
   const player = {

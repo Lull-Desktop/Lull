@@ -101,6 +101,13 @@ pub fn open(app: &AppHandle, spec: &WidgetSpec) {
     .initialization_script(widget_context_script(spec))
     .devtools(devtools_enabled());
 
+  // 设置窗限制最高高度；超出内容由 WindowShell 的 overflow-y-auto 滚动。
+  // 最大宽度给一个足够宽松的上限，避免 Tauri 只接受成对尺寸时误限制横向。
+  let builder = match spec.max_height {
+    Some(max_height) => builder.max_inner_size(4096.0, max_height),
+    None => builder,
+  };
+
   // WebView2 environment options 必须与壁纸窗一致；否则后建设置/工具窗可能
   // 返回 0x8007139F（组或资源状态不正确），表现为“设置面板无法弹出”。
   let mut builder = builder.additional_browser_args(crate::webview::browser_args());

@@ -34,6 +34,31 @@ export interface TrackQuery {
   sortOrder?: "asc" | "desc";
   includeUnavailable?: boolean;
   favoriteOnly?: boolean;
+  tagId?: string;
+}
+
+export interface TagView {
+  id: string;
+  name: string;
+  trackCount: number;
+}
+
+export interface SmartPlaylistView {
+  id: string;
+  name: string;
+  description?: string;
+  rules: TrackQuery;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TrackMetadataPatch {
+  trackId: string;
+  title?: string;
+  artists?: string[];
+  album?: string | null;
+  genre?: string | null;
+  year?: number | null;
 }
 
 export interface TrackSummary {
@@ -47,6 +72,7 @@ export interface TrackSummary {
   genre?: string;
   trackNumber?: number;
   discNumber?: number;
+  tags?: TagView[];
   source: "local" | "online";
   available: boolean;
   hasCover: boolean;

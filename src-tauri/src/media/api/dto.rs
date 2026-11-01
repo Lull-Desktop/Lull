@@ -73,6 +73,8 @@ pub struct TrackQuery {
   pub include_unavailable: Option<bool>,
   #[serde(default)]
   pub favorite_only: Option<bool>,
+  #[serde(default)]
+  pub tag_id: Option<String>,
 }
 
 impl TrackQuery {
@@ -107,6 +109,8 @@ pub struct TrackSummary {
   pub track_number: Option<i64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub disc_number: Option<i64>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub tags: Vec<TagView>,
   pub source: String,
   pub available: bool,
   pub has_cover: bool,
@@ -126,6 +130,7 @@ impl From<TrackRow> for TrackSummary {
       genre: row.genre,
       track_number: row.track_number,
       disc_number: row.disc_number,
+      tags: serde_json::from_str(&row.tags_json).unwrap_or_default(),
       source: if row.kind == "builtin" {
         "online".to_string()
       } else {
@@ -230,6 +235,27 @@ pub struct AlbumSummary {
   pub album_artist: Option<String>,
   pub track_count: i64,
   pub has_cover: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagView {
+  pub id: String,
+  pub name: String,
+  #[serde(default)]
+  pub track_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartPlaylistView {
+  pub id: String,
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub description: Option<String>,
+  pub rules: serde_json::Value,
+  pub created_at: i64,
+  pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
