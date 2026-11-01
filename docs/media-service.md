@@ -139,7 +139,7 @@ P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公�
 - `library.listTracks` 已支持艺术家/专辑/流派(genre)/格式/年份筛选；完整标签实体、多值标签与 P4 元数据编辑仍在后续。
 - 播放/队列/白噪音已迁移到 Media Service；N1 起统一走共享 `AudioGraph`（本地音频 `MediaElementAudioSource`、内置曲 `AmbientStream`、Noise `noiseBus`），不再各自建 `AudioContext`。播放器队列 UI 仍未内置到播放器窗口；P3 在资料库窗口提供队列视图与移出/播放操作。
 - P3 已支持歌单、喜欢、历史与 M3U 导入导出；本地音频元素已设置 `crossOrigin="anonymous"`，以配合 asset protocol 的 CORS 让 `MediaElementAudioSourceNode` 正常输出。
-- N2 起 Noise 使用独立 `NoiseSession`/`NoiseTrack` 运行时；旧 5 层 `noise.*` 由兼容门面映射到同一 Session。Session/Track 不持久化，退出即停止；只保存 master/muted 等偏好。
+- N2 起 Noise 使用独立 `NoiseSession`/`NoiseTrack` 运行时；旧 5 层 `noise.*` 由兼容门面映射到同一 Session。Session/Track 不持久化，退出即停止；只保存 master/muted 等偏好。睡眠定时到点会暂停 Session（保留 muted 偏好），不会自动恢复播放。
 - N3 的 Noise 本地素材在导入时复制到受管目录并流式 SHA-256；支持 `mp3/flac/wav/ogg/m4a/aac`、单文件 100 MB/30 分钟上限，重复 hash 返回已有 Asset。文件播放走 `<audio>` + `MediaElementAudioSourceNode`，缺失文件由 `revalidateAssets` 标记，不每次打开全量重算 hash。
 - 设备切换依赖 `devicechange` 重载引擎页 + Rust 全量 resync；多设备选择、独占模式、SMTC 尚未接入。
 - 没有第三方媒体权限；`media:event` 只对官方窗口开放。

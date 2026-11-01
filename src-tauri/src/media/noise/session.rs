@@ -379,7 +379,7 @@ fn legacy_layers(session: &Session) -> Vec<NoiseLayerView> {
 fn legacy_view(session: &Session) -> NoiseStateView {
   NoiseStateView {
     session_id: session.id.clone(),
-    active: session.state != "idle",
+    active: session.state == "playing",
     master: session.master_volume,
     muted: session.muted,
     layers: legacy_layers(session),
@@ -603,6 +603,15 @@ pub async fn set_muted(app: &AppHandle, muted: bool) -> Result<NoiseSessionView,
   snapshot()
 }
 
+fn end_sleep(session: &mut Session) {
+  if session.state == "playing" {
+    session.state = "paused".to_string();
+  }
+  session.sleep_minutes = 0;
+  session.sleep_ends_at = None;
+  touch(session);
+}
+
 pub fn set_sleep_timer(app: &AppHandle, minutes: i64) -> Result<NoiseSessionView, MediaError> {
   let minutes = minutes.clamp(0, 180);
   let generation = {
@@ -628,10 +637,9 @@ pub fn set_sleep_timer(app: &AppHandle, minutes: i64) -> Result<NoiseSessionView
         if session.sleep_generation != generation {
           false
         } else {
-          session.muted = true;
-          session.sleep_minutes = 0;
-          session.sleep_ends_at = None;
-          touch(&mut session);
+          // 睡眠到点走“暂停”而不是只置 muted：状态与听感一致，播放按钮可
+          // 直接恢复；原 muted 偏好保留。
+          end_sleep(&mut session);
           true
         }
       } else {
@@ -990,6 +998,30 @@ mod tests {
     let session_view = session_view(&session);
     assert_eq!(session_view.tracks[0].state, "playing");
     assert_eq!(session_view.revision, 3);
+  }
+
+  #[test]
+  fn sleep_end_pauses_session_and_keeps_muted_preference() {
+    let mut session = Session {
+      id: "session".to_string(),
+      name: None,
+      state: "playing".to_string(),
+      master_volume: 0.7,
+      muted: true,
+      tracks: Vec::new(),
+      sleep_minutes: 1,
+      sleep_ends_at: Some(1),
+      created_at: 1,
+      revision: 3,
+      sleep_generation: 1,
+    };
+    end_sleep(&mut session);
+    assert_eq!(session.state, "paused");
+    assert!(session.muted);
+    assert_eq!(session.sleep_minutes, 0);
+    assert_eq!(session.sleep_ends_at, None);
+    assert_eq!(session.revision, 4);
+    assert!(!legacy_view(&session).active);
   }
 
   #[test]

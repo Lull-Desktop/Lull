@@ -112,15 +112,24 @@ export function NoiseApiTestPanel() {
     );
   }, []);
 
-  const applySnapshot = useCallback((next: PlaybackSnapshot): void => {
-    setSnapshot(next);
-    setSession(next.noiseSession);
-    setLegacy(next.noise);
-    setOutput(next.output);
-    setMaster(Math.round(next.noiseSession.masterVolume * 100));
-    setMuted(next.noiseSession.muted);
-    setSleepMinutes(next.noiseSession.sleep.timerMinutes);
+  const applySession = useCallback((next: NoiseSession): void => {
+    setSession(next);
+    if (!draggingMaster.current) {
+      setMaster(Math.round(next.masterVolume * 100));
+    }
+    setMuted(next.muted);
+    setSleepMinutes(next.sleep.timerMinutes);
   }, []);
+
+  const applySnapshot = useCallback(
+    (next: PlaybackSnapshot): void => {
+      setSnapshot(next);
+      applySession(next.noiseSession);
+      setLegacy(next.noise);
+      setOutput(next.output);
+    },
+    [applySession],
+  );
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!client) return;
@@ -133,16 +142,11 @@ export function NoiseApiTestPanel() {
       ],
     );
     if (!mounted.current) return;
-    setSession(nextSession);
+    applySession(nextSession);
     setLegacy(nextLegacy);
     setOutput(nextOutput);
     setSounds(nextSounds);
-    if (!draggingMaster.current) {
-      setMaster(Math.round(nextSession.masterVolume * 100));
-    }
-    setMuted(nextSession.muted);
-    setSleepMinutes(nextSession.sleep.timerMinutes);
-  }, [client]);
+  }, [applySession, client]);
 
   useEffect(() => {
     mounted.current = true;
@@ -168,7 +172,7 @@ export function NoiseApiTestPanel() {
       if (event.topic === "noise.state") {
         setLegacy(event.payload as NoiseState);
       } else if (event.topic === "noise.session.changed") {
-        setSession(event.payload as NoiseSession);
+        applySession(event.payload as NoiseSession);
       } else if (event.topic === "output.changed") {
         setOutput(event.payload as MediaOutput);
       }
@@ -186,7 +190,7 @@ export function NoiseApiTestPanel() {
       stop();
       void media.disconnect();
     };
-  }, [applySnapshot, push]);
+  }, [applySession, applySnapshot, push]);
 
   useEffect(() => {
     if (client) {
@@ -295,6 +299,19 @@ export function NoiseApiTestPanel() {
     );
   }, [client, run, sleepMinutes]);
 
+  const restoreSound = useCallback((): void => {
+    if (!client) return;
+    void run("恢复声音", async () => {
+      if (session?.muted) {
+        await client.noise.session.setMuted(false);
+      }
+      if (session && session.state !== "playing") {
+        await client.noise.session.play();
+      }
+      return { muted: false, state: "playing" };
+    });
+  }, [client, run, session]);
+
   const legacyLayer = useCallback(
     (soundId: string) =>
       legacy?.layers.find((layer) => layer.soundId === soundId) ?? null,
@@ -353,7 +370,9 @@ export function NoiseApiTestPanel() {
           <span
             className={`rounded-full px-2 py-0.5 ${stateClass(session?.state ?? "idle")}`}
           >
-            {session?.state ?? "no session"}
+            {session
+              ? `${session.state}${session.muted ? " · muted" : ""}`
+              : "no session"}
           </span>
           <span>{summary}</span>
           <span>
@@ -383,6 +402,23 @@ export function NoiseApiTestPanel() {
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive lg:col-span-2">
           错误：{error}
+        </div>
+      )}
+
+      {session?.muted && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 lg:col-span-2">
+          <span>
+            当前 Session 已静音。睡眠定时到点会暂停 Session；若原本 muted 为
+            true，解除静音后才能恢复声音。
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={restoreSound}
+          >
+            解除静音并播放
+          </Button>
         </div>
       )}
 
@@ -468,7 +504,7 @@ export function NoiseApiTestPanel() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">主音量与睡眠</CardTitle>
           <CardDescription>
-            主音量/静音应与旧层 master/muted 同步；睡眠到点会置 muted。
+            睡眠到点会暂停 Session（保留 muted 偏好），可用播放恢复。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
@@ -500,7 +536,7 @@ export function NoiseApiTestPanel() {
             <div>
               <Label htmlFor={mutedId}>Muted</Label>
               <p className="text-xs text-muted-foreground">
-                建议同时检查 legacy muted 与引擎 level。
+                睡眠到点会暂停 Session；muted 保持原值。
               </p>
             </div>
             <Switch
