@@ -6,8 +6,10 @@
  */
 "use client";
 
-import type { TrackSummary } from "@lull/media-sdk";
+import type { DirectoryEntry, TrackSummary } from "@lull/media-sdk";
+import { useDirectoryBrowser, usePlayerSession } from "@lull/media-sdk/react";
 import {
+  ArrowLeft,
   AudioLines,
   ChevronLeft,
   ChevronRight,
@@ -47,7 +49,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { usePlayerSession } from "@lull/media-sdk/react";
 import {
   isWidgetAudioAvailable,
   onWidgetPrefsChanged,
@@ -69,8 +70,8 @@ import {
   formatClock,
   formatTrackDuration,
   PLAY_MODE_OPTIONS,
-  type PlayMode,
   type PlayerTrack,
+  type PlayMode,
   persistPlayerPrefs,
   playModeLabel,
   readPlayerPrefs,
@@ -356,23 +357,54 @@ const TrackList = memo(function TrackList({
 }): React.ReactElement {
   return (
     <ul className={styles.trackList}>
-      {tracks.map((track, index) => {
+      {tracks.map((track) => {
         const active = track.id === currentId;
         return (
           <TrackRow
-            key={`${track.id}-${index}`}
+            key={track.id}
             track={track}
             active={active}
             selected={track.id === selectedId}
             activePlaying={active && playing}
-            favorite={
-              favoriteOverrides[track.id] ?? track.favorite === true
-            }
+            favorite={favoriteOverrides[track.id] ?? track.favorite === true}
             onSelect={onSelect}
             getCoverUrl={getCoverUrl}
           />
         );
       })}
+    </ul>
+  );
+});
+
+const DirectoryList = memo(function DirectoryList({
+  directories,
+  onEnter,
+}: {
+  directories: readonly DirectoryEntry[];
+  onEnter: (entry: DirectoryEntry) => void;
+}): React.ReactElement | null {
+  if (directories.length === 0) return null;
+  return (
+    <ul className={styles.directoryList}>
+      {directories.map((directory) => (
+        <li key={`${directory.folderId}:${directory.path}`}>
+          <button
+            type="button"
+            className={styles.directoryRow}
+            onClick={() => onEnter(directory)}
+            aria-label={`进入目录 ${directory.name}`}
+          >
+            <span className={styles.directoryIcon} aria-hidden="true">
+              <FolderOpen />
+            </span>
+            <span className={styles.directoryText}>
+              <strong>{directory.name}</strong>
+              <em>{directory.trackCount} 首</em>
+            </span>
+            <ChevronRight aria-hidden="true" />
+          </button>
+        </li>
+      ))}
     </ul>
   );
 });
@@ -424,14 +456,17 @@ export function LiquidPlayer(): React.ReactElement {
   const [themeReady, setThemeReady] = useState(false);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
 
-  const session = usePlayerSession();
-  const remoteTracks = useMemo(
-    () => session.tracks.map(toPlayerTrack),
-    [session.tracks],
+  const session = usePlayerSession({ includeLibrary: false });
+  const directory = useDirectoryBrowser();
+  const directoryTracks = useMemo(
+    () =>
+      (directory.listing?.tracks.items ?? []).map((track) =>
+        toPlayerTrack(track),
+      ),
+    [directory.listing],
   );
   const hostCurrentTrack = useMemo(
-    () =>
-      session.player?.track ? toPlayerTrack(session.player.track) : null,
+    () => (session.player?.track ? toPlayerTrack(session.player.track) : null),
     [session.player?.track],
   );
   const { themeId } = useWidgetTheme();
@@ -476,7 +511,7 @@ export function LiquidPlayer(): React.ReactElement {
   // 不能再按内容高度贴合（100vh 内容叠加顶栏高度会让窗口反复长高）。
   useWidgetFit(rootRef, { fit: false });
 
-  const allTracks = useMemo(() => remoteTracks, [remoteTracks]);
+  const allTracks = directoryTracks;
   const queueTracks = useMemo(
     () => session.queueTracks.map(toPlayerTrack),
     [session.queueTracks],
@@ -489,8 +524,7 @@ export function LiquidPlayer(): React.ReactElement {
   }, [allTracks, hostCurrentTrack, queueTracks]);
   const current =
     findTrackById(trackPool, currentId) ?? hostCurrentTrack ?? null;
-  const selectedTrack =
-    findTrackById(trackPool, selectedId) ?? current ?? null;
+  const selectedTrack = findTrackById(trackPool, selectedId) ?? current ?? null;
   const favoriteOf = useCallback(
     (track: PlayerTrack | null): boolean =>
       track ? (favoriteOverrides[track.id] ?? track.favorite === true) : false,
@@ -1172,17 +1206,27 @@ export function LiquidPlayer(): React.ReactElement {
   }, [setDrawer]);
 
   const loadMoreLibrary = useCallback((): void => {
-    if (tab !== "library" || !session.hasMore || session.loadingMore) return;
+    if (
+      tab !== "library" ||
+      !directory.listing?.tracks.hasMore ||
+      directory.loadingMore
+    ) {
+      return;
+    }
     const list = listRef.current;
     if (!list) return;
-    const remaining =
-      list.scrollHeight - list.scrollTop - list.clientHeight;
-    if (remaining < 260) void session.loadMore();
-  }, [tab, session.hasMore, session.loadMore, session.loadingMore]);
+    const remaining = list.scrollHeight - list.scrollTop - list.clientHeight;
+    if (remaining < 260) void directory.loadMore();
+  }, [
+    directory.listing?.tracks.hasMore,
+    directory.loadMore,
+    directory.loadingMore,
+    tab,
+  ]);
 
   // onScroll 在部分 WebView2/iframe 组合下不稳定；底部 sentinel 再兜一层。
   useEffect(() => {
-    if (tab !== "library" || !session.hasMore) return;
+    if (tab !== "library" || !directory.listing?.tracks.hasMore) return;
     const list = listRef.current;
     const sentinel = loadMoreSentinelRef.current;
     if (!list || !sentinel || typeof IntersectionObserver === "undefined") {
@@ -1191,14 +1235,14 @@ export function LiquidPlayer(): React.ReactElement {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          void session.loadMore();
+          void directory.loadMore();
         }
       },
       { root: list, rootMargin: "0px 0px 280px 0px", threshold: 0 },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [tab, session.hasMore, session.loadMore]);
+  }, [tab, directory.listing?.tracks.hasMore, directory.loadMore]);
 
   const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -1258,10 +1302,7 @@ export function LiquidPlayer(): React.ReactElement {
       if (time - lastPaint >= 33) {
         lastPaint = time;
         const level = session.levelRef.current;
-        stage?.style.setProperty(
-          "--level",
-          Math.max(0.045, level).toFixed(3),
-        );
+        stage?.style.setProperty("--level", Math.max(0.045, level).toFixed(3));
       }
       frame = window.requestAnimationFrame(paint);
     };
@@ -1270,6 +1311,7 @@ export function LiquidPlayer(): React.ReactElement {
   }, [playing, session.levelRef]);
 
   // 页签切换后在新列表 commit 完成、绘制前恢复滚动位置，避免先闪到顶部。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tab/visibleTracks are the commit trigger.
   useLayoutEffect(() => {
     const target = pendingScrollRef.current;
     if (target === null) return;
@@ -1278,8 +1320,17 @@ export function LiquidPlayer(): React.ReactElement {
     if (node) node.scrollTop = target;
   }, [tab, visibleTracks]);
 
+  const directoryKey = `${directory.location.folderId ?? ""}:${directory.location.path}`;
+
+  // 进入子目录 / 返回上级后从新列表顶部开始。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: directoryKey is the navigation trigger.
+  useEffect(() => {
+    listRef.current?.scrollTo?.({ top: 0 });
+  }, [directoryKey]);
+
   // 播放曲目变化时定位（含上一首/下一首、播放结束自动切歌、点选行）。
   // 切换页签不会改变 current.id，因此不会覆盖页签滚动缓存。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tab/visibleTracks retry once the row appears.
   useEffect(() => {
     if (!drawerOpen || !current) return;
     if (lastAutoScrolledIdRef.current === current.id) return;
@@ -1372,9 +1423,14 @@ export function LiquidPlayer(): React.ReactElement {
   const listTotal = formatClock(
     totalDuration(tab === "queue" ? queueTracks : allTracks),
   );
-  const libraryTotal = Math.max(session.total, allTracks.length);
+  const directoryCount = directory.listing?.directories.length ?? 0;
+  const libraryTotal = directory.listing?.tracks.total ?? 0;
+  const atDirectoryRoot = directory.location.folderId === null;
   const listEmpty =
-    (tab === "library" && allTracks.length === 0) ||
+    (tab === "library" &&
+      !directory.loading &&
+      directoryCount === 0 &&
+      allTracks.length === 0) ||
     (tab === "queue" && queueTracks.length === 0);
   const orbLabel = current
     ? `${playing ? "暂停" : "播放"}：${current.title}，${current.artist}`
@@ -1671,10 +1727,7 @@ export function LiquidPlayer(): React.ReactElement {
                 </button>
               </div>
 
-              <section
-                className={styles.modeRail}
-                aria-label="播放模式与喜欢"
-              >
+              <section className={styles.modeRail} aria-label="播放模式与喜欢">
                 {PLAY_MODE_OPTIONS.map((option, index) => {
                   const Icon = MODE_GLYPHS[option.id];
                   const active = mode === option.id;
@@ -1813,7 +1866,6 @@ export function LiquidPlayer(): React.ReactElement {
             >
               <span className={styles.libraryHalo} aria-hidden="true" />
               <FolderOpen aria-hidden="true" />
-             
             </button>
           </div>
         </section>
@@ -1901,6 +1953,51 @@ export function LiquidPlayer(): React.ReactElement {
               </button>
             </header>
 
+            {tab === "library" ? (
+              <nav className={styles.directoryBar} aria-label="目录位置">
+                <button
+                  type="button"
+                  className={styles.directoryBack}
+                  aria-label="返回上级目录"
+                  title="返回上级目录"
+                  disabled={!directory.listing?.parent}
+                  onClick={directory.goBack}
+                >
+                  <ArrowLeft aria-hidden="true" />
+                </button>
+                <div className={styles.directoryPath}>
+                  {(
+                    directory.listing?.breadcrumbs ?? [
+                      { name: "音乐库", path: "" },
+                    ]
+                  ).map((crumb, index, items) => (
+                    <span
+                      className={styles.directoryCrumbWrap}
+                      key={`${crumb.folderId ?? "root"}:${crumb.path}`}
+                    >
+                      {index > 0 ? (
+                        <ChevronRight
+                          className={styles.directorySeparator}
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                      <button
+                        type="button"
+                        className={styles.directoryCrumb}
+                        data-current={
+                          index === items.length - 1 ? "true" : "false"
+                        }
+                        disabled={index === items.length - 1}
+                        onClick={() => directory.goCrumb(crumb)}
+                      >
+                        {crumb.name}
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </nav>
+            ) : null}
+
             <div
               ref={listRef}
               className={styles.listScroll}
@@ -1909,18 +2006,44 @@ export function LiquidPlayer(): React.ReactElement {
               aria-labelledby={`${panelId}-${tab}`}
               onScroll={loadMoreLibrary}
             >
-              {listEmpty ? (
+              {tab === "library" && (directory.loading || directory.error) ? (
+                <div className={styles.directoryLoading} aria-live="polite">
+                  {directory.loading ? (
+                    <>
+                      <LoaderCircle
+                        className={styles.rowSpinner}
+                        aria-hidden="true"
+                      />
+                      加载目录…
+                    </>
+                  ) : (
+                    directory.error
+                  )}
+                </div>
+              ) : listEmpty ? (
                 <div className={styles.emptyState}>
                   <span className={styles.emptyIcon} aria-hidden="true">
-                    {tab === "queue" ? <ListMusic /> : <Upload />}
+                    {tab === "queue" ? (
+                      <ListMusic />
+                    ) : atDirectoryRoot ? (
+                      <Upload />
+                    ) : (
+                      <ArrowLeft />
+                    )}
                   </span>
                   <strong>
-                    {tab === "queue" ? "队列还是空的" : "曲库还空着"}
+                    {tab === "queue"
+                      ? "队列还是空的"
+                      : atDirectoryRoot
+                        ? "曲库还空着"
+                        : "这个目录没有音频"}
                   </strong>
                   <p>
                     {tab === "queue"
                       ? "在曲库选中曲目，再点右上角按钮加入队列"
-                      : "点击添加音乐文件夹，由 Media Service 扫描"}
+                      : atDirectoryRoot
+                        ? "点击添加音乐文件夹，由 Media Service 扫描"
+                        : "返回上级目录继续浏览"}
                   </p>
                   <button
                     type="button"
@@ -1928,35 +2051,51 @@ export function LiquidPlayer(): React.ReactElement {
                     onClick={
                       tab === "queue"
                         ? () => switchTab("library")
-                        : openFilePicker
+                        : atDirectoryRoot
+                          ? openFilePicker
+                          : directory.goBack
                     }
                   >
                     {tab === "queue" ? (
                       <Library aria-hidden="true" />
-                    ) : (
+                    ) : atDirectoryRoot ? (
                       <Plus aria-hidden="true" />
+                    ) : (
+                      <ArrowLeft aria-hidden="true" />
                     )}
-                    {tab === "queue" ? "去曲库" : "添加音乐文件夹"}
+                    {tab === "queue"
+                      ? "去曲库"
+                      : atDirectoryRoot
+                        ? "添加音乐文件夹"
+                        : "返回上级目录"}
                   </button>
                 </div>
               ) : (
-                <TrackList
-                  tracks={visibleTracks}
-                  currentId={current?.id ?? null}
-                  selectedId={selectedTrack?.id ?? null}
-                  playing={playing}
-                  favoriteOverrides={favoriteOverrides}
-                  onSelect={handleSelectTrack}
-                  getCoverUrl={session.getCoverUrl}
-                />
+                <>
+                  {tab === "library" ? (
+                    <DirectoryList
+                      directories={directory.listing?.directories ?? []}
+                      onEnter={directory.enterDirectory}
+                    />
+                  ) : null}
+                  <TrackList
+                    tracks={visibleTracks}
+                    currentId={current?.id ?? null}
+                    selectedId={selectedTrack?.id ?? null}
+                    playing={playing}
+                    favoriteOverrides={favoriteOverrides}
+                    onSelect={handleSelectTrack}
+                    getCoverUrl={session.getCoverUrl}
+                  />
+                </>
               )}
-              {tab === "library" && session.hasMore ? (
+              {tab === "library" && directory.listing?.tracks.hasMore ? (
                 <div
                   ref={loadMoreSentinelRef}
                   className={styles.listMore}
                   aria-live="polite"
                 >
-                  {session.loadingMore ? (
+                  {directory.loadingMore ? (
                     <>
                       <LoaderCircle
                         className={styles.rowSpinner}
@@ -1976,7 +2115,9 @@ export function LiquidPlayer(): React.ReactElement {
                 <span className={styles.footDot} aria-hidden="true" />
                 {tab === "queue"
                   ? `队列 ${queueTracks.length} 首 · ${listTotal}`
-                  : `曲库 ${allTracks.length}/${libraryTotal} 首 · ${listTotal}`}
+                  : atDirectoryRoot
+                    ? `目录 ${directoryCount} 个`
+                    : `目录 ${allTracks.length}/${libraryTotal} 首 · ${listTotal}`}
               </div>
             </footer>
           </section>

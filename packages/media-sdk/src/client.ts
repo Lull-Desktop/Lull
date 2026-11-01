@@ -43,6 +43,8 @@ import type {
   NoiseState,
   NoiseTag,
   NoiseTrack,
+  DirectoryListing,
+  DirectoryQuery,
   Page,
   PlaybackSnapshot,
   PlayerState,
@@ -81,6 +83,7 @@ export interface LullMediaClient {
     startScan(sourceId: string): Promise<ScanJobView>;
     cancelScan(sourceId: string): Promise<boolean>;
     listTracks(query?: TrackQuery): Promise<Page<TrackSummary>>;
+    listDirectory(query?: DirectoryQuery): Promise<DirectoryListing>;
     getTrack(trackId: string): Promise<TrackDetail>;
     getCoverUrl(trackId: string): Promise<string | null>;
     listArtists(): Promise<ArtistSummary[]>;
@@ -435,6 +438,8 @@ export function createMediaClient(
     },
     listTracks: (query: TrackQuery = {}) =>
       call<Page<TrackSummary>>("library", "listTracks", query),
+    listDirectory: (query: DirectoryQuery = {}) =>
+      call<DirectoryListing>("library", "listDirectory", query),
     getTrack: (trackId: string) =>
       call<TrackDetail>("library", "getTrack", { trackId }),
     getCoverUrl: async (trackId: string) => {

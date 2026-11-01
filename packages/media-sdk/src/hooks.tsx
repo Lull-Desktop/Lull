@@ -14,6 +14,9 @@ import type { LullMediaClient } from "./client.js";
 import { type MediaHubStatus, mediaHubFor } from "./hub.js";
 import { queueTracksFor } from "./queue.js";
 import type {
+  DirectoryCrumb,
+  DirectoryEntry,
+  DirectoryListing,
   NoiseAsset,
   NoiseAssetQuery,
   NoisePresetQuery,
@@ -305,7 +308,10 @@ export function useMediaHubStatus(): MediaHubStatus {
  * 官方播放器会话：player/queue 快照 + 曲库列表 + 控制动作。
  * 与 Noise hooks 共用 `MediaSessionHub`，不会互相覆盖订阅。
  */
-export function usePlayerSession(): PlayerSession {
+export function usePlayerSession(options: {
+  includeLibrary?: boolean;
+} = {}): PlayerSession {
+  const includeLibrary = options.includeLibrary !== false;
   const { useMediaClient } = requireReact();
   const client = useMediaClient();
   const hub = mediaHubFor(client);
@@ -400,11 +406,12 @@ export function usePlayerSession(): PlayerSession {
   }, [client]);
 
   useEffect(() => {
+    if (!includeLibrary) return;
     void loadLibrary();
     return hub.onEvent((event) => {
       if (event.topic === "library.changed") void loadLibrary();
     });
-  }, [hub, loadLibrary]);
+  }, [hub, includeLibrary, loadLibrary]);
 
   // 队列必须按 ID 解析：曲库列表只取第一页，队列里的老曲目可能不在其中。
   const queueKey = (snapshot?.queue?.trackIds ?? []).join("\u0000");
@@ -528,6 +535,147 @@ export function usePlayerSession(): PlayerSession {
     levelRef,
     getCoverUrl,
     actions,
+  };
+}
+
+export type DirectoryBrowserLocation = {
+  folderId: string | null;
+  path: string;
+};
+
+export type DirectoryBrowser = {
+  location: DirectoryBrowserLocation;
+  listing: DirectoryListing | null;
+  loading: boolean;
+  loadingMore: boolean;
+  error: string | null;
+  openRoot(): void;
+  enterDirectory(entry: DirectoryEntry): void;
+  goBack(): void;
+  goCrumb(crumb: DirectoryCrumb): void;
+  reload(): Promise<void>;
+  loadMore(): Promise<void>;
+};
+
+/**
+ * 单层目录浏览：一次只保留当前目录的子目录和直接音频文件。
+ * 分页只作用于当前目录的 tracks，directories 一次返回。
+ */
+export function useDirectoryBrowser(): DirectoryBrowser {
+  const { useMediaClient } = requireReact();
+  const client = useMediaClient();
+  const [location, setLocation] = useState<DirectoryBrowserLocation>({
+    folderId: null,
+    path: "",
+  });
+  const [listing, setListing] = useState<DirectoryListing | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const generationRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+
+  const load = useCallback(
+    async (
+      target: DirectoryBrowserLocation,
+      page = 1,
+      append = false,
+    ): Promise<void> => {
+      const generation = generationRef.current + 1;
+      generationRef.current = generation;
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+        setError(null);
+        setListing(null);
+      }
+      try {
+        const result = await client.library.listDirectory({
+          ...(target.folderId ? { folderId: target.folderId } : {}),
+          path: target.path,
+          page,
+          pageSize: LIBRARY_PAGE_SIZE,
+        });
+        if (generation !== generationRef.current) return;
+        setListing((previous) => {
+          if (!append || !previous) return result;
+          return {
+            ...result,
+            tracks: {
+              ...result.tracks,
+              items: [
+                ...previous.tracks.items,
+                ...result.tracks.items,
+              ],
+            },
+          };
+        });
+      } catch (reason) {
+        if (generation !== generationRef.current) return;
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        if (generation === generationRef.current) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
+      }
+    },
+    [client],
+  );
+
+  useEffect(() => {
+    void load(location, 1, false);
+  }, [load, location]);
+
+  // 扫描/收藏/队列外的资料库变化时刷新当前目录，保持当前位置不跳级。
+  useEffect(
+    () =>
+      client.events.on((event) => {
+        if (event.topic === "library.changed") {
+          void load(location, 1, false);
+        }
+      }),
+    [client, load, location],
+  );
+
+  const go = useCallback((next: DirectoryBrowserLocation): void => {
+    setLocation((previous) =>
+      previous.folderId === next.folderId && previous.path === next.path
+        ? previous
+        : next,
+    );
+  }, []);
+
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (loadingMoreRef.current || !listing?.tracks.hasMore) return;
+    loadingMoreRef.current = true;
+    try {
+      await load(location, listing.tracks.page + 1, true);
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }, [listing, load, location]);
+
+  return {
+    location,
+    listing,
+    loading,
+    loadingMore,
+    error,
+    openRoot: () => go({ folderId: null, path: "" }),
+    enterDirectory: (entry) =>
+      go({ folderId: entry.folderId, path: entry.path }),
+    goBack: () => {
+      const parent = listing?.parent;
+      if (parent) {
+        go({ folderId: parent.folderId ?? null, path: parent.path });
+      }
+    },
+    goCrumb: (crumb) =>
+      go({ folderId: crumb.folderId ?? null, path: crumb.path }),
+    reload: () => load(location, 1, false),
+    loadMore,
   };
 }
 

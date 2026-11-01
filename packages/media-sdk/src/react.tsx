@@ -6,10 +6,13 @@ import type { LullMediaClient } from "./client";
 import { bindMediaClientHook } from "./hooks";
 
 export {
+  type DirectoryBrowser,
+  type DirectoryBrowserLocation,
   type NoiseLibraryState,
   type NoisePresetsState,
   type PlayerActions,
   type PlayerSession,
+  useDirectoryBrowser,
   useMediaHubStatus,
   useNoiseLibrary,
   useNoisePresets,

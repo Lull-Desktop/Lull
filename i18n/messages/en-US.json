@@ -143,6 +143,7 @@
   "ext_cap_queue_read": "Read playback queue",
   "ext_cap_queue_write": "Modify playback queue",
   "ext_cap_library_read": "Read music library",
+  "ext_cap_library_directory_read": "Browse music folders",
   "ext_cap_library_favorites_write": "Write favorite state",
   "ext_cap_library_sources_write": "Manage music sources",
   "ext_cap_viewport": "Wallpaper viewport",

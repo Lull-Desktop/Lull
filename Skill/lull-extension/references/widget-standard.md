@@ -98,11 +98,12 @@ Relative paths only, single-entry HTML, hash routing, no site-root assumptions.
 | `media.noise.presets.read` | hard | list/get presets | read-only |
 | `media.noise.presets.write` | hard | save/load/delete/map/favorite presets | no preset file import/export |
 | `media.player.read` | hard | player state/progress/level + snapshot | read-only |
-| `media.player.control` | hard | play/pause/resume/stop/seek/next/previous/mode | only act on user input |
+| `media.player.control` | hard | play/pause/resume/stop/seek/next/previous/mode/advance-list | only act on user input |
 | `media.player.volume.write` | hard | player volume and mute | respect user mute |
 | `media.queue.read` | hard | queue snapshot + `queue.changed` | read-only |
 | `media.queue.write` | hard | add/remove/clear/reorder queue and `playAt` | only act on user input |
 | `media.library.read` | hard | tracks/artists/albums + cover URL | read-only |
+| `media.library.directory.read` | hard | single-level folder browse via `library.listDirectory`; relative paths only | read-only |
 | `media.library.favorites.write` | hard | favorite/unfavorite a track | only act on user input |
 | `media.library.sources.write` | hard | open the folder picker and start a scan | never hand-write paths |
 

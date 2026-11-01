@@ -78,6 +78,7 @@ Media Service（Rust）
 | `folders.scan` | `{folderId}` | `ScanJobView`（立即返回，扫描后台执行） |
 | `folders.cancelScan` | `{folderId}` | `{cancelled: boolean}` |
 | `folders.getTracks` | `{folderId, ...TrackQuery}` | `Page<FolderTrackView>`（host 窗口可读 relativePath） |
+| `library.listDirectory` | `{folderId?, path?, page?, pageSize?}` | `DirectoryListing`（单层目录；只含显示名/相对 path，不含 rootPath） |
 | `library.listSources` / `addSource` / `removeSource` / `startScan` / `cancelScan` | 旧参数 | 兼容别名：listSources 保留原来源列表，其余委托 `folders`，逐步弃用 |
 | `library.listTracks` | `{keyword?, sourceIds?, folderId?, artistId?, albumId?, genre?, format?, year?, yearFrom?, yearTo?, page?, pageSize?, sortBy?, sortOrder?, includeUnavailable?}` | `Page<TrackSummary>` |
 | `library.getTrack` | `{trackId}` | `TrackDetail`（含文件格式/码率、元数据 JSON 与主歌词，不含路径） |
@@ -120,6 +121,7 @@ Media Service（Rust）
 
 - 结果不含 `path/storage_key` 之外的文件系统细节；`rootPath` 只给 settings/library 窗口，相对路径只给 host-only 的 `folders.getTracks`。
 - `TrackSummary` 新增 `folderId/folderName/addedAt/fileName/format/fileSize/bitrate/sampleRate/fileModifiedAt/albumArtId` 可选字段；`FolderTrackView` 在此基础上额外返回 `relativePath`（仅 host）。
+- `DirectoryListing` 只描述“当前一层”：`folder`、`breadcrumbs`、`parent`、`directories`（名称/相对 path/曲目数）与当前目录直接音频文件的 `tracks` 分页；`folderId` 省略时返回根目录列表。
 - 错误用 `{code,message,details?}`；前端按 `code` 分支。
 - `media_connect({topics,progressMs,levels})` 原子注册订阅并返回 `PlaybackSnapshot`；事件 envelope 为 `{protocol,topic,revision,at,eventId,payload}`。顶层 revision 取 Player/Output/Noise 最大值；过滤事件时用各自 domain 的 revision（如 `snapshot.player.revision` / `snapshot.noise.revision`），不要用顶层值。
 - 资料库事件也走 `media:event`：`library.changed`、`library.scan.started`、`library.scan.progress`、`library.scan.finished`；Noise 素材库变更发 `noise.library.changed`。`app_meta.revision` 持久化，列表响应同时带 revision。
@@ -133,7 +135,7 @@ Media Service（Rust）
 
 - `createMediaClient({ transport? })`：Tauri 环境自动使用 `media_call` / `media_connect`；测试传内存 transport。
 - `library.*`（含 scan progress/cancel、cover URL、genre/filter/tag 参数、`updateTrackMetadata`、标签 CRUD/`setTrackTags`、`mergeArtists`/`splitArtist`/`mergeAlbums`/`splitAlbum`、智能歌单 CRUD/`runSmartPlaylist`、`exportBackup`/`importBackup`）、`player.*`、`queue.*`、`playlists.*`、`favorites.*`、`history.*`、`noise.*`（含 `noise.session.*` / `noise.tracks.*` / `noise.library.*` / `noise.presets.*`）、`system.getOutput/setOutput`、`connect/disconnect`、`events.on`。
-- `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
+- `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` / `usePlayerSession` / `useDirectoryBrowser`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
 - `@lull/media-sdk/widget`：`createWidgetTransport` / `createWidgetMediaClient`，翻译为 Widget 桥的 `media.call/connect/disconnect`，并通过 `onMediaEvent` 接收宿主转发事件。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
 - 设置页音乐库面板、官方播放器、白噪音与资料库窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。资料库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单；设置页「我的目录」负责导入、扫描、重命名与移除。
@@ -146,12 +148,16 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 
 ## 5. 安全与隐私
 
-- `media_call` 对 `settings/player/noise/library` 走官方矩阵；`widget-*` 必须携带 Rust 生成的 bridge token，并逐方法校验 Noise（8）+ Player/Queue/Library（8）共 16 个 `media.*` capability。引擎命令仅 `media-engine`。
+- `media_call` 对 `settings/player/noise/library` 走官方矩阵；`widget-*` 必须携带 Rust 生成的 bridge token，并逐方法校验 Noise（8）+ Player/Queue/Library（9）共 17 个 `media.*` capability。引擎命令仅 `media-engine`。
 - 官方窗口矩阵：`settings` 全部；`noise` Noise 读写但不导入/删除 Asset、不导入/导出 Preset 文件；`player` 仅播放/队列；`library` 读取 Noise Library。Widget 不获得 `system.snapshot`、Asset 写与 Preset 文件导入导出。
 - Widget `media_connect` 至少需要一项读能力；snapshot 按授权裁剪：`player` 需 `media.player.read`，`queue` 需 `media.queue.read`，output/noise 维持现状；topic 白名单 = 已授权读能力的并集。
 - bridge token 只注入顶层壳页，插件 iframe 拿不到；`media_call`/`media_connect`/`media_disconnect` 都校验 token，伪造 label/token 失败。
-- 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.*` 八项，以及 `media.player.read/control/volume.write`、`media.queue.read/write`、`media.library.read/favorites.write`、`media.library.sources.write`（最后一项只允许 `folders.add` / `folders.scan`，通过系统选择器添加并扫描）。
-- 目录的 `rootPath` 与 `folders.getTracks` 的 `relativePath` 只允许 host 窗口读取；带 `media.library.sources.write` 的 Widget 只能通过系统选择器添加目录，返回的目录视图也会去掉 `rootPath`。
+- 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.*` 八项，以及 `media.player.read/control/volume.write`、`media.queue.read/write`、`media.library.read/directory.read/favorites.write`、`media.library.sources.write`（最后一项只允许 `folders.add` / `folders.scan`，通过系统选择器添加并扫描）。
+- 目录的 `rootPath` 与 `folders.getTracks` 的 `relativePath` 只允许 host 窗口读取；带
+  `media.library.sources.write` 的 Widget 只能通过系统选择器添加目录，返回的目录视图也会去掉 `rootPath`。
+- 播放器目录浏览使用 `library.listDirectory`：只返回当前层子目录和直接音频文件，返回的
+  `path` 是相对根目录的显示路径，不返回 `rootPath` / 绝对路径；需要
+  `media.library.directory.read`。
 - 音频播放源只在宿主引擎内部解析；绝对路径不进入 DTO/事件。
 - 扫描只读；文件解析失败回退文件名，不阻断整次扫描。
 - 全局 Chromium 参数关闭自动播放限制与后台定时器节流，供隐藏引擎使用；所有 WebView 必须共用同一份参数。

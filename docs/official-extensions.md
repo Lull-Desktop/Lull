@@ -232,11 +232,12 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 | 能力 | 覆盖方法 | topic / 快照 | 用途 |
 | --- | --- | --- | --- |
 | `media.player.read` | `player.getState` | `player.state`、`player.progress`、`player.level`、snapshot.player | 播放器状态与进度 |
-| `media.player.control` | `play` / `pause` / `resume` / `stop` / `seek` / `next` / `previous` / `setMode` | — | 播放控制 |
+| `media.player.control` | `play` / `pause` / `resume` / `stop` / `seek` / `next` / `previous` / `setMode` / `setAdvanceList` | — | 播放控制与自动续播列表 |
 | `media.player.volume.write` | `setVolume` / `setMuted` | — | 播放器音量 |
 | `media.queue.read` | `queue.get` | `queue.changed`、snapshot.queue | 队列视图（只读） |
 | `media.queue.write` | `queue.add` / `remove` / `clear` / `move` / `playAt` | — | 加入队列与队列调整 |
 | `media.library.read` | `listTracks` / `getTrack` / `getCoverUrl` / `listArtists` / `listAlbums` | `library.changed` | 曲目与封面 |
+| `media.library.directory.read` | `listDirectory` | `library.changed` | 播放器单层目录浏览 |
 | `media.library.favorites.write` | `favorites.set` | — | 播放器喜欢按钮 |
 | `media.library.sources.write` | `folders.add` / `folders.scan`（旧 `library.addSource` / `startScan` 兼容） | — | 播放器「添加音乐文件夹」（见 §13） |
 

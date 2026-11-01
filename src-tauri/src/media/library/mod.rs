@@ -4,6 +4,7 @@
 
 pub mod assets;
 mod backup;
+pub mod directory;
 pub mod events;
 pub mod favorites;
 pub mod folders;
@@ -584,6 +585,7 @@ pub async fn call_media(
         Err(error) => Err(error),
       }
     }
+    ("library", "listDirectory") => directory::call(method, args).await,
     ("library", "getTrack") => {
       let id = args
         .get("trackId")

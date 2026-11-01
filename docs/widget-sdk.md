@@ -54,6 +54,7 @@ window label = widget-<id>
 | `media.queue.read` | 硬约束 | 队列快照与 `queue.changed` |
 | `media.queue.write` | 硬约束 | 加入/移除/清空/排序队列与 `playAt` |
 | `media.library.read` | 硬约束 | 曲目/艺术家/专辑查询与封面 URL |
+| `media.library.directory.read` | 硬约束 | 单层目录浏览 `library.listDirectory`（相对路径，不含根路径） |
 | `media.library.favorites.write` | 硬约束 | 喜欢/取消喜欢曲目 |
 | `media.library.sources.write` | 硬约束 | 打开文件夹选择器并触发扫描 |
 
@@ -190,7 +191,7 @@ await media.noise.tracks.setVolume("track-id", 0.4);
 ```
 
 - `media.call` / `media.connect` / `media.disconnect` 由宿主壳代发，并附带 bridge token；Rust 还会按窗口 label 查 `.grants.json`，未授权方法返回 `capability.denied`。
-- Tauri 侧 `window-widgets` capability 只放开上述三个命令；真正的权限仍由 Rust 的 bridge token 与能力清单校验（Noise 8 项 + Player/Queue/Library 8 项）。
+- Tauri 侧 `window-widgets` capability 只放开上述三个命令；真正的权限仍由 Rust 的 bridge token 与能力清单校验（Noise 8 项 + Player/Queue/Library 9 项）。
 - Widget snapshot 按读能力裁剪：`output`/`noise`/`noiseSession` 始终存在；`player` 需 `media.player.read`，`queue` 需 `media.queue.read`。
 - 可订阅 topic 受 read capability 限制；`player.*` / `queue.changed` / `library.changed` 在对应读能力授权后才下发。
 - `noise.presets.importPreset` / `exportPreset`、Asset 导入/编辑/删除/缺失检查不向 Widget 开放。

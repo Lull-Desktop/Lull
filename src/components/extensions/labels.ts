@@ -45,6 +45,10 @@ const CAPABILITY_META: Record<
   "media.queue.read": { label: m.ext_cap_queue_read, level: "basic" },
   "media.queue.write": { label: m.ext_cap_queue_write, level: "required" },
   "media.library.read": { label: m.ext_cap_library_read, level: "basic" },
+  "media.library.directory.read": {
+    label: m.ext_cap_library_directory_read,
+    level: "basic",
+  },
   "media.library.favorites.write": {
     label: m.ext_cap_library_favorites_write,
     level: "hint",

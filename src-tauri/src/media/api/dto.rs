@@ -286,6 +286,80 @@ pub struct FolderTrackView {
   pub relative_path: String,
 }
 
+/// 单层目录浏览查询。`folderId` 为空时列根目录；`path` 是相对根目录的路径。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryQuery {
+  #[serde(default)]
+  pub folder_id: Option<String>,
+  #[serde(default)]
+  pub path: Option<String>,
+  #[serde(default)]
+  pub page: Option<u32>,
+  #[serde(default)]
+  pub page_size: Option<u32>,
+}
+
+impl DirectoryQuery {
+  #[must_use]
+  pub fn page(&self) -> u32 {
+    self.page.unwrap_or(1).max(1)
+  }
+
+  #[must_use]
+  pub fn page_size(&self) -> u32 {
+    self.page_size.unwrap_or(200).clamp(1, 200)
+  }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryEntry {
+  pub name: String,
+  /// 根目录条目也有 folderId；子目录沿用同一个 folderId。
+  pub folder_id: String,
+  /// 相对根目录的路径；根目录条目为空。
+  pub path: String,
+  pub track_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryCrumb {
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub folder_id: Option<String>,
+  pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryLocation {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub folder_id: Option<String>,
+  pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryFolderView {
+  pub id: String,
+  pub name: String,
+  pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryListing {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub folder: Option<DirectoryFolderView>,
+  pub breadcrumbs: Vec<DirectoryCrumb>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub parent: Option<DirectoryLocation>,
+  pub directories: Vec<DirectoryEntry>,
+  pub tracks: Page<TrackSummary>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackLyricsView {

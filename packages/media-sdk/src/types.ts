@@ -42,6 +42,46 @@ export interface FolderTrack extends TrackSummary {
   relativePath: string;
 }
 
+export interface DirectoryQuery {
+  folderId?: string;
+  path?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface DirectoryEntry {
+  name: string;
+  folderId: string;
+  /** 相对根目录的路径；根目录条目为空。 */
+  path: string;
+  trackCount: number;
+}
+
+export interface DirectoryCrumb {
+  name: string;
+  folderId?: string;
+  path: string;
+}
+
+export interface DirectoryLocation {
+  folderId?: string;
+  path: string;
+}
+
+export interface DirectoryFolderView {
+  id: string;
+  name: string;
+  status: MusicFolderStatus;
+}
+
+export interface DirectoryListing {
+  folder?: DirectoryFolderView;
+  breadcrumbs: DirectoryCrumb[];
+  parent?: DirectoryLocation;
+  directories: DirectoryEntry[];
+  tracks: Page<TrackSummary>;
+}
+
 export interface TrackQuery {
   keyword?: string;
   sourceIds?: string[];

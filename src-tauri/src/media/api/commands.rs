@@ -87,7 +87,7 @@ fn host_only(namespace: &str, method: &str, label: &str) -> Result<(), MediaErro
     // 播放器/白噪音只需要曲目读取；来源列表含 rootPath，扫描/增删只属于 host。
     if !matches!(
       method,
-      "listTracks" | "getTrack" | "getCoverUrl" | "listArtists" | "listAlbums"
+      "listTracks" | "getTrack" | "getCoverUrl" | "listArtists" | "listAlbums" | "listDirectory"
     ) {
       return Err(MediaError::new(
         "capability.denied",

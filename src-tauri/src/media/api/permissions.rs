@@ -21,6 +21,7 @@ pub const PLAYER_VOLUME_WRITE: &str = "media.player.volume.write";
 pub const QUEUE_READ: &str = "media.queue.read";
 pub const QUEUE_WRITE: &str = "media.queue.write";
 pub const MEDIA_LIBRARY_READ: &str = "media.library.read";
+pub const MEDIA_LIBRARY_DIRECTORY_READ: &str = "media.library.directory.read";
 pub const MEDIA_LIBRARY_FAVORITES_WRITE: &str = "media.library.favorites.write";
 pub const MEDIA_LIBRARY_SOURCES_WRITE: &str = "media.library.sources.write";
 
@@ -45,6 +46,7 @@ pub const WIDGET_READ_CAPABILITIES: &[&str] = &[
   PLAYER_READ,
   QUEUE_READ,
   MEDIA_LIBRARY_READ,
+  MEDIA_LIBRARY_DIRECTORY_READ,
 ];
 
 /// Widget 可调用方法 → capability。`None` 表示 Widget 不允许该方法。
@@ -91,6 +93,7 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
       "listTracks" | "getTrack" | "getCoverUrl" | "listArtists" | "listAlbums" => {
         Some(MEDIA_LIBRARY_READ)
       }
+      "listDirectory" => Some(MEDIA_LIBRARY_DIRECTORY_READ),
       "addSource" | "startScan" => Some(MEDIA_LIBRARY_SOURCES_WRITE),
       _ => None,
     },
@@ -292,6 +295,10 @@ mod tests {
     assert_eq!(
       widget_capability("library", "getCoverUrl"),
       Some(MEDIA_LIBRARY_READ)
+    );
+    assert_eq!(
+      widget_capability("library", "listDirectory"),
+      Some(MEDIA_LIBRARY_DIRECTORY_READ)
     );
     assert_eq!(
       widget_capability("library", "addSource"),

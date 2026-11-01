@@ -143,6 +143,7 @@
   "ext_cap_queue_read": "播放队列读取",
   "ext_cap_queue_write": "播放队列写入",
   "ext_cap_library_read": "音乐资料库读取",
+  "ext_cap_library_directory_read": "音乐目录浏览",
   "ext_cap_library_favorites_write": "喜欢状态写入",
   "ext_cap_library_sources_write": "音乐来源管理与扫描",
   "ext_cap_viewport": "壁纸视口",
