@@ -5,7 +5,7 @@
 
 use sqlx::{FromRow, SqlitePool};
 
-use super::dto::NoiseAssetQuery;
+use super::dto::{NoiseAssetQuery, NoisePresetQuery};
 use crate::media::api::errors::MediaError;
 use crate::media::repository::now_ms;
 
@@ -748,4 +748,346 @@ pub async fn delete_tag(pool: &SqlitePool, tag_id: &str) -> Result<(), MediaErro
 #[must_use]
 pub fn normalize_tag_name(name: &str) -> String {
   name.trim().to_lowercase()
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct PresetRow {
+  pub id: String,
+  pub origin_id: Option<String>,
+  pub name: String,
+  pub description: Option<String>,
+  pub source_type: String,
+  pub author: Option<String>,
+  pub schema_version: i64,
+  pub master_volume: f64,
+  pub cover_ref: Option<String>,
+  pub favorite: i64,
+  pub track_count: i64,
+  pub created_at: i64,
+  pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct PresetTrackRecord {
+  pub id: String,
+  pub asset_id: Option<String>,
+  pub asset_hash: Option<String>,
+  pub asset_source_type: Option<String>,
+  pub asset_source_id: Option<String>,
+  pub expected_name: String,
+  pub volume: f64,
+  pub enabled: i64,
+  pub loop_: i64,
+  pub fade_in_ms: Option<i64>,
+  pub fade_out_ms: Option<i64>,
+  pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct AssetIdentityRow {
+  pub content_hash: Option<String>,
+  pub source_type: String,
+  pub source_id: String,
+}
+
+pub struct NewPresetTrack {
+  pub id: String,
+  pub asset_id: Option<String>,
+  pub asset_hash: Option<String>,
+  pub asset_source_type: Option<String>,
+  pub asset_source_id: Option<String>,
+  pub expected_name: String,
+  pub volume: f64,
+  pub enabled: bool,
+  pub loop_: bool,
+  pub fade_in_ms: Option<i64>,
+  pub fade_out_ms: Option<i64>,
+  pub sort_order: i64,
+}
+
+pub struct NewPreset {
+  pub id: String,
+  pub origin_id: Option<String>,
+  pub name: String,
+  pub description: Option<String>,
+  pub source_type: String,
+  pub author: Option<String>,
+  pub schema_version: i64,
+  pub master_volume: f64,
+  pub cover_ref: Option<String>,
+  pub tracks: Vec<NewPresetTrack>,
+}
+
+const PRESET_SELECT: &str = "SELECT p.id, p.origin_id, p.name, p.description, p.source_type, \
+  p.author, p.schema_version, p.master_volume, p.cover_ref, \
+  CASE WHEN f.preset_id IS NOT NULL THEN 1 ELSE 0 END AS favorite, \
+  (SELECT COUNT(*) FROM noise_preset_tracks pt WHERE pt.preset_id = p.id) AS track_count, \
+  p.created_at, p.updated_at \
+  FROM noise_presets p LEFT JOIN noise_preset_favorites f ON f.preset_id = p.id";
+
+const PRESET_FILTER: &str = " WHERE (?1 IS NULL OR p.name LIKE ?1 OR p.description LIKE ?1) \
+  AND (?2 IS NULL OR p.source_type = ?2) \
+  AND (?3 = 0 OR f.preset_id IS NOT NULL)";
+
+pub async fn list_presets(
+  pool: &SqlitePool,
+  query: &NoisePresetQuery,
+) -> Result<(Vec<PresetRow>, i64), MediaError> {
+  let keyword = query
+    .keyword
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(|value| format!("%{value}%"));
+  let source = query.source_type.as_deref();
+  let favorite = i64::from(query.favorite_only.unwrap_or(false));
+  let total: i64 = sqlx::query_scalar(&format!(
+    "SELECT COUNT(*) FROM noise_presets p \
+     LEFT JOIN noise_preset_favorites f ON f.preset_id = p.id{PRESET_FILTER}"
+  ))
+  .bind(keyword.as_deref())
+  .bind(source)
+  .bind(favorite)
+  .fetch_one(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("统计 Noise 预设失败：{error}")))?;
+  let page = query.page();
+  let page_size = query.page_size();
+  let offset = i64::from(page.saturating_sub(1)) * i64::from(page_size);
+  let rows = sqlx::query_as::<_, PresetRow>(&format!(
+    "{PRESET_SELECT}{PRESET_FILTER} \
+     ORDER BY CASE p.source_type WHEN 'builtin' THEN 0 ELSE 1 END, \
+       p.updated_at DESC, p.id LIMIT ?4 OFFSET ?5"
+  ))
+  .bind(keyword.as_deref())
+  .bind(source)
+  .bind(favorite)
+  .bind(i64::from(page_size))
+  .bind(offset)
+  .fetch_all(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取 Noise 预设失败：{error}")))?;
+  Ok((rows, total))
+}
+
+pub async fn preset(pool: &SqlitePool, preset_id: &str) -> Result<Option<PresetRow>, MediaError> {
+  sqlx::query_as::<_, PresetRow>(&format!("{PRESET_SELECT} WHERE p.id = ?"))
+    .bind(preset_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("读取 Noise 预设失败：{error}")))
+}
+
+pub async fn preset_records(
+  pool: &SqlitePool,
+  preset_id: &str,
+) -> Result<Vec<PresetTrackRecord>, MediaError> {
+  sqlx::query_as::<_, PresetTrackRecord>(
+    "SELECT id, asset_id, asset_hash, asset_source_type, asset_source_id, expected_name, \
+       volume, enabled, loop AS loop_, fade_in_ms, fade_out_ms, sort_order \
+     FROM noise_preset_tracks WHERE preset_id = ? ORDER BY sort_order, id",
+  )
+  .bind(preset_id)
+  .fetch_all(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取 Noise 预设轨道失败：{error}")))
+}
+
+pub async fn asset_identity(
+  pool: &SqlitePool,
+  asset_id: &str,
+) -> Result<Option<AssetIdentityRow>, MediaError> {
+  sqlx::query_as::<_, AssetIdentityRow>(
+    "SELECT a.content_hash, s.kind AS source_type, a.source_id \
+     FROM noise_assets a JOIN noise_sources s ON s.id = a.source_id WHERE a.id = ?",
+  )
+  .bind(asset_id)
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取 Noise 素材身份失败：{error}")))
+}
+
+pub async fn asset_by_hash(
+  pool: &SqlitePool,
+  content_hash: &str,
+) -> Result<Option<AssetRow>, MediaError> {
+  sqlx::query_as::<_, AssetRow>(
+    "SELECT id, name, media_kind, generator_json, storage_key, status \
+     FROM noise_assets WHERE content_hash = ? LIMIT 1",
+  )
+  .bind(content_hash)
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("按 hash 读取 Noise 素材失败：{error}")))
+}
+
+pub async fn assets_by_name(
+  pool: &SqlitePool,
+  name: &str,
+  limit: i64,
+) -> Result<Vec<AssetRow>, MediaError> {
+  sqlx::query_as::<_, AssetRow>(
+    "SELECT id, name, media_kind, generator_json, storage_key, status \
+     FROM noise_assets WHERE lower(name) = lower(?) AND status = 'available' \
+     ORDER BY created_at LIMIT ?",
+  )
+  .bind(name)
+  .bind(limit)
+  .fetch_all(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("按名称读取 Noise 素材失败：{error}")))
+}
+
+pub async fn insert_preset(pool: &SqlitePool, preset: &NewPreset) -> Result<(), MediaError> {
+  let now = now_ms();
+  let mut tx = pool
+    .begin()
+    .await
+    .map_err(|error| MediaError::internal(format!("开启 Noise 预设事务失败：{error}")))?;
+  sqlx::query(
+    "INSERT INTO noise_presets \
+     (id, origin_id, name, description, source_type, author, schema_version, \
+      master_volume, cover_ref, created_at, updated_at) \
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  )
+  .bind(&preset.id)
+  .bind(&preset.origin_id)
+  .bind(&preset.name)
+  .bind(&preset.description)
+  .bind(&preset.source_type)
+  .bind(&preset.author)
+  .bind(preset.schema_version)
+  .bind(preset.master_volume.clamp(0.0, 1.0))
+  .bind(&preset.cover_ref)
+  .bind(now)
+  .bind(now)
+  .execute(&mut *tx)
+  .await
+  .map_err(|error| MediaError::internal(format!("写入 Noise 预设失败：{error}")))?;
+  for track in &preset.tracks {
+    sqlx::query(
+      "INSERT INTO noise_preset_tracks \
+       (id, preset_id, asset_id, asset_hash, asset_source_type, asset_source_id, \
+        expected_name, volume, enabled, loop, fade_in_ms, fade_out_ms, sort_order) \
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&track.id)
+    .bind(&preset.id)
+    .bind(&track.asset_id)
+    .bind(&track.asset_hash)
+    .bind(&track.asset_source_type)
+    .bind(&track.asset_source_id)
+    .bind(&track.expected_name)
+    .bind(track.volume.clamp(0.0, 1.0))
+    .bind(if track.enabled { 1_i64 } else { 0_i64 })
+    .bind(if track.loop_ { 1_i64 } else { 0_i64 })
+    .bind(track.fade_in_ms)
+    .bind(track.fade_out_ms)
+    .bind(track.sort_order)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| MediaError::internal(format!("写入 Noise 预设轨道失败：{error}")))?;
+  }
+  tx.commit()
+    .await
+    .map_err(|error| MediaError::internal(format!("提交 Noise 预设事务失败：{error}")))?;
+  Ok(())
+}
+
+pub async fn update_preset_metadata(
+  pool: &SqlitePool,
+  preset_id: &str,
+  name: &str,
+  description: Option<&str>,
+  cover_ref: Option<&str>,
+) -> Result<(), MediaError> {
+  let changed = sqlx::query(
+    "UPDATE noise_presets SET name = ?, description = ?, cover_ref = ?, updated_at = ? \
+     WHERE id = ?",
+  )
+  .bind(name)
+  .bind(description)
+  .bind(cover_ref)
+  .bind(now_ms())
+  .bind(preset_id)
+  .execute(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("更新 Noise 预设失败：{error}")))?;
+  if changed.rows_affected() == 0 {
+    return Err(MediaError::new(
+      "noise.preset.not-found",
+      "Noise 预设不存在",
+    ));
+  }
+  Ok(())
+}
+
+pub async fn delete_preset(pool: &SqlitePool, preset_id: &str) -> Result<(), MediaError> {
+  let changed = sqlx::query("DELETE FROM noise_presets WHERE id = ?")
+    .bind(preset_id)
+    .execute(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("删除 Noise 预设失败：{error}")))?;
+  if changed.rows_affected() == 0 {
+    return Err(MediaError::new(
+      "noise.preset.not-found",
+      "Noise 预设不存在",
+    ));
+  }
+  Ok(())
+}
+
+pub async fn set_preset_favorite(
+  pool: &SqlitePool,
+  preset_id: &str,
+  favorite: bool,
+) -> Result<(), MediaError> {
+  if favorite {
+    sqlx::query(
+      "INSERT INTO noise_preset_favorites (preset_id, created_at) VALUES (?, ?) \
+       ON CONFLICT(preset_id) DO NOTHING",
+    )
+    .bind(preset_id)
+    .bind(now_ms())
+    .execute(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("收藏 Noise 预设失败：{error}")))?;
+  } else {
+    sqlx::query("DELETE FROM noise_preset_favorites WHERE preset_id = ?")
+      .bind(preset_id)
+      .execute(pool)
+      .await
+      .map_err(|error| MediaError::internal(format!("取消收藏 Noise 预设失败：{error}")))?;
+  }
+  Ok(())
+}
+
+pub async fn map_preset_track(
+  pool: &SqlitePool,
+  preset_id: &str,
+  preset_track_id: &str,
+  asset_id: &str,
+) -> Result<(), MediaError> {
+  let changed = sqlx::query(
+    "UPDATE noise_preset_tracks SET \
+       asset_id = ?1, \
+       asset_hash = (SELECT content_hash FROM noise_assets WHERE id = ?1), \
+       asset_source_type = (SELECT s.kind FROM noise_assets a \
+         JOIN noise_sources s ON s.id = a.source_id WHERE a.id = ?1), \
+       asset_source_id = (SELECT source_id FROM noise_assets WHERE id = ?1) \
+     WHERE id = ?2 AND preset_id = ?3",
+  )
+  .bind(asset_id)
+  .bind(preset_track_id)
+  .bind(preset_id)
+  .execute(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("映射 Noise 预设轨道失败：{error}")))?;
+  if changed.rows_affected() == 0 {
+    return Err(MediaError::new(
+      "noise.preset.track-not-found",
+      "Noise 预设轨道不存在",
+    ));
+  }
+  Ok(())
 }

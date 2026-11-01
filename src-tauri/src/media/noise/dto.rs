@@ -221,3 +221,110 @@ pub struct NoiseRevalidateResult {
   pub missing: i64,
   pub restored: i64,
 }
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoisePresetQuery {
+  #[serde(default)]
+  pub keyword: Option<String>,
+  #[serde(default)]
+  pub source_type: Option<String>,
+  #[serde(default)]
+  pub favorite_only: Option<bool>,
+  #[serde(default)]
+  pub page: Option<u32>,
+  #[serde(default)]
+  pub page_size: Option<u32>,
+}
+
+impl NoisePresetQuery {
+  #[must_use]
+  pub fn page(&self) -> u32 {
+    self.page.unwrap_or(1).max(1)
+  }
+
+  #[must_use]
+  pub fn page_size(&self) -> u32 {
+    self.page_size.unwrap_or(50).clamp(1, 200)
+  }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoisePresetSummary {
+  pub id: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub origin_id: Option<String>,
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub description: Option<String>,
+  pub source_type: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub author: Option<String>,
+  pub schema_version: i64,
+  pub master_volume: f64,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub cover_ref: Option<String>,
+  pub favorite: bool,
+  pub track_count: i64,
+  pub created_at: i64,
+  pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoisePresetTrackView {
+  pub id: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub asset_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub asset_hash: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub asset_source_type: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub asset_source_id: Option<String>,
+  pub expected_name: String,
+  pub volume: f64,
+  pub enabled: bool,
+  #[serde(rename = "loop")]
+  pub loop_: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub fade_in_ms: Option<i64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub fade_out_ms: Option<i64>,
+  pub sort_order: i64,
+  pub status: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub asset_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoisePresetDetail {
+  pub preset: NoisePresetSummary,
+  pub tracks: Vec<NoisePresetTrackView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoisePresetMissing {
+  pub preset_track_id: String,
+  pub expected_name: String,
+  pub candidates: Vec<NoiseAssetView>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoisePresetLoadResult {
+  pub preset: NoisePresetSummary,
+  pub session: NoiseSessionView,
+  pub resolved: Vec<String>,
+  pub missing: Vec<NoisePresetMissing>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoisePresetExportResult {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub file_name: Option<String>,
+}

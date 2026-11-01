@@ -356,4 +356,58 @@ describe("media client", () => {
       name: "Storm",
     });
   });
+
+  test("routes Noise preset methods", async () => {
+    const transport = createMemoryTransport((request) => {
+      if (request.method === "listPresets") {
+        return { items: [], total: 0, page: 1, pageSize: 20, hasMore: false };
+      }
+      if (request.method === "loadPreset") {
+        return { resolved: [], missing: [] };
+      }
+      if (request.method === "exportPreset") {
+        return { fileName: "night.lull-noise.json" };
+      }
+      if (request.method === "importPreset") {
+        return { preset: { id: "preset-1" }, tracks: [] };
+      }
+      if (request.method === "setPresetFavorite") {
+        return { id: "preset-1", name: "Night" };
+      }
+      return { preset: { id: "preset-1" }, tracks: [] };
+    });
+    const media = createMediaClient({ transport });
+
+    await media.noise.presets.listPresets({ favoriteOnly: true });
+    await media.noise.presets.savePreset({ name: "Night" });
+    await media.noise.presets.updatePreset("preset-1", { name: "Night 2" });
+    await media.noise.presets.deletePreset("preset-1");
+    await media.noise.presets.loadPreset("preset-1");
+    await media.noise.presets.exportPreset("preset-1", "out.json");
+    await media.noise.presets.importPreset("in.json");
+    await media.noise.presets.mapPresetTrack("preset-1", "track-1", "asset-1");
+    await media.noise.presets.setPresetFavorite("preset-1", true);
+
+    expect(transport.requests.map((request) => request.method)).toEqual([
+      "listPresets",
+      "savePreset",
+      "updatePreset",
+      "deletePreset",
+      "loadPreset",
+      "exportPreset",
+      "importPreset",
+      "mapPresetTrack",
+      "setPresetFavorite",
+    ]);
+    expect(transport.requests[0]?.args).toEqual({ favoriteOnly: true });
+    expect(transport.requests[5]?.args).toEqual({
+      presetId: "preset-1",
+      path: "out.json",
+    });
+    expect(transport.requests[7]?.args).toEqual({
+      presetId: "preset-1",
+      presetTrackId: "track-1",
+      assetId: "asset-1",
+    });
+  });
 });

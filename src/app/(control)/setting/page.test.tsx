@@ -144,7 +144,7 @@ test("Page renders in browser mode (no tauri)", () => {
   expect(screen.getByRole("main")).toBeDefined();
 });
 
-test("设置页签按 偏好 / 壁纸 / 音乐库 / 噪音素材库 / 媒体测试 / 白噪音测试 / 扩展 排列，壁纸层只在壁纸页签", () => {
+test("设置页签按 偏好 / 壁纸 / 音乐库 / 噪音素材库 / 噪音预设 / 媒体测试 / 白噪音测试 / 扩展 排列，壁纸层只在壁纸页签", () => {
   render(<Page />);
 
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
@@ -152,6 +152,7 @@ test("设置页签按 偏好 / 壁纸 / 音乐库 / 噪音素材库 / 媒体测�
     "壁纸",
     "音乐库",
     "噪音素材库",
+    "噪音预设",
     "媒体测试",
     "白噪音测试",
     "扩展",

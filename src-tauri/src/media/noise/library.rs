@@ -128,7 +128,7 @@ async fn validate_taxonomy(
   Ok(())
 }
 
-fn asset_view(row: repository::AssetListRow) -> NoiseAssetView {
+pub(super) fn asset_view(row: repository::AssetListRow) -> NoiseAssetView {
   let capabilities: NoiseAssetCapabilities =
     serde_json::from_str(&row.capabilities_json).unwrap_or_default();
   let tags: Vec<NoiseTagView> = serde_json::from_str(&row.tags_json).unwrap_or_default();

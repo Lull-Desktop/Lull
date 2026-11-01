@@ -29,6 +29,11 @@ import type {
   NoiseAssetQuery,
   NoiseCategory,
   NoiseImportResult,
+  NoisePresetDetail,
+  NoisePresetExportResult,
+  NoisePresetLoadResult,
+  NoisePresetQuery,
+  NoisePresetSummary,
   NoiseRevalidateResult,
   NoiseSession,
   NoiseSound,
@@ -200,6 +205,35 @@ export interface LullMediaClient {
       removeAsset(assetId: string): Promise<void>;
       revalidateAssets(): Promise<NoiseRevalidateResult>;
       setAssetFavorite(assetId: string, favorite: boolean): Promise<NoiseAsset>;
+    };
+    presets: {
+      listPresets(query?: NoisePresetQuery): Promise<Page<NoisePresetSummary>>;
+      getPreset(presetId: string): Promise<NoisePresetDetail>;
+      savePreset(input: {
+        name: string;
+        description?: string;
+        cover?: string;
+      }): Promise<NoisePresetDetail>;
+      updatePreset(
+        presetId: string,
+        patch: { name?: string; description?: string | null; cover?: string | null },
+      ): Promise<NoisePresetDetail>;
+      deletePreset(presetId: string): Promise<void>;
+      loadPreset(presetId: string): Promise<NoisePresetLoadResult>;
+      exportPreset(
+        presetId: string,
+        path?: string,
+      ): Promise<NoisePresetExportResult>;
+      importPreset(path?: string): Promise<NoisePresetDetail | null>;
+      mapPresetTrack(
+        presetId: string,
+        presetTrackId: string,
+        assetId: string,
+      ): Promise<NoisePresetDetail>;
+      setPresetFavorite(
+        presetId: string,
+        favorite: boolean,
+      ): Promise<NoisePresetSummary>;
     };
   };
   system: {
@@ -557,6 +591,60 @@ export function createMediaClient(
         call<NoiseRevalidateResult>("noise", "revalidateAssets"),
       setAssetFavorite: (assetId: string, favorite: boolean) =>
         call<NoiseAsset>("noise", "setAssetFavorite", { assetId, favorite }),
+    },
+    presets: {
+      listPresets: (query: NoisePresetQuery = {}) =>
+        call<Page<NoisePresetSummary>>("noise", "listPresets", query),
+      getPreset: (presetId: string) =>
+        call<NoisePresetDetail>("noise", "getPreset", { presetId }),
+      savePreset: (input: {
+        name: string;
+        description?: string;
+        cover?: string;
+      }) => call<NoisePresetDetail>("noise", "savePreset", input),
+      updatePreset: (
+        presetId: string,
+        patch: {
+          name?: string;
+          description?: string | null;
+          cover?: string | null;
+        },
+      ) =>
+        call<NoisePresetDetail>("noise", "updatePreset", {
+          presetId,
+          ...patch,
+        }),
+      deletePreset: async (presetId: string) => {
+        await call<{ removed: boolean }>("noise", "deletePreset", {
+          presetId,
+        });
+      },
+      loadPreset: (presetId: string) =>
+        call<NoisePresetLoadResult>("noise", "loadPreset", { presetId }),
+      exportPreset: (presetId: string, path?: string) =>
+        call<NoisePresetExportResult>("noise", "exportPreset", {
+          presetId,
+          ...(path ? { path } : {}),
+        }),
+      importPreset: (path?: string) =>
+        call<NoisePresetDetail | null>("noise", "importPreset", {
+          ...(path ? { path } : {}),
+        }),
+      mapPresetTrack: (
+        presetId: string,
+        presetTrackId: string,
+        assetId: string,
+      ) =>
+        call<NoisePresetDetail>("noise", "mapPresetTrack", {
+          presetId,
+          presetTrackId,
+          assetId,
+        }),
+      setPresetFavorite: (presetId: string, favorite: boolean) =>
+        call<NoisePresetSummary>("noise", "setPresetFavorite", {
+          presetId,
+          favorite,
+        }),
     },
   };
 

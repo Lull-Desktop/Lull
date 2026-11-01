@@ -57,6 +57,7 @@ struct Session {
   created_at: i64,
   revision: u64,
   sleep_generation: u64,
+  last_preset_id: Option<String>,
 }
 
 static SESSION: OnceLock<Mutex<Session>> = OnceLock::new();
@@ -244,6 +245,7 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     created_at: now_ms(),
     revision: 0,
     sleep_generation: 0,
+    last_preset_id: preferences.last_preset_id.clone(),
   };
   let _ = SESSION.set(Mutex::new(session));
   Ok(())
@@ -267,6 +269,7 @@ pub fn init_fallback() {
     created_at: now_ms(),
     revision: 0,
     sleep_generation: 0,
+    last_preset_id: None,
   };
   let _ = SESSION.set(Mutex::new(session));
 }
@@ -502,9 +505,14 @@ fn emit_all(app: &AppHandle) {
   );
 }
 
-fn save_preferences_async(pool: SqlitePool, master: f64, muted: bool) {
+fn save_preferences_async(
+  pool: SqlitePool,
+  master: f64,
+  muted: bool,
+  last_preset_id: Option<String>,
+) {
   tauri::async_runtime::spawn(async move {
-    let _ = repository::save_preferences(&pool, master, muted, None).await;
+    let _ = repository::save_preferences(&pool, master, muted, last_preset_id.as_deref()).await;
   });
 }
 
@@ -512,11 +520,15 @@ fn pool_and_save() {
   let Ok(pool) = crate::media::library::pool() else {
     return;
   };
-  let (master, muted) = match lock() {
-    Ok(session) => (session.master_volume, session.muted),
+  let (master, muted, last_preset) = match lock() {
+    Ok(session) => (
+      session.master_volume,
+      session.muted,
+      session.last_preset_id.clone(),
+    ),
     Err(_) => return,
   };
-  save_preferences_async(pool.clone(), master, muted);
+  save_preferences_async(pool.clone(), master, muted, last_preset);
 }
 
 pub fn create_session(app: &AppHandle) -> Result<NoiseSessionView, MediaError> {
@@ -529,6 +541,7 @@ pub fn create_session(app: &AppHandle) -> Result<NoiseSessionView, MediaError> {
     session.sleep_minutes = 0;
     session.sleep_ends_at = None;
     session.created_at = now_ms();
+    session.last_preset_id = None;
     touch(&mut session);
   }
   sync_engine(app);
@@ -877,6 +890,31 @@ pub fn reorder_tracks(
   snapshot()
 }
 
+/// 记录最近加载/保存的 Preset，只更新偏好，不改变 Session 音轨。
+pub fn remember_preset(preset_id: Option<String>) {
+  if let Ok(mut session) = lock() {
+    session.last_preset_id = preset_id;
+  }
+  pool_and_save();
+}
+
+/// Preset 被删除时清掉内存中的 last_preset_id，避免偏好保存触发外键失败。
+pub fn forget_preset_if(preset_id: &str) {
+  let changed = if let Ok(mut session) = lock() {
+    if session.last_preset_id.as_deref() == Some(preset_id) {
+      session.last_preset_id = None;
+      true
+    } else {
+      false
+    }
+  } else {
+    false
+  };
+  if changed {
+    pool_and_save();
+  }
+}
+
 /// 旧 `reset`：恢复默认 Preset；保留当前播放状态。
 pub async fn reset_default(app: &AppHandle) -> Result<NoiseSessionView, MediaError> {
   let pool = crate::media::library::pool()?;
@@ -889,6 +927,7 @@ pub async fn reset_default(app: &AppHandle) -> Result<NoiseSessionView, MediaErr
     session.sleep_minutes = 0;
     session.sleep_ends_at = None;
     session.sleep_generation = session.sleep_generation.saturating_add(1);
+    session.last_preset_id = Some(DEFAULT_PRESET_ID.to_string());
     touch(&mut session);
   }
   sync_engine(app);
@@ -904,6 +943,57 @@ pub async fn activate(app: &AppHandle) -> Result<NoiseSessionView, MediaError> {
     reset_default(app).await?;
   }
   play_session(app)
+}
+
+/// N4 Preset 已解析的一条轨道；AssetRow 由 presets 模块查询后传入。
+pub struct PresetSessionTrack {
+  pub asset: repository::AssetRow,
+  pub name: String,
+  pub volume: f64,
+  pub enabled: bool,
+  pub loop_: bool,
+  pub fade_in_ms: Option<i64>,
+  pub fade_out_ms: Option<i64>,
+}
+
+/// 用 Preset 替换 Session；不自动播放，保留 muted，清空睡眠定时。
+pub fn replace_with_preset(
+  app: &AppHandle,
+  tracks: Vec<PresetSessionTrack>,
+  master_volume: f64,
+  preset_id: Option<String>,
+) -> Result<NoiseSessionView, MediaError> {
+  let mut next_tracks = Vec::with_capacity(tracks.len());
+  for request in tracks {
+    let (source, error) = source_from_asset(&request.asset);
+    next_tracks.push(Track {
+      id: new_id("noise_track"),
+      asset_id: request.asset.id,
+      name: request.name,
+      source,
+      volume: clamp_volume(request.volume),
+      enabled: request.enabled,
+      loop_: request.loop_,
+      fade_in_ms: request.fade_in_ms,
+      fade_out_ms: request.fade_out_ms,
+      error,
+    });
+  }
+  {
+    let mut session = lock()?;
+    session.tracks = next_tracks;
+    session.state = "idle".to_string();
+    session.master_volume = clamp_volume(master_volume);
+    session.sleep_minutes = 0;
+    session.sleep_ends_at = None;
+    session.sleep_generation = session.sleep_generation.saturating_add(1);
+    session.last_preset_id = preset_id;
+    touch(&mut session);
+  }
+  sync_engine(app);
+  emit_all(app);
+  pool_and_save();
+  snapshot()
 }
 
 /// 旧 `setLayer`：按 profile / asset ID 找轨，必要时从 builtin Asset 补一条。
@@ -951,11 +1041,20 @@ pub fn shutdown() {
   let Ok(pool) = crate::media::library::pool() else {
     return;
   };
-  let (master, muted) = match lock() {
-    Ok(session) => (session.master_volume, session.muted),
+  let (master, muted, last_preset) = match lock() {
+    Ok(session) => (
+      session.master_volume,
+      session.muted,
+      session.last_preset_id.clone(),
+    ),
     Err(_) => return,
   };
-  let _ = tauri::async_runtime::block_on(repository::save_preferences(pool, master, muted, None));
+  let _ = tauri::async_runtime::block_on(repository::save_preferences(
+    pool,
+    master,
+    muted,
+    last_preset.as_deref(),
+  ));
 }
 
 #[cfg(test)]
@@ -991,6 +1090,7 @@ mod tests {
       created_at: 1,
       revision: 3,
       sleep_generation: 0,
+      last_preset_id: None,
     };
     let view = legacy_view(&session);
     assert!(view.active);
@@ -1014,6 +1114,7 @@ mod tests {
       created_at: 1,
       revision: 3,
       sleep_generation: 1,
+      last_preset_id: None,
     };
     end_sleep(&mut session);
     assert_eq!(session.state, "paused");

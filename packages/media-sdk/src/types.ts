@@ -284,6 +284,69 @@ export interface NoiseSession {
   createdAt: number;
 }
 
+export interface NoisePresetSummary {
+  id: string;
+  originId?: string;
+  name: string;
+  description?: string;
+  sourceType: "builtin" | "user" | "community" | string;
+  author?: string;
+  schemaVersion: number;
+  masterVolume: number;
+  coverRef?: string;
+  favorite: boolean;
+  trackCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface NoisePresetTrack {
+  id: string;
+  assetId?: string;
+  assetHash?: string;
+  assetSourceType?: string;
+  assetSourceId?: string;
+  expectedName: string;
+  volume: number;
+  enabled: boolean;
+  loop: boolean;
+  fadeInMs?: number;
+  fadeOutMs?: number;
+  sortOrder: number;
+  status: "resolved" | "missing";
+  assetName?: string;
+}
+
+export interface NoisePresetDetail {
+  preset: NoisePresetSummary;
+  tracks: NoisePresetTrack[];
+}
+
+export interface NoisePresetQuery {
+  keyword?: string;
+  sourceType?: NoisePresetSummary["sourceType"];
+  favoriteOnly?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface NoisePresetMissing {
+  presetTrackId: string;
+  expectedName: string;
+  candidates: NoiseAsset[];
+}
+
+export interface NoisePresetLoadResult {
+  preset: NoisePresetSummary;
+  session: NoiseSession;
+  resolved: string[];
+  missing: NoisePresetMissing[];
+}
+
+export interface NoisePresetExportResult {
+  fileName?: string;
+}
+
 export interface MediaOutput {
   volume: number;
   muted: boolean;

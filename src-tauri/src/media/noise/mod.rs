@@ -7,6 +7,7 @@ pub mod assets;
 pub mod catalog;
 pub mod dto;
 pub mod library;
+pub mod presets;
 mod repository;
 mod session;
 
@@ -120,6 +121,21 @@ pub async fn call(
       | "revalidateAssets"
   ) {
     return library::call(&app, label, method, args).await;
+  }
+  if matches!(
+    method,
+    "listPresets"
+      | "getPreset"
+      | "savePreset"
+      | "updatePreset"
+      | "deletePreset"
+      | "loadPreset"
+      | "exportPreset"
+      | "importPreset"
+      | "mapPresetTrack"
+      | "setPresetFavorite"
+  ) {
+    return presets::call(&app, label, method, args).await;
   }
   match method {
     "getState" => legacy_value(),

@@ -19,6 +19,7 @@ import { MediaApiTestPanel } from "@/components/settings/media-api-test-panel";
 import { MusicLibraryPanel } from "@/components/settings/music-library-panel";
 import { NoiseApiTestPanel } from "@/components/settings/noise-api-test-panel";
 import { NoiseLibraryPanel } from "@/components/settings/noise-library-panel";
+import { NoisePresetPanel } from "@/components/settings/noise-preset-panel";
 import { WallpaperPanel } from "@/components/settings/wallpaper-panel";
 import {
   Card,
@@ -71,6 +72,7 @@ const SETTINGS_TABS = [
   "wallpaper",
   "library",
   "noise-library",
+  "noise-presets",
   "media-test",
   "noise-test",
   "extensions",
@@ -83,6 +85,7 @@ const TAB_LABELS: Record<SettingsTab, () => string> = {
   wallpaper: m.settings_tab_wallpaper,
   library: m.settings_tab_library,
   "noise-library": m.settings_tab_noise_library,
+  "noise-presets": m.settings_tab_noise_presets,
   "media-test": m.settings_tab_media_test,
   "noise-test": m.settings_tab_noise_test,
   extensions: m.settings_tab_extensions,
@@ -689,6 +692,11 @@ export default function Settings() {
       {tab === "noise-library" && (
         <main className="space-y-6">
           <NoiseLibraryPanel />
+        </main>
+      )}
+      {tab === "noise-presets" && (
+        <main className="space-y-6">
+          <NoisePresetPanel />
         </main>
       )}
       {tab === "media-test" && (

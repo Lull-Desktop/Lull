@@ -27,6 +27,9 @@ const DEFAULT_TOPICS: &[&str] = &[
   "noise.track.state-changed",
   "noise.volume.changed",
   "noise.library.changed",
+  "noise.preset.created",
+  "noise.preset.updated",
+  "noise.preset.deleted",
   "noise.level",
   "output.changed",
 ];
@@ -45,6 +48,9 @@ const ALLOWED_TOPICS: &[&str] = &[
   "noise.track.state-changed",
   "noise.volume.changed",
   "noise.library.changed",
+  "noise.preset.created",
+  "noise.preset.updated",
+  "noise.preset.deleted",
   "noise.level",
   "output.changed",
 ];
