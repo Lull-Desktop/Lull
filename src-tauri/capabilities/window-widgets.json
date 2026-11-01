@@ -17,6 +17,9 @@
     "allow-widget-state-set",
     "allow-widget-state-remove",
     "allow-widget-package-notify",
-    "allow-widget-set-transparent"
+    "allow-widget-set-transparent",
+    "allow-media-call",
+    "allow-media-connect",
+    "allow-media-disconnect"
   ]
 }

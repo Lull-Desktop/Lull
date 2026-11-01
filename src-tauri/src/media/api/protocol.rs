@@ -25,6 +25,9 @@ pub struct MediaRequest {
   pub method: String,
   #[serde(default)]
   pub args: Value,
+  /// Widget 桥 token；官方窗口不传。
+  #[serde(default)]
+  pub bridge_token: Option<String>,
   /// 预留给 P2 的队列/播放冲突检查；P1 只读资料库不使用。
   #[allow(dead_code)]
   #[serde(default)]

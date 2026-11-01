@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 2,
+  "type": "widget",
+  "id": "community-noise-mixer",
+  "name": "Noise Mixer（示例）",
+  "version": "1.0.0",
+  "description": "通过宿主媒体桥读取 Noise Session、控制播放与轨道开关，不直接接触 Tauri IPC。",
+  "author": "Lull",
+  "license": "MIT",
+  "builtin": false,
+  "hostApi": 1,
+  "entry": "index.html",
+  "capabilities": [
+    "widget.theme",
+    "widget.state",
+    "widget.media",
+    "media.noise.session.read",
+    "media.noise.session.control",
+    "media.noise.tracks.read",
+    "media.noise.tracks.write",
+    "media.noise.volume.write"
+  ],
+  "window": {
+    "width": 420,
+    "height": 560,
+    "minWidth": 360,
+    "minHeight": 420,
+    "resizable": false,
+    "transparent": true,
+    "chrome": "host"
+  }
+}

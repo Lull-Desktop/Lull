@@ -3,5 +3,6 @@
 pub mod commands;
 pub mod dto;
 pub mod errors;
+pub mod permissions;
 pub mod protocol;
 pub mod snapshot;

@@ -26,11 +26,26 @@ pub struct PlaybackSnapshot {
   pub noise_session: NoiseSessionView,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetSnapshot {
+  pub protocol: u32,
+  pub revision: u64,
+  pub output: OutputView,
+  pub noise: NoiseStateView,
+  pub noise_session: NoiseSessionView,
+}
+
 #[must_use]
 pub fn revision() -> u64 {
   playback::revision()
     .max(output::revision())
     .max(noise::revision())
+}
+
+#[must_use]
+pub fn widget_revision() -> u64 {
+  output::revision().max(noise::revision())
 }
 
 pub fn snapshot() -> Result<PlaybackSnapshot, MediaError> {
@@ -41,6 +56,17 @@ pub fn snapshot() -> Result<PlaybackSnapshot, MediaError> {
     revision: revision(),
     player,
     queue,
+    output: output::view(),
+    noise,
+    noise_session,
+  })
+}
+
+pub fn widget_snapshot() -> Result<WidgetSnapshot, MediaError> {
+  let (noise_session, noise) = noise::snapshots()?;
+  Ok(WidgetSnapshot {
+    protocol: PROTOCOL_VERSION,
+    revision: widget_revision(),
     output: output::view(),
     noise,
     noise_session,

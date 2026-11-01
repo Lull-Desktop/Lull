@@ -18,6 +18,14 @@ pub const PLUGIN_CAPABILITIES: &[&str] = &[
   "widget.media",
   "widget.network",
   "widget.chrome",
+  "media.noise.library.read",
+  "media.noise.session.read",
+  "media.noise.session.control",
+  "media.noise.tracks.read",
+  "media.noise.tracks.write",
+  "media.noise.volume.write",
+  "media.noise.presets.read",
+  "media.noise.presets.write",
 ];
 
 const MIN_WIDTH: f64 = 320.0;

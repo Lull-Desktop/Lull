@@ -188,5 +188,9 @@ if (dirs.length === 0) {
 
 verifyDigestAlgorithm();
 for (const dir of dirs) {
+  if (!existsSync(join(dir, "widget.json"))) {
+    console.log(`[samples] 跳过未构建目录：${dir}`);
+    continue;
+  }
   pack(dir, outDir, tampered);
 }

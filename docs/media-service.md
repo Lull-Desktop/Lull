@@ -1,6 +1,6 @@
 # Lull Media Service 与音乐资料库
 
-> 状态：P0 + P1 + P2 + N1 + P3 + N2 + N3 + N3.5 + N4 已落地（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列、官方播放器迁移、Shared AudioGraph/engine protocol v2/全局输出音量、订阅与快照基础、歌单/喜欢/历史、M3U 导入导出与资料库窗口、Noise Asset/Track/Session 与旧 5 层兼容门面、Noise 本地素材导入/分类/标签/收藏/搜索/缺失检测、分类/标签独立 CRUD、Preset 保存/加载/导入导出/缺失映射）。第三方开放按阶段推进；Noise 决策见 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
+> 状态：P0 + P1 + P2 + N1 + P3 + N2 + N3 + N3.5 + N4 + N5/P5 已落地（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列、官方播放器迁移、Shared AudioGraph/engine protocol v2/全局输出音量、订阅与快照基础、歌单/喜欢/历史、M3U 导入导出与资料库窗口、Noise Asset/Track/Session 与旧 5 层兼容门面、Noise 本地素材导入/分类/标签/收藏/搜索/缺失检测、分类/标签独立 CRUD、Preset 保存/加载/导入导出/缺失映射、Widget 媒体桥/bridge token/8 个 Noise capability/React hooks/示例）。P4/P6 与 N6 官方 UI 待推进；Noise 决策见 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
 
 ## 1. 边界
 
@@ -103,7 +103,7 @@ Media Service（Rust）
 | `noise.presets.listPresets` / `getPreset` | `keyword`, `sourceType`, `favoriteOnly`, `page` | `Page<NoisePresetSummary>` / `NoisePresetDetail` |
 | `noise.presets.savePreset` / `updatePreset` / `deletePreset` | `name`, `description?`, `cover?`, `presetId` | `NoisePresetDetail` / `{removed}`（内置 Preset 不可改删） |
 | `noise.presets.loadPreset` / `mapPresetTrack` | `presetId`, `presetTrackId`, `assetId` | `NoisePresetLoadResult` / `NoisePresetDetail` |
-| `noise.presets.importPreset` / `exportPreset` | `path?` | `NoisePresetDetail` / `NoisePresetExportResult`（仅 settings） |
+| `noise.presets.importPreset` / `exportPreset` | `path?` | `NoisePresetDetail`（取消为 null）/ `NoisePresetExportResult`（仅 settings） |
 | `noise.presets.setPresetFavorite` | `presetId`, `favorite` | `NoisePresetSummary` |
 | `system.snapshot` | `{}` | `PlaybackSnapshot`（含 `output` / `noiseSession`） |
 | `system.getOutput` / `setOutput` | `volume?`, `muted?` | `MediaOutput` |
@@ -124,16 +124,20 @@ Media Service（Rust）
 
 - `createMediaClient({ transport? })`：Tauri 环境自动使用 `media_call` / `media_connect`；测试传内存 transport。
 - `library.*`（含 scan progress/cancel、cover URL、genre/filter 参数）、`player.*`、`queue.*`、`playlists.*`、`favorites.*`、`history.*`、`noise.*`（含 `noise.session.*` / `noise.tracks.*` / `noise.library.*` / `noise.presets.*`）、`system.getOutput/setOutput`、`connect/disconnect`、`events.on`。
-- `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient`。
+- `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
+- `@lull/media-sdk/widget`：`createWidgetTransport` / `createWidgetMediaClient`，翻译为 Widget 桥的 `media.call/connect/disconnect`，并通过 `onMediaEvent` 接收宿主转发事件。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
 - 设置页音乐库面板、官方播放器、白噪音与资料库窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。资料库窗口（label `library`）包含曲库/歌单/喜欢/历史/队列五页。
 
-P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公开文档。
+P5 已落地：`./widget` 传输、8 个 Noise capability、Rust bridge token、`noise-mixer` 示例；`./vue` 与查询缓存仍未实现。
 
 ## 5. 安全与隐私
 
-- `media_call` 仅 `settings/player/noise/library`；引擎命令仅 `media-engine`；`window-widgets` 仍未获得媒体命令。`library` 可管理歌单/收藏/历史/队列与读取 Noise Library，但 Noise 导入/编辑/删除/缺失检查仍只允许设置窗。
-- 第三方后续能力见 `docs/widget-sdk.md` 规划：`media.library.read/search/scan/edit`、`media.playlists.*`、`media.favorites.*`、`media.tags.*`、`media.history.read`、`media.player.*`、`media.queue.*`、`media.noise.*`。
+- `media_call` 对 `settings/player/noise/library` 走官方矩阵；`widget-*` 必须携带 Rust 生成的 bridge token，并逐方法校验 8 个 `media.noise.*` capability。引擎命令仅 `media-engine`。
+- 官方窗口矩阵：`settings` 全部；`noise` Noise 读写但不导入/删除 Asset、不导入/导出 Preset 文件；`player` 仅播放/队列；`library` 读取 Noise Library。Widget 不获得 `system.snapshot`、player/queue、Asset 写与 Preset 文件导入导出。
+- Widget `media_connect` 只返回 redacted snapshot（output/noise/noiseSession），topic 按 read capability 过滤；player/queue/output 事件不向 Widget 开放。
+- bridge token 只注入顶层壳页，插件 iframe 拿不到；`media_call`/`media_connect`/`media_disconnect` 都校验 token，伪造 label/token 失败。
+- 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.library.read`、`session.read/control`、`tracks.read/write`、`volume.write`、`presets.read/write`。
 - 添加/移除音乐目录只允许 host；第三方只能重扫已授权来源，永远拿不到根路径或音频源。
 - 音频播放源只在宿主引擎内部解析；DTO/事件不传文件路径。
 - 扫描只读；文件解析失败回退文件名，不阻断整次扫描。
@@ -150,6 +154,7 @@ P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公�
 - N3 的 Noise 本地素材在导入时复制到受管目录并流式 SHA-256；支持 `mp3/flac/wav/ogg/m4a/aac`、单文件 100 MB/30 分钟上限，重复 hash 返回已有 Asset。文件播放走 `<audio>` + `MediaElementAudioSourceNode`，缺失文件由 `revalidateAssets` 标记，不每次打开全量重算 hash。
 - N3.5 起分类/标签有用户 CRUD：内置分类/标签只读，用户分类支持父子层级与循环保护，同名分类（同父级）和同名标签（跨内置/用户）拒绝；删除分类把素材置为未分类且子分类存在时拒绝删除，删除标签级联移除素材关联。
 - N4 起 Preset 保存当前 Session 的 Asset 引用/哈希/名称/音量/loop/fade 快照，不含音频、脚本或路径；加载替换 Session 与 master 但不自动播放，缺失轨道返回 candidates，可 `mapPresetTrack` 后重载。`.lull-noise.json` 导入生成新本地 ID，原 ID 存 `origin_id`，同来源不自动覆盖。
+- N5/P5 起 Widget 侧不直接拿 Tauri IPC；bridge token 只注入顶层壳页。Widget snapshot 为 redacted；8 个 Noise capability 按方法/事件逐项强制校验，伪造 token 或未授权方法返回 `capability.denied`。
 - 设备切换依赖 `devicechange` 重载引擎页 + Rust 全量 resync；多设备选择、独占模式、SMTC 尚未接入。
 - 没有第三方媒体权限；`media:event` 只对官方窗口开放。
 - 扫描错误最多保留 100 条，写入 `music_scan_runs.errors_json`。
@@ -168,7 +173,7 @@ P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公�
 | N3.5 | Noise Taxonomy：分类/标签独立 CRUD、层级循环保护、内置只读 | 代码已落地，待手工验收 |
 | N4 | Noise Presets：保存/加载/导入/导出、缺失映射 | 代码已落地，待手工验收 |
 | P4 | 元数据编辑、标签、实体合并/拆分、智能歌单 | 未开始 |
-| N5/P5 | 公开 Media SDK、Widget 桥、媒体权限、示例 | 未开始 |
+| N5/P5 | 公开 Media SDK、Widget 桥、8 个 Noise 权限、token、React hooks、示例 | 代码已落地，待手工验收 |
 | N6 | 官方 Noise Mixer/Library/Preset UI | 未开始 |
 | P6 | 在线元数据、歌词格式、监听、缩略图、备份 | 未开始 |
 

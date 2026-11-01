@@ -28,11 +28,11 @@ const MAX_FILE_BYTES: u64 = 512 * 1024;
 const MAX_FADE_MS: i64 = 10_000;
 
 fn read_allowed(label: &str) -> bool {
-  matches!(label, "settings" | "noise" | "library")
+  matches!(label, "settings" | "noise" | "library") || label.starts_with("widget-")
 }
 
 fn write_allowed(label: &str) -> bool {
-  matches!(label, "settings" | "noise")
+  matches!(label, "settings" | "noise") || label.starts_with("widget-")
 }
 
 fn file_allowed(label: &str) -> bool {

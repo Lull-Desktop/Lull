@@ -3,16 +3,19 @@
 //! 与内置工具（`window_host`）分开：插件窗口 label 固定为 `widget-<id>`，
 //! 只获得 `core` 窗口权限与状态命令；包管理命令只有设置窗能调用。
 
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+use serde::Serialize;
+use serde_json::Value;
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Window};
+
 pub(crate) mod digest;
 pub mod manifest;
 mod protocol;
 pub(crate) mod store;
 
 pub use protocol::handle as handle_protocol;
-
-use serde::Serialize;
-use serde_json::Value;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Window};
 
 use crate::window_host;
 use manifest::{PackageManifest, WindowSpec, HOST_API};
@@ -28,6 +31,38 @@ pub fn is_plugin_label(label: &str) -> bool {
   label
     .strip_prefix(LABEL_PREFIX)
     .is_some_and(manifest::valid_id)
+}
+
+static BRIDGE_TOKENS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+fn bridge_tokens() -> &'static Mutex<HashMap<String, String>> {
+  BRIDGE_TOKENS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn issue_bridge_token(label: &str) -> String {
+  let token = uuid::Uuid::new_v4().to_string();
+  if let Ok(mut tokens) = bridge_tokens().lock() {
+    tokens.insert(label.to_string(), token.clone());
+  }
+  token
+}
+
+#[must_use]
+pub fn verify_bridge_token(label: &str, token: Option<&str>) -> bool {
+  let Some(token) = token.filter(|value| !value.is_empty()) else {
+    return false;
+  };
+  bridge_tokens()
+    .lock()
+    .ok()
+    .and_then(|tokens| tokens.get(label).cloned())
+    .is_some_and(|expected| expected == token)
+}
+
+pub fn on_window_destroyed(label: &str) {
+  if let Ok(mut tokens) = bridge_tokens().lock() {
+    tokens.remove(label);
+  }
 }
 
 fn package_id_from_window(window: &Window) -> Result<String, String> {
@@ -81,9 +116,10 @@ struct PluginContext {
   granted: Vec<String>,
   minimizable: bool,
   window: WindowContext,
+  bridge_token: String,
 }
 
-fn plugin_context_json(app: &AppHandle, runtime: &PackageManifest) -> String {
+fn plugin_context_json(app: &AppHandle, runtime: &PackageManifest, bridge_token: &str) -> String {
   let context = PluginContext {
     v: PROTOCOL_VERSION,
     protocol: PROTOCOL_VERSION,
@@ -96,6 +132,7 @@ fn plugin_context_json(app: &AppHandle, runtime: &PackageManifest) -> String {
     granted: store::granted(app, &runtime.id),
     minimizable: window_host::prefs::load(app).taskbar_and_minimize,
     window: WindowContext::from(&runtime.window),
+    bridge_token: bridge_token.to_string(),
   };
   match serde_json::to_string(&context) {
     Ok(json) => json,
@@ -181,6 +218,7 @@ fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
   }
 
   let on = window_host::prefs::load(app).taskbar_and_minimize;
+  let bridge_token = issue_bridge_token(&label);
   let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("embed".into()))
     .title(format!("Lull {}", manifest.name))
     .inner_size(manifest.window.width, manifest.window.height)
@@ -194,7 +232,7 @@ fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
     .maximizable(false)
     .initialization_script(format!(
       "window.__LULL_PLUGIN__ = {};",
-      plugin_context_json(app, &manifest)
+      plugin_context_json(app, &manifest, &bridge_token)
     ));
   let mut builder = builder.additional_browser_args(crate::webview::browser_args());
   // 插件窗口始终用透明 WebView 创建，初始背景由清单的 window.transparent 决定；
@@ -297,6 +335,16 @@ mod tests {
   }
 
   #[test]
+  fn bridge_token_is_issued_and_revoked() {
+    let token = issue_bridge_token("widget-test-token");
+    assert!(verify_bridge_token("widget-test-token", Some(&token)));
+    assert!(!verify_bridge_token("widget-test-token", Some("wrong")));
+    assert!(!verify_bridge_token("widget-test-token", None));
+    on_window_destroyed("widget-test-token");
+    assert!(!verify_bridge_token("widget-test-token", Some(&token)));
+  }
+
+  #[test]
   fn context_serializes_expected_fields() {
     use crate::widget_package::manifest::WindowSpec;
     let manifest = PackageManifest {
@@ -329,9 +377,11 @@ mod tests {
       granted: vec!["widget.state".to_string()],
       minimizable: true,
       window: WindowContext::from(&manifest.window),
+      bridge_token: "token".to_string(),
     })
     .unwrap_or(Value::Null);
     assert_eq!(json["id"], "community-pomodoro");
+    assert_eq!(json["bridgeToken"], "token");
     assert_eq!(json["protocol"], 1);
     assert!(json["entryUrl"]
       .as_str()

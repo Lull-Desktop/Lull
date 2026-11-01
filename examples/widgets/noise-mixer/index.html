@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Noise Mixer</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <div>
+          <p class="eyebrow">LULL / NOISE</p>
+          <h1 id="title">Noise Mixer</h1>
+        </div>
+        <button id="toggle" type="button">播放</button>
+      </header>
+      <p id="status" class="status">未连接</p>
+      <label class="sleep-row" for="sleep">
+        <span>睡眠定时</span>
+        <select id="sleep">
+          <option value="0">关闭</option>
+          <option value="5">5 分钟</option>
+          <option value="15">15 分钟</option>
+          <option value="30">30 分钟</option>
+          <option value="60">60 分钟</option>
+          <option value="120">120 分钟</option>
+        </select>
+      </label>
+      <section id="tracks" class="tracks"></section>
+      <p class="hint">这是第三方 Widget 示例：所有媒体调用都经宿主壳与 bridge token。</p>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

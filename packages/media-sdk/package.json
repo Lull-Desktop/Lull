@@ -24,6 +24,10 @@
       "types": "./dist/react.d.ts",
       "default": "./dist/react.js"
     },
+    "./widget": {
+      "types": "./dist/widget.d.ts",
+      "default": "./dist/widget.js"
+    },
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"

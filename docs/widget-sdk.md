@@ -37,9 +37,17 @@ window label = widget-<id>
 | `widget.theme` | 软约束 | 宿主下发流光令牌；插件可以忽略 |
 | `widget.state` | 硬隔离 | Rust 侧 KV；按窗口 label 推导插件 id，消息里的 id 不被信任 |
 | `widget.audio` | 软约束 | 宿主只返回是否同意；未授权时静音运行 |
-| `widget.media` | 软约束 | 导入本地媒体前检查 |
+| `widget.media` | 硬约束 | 经宿主壳调用 Media Service；必须配合下列 Noise capability 与 bridge token |
 | `widget.network` | 硬约束 | 只有清单声明的 `https://` 源会进 CSP |
 | `widget.chrome` | 硬约束 | 拖动 / 最小化 / 关闭 / 切换透明**自己的**窗口；`chrome: "custom"` 时必须声明 |
+| `media.noise.library.read` | 硬约束 | Noise 素材/分类/标签/收藏读取 |
+| `media.noise.session.read` | 硬约束 | Session/State/snapshot/事件读取 |
+| `media.noise.session.control` | 硬约束 | Session 创建/播放/暂停/停止/睡眠 |
+| `media.noise.tracks.read` | 硬约束 | Track 事件读取 |
+| `media.noise.tracks.write` | 硬约束 | 增删轨道、enabled/loop/排序 |
+| `media.noise.volume.write` | 硬约束 | Session/Track 音量与静音 |
+| `media.noise.presets.read` | 硬约束 | Preset 列表/详情 |
+| `media.noise.presets.write` | 硬约束 | 保存/加载/删除/映射/收藏 Preset |
 
 `widget.window`（创建或控制其他窗口）与 `widget.native`（Win32 / 原生宿主）**不可申请**。
 
@@ -102,7 +110,7 @@ window label = widget-<id>
 | `entry` | 包内相对 `.html`；禁止 `..`、反斜杠、百分号编码与绝对路径 |
 | `icon` | 可选，包内 `.png` / `.jpg` / `.jpeg` / `.webp` |
 | `lifecycle` | `background`（默认，关闭只隐藏）或 `suspend`（关闭即销毁窗口） |
-| `capabilities` | 只能申请上表的 7 个 |
+| `capabilities` | 只能申请上表的 15 个 |
 | `window.width/height` | 320×240 – 1600×1200；`minWidth/minHeight` 不得大于初始值 |
 | `window.resizable` | 首期固定 `false`，窗口尺寸由宿主决定 |
 | `window.transparent` | 初始是否透明（默认 `true`），运行时可用 `setTransparent` 切换 |
@@ -144,6 +152,32 @@ document.querySelector(".my-close")?.addEventListener("click", () => void lull.c
 await lull.setTransparent(false, "#0b1014"); // 不透明并指定背景色
 ```
 
+### 媒体（Noise）桥
+
+声明 `widget.media` 与需要的最小 Noise capability。宿主 init 里的 `bridgeToken` 由 Rust 生成并只注入顶层壳页；插件 iframe 拿不到 Tauri IPC 或 token。
+
+```ts
+import { connectLullWidget } from "@lull/widget-sdk";
+import { createWidgetMediaClient } from "@lull/media-sdk/widget";
+
+const lull = await connectLullWidget();
+const media = createWidgetMediaClient({
+  request: (method, params) => lull.request(method as never, params as never),
+  onMediaEvent: lull.onMediaEvent,
+});
+
+await media.connect({ topics: ["noise.session.changed", "noise.track.updated"] });
+await media.noise.session.play();
+await media.noise.tracks.setVolume("track-id", 0.4);
+```
+
+- `media.call` / `media.connect` / `media.disconnect` 由宿主壳代发，并附带 bridge token；Rust 还会按窗口 label 查 `.grants.json`，未授权方法返回 `capability.denied`。
+- Tauri 侧 `window-widgets` capability 只放开上述三个命令；真正的权限仍由 Rust 的 bridge token 与 8 个 Noise capability 校验。更新宿主后需要重新构建/重启应用，让 capability 生效。
+- Widget snapshot 是 redacted：只有 `output`、`noise`、`noiseSession`，不含 player/queue。
+- 可订阅 topic 受 read capability 限制；player/queue/output 事件不向 Widget 开放。
+- `noise.presets.importPreset` / `exportPreset`、Asset 导入/编辑/删除/缺失检查不向 Widget 开放。
+- `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` 可配合 `@lull/media-sdk/react` 使用；它们按 client 共享一次连接，最后一个订阅卸载时断开。
+
 React：
 
 ```tsx
@@ -175,7 +209,7 @@ const prefs = useLullState("prefs", defaults);
 ```
 
 常用成员：`getState` / `setState` / `removeState`、`theme` / `onTheme`、`viewport` / `onViewport`、
-`onVisibility`、`has(cap)`、`requestAudio()`、`startDrag()` / `minimize()` / `setTransparent()` / `close()`、
+`onVisibility`、`onMediaEvent`、`has(cap)`、`requestAudio()`、`startDrag()` / `minimize()` / `setTransparent()` / `close()`、
 `log()`、`destroy()`。错误统一抛 `LullWidgetError`，按 `code` 分支，不要匹配文案。
 
 ### 3. 构建与安装
@@ -195,13 +229,15 @@ pnpm widget:pack <dir>        # 把构建好的目录打成 .lull-widget.zip
 
 ### 4. 示例工程
 
-三个示例覆盖三套技术栈，直接对照着改最快：
+五个示例覆盖三套技术栈、媒体桥与 React hooks，直接对照着改最快：
 
 | 示例 | 技术栈 | 位置 |
 | --- | --- | --- |
 | `pomodoro-js` | 原生 TypeScript | `examples/widgets/pomodoro-js` |
 | `pomodoro-react` | React | `examples/widgets/pomodoro-react` |
 | `pomodoro-vue` | Vue 3 | `examples/widgets/pomodoro-vue` |
+| `noise-mixer` | 原生 TypeScript + `@lull/media-sdk/widget` | `examples/widgets/noise-mixer` |
+| `noise-hooks` | React + `@lull/media-sdk/react` | `examples/widgets/noise-hooks` |
 
 ## 需要注意
 

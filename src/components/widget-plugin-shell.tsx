@@ -9,6 +9,7 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,6 +45,7 @@ type PluginContext = {
   granted: string[];
   minimizable: boolean;
   window: PluginWindow;
+  bridgeToken: string;
 };
 
 type ThemePayload = {
@@ -90,6 +92,7 @@ function isPluginContext(value: unknown): value is PluginContext {
     typeof record.id === "string" &&
     typeof record.entryUrl === "string" &&
     Array.isArray(record.granted) &&
+    typeof record.bridgeToken === "string" &&
     typeof record.window === "object"
   );
 }
@@ -162,6 +165,28 @@ export function WidgetPluginShell() {
     iframeRef.current?.contentWindow?.postMessage(message, "*");
   }, []);
 
+  useEffect(() => {
+    if (!context) return;
+    let stop: (() => void) | null = null;
+    let disposed = false;
+    void listen<unknown>("media:event", (event) => {
+      send({
+        v: PROTOCOL_VERSION,
+        type: "media.event",
+        event: event.payload,
+      });
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else stop = unlisten;
+    }).catch(() => {
+      // 浏览器预览/单测没有 Tauri 事件系统；媒体事件不可用。
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [context, send]);
+
   const sendInit = useCallback(() => {
     if (!context) return;
     const viewport = measure(iframeRef.current);
@@ -231,6 +256,39 @@ export function WidgetPluginShell() {
           return {
             granted: context?.granted.includes("widget.audio") ?? false,
           };
+        case "media.call": {
+          if (!context?.granted.includes("widget.media")) {
+            throw new Error("未获得 widget.media 权限");
+          }
+          const request =
+            params.request && typeof params.request === "object"
+              ? (params.request as Record<string, unknown>)
+              : {};
+          return invoke("media_call", {
+            request: { ...request, bridgeToken: context.bridgeToken },
+          });
+        }
+        case "media.connect": {
+          if (!context?.granted.includes("widget.media")) {
+            throw new Error("未获得 widget.media 权限");
+          }
+          const request =
+            params.request && typeof params.request === "object"
+              ? (params.request as Record<string, unknown>)
+              : {};
+          return invoke("media_connect", {
+            request: { ...request, bridgeToken: context.bridgeToken },
+          });
+        }
+        case "media.disconnect": {
+          if (!context?.granted.includes("widget.media")) {
+            throw new Error("未获得 widget.media 权限");
+          }
+          await invoke("media_disconnect", {
+            bridgeToken: context.bridgeToken,
+          });
+          return { disconnected: true };
+        }
         case "window.startDrag": {
           if (!context?.granted.includes("widget.chrome")) {
             throw new Error("未获得 widget.chrome 权限");

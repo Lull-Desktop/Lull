@@ -64,6 +64,9 @@ pub struct ConnectRequest {
   pub progress_ms: Option<u64>,
   #[serde(default)]
   pub levels: Option<bool>,
+  /// Widget 桥 token；官方窗口不传。
+  #[serde(default)]
+  pub bridge_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,24 +93,40 @@ fn lock() -> MutexGuard<'static, BTreeMap<String, Subscription>> {
   subscribers().lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-fn normalize_topics(topics: &[String]) -> BTreeMap<String, bool> {
+fn normalize_topics_for(
+  topics: &[String],
+  allowed: &[&str],
+  defaults: &[&str],
+) -> BTreeMap<String, bool> {
   let mut selected = BTreeMap::new();
   for topic in topics {
-    if ALLOWED_TOPICS.contains(&topic.as_str()) {
+    if allowed.contains(&topic.as_str()) {
       selected.insert(topic.clone(), true);
     }
   }
-  if selected.is_empty() {
-    for topic in DEFAULT_TOPICS {
-      selected.insert((*topic).to_string(), true);
+  if topics.is_empty() {
+    for topic in defaults {
+      if allowed.contains(topic) {
+        selected.insert((*topic).to_string(), true);
+      }
     }
   }
   selected
 }
 
 pub fn register(label: &str, request: ConnectRequest) {
+  register_with_topics(label, request, ALLOWED_TOPICS, DEFAULT_TOPICS);
+}
+
+/// Widget 使用受限 topic 集合注册；不允许的 topic 会被丢弃，空集合回落到默认子集。
+pub fn register_with_topics(
+  label: &str,
+  request: ConnectRequest,
+  allowed: &[&str],
+  defaults: &[&str],
+) {
   let subscription = Subscription {
-    topics: normalize_topics(&request.topics),
+    topics: normalize_topics_for(&request.topics, allowed, defaults),
     progress_ms: request.progress_ms.unwrap_or(1000).clamp(250, 5000),
     levels: request.levels.unwrap_or(false),
   };
@@ -173,15 +192,26 @@ mod tests {
 
   #[test]
   fn topics_are_filtered_and_defaulted() {
-    let selected = normalize_topics(&["noise.level".to_string(), "unknown".to_string()]);
+    let selected = normalize_topics_for(
+      &["noise.level".to_string(), "unknown".to_string()],
+      ALLOWED_TOPICS,
+      DEFAULT_TOPICS,
+    );
     assert!(selected.contains_key("noise.level"));
     assert!(!selected.contains_key("unknown"));
     assert_eq!(selected.len(), 1);
 
-    let defaults = normalize_topics(&[]);
+    let defaults = normalize_topics_for(&[], ALLOWED_TOPICS, DEFAULT_TOPICS);
     for topic in DEFAULT_TOPICS {
       assert!(defaults.contains_key(*topic));
     }
+
+    let denied = normalize_topics_for(
+      &["noise.state".to_string()],
+      &["player.state", "queue.changed"],
+      &["player.state", "queue.changed"],
+    );
+    assert!(denied.is_empty());
   }
 
   #[test]

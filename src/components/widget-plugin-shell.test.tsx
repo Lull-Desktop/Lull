@@ -13,6 +13,7 @@ const CONTEXT = {
   requested: ["widget.theme", "widget.state"],
   granted: ["widget.theme", "widget.state"],
   minimizable: true,
+  bridgeToken: "test-bridge-token",
   window: {
     width: 560,
     height: 680,

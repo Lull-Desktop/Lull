@@ -3,6 +3,16 @@
 import { createContext, type ReactNode, useContext } from "react";
 
 import type { LullMediaClient } from "./client";
+import { bindMediaClientHook } from "./hooks";
+
+export {
+  useNoiseLibrary,
+  useNoisePresets,
+  useNoiseSession,
+  useNoiseTracks,
+  type NoiseLibraryState,
+  type NoisePresetsState,
+} from "./hooks";
 
 const MediaClientContext = createContext<LullMediaClient | null>(null);
 
@@ -27,3 +37,5 @@ export function useMediaClient(): LullMediaClient {
   }
   return client;
 }
+
+bindMediaClientHook(useMediaClient);

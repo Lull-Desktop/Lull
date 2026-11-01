@@ -18,6 +18,14 @@ export const WIDGET_CAPABILITIES = [
   "widget.media",
   "widget.network",
   "widget.chrome",
+  "media.noise.library.read",
+  "media.noise.session.read",
+  "media.noise.session.control",
+  "media.noise.tracks.read",
+  "media.noise.tracks.write",
+  "media.noise.volume.write",
+  "media.noise.presets.read",
+  "media.noise.presets.write",
 ] as const;
 
 export type WidgetCapability = (typeof WIDGET_CAPABILITIES)[number];
@@ -98,6 +106,13 @@ export interface WidgetVisibilityMessage {
   visible: boolean;
 }
 
+/** 宿主 → 插件：媒体事件转发（只在插件通过 media.connect 订阅后发送）。 */
+export interface WidgetMediaEventMessage {
+  v: typeof WIDGET_PROTOCOL;
+  type: "media.event";
+  event: unknown;
+}
+
 /** 宿主 → 插件：请求结果。`ok=false` 时 `error` 为宿主给出的原因。 */
 export interface WidgetResponseMessage {
   v: typeof WIDGET_PROTOCOL;
@@ -113,6 +128,7 @@ export type WidgetHostMessage =
   | WidgetThemeMessage
   | WidgetViewportMessage
   | WidgetVisibilityMessage
+  | WidgetMediaEventMessage
   | WidgetResponseMessage;
 
 /** 插件 → 宿主：握手请求（插件侧 SDK 自动发送）。 */
@@ -133,6 +149,18 @@ export interface WidgetBridgeMethods {
   "audio.request": {
     params: Record<string, never>;
     result: { granted: boolean };
+  };
+  "media.call": {
+    params: { request: Record<string, unknown> };
+    result: unknown;
+  };
+  "media.connect": {
+    params: { request: Record<string, unknown> };
+    result: unknown;
+  };
+  "media.disconnect": {
+    params: Record<string, never>;
+    result: { disconnected: boolean };
   };
   "resize.request": {
     params: { width: number; height: number };

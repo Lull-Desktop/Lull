@@ -5,13 +5,22 @@
  *
  * esbuild 不在根依赖里（离线环境），这里从 pnpm 虚拟 store 里解析它。
  */
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sdkRoot = join(root, "packages", "widget-sdk");
+const mediaSdkRoot = join(root, "packages", "media-sdk");
 
 /**
  * 把 `@lull/widget-sdk` 及其子路径解析到包产物（dist），未构建时回落到 TS 源码。
@@ -38,10 +47,33 @@ const resolveWidgetSdk = {
   },
 };
 
+const resolveMediaSdk = {
+  name: "resolve-media-sdk",
+  setup(pluginBuild) {
+    pluginBuild.onResolve({ filter: /^@lull\/media-sdk(\/.*)?$/ }, (args) => {
+      const sub = args.path
+        .slice("@lull/media-sdk".length)
+        .replace(/^\//, "");
+      const name = sub === "" ? "index" : sub;
+      const dist = join(mediaSdkRoot, "dist", `${name}.js`);
+      if (existsSync(dist)) return { path: dist };
+      const src = join(mediaSdkRoot, "src", `${name}.ts`);
+      if (existsSync(src)) return { path: src };
+      return {
+        errors: [
+          { text: `找不到 @lull/media-sdk/${name}：先执行 pnpm media:sdk` },
+        ],
+      };
+    });
+  },
+};
+
 const SAMPLES = [
   { dir: "pomodoro-js", entry: "src/main.ts", jsx: false },
   { dir: "pomodoro-react", entry: "src/main.tsx", jsx: true },
   { dir: "pomodoro-vue", entry: "src/main.ts", jsx: false },
+  { dir: "noise-mixer", entry: "src/main.ts", jsx: false },
+  { dir: "noise-hooks", entry: "src/main.tsx", jsx: true },
 ];
 
 async function buildSample(sample) {
@@ -58,7 +90,7 @@ async function buildSample(sample) {
   rmSync(distDir, { recursive: true, force: true });
   mkdirSync(distDir, { recursive: true });
 
-  await build({
+  const result = await build({
     entryPoints: [entry],
     outfile: join(distDir, "main.js"),
     bundle: true,
@@ -68,9 +100,16 @@ async function buildSample(sample) {
     minify: true,
     legalComments: "none",
     logLevel: "silent",
-    plugins: [resolveWidgetSdk],
+    write: false,
+    plugins: [resolveWidgetSdk, resolveMediaSdk],
     define: { "process.env.NODE_ENV": '"production"' },
   });
+  // 某些 Windows 安全策略会拒绝 esbuild 子进程写仓库目录；让 esbuild 只在
+  // 内存里产出，由 Node 主进程写盘，避免 “Access is denied”。
+  for (const file of result.outputFiles ?? []) {
+    mkdirSync(dirname(file.path), { recursive: true });
+    writeFileSync(file.path, file.contents);
+  }
 
   for (const file of ["index.html", "style.css", "widget.json"]) {
     const source = join(sampleDir, file);

@@ -146,6 +146,7 @@ pub fn run() {
       }
       tauri::WindowEvent::Destroyed => {
         media::on_window_destroyed(window.app_handle(), window.label());
+        widget_package::on_window_destroyed(window.label());
       }
       _ => {}
     })

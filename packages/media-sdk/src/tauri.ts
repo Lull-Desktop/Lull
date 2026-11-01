@@ -19,7 +19,7 @@ export function createTauriTransport(): MediaTransport {
       return invoke<MediaResponse>("media_connect", { request });
     },
     async disconnect(): Promise<void> {
-      await invoke("media_disconnect");
+      await invoke("media_disconnect", { bridgeToken: null });
     },
     subscribe(listener: (event: MediaEvent) => void): () => void {
       let stop: (() => void) | null = null;

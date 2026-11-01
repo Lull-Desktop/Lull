@@ -205,6 +205,29 @@ describe("客户端", () => {
     expect(client.visible).toBe(false);
   });
 
+  test("media.event 转发给 onMediaEvent 订阅者", () => {
+    const { transport, client } = setup();
+    const events: unknown[] = [];
+    const stop = client.onMediaEvent((event) => events.push(event));
+
+    transport.receive({
+      v: 1,
+      type: "media.event",
+      event: { topic: "noise.session.changed", payload: { state: "playing" } },
+    });
+    stop();
+    transport.receive({
+      v: 1,
+      type: "media.event",
+      event: { topic: "noise.track.added" },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      topic: "noise.session.changed",
+    });
+  });
+
   test("setTransparent 会同步本地状态与页面底色", async () => {
     const { transport, client } = setup();
     expect(client.transparent).toBe(true);

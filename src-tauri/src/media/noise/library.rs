@@ -23,7 +23,7 @@ const MAX_NAME_CHARS: usize = 80;
 const MAX_DESCRIPTION_BYTES: usize = 2048;
 
 fn read_allowed(label: &str) -> bool {
-  matches!(label, "settings" | "noise" | "library")
+  matches!(label, "settings" | "noise" | "library") || label.starts_with("widget-")
 }
 
 fn write_allowed(label: &str) -> bool {
@@ -31,7 +31,7 @@ fn write_allowed(label: &str) -> bool {
 }
 
 fn favorite_allowed(label: &str) -> bool {
-  matches!(label, "settings" | "noise" | "library")
+  read_allowed(label)
 }
 
 fn require_read(label: &str) -> Result<(), MediaError> {

@@ -93,6 +93,8 @@ export interface LullWidgetClient {
   onTheme(listener: (theme: WidgetTheme) => void): () => void;
   onViewport(listener: (viewport: WidgetViewport) => void): () => void;
   onVisibility(listener: (visible: boolean) => void): () => void;
+  /** `media.connect` 后由宿主转发 `media:event`。 */
+  onMediaEvent(listener: (event: unknown) => void): () => void;
 
   /** 退订全部监听、拒绝未完成请求；之后所有调用返回 `disposed` 错误。 */
   destroy(): void;
@@ -220,6 +222,7 @@ export function createLullWidgetClient(
   const themeListeners = new Set<(theme: WidgetTheme) => void>();
   const viewportListeners = new Set<(viewport: WidgetViewport) => void>();
   const visibilityListeners = new Set<(visible: boolean) => void>();
+  const mediaListeners = new Set<(event: unknown) => void>();
 
   const stopListening = transport.listen((message) => {
     switch (message.type) {
@@ -237,6 +240,10 @@ export function createLullWidgetClient(
       case "visibility": {
         state.visible = message.visible !== false;
         for (const listener of visibilityListeners) listener(state.visible);
+        return;
+      }
+      case "media.event": {
+        for (const listener of mediaListeners) listener(message.event);
         return;
       }
       case "response": {
@@ -389,6 +396,12 @@ export function createLullWidgetClient(
         visibilityListeners.delete(listener);
       };
     },
+    onMediaEvent(listener) {
+      mediaListeners.add(listener);
+      return () => {
+        mediaListeners.delete(listener);
+      };
+    },
 
     destroy() {
       if (disposed) return;
@@ -402,6 +415,7 @@ export function createLullWidgetClient(
       themeListeners.clear();
       viewportListeners.clear();
       visibilityListeners.clear();
+      mediaListeners.clear();
       shared = null;
     },
   };

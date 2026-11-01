@@ -8,6 +8,7 @@ use serde_json::Value;
 use tauri::{Manager, WebviewWindow};
 
 use super::errors::MediaError;
+use super::permissions;
 use super::protocol::{MediaRequest, MediaResponse, PROTOCOL_VERSION};
 use super::snapshot;
 use crate::media::engine::{self, EngineEvent, ENGINE_LABEL};
@@ -15,11 +16,41 @@ use crate::media::events::{self, ConnectRequest};
 use crate::media::{library, noise, output, playback};
 
 fn media_window(label: &str) -> Result<(), MediaError> {
-  if matches!(label, "settings" | "player" | "noise" | "library") {
+  if matches!(label, "settings" | "player" | "noise" | "library")
+    || crate::widget_package::is_plugin_label(label)
+  {
     Ok(())
   } else {
     Err(MediaError::new("capability.denied", "当前窗口没有媒体权限"))
   }
+}
+
+fn require_widget_token(label: &str, token: Option<&str>) -> Result<(), MediaError> {
+  if crate::widget_package::verify_bridge_token(label, token) {
+    Ok(())
+  } else {
+    Err(MediaError::new(
+      "capability.denied",
+      "Widget bridge token 无效",
+    ))
+  }
+}
+
+fn widget_id(label: &str) -> Result<&str, MediaError> {
+  label
+    .strip_prefix(crate::widget_package::LABEL_PREFIX)
+    .filter(|id| crate::widget_package::manifest::valid_id(id))
+    .ok_or_else(|| MediaError::new("capability.denied", "Widget label 非法"))
+}
+
+fn require_widget_capability(
+  app: &tauri::AppHandle,
+  label: &str,
+  capability: &str,
+) -> Result<(), MediaError> {
+  let id = widget_id(label)?;
+  crate::widget_package::store::require_grant(app, id, capability)
+    .map_err(|message| MediaError::new("capability.denied", message))
 }
 
 fn p3_access(namespace: &str, method: &str, label: &str) -> Result<(), MediaError> {
@@ -75,11 +106,37 @@ pub async fn media_call(window: WebviewWindow, request: MediaRequest) -> MediaRe
   if let Err(error) = media_window(&label) {
     return MediaResponse::error(&request_id, &error, 0);
   }
-  if let Err(error) = host_only(&request.namespace, &request.method, &label) {
-    return MediaResponse::error(&request_id, &error, 0);
-  }
-  if let Err(error) = p3_access(&request.namespace, &request.method, &label) {
-    return MediaResponse::error(&request_id, &error, 0);
+  let is_widget = crate::widget_package::is_plugin_label(&label);
+  if is_widget {
+    if let Err(error) = require_widget_token(&label, request.bridge_token.as_deref()) {
+      return MediaResponse::error(&request_id, &error, 0);
+    }
+    if let Err(error) = require_widget_capability(window.app_handle(), &label, "widget.media") {
+      return MediaResponse::error(&request_id, &error, 0);
+    }
+    let Some(capability) = permissions::widget_capability(&request.namespace, &request.method)
+    else {
+      return MediaResponse::error(
+        &request_id,
+        &MediaError::new("capability.denied", "Widget 不能调用该媒体方法"),
+        0,
+      );
+    };
+    if let Err(error) = require_widget_capability(window.app_handle(), &label, capability) {
+      return MediaResponse::error(&request_id, &error, 0);
+    }
+  } else {
+    if let Err(error) = host_only(&request.namespace, &request.method, &label) {
+      return MediaResponse::error(&request_id, &error, 0);
+    }
+    if let Err(error) = p3_access(&request.namespace, &request.method, &label) {
+      return MediaResponse::error(&request_id, &error, 0);
+    }
+    if request.namespace == "noise" {
+      if let Err(error) = permissions::official_noise_allowed(&label, &request.method) {
+        return MediaResponse::error(&request_id, &error, 0);
+      }
+    }
   }
 
   if matches!(
@@ -166,7 +223,40 @@ pub fn media_connect(window: WebviewWindow, request: ConnectRequest) -> MediaRes
     return MediaResponse::error("connect", &error, 0);
   }
   let label = window.label().to_string();
-  events::register(&label, request);
+  let is_widget = crate::widget_package::is_plugin_label(&label);
+  if is_widget {
+    if let Err(error) = require_widget_token(&label, request.bridge_token.as_deref()) {
+      return MediaResponse::error("connect", &error, 0);
+    }
+    if let Err(error) = require_widget_capability(window.app_handle(), &label, "widget.media") {
+      return MediaResponse::error("connect", &error, 0);
+    }
+    if let Err(error) =
+      require_widget_capability(window.app_handle(), &label, permissions::SESSION_READ)
+    {
+      return MediaResponse::error("connect", &error, 0);
+    }
+    let granted = crate::widget_package::store::granted(
+      window.app_handle(),
+      widget_id(&label).unwrap_or_default(),
+    );
+    let allowed: Vec<&str> = permissions::WIDGET_TOPICS
+      .iter()
+      .copied()
+      .filter(|topic| {
+        permissions::widget_topic_capability(topic)
+          .is_some_and(|capability| granted.iter().any(|item| item == capability))
+      })
+      .collect();
+    events::register_with_topics(&label, request, &allowed, &allowed);
+  } else {
+    let allowed = permissions::official_topics(&label);
+    if allowed.is_empty() {
+      events::register(&label, request);
+    } else {
+      events::register_with_topics(&label, request, allowed, allowed);
+    }
+  }
   let app = window.app_handle().clone();
   if playback::is_engine_ready() {
     engine::send(
@@ -178,22 +268,51 @@ pub fn media_connect(window: WebviewWindow, request: ConnectRequest) -> MediaRes
       ),
     );
   }
-  match snapshot::snapshot() {
-    Ok(snapshot) => MediaResponse::ok(
+  let result = if is_widget {
+    snapshot::widget_snapshot().and_then(|value| {
+      serde_json::to_value(value)
+        .map_err(|error| MediaError::internal(format!("序列化 Widget 快照失败：{error}")))
+    })
+  } else {
+    snapshot::snapshot().and_then(|value| {
+      serde_json::to_value(value)
+        .map_err(|error| MediaError::internal(format!("序列化媒体快照失败：{error}")))
+    })
+  };
+  match result {
+    Ok(value) => MediaResponse::ok(
       "connect",
-      serde_json::to_value(snapshot).unwrap_or(Value::Null),
-      snapshot::revision(),
+      value,
+      if is_widget {
+        snapshot::widget_revision()
+      } else {
+        snapshot::revision()
+      },
     ),
     Err(error) => {
       events::disconnect(&label);
-      MediaResponse::error("connect", &error, snapshot::revision())
+      MediaResponse::error(
+        "connect",
+        &error,
+        if is_widget {
+          snapshot::widget_revision()
+        } else {
+          snapshot::revision()
+        },
+      )
     }
   }
 }
 
 #[tauri::command]
-pub fn media_disconnect(window: WebviewWindow) {
-  events::disconnect(window.label());
+pub fn media_disconnect(window: WebviewWindow, bridge_token: Option<String>) {
+  let label = window.label();
+  if crate::widget_package::is_plugin_label(label)
+    && !crate::widget_package::verify_bridge_token(label, bridge_token.as_deref())
+  {
+    return;
+  }
+  events::disconnect(label);
 }
 
 #[tauri::command]
@@ -221,13 +340,14 @@ mod tests {
   use super::*;
 
   #[test]
-  fn only_official_windows_reach_media_api() {
+  fn media_gateway_accepts_official_and_widget_labels() {
     assert!(media_window("settings").is_ok());
     assert!(media_window("player").is_ok());
     assert!(media_window("noise").is_ok());
     assert!(media_window("library").is_ok());
     assert!(media_window("wallpaper-0").is_err());
-    assert!(media_window("widget-rain").is_err());
+    assert!(media_window("widget-rain").is_ok());
+    assert!(media_window("widget-").is_err());
   }
 
   #[test]

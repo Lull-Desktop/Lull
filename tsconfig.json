@@ -29,6 +29,7 @@
       "@lull/scene-sdk/testing": ["./packages/scene-sdk/src/testing.ts"],
       "@lull/media-sdk": ["./packages/media-sdk/src/index.ts"],
       "@lull/media-sdk/react": ["./packages/media-sdk/src/react.tsx"],
+      "@lull/media-sdk/widget": ["./packages/media-sdk/src/widget.ts"],
       "@lull/media-sdk/testing": ["./packages/media-sdk/src/testing.ts"]
     }
   },
