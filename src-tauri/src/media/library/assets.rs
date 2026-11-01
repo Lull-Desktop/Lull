@@ -143,18 +143,25 @@ pub async fn ingest_cover(
   Ok(())
 }
 
-/// 保存内嵌歌词或同名 `.lrc`；没有歌词时不清理旧记录。
+/// 同名 sidecar 歌词：`.lrc`、`.txt`、`.srt`；只读文本，不写回文件。
+#[derive(Debug, Clone)]
+pub struct SidecarLyrics {
+  pub content: String,
+  pub format: &'static str,
+}
+
+/// 保存内嵌歌词或同名 sidecar；没有歌词时不清理旧记录。
 pub async fn ingest_lyrics(
   tx: &mut sqlx::Transaction<'_, Sqlite>,
   track_id: &str,
   lyrics: Option<&str>,
-  sidecar: Option<&str>,
+  sidecar: Option<&SidecarLyrics>,
   now: i64,
 ) -> Result<(), MediaError> {
   let (content, format, source) = if let Some(content) = lyrics {
     (content, "embedded", "embedded")
-  } else if let Some(content) = sidecar {
-    (content, "lrc", "sidecar")
+  } else if let Some(sidecar) = sidecar {
+    (sidecar.content.as_str(), sidecar.format, "sidecar")
   } else {
     return Ok(());
   };
@@ -194,14 +201,45 @@ pub async fn ingest_lyrics(
   Ok(())
 }
 
-/// 同名 sidecar 歌词路径：`track.flac` → `track.lrc`。
+/// 同名 sidecar 歌词路径：`track.flac` → `track.lrc` / `track.txt` / `track.srt`。
 #[must_use]
-pub fn sidecar_lyrics(audio_path: &Path) -> Option<String> {
-  let path: PathBuf = audio_path.with_extension("lrc");
-  if !path.is_file() {
-    return None;
+pub fn sidecar_lyrics(audio_path: &Path) -> Option<SidecarLyrics> {
+  for format in ["lrc", "txt", "srt"] {
+    let path: PathBuf = audio_path.with_extension(format);
+    if !path.is_file() {
+      continue;
+    }
+    if let Some(content) = std::fs::read_to_string(path)
+      .ok()
+      .filter(|value| !value.trim().is_empty())
+    {
+      return Some(SidecarLyrics { content, format });
+    }
   }
-  std::fs::read_to_string(path)
-    .ok()
-    .filter(|value| !value.trim().is_empty())
+  None
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn sidecar_lyrics_supports_lrc_txt_and_srt() {
+    let dir = std::env::temp_dir().join(format!("lull-lyrics-test-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).expect("create dir");
+    let audio = dir.join("track.flac");
+    for (extension, content) in [
+      ("lrc", "[00:00.00]雨"),
+      ("txt", "纯文本"),
+      ("srt", "1\n00:00"),
+    ] {
+      let path = audio.with_extension(extension);
+      std::fs::write(&path, content).expect("write lyrics");
+      let sidecar = sidecar_lyrics(&audio).expect("sidecar");
+      assert_eq!(sidecar.format, extension);
+      assert_eq!(sidecar.content, content);
+      std::fs::remove_file(path).expect("remove lyrics");
+    }
+    assert!(sidecar_lyrics(&audio).is_none());
+  }
 }

@@ -17,6 +17,7 @@ export type { MediaTransport } from "./transport";
 export type {
   AlbumSummary,
   ArtistSummary,
+  BackupCounts,
   ConnectOptions,
   FavoriteView,
   HistoryEntry,

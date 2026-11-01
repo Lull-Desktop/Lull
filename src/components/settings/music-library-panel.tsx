@@ -14,7 +14,7 @@ import {
   type TrackQuery,
   type TrackSummary,
 } from "@lull/media-sdk";
-import { FolderPlus, Library, Music, RefreshCw, Search } from "lucide-react";
+import { Download, FolderPlus, Library, Music, RefreshCw, Search, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -263,6 +263,21 @@ export function MusicLibraryPanel({
     [client, run],
   );
 
+  const exportBackup = useCallback((): void => {
+    if (!client) return;
+    void run("backup-export", async () => {
+      await client.library.exportBackup();
+    });
+  }, [client, run]);
+
+  const importBackup = useCallback((): void => {
+    if (!client) return;
+    void run("backup-import", async () => {
+      await client.library.importBackup();
+      await refresh(client, appliedKeyword, appliedFilters);
+    });
+  }, [appliedFilters, appliedKeyword, client, refresh, run]);
+
   const refreshSources = useCallback(() => {
     if (!client) return;
     void run("refresh", async () => {
@@ -411,6 +426,39 @@ export function MusicLibraryPanel({
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="space-y-2 rounded-xl border border-border/70 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium text-ink-soft">备份与恢复</h3>
+              <p className="text-xs text-muted-foreground">
+                只备份歌单、喜欢、历史、标签与智能歌单，不含音频和文件路径。
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!client || busy !== null}
+                onClick={exportBackup}
+              >
+                <Download aria-hidden="true" />
+                导出
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!client || busy !== null}
+                onClick={importBackup}
+              >
+                <Upload aria-hidden="true" />
+                导入
+              </Button>
+            </div>
+          </div>
         </section>
 
         <form

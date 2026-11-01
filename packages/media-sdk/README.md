@@ -68,6 +68,7 @@ const page = await media.library.runSmartPlaylist(smart.id);
 
 元数据编辑写 `overrides_json` 与 `field_sources(manual)`；重扫不会覆盖人工字段。
 合并/拆分为 `mergeArtists` / `splitArtist` / `mergeAlbums` / `splitAlbum`。
+`exportBackup` / `importBackup` 通过系统文件对话框导出/恢复歌单、喜欢、历史、标签与智能歌单；不含音频或路径。
 
 ## 约定
 

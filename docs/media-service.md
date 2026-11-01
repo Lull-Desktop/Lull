@@ -1,6 +1,6 @@
 # Lull Media Service 与音乐资料库
 
-> 状态：P0 + P1 + P2 + N1 + P3 + N2 + N3 + N3.5 + N4 + N5/P5 + N6 + P4 已落地（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列、官方播放器迁移、Shared AudioGraph/engine protocol v2/全局输出音量、订阅与快照基础、歌单/喜欢/历史、M3U 导入导出与资料库窗口、Noise Asset/Track/Session 与旧 5 层兼容门面、Noise 本地素材导入/分类/标签/收藏/搜索/缺失检测、分类/标签独立 CRUD、Preset 保存/加载/导入导出/缺失映射、Widget 媒体桥/bridge token/8 个 Noise capability/React hooks/示例、官方 Noise UI 动态轨道/Preset/本地轨、P4 元数据编辑/标签/实体合并拆分/智能歌单）。P6 待推进；Noise 决策见 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
+> 状态：P0 + P1 + P2 + N1 + P3 + N2 + N3 + N3.5 + N4 + N5/P5 + N6 + P4 已落地；P6 部分落地（`.lrc/.txt/.srt` sidecar、组织数据备份/恢复），在线元数据、文件监听、缩略图未开始（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列、官方播放器迁移、Shared AudioGraph/engine protocol v2/全局输出音量、订阅与快照基础、歌单/喜欢/历史、M3U 导入导出与资料库窗口、Noise Asset/Track/Session 与旧 5 层兼容门面、Noise 本地素材导入/分类/标签/收藏/搜索/缺失检测、分类/标签独立 CRUD、Preset 保存/加载/导入导出/缺失映射、Widget 媒体桥/bridge token/8 个 Noise capability/React hooks/示例、官方 Noise UI 动态轨道/Preset/本地轨、P4 元数据编辑/标签/实体合并拆分/智能歌单）。Noise 决策见 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
 
 ## 1. 边界
 
@@ -123,7 +123,7 @@ Media Service（Rust）
 `packages/media-sdk`（Apache-2.0）：
 
 - `createMediaClient({ transport? })`：Tauri 环境自动使用 `media_call` / `media_connect`；测试传内存 transport。
-- `library.*`（含 scan progress/cancel、cover URL、genre/filter/tag 参数、`updateTrackMetadata`、标签 CRUD/`setTrackTags`、`mergeArtists`/`splitArtist`/`mergeAlbums`/`splitAlbum`、智能歌单 CRUD/`runSmartPlaylist`）、`player.*`、`queue.*`、`playlists.*`、`favorites.*`、`history.*`、`noise.*`（含 `noise.session.*` / `noise.tracks.*` / `noise.library.*` / `noise.presets.*`）、`system.getOutput/setOutput`、`connect/disconnect`、`events.on`。
+- `library.*`（含 scan progress/cancel、cover URL、genre/filter/tag 参数、`updateTrackMetadata`、标签 CRUD/`setTrackTags`、`mergeArtists`/`splitArtist`/`mergeAlbums`/`splitAlbum`、智能歌单 CRUD/`runSmartPlaylist`、`exportBackup`/`importBackup`）、`player.*`、`queue.*`、`playlists.*`、`favorites.*`、`history.*`、`noise.*`（含 `noise.session.*` / `noise.tracks.*` / `noise.library.*` / `noise.presets.*`）、`system.getOutput/setOutput`、`connect/disconnect`、`events.on`。
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
 - `@lull/media-sdk/widget`：`createWidgetTransport` / `createWidgetMediaClient`，翻译为 Widget 桥的 `media.call/connect/disconnect`，并通过 `onMediaEvent` 接收宿主转发事件。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
@@ -159,6 +159,7 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 - N5/P5 起 Widget 侧不直接拿 Tauri IPC；bridge token 只注入顶层壳页。Widget snapshot 为 redacted；8 个 Noise capability 按方法/事件逐项强制校验，伪造 token 或未授权方法返回 `capability.denied`。
 - N6 起白噪音窗口改用 `NoiseSession`/`NoiseTrack`：5 个内置 procedural 仍渲染为泡泡，本地轨道显示紧凑列表；支持 Preset 选择/加载、播放/暂停、睡眠和本地轨开关/音量/移除。加载 Preset 后 Session 保持 idle，泡泡显示“待播放”、主泡显示暂停，点击播放/泡泡才出声；关闭窗口只断开 UI 订阅，不停止 Session；重开取 snapshot，多窗口靠 `noise.session.changed` 同步。
 - P4 起元数据编辑写 `overrides_json` + `music_field_sources(source=manual)`，同步更新曲目/艺术家/专辑规范化字段；重扫看到 `manual/split/online` 不再覆盖该字段。标签是独立实体，`music_track_tags` 支持多标签与筛选；艺术家/专辑合并保留 `merged_into_id` 与别名，拆分把选中 Track 关系迁到新实体；智能歌单保存查询规则并在读取时实时查询。
+- P6 已支持同名 `.lrc` / `.txt` / `.srt` sidecar 歌词（按 lrc → txt → srt 优先级，内容原样保存）；组织数据备份为 JSON，只含 Track ID 引用、歌单、喜欢、历史、标签与智能歌单，不含音频/路径/资产，导入缺失 Track 自动跳过。在线元数据、文件监听与缩略图仍未开始。
 - 封面读取链路：`TrackSummary.hasCover` 表示是否有主封面；`library.getCoverUrl(trackId)` 返回经 asset protocol 授权的 URL；资产存 `music_assets`，关系存 `music_track_assets(role='cover')`，来源由扫描器写入 `embedded/folder`。当前没有用户上传/替换/删除封面的保存 API，`updateTrackMetadata` 也不覆盖封面；资料库元数据弹窗与设置页曲库整理面板只做只读预览。
 - 设备切换依赖 `devicechange` 重载引擎页 + Rust 全量 resync；多设备选择、独占模式、SMTC 尚未接入。
 - Widget 已获得 8 个 `media.noise.*` capability 的受限访问；bridge token 与 redacted snapshot 见 [Widget SDK](widget-sdk.md)，不再对第三方开放 player/queue/system。
@@ -180,7 +181,7 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 | P4 | 元数据编辑、标签、实体合并/拆分、智能歌单 | 代码已落地，待手工验收 |
 | N5/P5 | 公开 Media SDK、Widget 桥、8 个 Noise 权限、token、React hooks、示例 | 代码已落地，待手工验收 |
 | N6 | 官方 Noise Mixer/Library/Preset UI | 代码已落地，待手工验收 |
-| P6 | 在线元数据、歌词格式、监听、缩略图、备份 | 未开始 |
+| P6 | 在线元数据、歌词格式、监听、缩略图、备份 | 部分落地：歌词 sidecar/备份；在线/监听/缩略图未开始 |
 
 推荐顺序：`N1 → P3 → N2 → N3 → N4 → N5/P5 → N6 → P4 → P6`。N1 必须先于 Noise；P3 与 N2 可互换；N5/P5 必须等 P3 与 N4。
 

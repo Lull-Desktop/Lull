@@ -3,6 +3,7 @@
 //! P1 先提供只读查询与扫描；歌单、喜欢、标签、实体编辑按阶段加入。
 
 pub mod assets;
+mod backup;
 pub mod catalog;
 pub mod events;
 pub mod favorites;
@@ -609,6 +610,9 @@ pub async fn call_media(
     | ("library", "updateSmartPlaylist")
     | ("library", "deleteSmartPlaylist")
     | ("library", "runSmartPlaylist") => p4::call(&app, method, args).await,
+    ("library", "exportBackup") | ("library", "importBackup") => {
+      backup::call(&app, method, args).await
+    }
     _ => Err(MediaError::new(
       "method.unknown",
       format!("不支持的媒体方法：{namespace}.{method}"),

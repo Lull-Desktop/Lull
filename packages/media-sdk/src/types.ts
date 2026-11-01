@@ -61,6 +61,14 @@ export interface TrackMetadataPatch {
   year?: number | null;
 }
 
+export interface BackupCounts {
+  playlists: number;
+  favorites: number;
+  history: number;
+  tags: number;
+  smartPlaylists: number;
+}
+
 export interface TrackSummary {
   id: string;
   title: string;

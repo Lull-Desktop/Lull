@@ -19,6 +19,7 @@ import type { MediaTransport } from "./transport";
 import type {
   AlbumSummary,
   ArtistSummary,
+  BackupCounts,
   ConnectOptions,
   FavoriteView,
   HistoryEntry,
@@ -124,6 +125,8 @@ export interface LullMediaClient {
       playlistId: string,
       options?: { page?: number; pageSize?: number },
     ): Promise<Page<TrackSummary>>;
+    exportBackup(): Promise<BackupCounts | null>;
+    importBackup(): Promise<BackupCounts | null>;
   };
   player: {
     getState(): Promise<PlayerState>;
@@ -505,6 +508,10 @@ export function createMediaClient(
         playlistId,
         ...options,
       }),
+    exportBackup: () =>
+      call<BackupCounts | null>("library", "exportBackup"),
+    importBackup: () =>
+      call<BackupCounts | null>("library", "importBackup"),
   };
 
   const player = {

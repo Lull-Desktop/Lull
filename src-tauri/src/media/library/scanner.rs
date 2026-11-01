@@ -525,7 +525,7 @@ async fn upsert_file(
     &mut tx,
     &track_id,
     parsed.lyrics.as_deref(),
-    sidecar.as_deref(),
+    sidecar.as_ref(),
     now,
   )
   .await?;

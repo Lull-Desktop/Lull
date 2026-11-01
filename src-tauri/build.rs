@@ -284,7 +284,8 @@ fn generate(manifests: &[Manifest]) -> String {
     let height = format!("{height_value:?}");
     let min_width = format!("{min_width_value:?}");
     let min_height = format!("{min_height_value:?}");
-    let max_height = max_height_value.map_or_else(|| "None".to_string(), |value| format!("Some({value:?})"));
+    let max_height =
+      max_height_value.map_or_else(|| "None".to_string(), |value| format!("Some({value:?})"));
     code.push_str(&format!(
       "pub static {constant}: WidgetSpec = WidgetSpec {{\n\
        \x20 kind: {kind},\n\
