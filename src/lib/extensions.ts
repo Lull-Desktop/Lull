@@ -61,6 +61,8 @@ export type ExtensionInfo = {
   verified: "declared" | "computed" | "none";
   signature: SignatureInfo;
   dev: boolean;
+  /** `user` / `dev` / `bundled`；官方扩展可停用不可卸载。 */
+  origin?: "user" | "dev" | "bundled";
   error?: ExtensionFailure;
   enabled?: boolean;
   running?: boolean;
@@ -100,6 +102,8 @@ export type PickedExtension = {
 export type DevPackage = {
   id: string;
   path: string;
+  /** `.lull-dev.json` 声明的开发服务器；仅 debug 构建使用。 */
+  entryUrl?: string;
 };
 
 export type DevState = {

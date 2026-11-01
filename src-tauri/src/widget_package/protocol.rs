@@ -95,9 +95,18 @@ fn plugin_csp(manifest: &PackageManifest, nonce: &str, granted: &[String]) -> St
       connect.push_str(source);
     }
   }
+  // 曲库封面通过 asset: 返回；只有授予读能力时才放宽 img-src。
+  let artwork = granted
+    .iter()
+    .any(|capability| capability == "media.library.read");
+  let img_src = if artwork {
+    format!("{origin} data: blob: asset: http://asset.localhost https://asset.localhost")
+  } else {
+    format!("{origin} data: blob:")
+  };
   format!(
     "default-src {origin}; script-src {origin} 'nonce-{nonce}'; style-src {origin} 'unsafe-inline'; \
-     img-src {origin} data: blob:; media-src {origin} blob: data:; font-src {origin} data:; \
+     img-src {img_src}; media-src {origin} blob: data:; font-src {origin} data:; \
      connect-src {connect}; worker-src {origin} blob:; frame-src 'none'; object-src 'none'; \
      base-uri 'none'; form-action 'none'"
   )
@@ -179,5 +188,15 @@ mod tests {
   fn csp_drops_network_when_capability_revoked() {
     let csp = plugin_csp(&manifest(), "abc", &[]);
     assert!(!csp.contains("https://api.example.com"));
+  }
+
+  #[test]
+  fn csp_allows_artwork_only_with_library_read() {
+    let without = plugin_csp(&manifest(), "abc", &[]);
+    assert!(!without.contains("asset:"));
+    let with = plugin_csp(&manifest(), "abc", &["media.library.read".to_string()]);
+    assert!(with.contains("img-src"));
+    assert!(with.contains("asset:"));
+    assert!(with.contains("http://asset.localhost"));
   }
 }

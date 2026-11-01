@@ -17,7 +17,7 @@
         "scope": []
       },
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob: asset: http://asset.localhost https://asset.localhost; media-src 'self' blob: data: asset: http://asset.localhost https://asset.localhost; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; worker-src 'self' blob:; frame-src 'self' http://lullwidget.localhost lullwidget: http://lullcontent.localhost lullcontent:; object-src 'none'; base-uri 'self'; form-action 'none'",
-      "devCsp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://localhost:3000 ws://localhost:3000; img-src 'self' data: blob: asset: http://asset.localhost https://asset.localhost; media-src 'self' blob: data: asset: http://asset.localhost https://asset.localhost; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; worker-src 'self' blob:; frame-src 'self' http://lullwidget.localhost lullwidget: http://lullcontent.localhost lullcontent:; object-src 'none'; base-uri 'self'; form-action 'none'"
+      "devCsp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://localhost:3000 ws://localhost:3000; img-src 'self' data: blob: asset: http://asset.localhost https://asset.localhost; media-src 'self' blob: data: asset: http://asset.localhost https://asset.localhost; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; worker-src 'self' blob:; frame-src 'self' http://lullwidget.localhost lullwidget: http://lullcontent.localhost lullcontent: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; form-action 'none'"
     }
   },
   "bundle": {
@@ -31,6 +31,7 @@
     "longDescription": "开源的助眠与专注桌面应用：动态壁纸、白噪音、番茄钟都在本地运行。",
     "resources": {
       "native/lull_native.dll": "lull_native.dll",
+      "../extensions/dist/": "extensions/",
       "../LICENSE": "LICENSE",
       "../NOTICE": "NOTICE",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",

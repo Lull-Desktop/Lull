@@ -26,6 +26,12 @@ export const WIDGET_CAPABILITIES = [
   "media.noise.volume.write",
   "media.noise.presets.read",
   "media.noise.presets.write",
+  "media.player.read",
+  "media.player.control",
+  "media.player.volume.write",
+  "media.queue.read",
+  "media.library.read",
+  "media.library.sources.write",
 ] as const;
 
 export type WidgetCapability = (typeof WIDGET_CAPABILITIES)[number];
@@ -42,6 +48,8 @@ export interface WidgetWindowSpec {
   resizable: boolean;
   transparent: boolean;
   chrome: WidgetChrome;
+  /** `none` = 固定尺寸；`content` = 允许按内容高度调整。 */
+  fit?: "none" | "content";
 }
 
 /** 宿主流光主题令牌，只读。 */
@@ -56,6 +64,8 @@ export interface WidgetTheme {
     onAccentLight: string;
     onAccentDark: string;
   };
+  /** 宿主 CSS 变量白名单（`--paper`、`--bamboo`、`--font-body` 等）。 */
+  tokens?: Record<string, string>;
 }
 
 export interface WidgetViewport {
@@ -78,6 +88,7 @@ export interface WidgetInitMessage {
   entryUrl?: string;
   requested?: string[];
   granted?: string[];
+  locale?: string;
   minimizable?: boolean;
   window?: WidgetWindowSpec;
   theme?: WidgetTheme | null;
@@ -106,6 +117,13 @@ export interface WidgetVisibilityMessage {
   visible: boolean;
 }
 
+/** 宿主 → 插件：界面语言变化（不重建窗口）。 */
+export interface WidgetLocaleMessage {
+  v: typeof WIDGET_PROTOCOL;
+  type: "locale";
+  locale: string;
+}
+
 /** 宿主 → 插件：媒体事件转发（只在插件通过 media.connect 订阅后发送）。 */
 export interface WidgetMediaEventMessage {
   v: typeof WIDGET_PROTOCOL;
@@ -128,6 +146,7 @@ export type WidgetHostMessage =
   | WidgetThemeMessage
   | WidgetViewportMessage
   | WidgetVisibilityMessage
+  | WidgetLocaleMessage
   | WidgetMediaEventMessage
   | WidgetResponseMessage;
 
@@ -163,7 +182,11 @@ export interface WidgetBridgeMethods {
     result: { disconnected: boolean };
   };
   "resize.request": {
-    params: { width: number; height: number };
+    params: {
+      width?: number;
+      height?: number;
+      anchor?: "left" | "right";
+    };
     result: WidgetViewport & { applied: boolean };
   };
   "window.startDrag": {

@@ -224,31 +224,30 @@ pub fn media_connect(window: WebviewWindow, request: ConnectRequest) -> MediaRes
   }
   let label = window.label().to_string();
   let is_widget = crate::widget_package::is_plugin_label(&label);
-  if is_widget {
+  let widget_grants: Vec<String> = if is_widget {
     if let Err(error) = require_widget_token(&label, request.bridge_token.as_deref()) {
       return MediaResponse::error("connect", &error, 0);
     }
     if let Err(error) = require_widget_capability(window.app_handle(), &label, "widget.media") {
       return MediaResponse::error("connect", &error, 0);
     }
-    if let Err(error) =
-      require_widget_capability(window.app_handle(), &label, permissions::SESSION_READ)
-    {
-      return MediaResponse::error("connect", &error, 0);
-    }
     let granted = crate::widget_package::store::granted(
       window.app_handle(),
       widget_id(&label).unwrap_or_default(),
     );
-    let allowed: Vec<&str> = permissions::WIDGET_TOPICS
+    if !permissions::WIDGET_READ_CAPABILITIES
       .iter()
-      .copied()
-      .filter(|topic| {
-        permissions::widget_topic_capability(topic)
-          .is_some_and(|capability| granted.iter().any(|item| item == capability))
-      })
-      .collect();
+      .any(|capability| granted.iter().any(|item| item == capability))
+    {
+      return MediaResponse::error(
+        "connect",
+        &MediaError::new("capability.denied", "Widget 至少需要一项媒体读能力才能连接"),
+        0,
+      );
+    }
+    let allowed = permissions::widget_topics_for(&granted);
     events::register_with_topics(&label, request, &allowed, &allowed);
+    granted
   } else {
     let allowed = permissions::official_topics(&label);
     if allowed.is_empty() {
@@ -256,7 +255,8 @@ pub fn media_connect(window: WebviewWindow, request: ConnectRequest) -> MediaRes
     } else {
       events::register_with_topics(&label, request, allowed, allowed);
     }
-  }
+    Vec::new()
+  };
   let app = window.app_handle().clone();
   if playback::is_engine_ready() {
     engine::send(
@@ -269,7 +269,7 @@ pub fn media_connect(window: WebviewWindow, request: ConnectRequest) -> MediaRes
     );
   }
   let result = if is_widget {
-    snapshot::widget_snapshot().and_then(|value| {
+    snapshot::widget_snapshot(&widget_grants).and_then(|value| {
       serde_json::to_value(value)
         .map_err(|error| MediaError::internal(format!("序列化 Widget 快照失败：{error}")))
     })
@@ -284,7 +284,7 @@ pub fn media_connect(window: WebviewWindow, request: ConnectRequest) -> MediaRes
       "connect",
       value,
       if is_widget {
-        snapshot::widget_revision()
+        snapshot::widget_revision(&widget_grants)
       } else {
         snapshot::revision()
       },
@@ -295,7 +295,7 @@ pub fn media_connect(window: WebviewWindow, request: ConnectRequest) -> MediaRes
         "connect",
         &error,
         if is_widget {
-          snapshot::widget_revision()
+          snapshot::widget_revision(&widget_grants)
         } else {
           snapshot::revision()
         },

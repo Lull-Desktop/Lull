@@ -1,0 +1,2 @@
+# 占位文件：`bundle.resources` 指向 `../extensions/dist`，Tauri 构建要求该路径存在。
+# `pnpm extensions:build` 会在这里生成官方扩展包；构建产物本身不入库。

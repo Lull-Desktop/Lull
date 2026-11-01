@@ -13,14 +13,17 @@
  * zip 根目录直接放 `widget.json` / `entry` / 资源，安装器会按扩展中心的设计
  * 校验清单、摘要（`.lull-integrity.json`）与路径安全。
  */
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  collectFiles,
+  computeDigest,
+  WIDGET_SCHEME,
+} from "./lib/widget-digest.mjs";
 import { writeZip } from "./zip-writer.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const WIDGET_SCHEME = "lull-widget-package\0";
 const CONTENT_SCHEME = "lull-content-package\0";
 /** 与 Rust `content_package::digest` 的官方 mist 摘要一致，用作 Node 侧自检。 */
 const MIST_DIGEST =
@@ -31,47 +34,6 @@ const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 function fail(message) {
   console.error(`[widget:pack] ${message}`);
   process.exit(1);
-}
-
-/** 递归收集普通文件；`includeDot=false` 时跳过所有点号路径（与 Rust 摘要一致）。 */
-function collectFiles(dir, relative = "", includeDot = true) {
-  const files = [];
-  for (const entry of readdirSync(join(dir, relative), { withFileTypes: true })) {
-    if (!includeDot && entry.name.startsWith(".")) continue;
-    const path = relative ? `${relative}/${entry.name}` : entry.name;
-    if (entry.isSymbolicLink()) {
-      throw new Error(`包内不允许符号链接：${path}`);
-    }
-    if (entry.isDirectory()) {
-      files.push(...collectFiles(dir, path, includeDot));
-      continue;
-    }
-    if (entry.isFile()) {
-      files.push({ name: path, data: readFileSync(join(dir, path)) });
-    }
-  }
-  return files;
-}
-
-function computeDigest(files, scheme, id, version) {
-  const sorted = [...files].sort((left, right) =>
-    Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)),
-  );
-  const hash = createHash("sha256");
-  hash.update(Buffer.from(scheme, "utf8"));
-  for (const part of [id, version]) {
-    hash.update(Buffer.from(part, "utf8"));
-    hash.update(Buffer.from([0]));
-  }
-  for (const file of sorted) {
-    hash.update(Buffer.from(file.name, "utf8"));
-    hash.update(Buffer.from([0]));
-    hash.update(Buffer.from(String(file.data.length), "utf8"));
-    hash.update(Buffer.from([0]));
-    hash.update(file.data);
-    hash.update(Buffer.from([0]));
-  }
-  return hash.digest("hex");
 }
 
 /** 用官方 scene 包的已知摘要校验 Node 侧算法，防止与 Rust 实现漂移。 */

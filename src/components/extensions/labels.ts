@@ -36,6 +36,18 @@ const CAPABILITY_META: Record<
     label: m.ext_cap_noise_presets_write,
     level: "required",
   },
+  "media.player.read": { label: m.ext_cap_player_read, level: "basic" },
+  "media.player.control": { label: m.ext_cap_player_control, level: "required" },
+  "media.player.volume.write": {
+    label: m.ext_cap_player_volume_write,
+    level: "hint",
+  },
+  "media.queue.read": { label: m.ext_cap_queue_read, level: "basic" },
+  "media.library.read": { label: m.ext_cap_library_read, level: "basic" },
+  "media.library.sources.write": {
+    label: m.ext_cap_library_sources_write,
+    level: "required",
+  },
   "wallpaper.viewport": { label: m.ext_cap_viewport, level: "basic" },
   "wallpaper.canvas": { label: m.ext_cap_canvas, level: "basic" },
   "wallpaper.sync": { label: m.ext_cap_sync, level: "basic" },

@@ -31,6 +31,8 @@ type PluginWindow = {
   transparent: boolean;
   /** host = 宿主顶栏；custom = 插件自绘拖拽区与窗口按钮。 */
   chrome?: "host" | "custom";
+  /** none = 固定尺寸；content = 允许按内容高度调整。 */
+  fit?: "none" | "content";
 };
 
 type PluginContext = {
@@ -43,6 +45,7 @@ type PluginContext = {
   entryUrl: string;
   requested: string[];
   granted: string[];
+  locale?: string;
   minimizable: boolean;
   window: PluginWindow;
   bridgeToken: string;
@@ -59,6 +62,7 @@ type ThemePayload = {
     onAccentLight: string;
     onAccentDark: string;
   };
+  tokens: Record<string, string>;
 };
 
 type Viewport = {
@@ -97,6 +101,45 @@ function isPluginContext(value: unknown): value is PluginContext {
   );
 }
 
+/** 下发给插件的 CSS 变量白名单；包内 fallback 只用这些名字。 */
+const THEME_TOKEN_KEYS = [
+  "--font-body",
+  "--font-sans",
+  "--font-serif",
+  "--font-mono",
+  "--paper",
+  "--paper-warm",
+  "--paper-deep",
+  "--ink",
+  "--ink-soft",
+  "--bamboo",
+  "--bamboo-light",
+  "--bamboo-mist",
+  "--bamboo-glow",
+  "--flow-a",
+  "--flow-b",
+  "--flow-c",
+  "--flow-accent",
+  "--flow-accent-surface",
+  "--flow-accent-ink",
+  "--color-primary",
+  "--color-accent",
+  "--radius",
+  "--radius-sm",
+  "--radius-lg",
+] as const;
+
+function readThemeTokens(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const style = window.getComputedStyle(document.documentElement);
+  const tokens: Record<string, string> = {};
+  for (const key of THEME_TOKEN_KEYS) {
+    const value = style.getPropertyValue(key).trim();
+    if (value) tokens[key] = value;
+  }
+  return tokens;
+}
+
 function themePayload(themeId: FlowThemeId, theme: FlowTheme): ThemePayload {
   return {
     id: themeId,
@@ -109,6 +152,7 @@ function themePayload(themeId: FlowThemeId, theme: FlowTheme): ThemePayload {
       onAccentLight: theme.onAccentLight,
       onAccentDark: theme.onAccentDark,
     },
+    tokens: readThemeTokens(),
   };
 }
 
@@ -143,6 +187,11 @@ export function WidgetPluginShell() {
   const { themeId, theme } = useFlowTheme();
   themeRef.current = themePayload(themeId, theme);
   readyRef.current = ready;
+  const devServer = context?.entryUrl ?? "";
+  const isDevServer =
+    /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:\/|$)/.test(
+      devServer,
+    );
 
   useEffect(() => {
     if (!context) return;
@@ -203,6 +252,7 @@ export function WidgetPluginShell() {
       requested: context.requested,
       theme: themeRef.current,
       viewport,
+      locale: context.locale ?? "zh-CN",
       minimizable: context.minimizable,
       window: context.window,
       token: tokenRef.current,
@@ -421,6 +471,29 @@ export function WidgetPluginShell() {
 
   useEffect(() => {
     if (!context) return;
+    let stop: (() => void) | null = null;
+    let disposed = false;
+    void listen<{ locale?: string }>("i18n-locale-changed", (event) => {
+      const locale = event.payload?.locale;
+      if (typeof locale === "string") {
+        send({ v: PROTOCOL_VERSION, type: "locale", locale });
+      }
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      })
+      .catch(() => {
+        // 浏览器预览 / 单测没有 Tauri 事件系统。
+      });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [context, send]);
+
+  useEffect(() => {
+    if (!context) return;
     const frame = iframeRef.current;
     if (!frame) return;
     const sendViewport = (): void => {
@@ -457,10 +530,14 @@ export function WidgetPluginShell() {
   useEffect(() => {
     if (ready || !context) return;
     const timer = window.setTimeout(() => {
-      setError("插件未在 8 秒内响应。请检查包内容或重新打开窗口。");
+      setError(
+        isDevServer
+          ? "开发服务器未响应。确认 `pnpm extensions:dev <id>` 正在运行，且端口与 .lull-dev.json 一致。"
+          : "插件未在 8 秒内响应。请检查包内容或重新打开窗口。",
+      );
     }, READY_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
-  }, [context, ready]);
+  }, [context, ready, isDevServer]);
 
   const title = useMemo(
     () => (context ? `${context.name} ${context.version}` : "自定义插件"),
@@ -469,6 +546,7 @@ export function WidgetPluginShell() {
   const customChrome =
     context?.window.chrome === "custom" &&
     (context.granted.includes("widget.chrome") ?? false);
+  const devHost = isDevServer ? new URL(devServer).host : "";
 
   return (
     <div
@@ -476,6 +554,11 @@ export function WidgetPluginShell() {
       data-testid="widget-plugin-shell"
       style={{ backgroundColor: windowBackground ?? "transparent" }}
     >
+      {isDevServer && (
+        <span className={styles.devBadge} data-testid="widget-dev-badge">
+          DEV · {devHost}
+        </span>
+      )}
       {!customChrome && (
         <header className={styles.topbar} data-tauri-drag-region="deep">
           <div className={styles.brand}>

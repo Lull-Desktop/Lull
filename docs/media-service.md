@@ -131,16 +131,18 @@ Media Service（Rust）
 
 P5 已落地：`./widget` 传输、8 个 Noise capability、Rust bridge token、`noise-mixer` 示例；`./vue` 与查询缓存仍未实现。
 
+P2（官方扩展迁移）已落地：Widget 新增 `media.player.read/control/volume.write`、`media.queue.read`、`media.library.read`、`media.library.sources.write`；`media_connect` 按授权裁剪 player/queue 快照与 topic；封面在授权时放开 `asset:` 的 CSP。
+
 P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD/多标签分配，智能歌单创建/运行/删除；实体合并/拆分通过 SDK/API 提供，暂未做专用管理 UI。设置页新增「曲库整理」调试面板，直接驱动同一组 SDK 方法并显示原始返回。
 
 ## 5. 安全与隐私
 
-- `media_call` 对 `settings/player/noise/library` 走官方矩阵；`widget-*` 必须携带 Rust 生成的 bridge token，并逐方法校验 8 个 `media.noise.*` capability。引擎命令仅 `media-engine`。
-- 官方窗口矩阵：`settings` 全部；`noise` Noise 读写但不导入/删除 Asset、不导入/导出 Preset 文件；`player` 仅播放/队列；`library` 读取 Noise Library。Widget 不获得 `system.snapshot`、player/queue、Asset 写与 Preset 文件导入导出。
-- Widget `media_connect` 只返回 redacted snapshot（output/noise/noiseSession），topic 按 read capability 过滤；player/queue/output 事件不向 Widget 开放。
+- `media_call` 对 `settings/player/noise/library` 走官方矩阵；`widget-*` 必须携带 Rust 生成的 bridge token，并逐方法校验 Noise（8）+ Player/Queue/Library（6）共 14 个 `media.*` capability。引擎命令仅 `media-engine`。
+- 官方窗口矩阵：`settings` 全部；`noise` Noise 读写但不导入/删除 Asset、不导入/导出 Preset 文件；`player` 仅播放/队列；`library` 读取 Noise Library。Widget 不获得 `system.snapshot`、Asset 写与 Preset 文件导入导出。
+- Widget `media_connect` 至少需要一项读能力；snapshot 按授权裁剪：`player` 需 `media.player.read`，`queue` 需 `media.queue.read`，output/noise 维持现状；topic 白名单 = 已授权读能力的并集。
 - bridge token 只注入顶层壳页，插件 iframe 拿不到；`media_call`/`media_connect`/`media_disconnect` 都校验 token，伪造 label/token 失败。
-- 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.library.read`、`session.read/control`、`tracks.read/write`、`volume.write`、`presets.read/write`。
-- 添加/移除音乐目录只允许 host；第三方只能重扫已授权来源，永远拿不到根路径或音频源。
+- 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.*` 八项，以及 `media.player.read/control/volume.write`、`media.queue.read`、`media.library.read`、`media.library.sources.write`（最后一项只打开系统文件夹选择器并触发扫描）。
+- 添加/移除音乐目录的**路径**仍只允许 host；带 `media.library.sources.write` 的 Widget 只能通过系统选择器添加来源，永远拿不到根路径或音频源。
 - 音频播放源只在宿主引擎内部解析；DTO/事件不传文件路径。
 - 扫描只读；文件解析失败回退文件名，不阻断整次扫描。
 - 全局 Chromium 参数关闭自动播放限制与后台定时器节流，供隐藏引擎使用；所有 WebView 必须共用同一份参数。

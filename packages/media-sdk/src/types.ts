@@ -389,8 +389,10 @@ export interface MediaOutput {
 export interface PlaybackSnapshot {
   protocol: 1;
   revision: number;
-  player: PlayerState;
-  queue: QueueState;
+  /** Widget 快照在未授权 `media.player.read` 时省略；官方窗口始终有值。 */
+  player?: PlayerState;
+  /** Widget 快照在未授权 `media.queue.read` 时省略；官方窗口始终有值。 */
+  queue?: QueueState;
   output: MediaOutput;
   noise: NoiseState;
   noiseSession: NoiseSession;

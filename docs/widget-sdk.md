@@ -48,6 +48,12 @@ window label = widget-<id>
 | `media.noise.volume.write` | 硬约束 | Session/Track 音量与静音 |
 | `media.noise.presets.read` | 硬约束 | Preset 列表/详情 |
 | `media.noise.presets.write` | 硬约束 | 保存/加载/删除/映射/收藏 Preset |
+| `media.player.read` | 硬约束 | 播放器状态、进度、音量与快照 |
+| `media.player.control` | 硬约束 | 播放/暂停/恢复/停止/跳转/切歌/播放模式 |
+| `media.player.volume.write` | 硬约束 | 播放器音量与静音 |
+| `media.queue.read` | 硬约束 | 队列快照与 `queue.changed` |
+| `media.library.read` | 硬约束 | 曲目/艺术家/专辑查询与封面 URL |
+| `media.library.sources.write` | 硬约束 | 打开文件夹选择器并触发扫描 |
 
 `widget.window`（创建或控制其他窗口）与 `widget.native`（Win32 / 原生宿主）**不可申请**。
 
@@ -65,6 +71,11 @@ window label = widget-<id>
 
 共享的只有**能力词汇、主题令牌、宿主建窗、关闭即隐藏**这几个概念。写插件按本文来，
 不要照抄内置工具的做法，也不要把内置组件原样丢进插件包。
+
+> 官方工具（播放器、白噪音）正在迁移为**随应用分发的官方扩展**：迁移完成后它们也使用
+> 本文件的包格式、SDK 与 iframe 沙箱，由宿主按来源标记为官方（默认启用、不可卸载）。
+> 迁移期间两套契约并存；迁移完成前，内置工具仍按上表走编译期契约。见
+> [官方扩展](./official-extensions.md)。
 
 ## 如何使用
 
@@ -110,7 +121,7 @@ window label = widget-<id>
 | `entry` | 包内相对 `.html`；禁止 `..`、反斜杠、百分号编码与绝对路径 |
 | `icon` | 可选，包内 `.png` / `.jpg` / `.jpeg` / `.webp` |
 | `lifecycle` | `background`（默认，关闭只隐藏）或 `suspend`（关闭即销毁窗口） |
-| `capabilities` | 只能申请上表的 15 个 |
+| `capabilities` | 只能申请上表的 21 个 |
 | `window.width/height` | 320×240 – 1600×1200；`minWidth/minHeight` 不得大于初始值 |
 | `window.resizable` | 首期固定 `false`，窗口尺寸由宿主决定 |
 | `window.transparent` | 初始是否透明（默认 `true`），运行时可用 `setTransparent` 切换 |

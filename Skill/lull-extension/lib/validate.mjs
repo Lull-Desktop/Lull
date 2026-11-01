@@ -33,6 +33,20 @@ export const WIDGET_CAPABILITIES = [
   "widget.media",
   "widget.network",
   "widget.chrome",
+  "media.noise.library.read",
+  "media.noise.session.read",
+  "media.noise.session.control",
+  "media.noise.tracks.read",
+  "media.noise.tracks.write",
+  "media.noise.volume.write",
+  "media.noise.presets.read",
+  "media.noise.presets.write",
+  "media.player.read",
+  "media.player.control",
+  "media.player.volume.write",
+  "media.queue.read",
+  "media.library.read",
+  "media.library.sources.write",
 ];
 /** Cannot be requested by plugins (host-only). */
 export const WIDGET_FORBIDDEN_CAPABILITIES = ["widget.window", "widget.native"];

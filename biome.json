@@ -10,6 +10,7 @@
     "includes": [
       "src/**",
       "packages/**",
+      "extensions/**",
       "examples/**/*.ts",
       "examples/**/*.tsx",
       "./*.json",
@@ -18,6 +19,7 @@
       "./*.mts",
       "./*.mjs",
       "!!dist",
+      "!!extensions/dist",
       "!!packages/*/dist",
       "!!src-tauri",
       "!!src/paraglide",
@@ -92,6 +94,16 @@
     },
     {
       "includes": ["examples/**/*.ts", "examples/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["extensions/**"],
       "linter": {
         "rules": {
           "correctness": {

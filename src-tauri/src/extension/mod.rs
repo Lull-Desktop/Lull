@@ -50,6 +50,8 @@ pub struct ExtensionInfo {
   /// 社区发布者签名状态；与摘要校验是两条独立的链。
   pub signature: SignatureInfo,
   pub dev: bool,
+  /// `user` / `dev` / `bundled`；官方扩展由宿主按资源路径判定。
+  pub origin: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<ExtensionError>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,6 +201,7 @@ fn scene_info(package: content_package::store::ContentPackageInfo) -> ExtensionI
     verified: if package.verified { "declared" } else { "none" }.to_string(),
     signature: package.signature,
     dev: false,
+    origin: "user".to_string(),
     error,
     enabled: None,
     running: None,
@@ -250,6 +253,7 @@ fn widget_info(app: &AppHandle, package: widget_package::store::PackageInfo) -> 
     verified: package.integrity,
     signature: package.signature,
     dev: package.dev,
+    origin: package.origin,
     error,
     enabled: Some(package.enabled),
     running: Some(package.running),
@@ -531,8 +535,16 @@ pub fn extensions_install(
 #[tauri::command]
 pub fn extensions_remove(app: AppHandle, kind: String, id: String) -> Result<(), ExtensionError> {
   match kind_from_str(&kind)? {
-    Kind::Widget => widget_package::store::remove(&app, &id)
-      .map_err(|error| ExtensionError::new("extension.remove-failed", error))?,
+    Kind::Widget => {
+      if widget_package::store::is_official(&app, &id) {
+        return Err(ExtensionError::new(
+          "extension.official-readonly",
+          "官方扩展随应用分发，不能卸载；可以停用",
+        ));
+      }
+      widget_package::store::remove(&app, &id)
+        .map_err(|error| ExtensionError::new("extension.remove-failed", error))?;
+    }
     Kind::Scene => {
       if crate::wallpaper::runtime::scene_in_use(&id) {
         return Err(ExtensionError::new(

@@ -54,3 +54,6 @@ jobs:
 
       - name: Validate widget manifests
         run: pnpm widgets:check
+
+      - name: Build and validate official extensions
+        run: pnpm extensions:build && pnpm extensions:check

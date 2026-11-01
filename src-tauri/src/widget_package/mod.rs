@@ -12,6 +12,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Window};
 
 pub(crate) mod digest;
 pub mod manifest;
+pub(crate) mod official;
 mod protocol;
 pub(crate) mod store;
 
@@ -86,6 +87,7 @@ struct WindowContext {
   resizable: bool,
   transparent: bool,
   chrome: String,
+  fit: String,
 }
 
 impl From<&WindowSpec> for WindowContext {
@@ -98,6 +100,7 @@ impl From<&WindowSpec> for WindowContext {
       resizable: window.resizable,
       transparent: window.transparent,
       chrome: window.chrome.clone(),
+      fit: window.fit.clone(),
     }
   }
 }
@@ -114,6 +117,7 @@ struct PluginContext {
   entry_url: String,
   requested: Vec<String>,
   granted: Vec<String>,
+  locale: String,
   minimizable: bool,
   window: WindowContext,
   bridge_token: String,
@@ -127,9 +131,10 @@ fn plugin_context_json(app: &AppHandle, runtime: &PackageManifest, bridge_token:
     id: runtime.id.clone(),
     name: runtime.name.clone(),
     version: runtime.version.clone(),
-    entry_url: store::entry_url(&runtime.id, &runtime.entry),
+    entry_url: store::effective_entry_url(app, &runtime.id, &runtime.entry),
     requested: runtime.capabilities.clone(),
     granted: store::granted(app, &runtime.id),
+    locale: crate::i18n::current(),
     minimizable: window_host::prefs::load(app).taskbar_and_minimize,
     window: WindowContext::from(&runtime.window),
     bridge_token: bridge_token.to_string(),
@@ -375,6 +380,7 @@ mod tests {
       entry_url: store::entry_url(&manifest.id, &manifest.entry),
       requested: manifest.capabilities.clone(),
       granted: vec!["widget.state".to_string()],
+      locale: "zh-CN".to_string(),
       minimizable: true,
       window: WindowContext::from(&manifest.window),
       bridge_token: "token".to_string(),
@@ -383,6 +389,7 @@ mod tests {
     assert_eq!(json["id"], "community-pomodoro");
     assert_eq!(json["bridgeToken"], "token");
     assert_eq!(json["protocol"], 1);
+    assert_eq!(json["locale"], "zh-CN");
     assert!(json["entryUrl"]
       .as_str()
       .is_some_and(|url| url.ends_with("/community-pomodoro/index.html")));

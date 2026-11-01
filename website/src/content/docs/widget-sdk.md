@@ -86,9 +86,23 @@ widgets/<id>/
 | `widget.media` | 导入本地媒体前检查 |
 | `widget.network` | 只放行清单 `network` 里声明的 `https://` 源 |
 | `widget.chrome` | 拖动 / 最小化 / 关闭 / 切换透明**自己的**窗口 |
+| `media.noise.library.read` | Noise 素材、分类、标签、收藏读取 |
+| `media.noise.session.read` | Noise Session 状态与快照 |
+| `media.noise.session.control` | 播放 / 暂停 / 停止 / 睡眠定时 |
+| `media.noise.tracks.read` | Noise 轨道读取 |
+| `media.noise.tracks.write` | 增删轨道、开关、循环、排序 |
+| `media.noise.volume.write` | Noise 音量与静音 |
+| `media.noise.presets.read` | Noise Preset 读取 |
+| `media.noise.presets.write` | Noise Preset 保存 / 加载 / 收藏 |
+| `media.player.read` | 播放器状态、进度、音量与快照 |
+| `media.player.control` | 播放 / 暂停 / 跳转 / 切歌 / 模式 |
+| `media.player.volume.write` | 播放器音量与静音 |
+| `media.queue.read` | 队列快照与 `queue.changed` |
+| `media.library.read` | 曲目 / 艺术家 / 专辑查询与封面 |
+| `media.library.sources.write` | 打开文件夹选择器并触发扫描 |
 
-> `sandbox="allow-scripts"` 可以控制插件页面跑在窗口内的透明模式。   
-> 通过`@lull/widget-sdk`，所有宿主能力都走`postMessage`桥，由宿主校验后转发。
+> 插件运行在 `sandbox="allow-scripts"` 的不透明源 iframe 里；透明背景由 `window.transparent` / `setTransparent` 控制，与 sandbox 无关。
+> 通过 `@lull/widget-sdk`，所有宿主能力都走 `postMessage` 桥，由宿主校验后转发。
 
 ## 与内置工具的关系
 

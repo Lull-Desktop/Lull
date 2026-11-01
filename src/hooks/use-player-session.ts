@@ -146,9 +146,9 @@ export function usePlayerSession(): PlayerSession {
       })
       .then((snapshot) => {
         if (!alive) return;
-        snapshotRevision = snapshot.player.revision;
-        setPlayer(snapshot.player);
-        setQueue(snapshot.queue);
+        snapshotRevision = snapshot.player?.revision ?? 0;
+        setPlayer(snapshot.player ?? null);
+        setQueue(snapshot.queue ?? null);
         ready = true;
         for (const event of pending) {
           if (

@@ -238,6 +238,8 @@ src/
   styles/                  # Tailwind 主题与壁纸动效
 packages/widget-sdk/       # 第三方插件侧 SDK：TypeScript 源码 → dist + .d.ts
 packages/scene-sdk/        # 场景侧 SDK：参数/几何/同步/可见性桥
+extensions/official/       # 官方扩展源码（标准 widget 包 + Vite 工程）
+extensions/dist/           # 官方扩展构建产物（不入库，Tauri bundle.resources）
 examples/widgets/          # 原生 / React / Vue 三个 TypeScript 插件包示例
 examples/scenes/           # 可安装内容包示例（静态 / 脚本场景）
 src-tauri/
@@ -400,6 +402,8 @@ pnpm scenes:sdk
 | `pnpm scenes:samples:{build,hash,check,pack}`              | 构建、重算摘要、校验、打包两个脚本场景示例                                |
 | `pnpm widgets:samples:build` / `pnpm widgets:samples:pack` | 构建三个示例插件包 / 打成 `artifacts/*.lull-widget.zip`         |
 | `pnpm widget:pack <dir>`                                   | 把任意构建后的 Widget 目录打成可安装 zip                           |
+| `pnpm extensions:build` / `extensions:dev <id>` / `extensions:watch <id>` | 构建官方扩展 / Vite dev server（HMR）/ 监听重建         |
+| `pnpm extensions:check`                                    | 官方扩展源码边界 + 产物摘要校验（CI）                            |
 
 ### 文档
 
@@ -411,6 +415,8 @@ pnpm scenes:sdk
 | Skill  | [docs/extension-skill.md](docs/extension-skill.md) · [`Skill/lull-extension`](Skill/lull-extension/README.md) |
 | 内容包格式   | [docs/content-format.md](docs/content-format.md)                                       |
 | 扩展中心    | [设计](docs/extension-center.md) · [实施计划](docs/extension-center-plan.md)                 |
+| 官方扩展    | [docs/official-extensions.md](docs/official-extensions.md)                               |
+| 扩展开发模式  | [docs/extension-dev-mode.md](docs/extension-dev-mode.md)                                 |
 | 原生桌面宿主  | [docs/native-host.md](docs/native-host.md)                                             |
 | 媒体运行时   | [docs/media-runtime.md](docs/media-runtime.md)                                         |
 | 多语言方案   | [docs/i18n-plan.md](docs/i18n-plan.md)                                                 |

@@ -137,10 +137,33 @@ const readme = [
 ].join("\r\n");
 
 const portableRoot = `${product}_${version}_${arch}-portable`;
+
+// 官方扩展必须随便携版一起分发：resource_dir() 在便携版下就是 exe 所在目录。
+const extensionsDir = join(root, "extensions", "dist");
+if (!existsSync(join(extensionsDir, "index.json"))) {
+  fail("缺少 extensions/dist/index.json：先执行 `pnpm extensions:build`");
+}
+const extensionEntries = [];
+function collectExtensions(dir, relative = "") {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      collectExtensions(join(dir, entry.name), path);
+      continue;
+    }
+    extensionEntries.push({
+      name: `${portableRoot}/extensions/${path}`,
+      data: readFileSync(join(dir, entry.name)),
+    });
+  }
+}
+collectExtensions(extensionsDir);
+
 const zipEntries = [
   { name: `${portableRoot}/${product}.exe`, data: readFileSync(portableExe) },
   { name: `${portableRoot}/lull_native.dll`, data: readFileSync(nativeDll) },
   { name: `${portableRoot}/README.txt`, data: Buffer.from(readme, "utf8") },
+  ...extensionEntries,
 ];
 for (const file of licenseFiles) {
   if (existsSync(file)) {

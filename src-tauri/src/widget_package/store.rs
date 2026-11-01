@@ -2,6 +2,7 @@
 
 use super::digest;
 use super::manifest::{PackageManifest, WindowSpec, HOST_API};
+use super::official::{self, OfficialPackage};
 use crate::content_trust::{
   verify_installed, PackageClaim, PackageKind, SignatureDecision, SignatureInfo, TrustPolicy,
 };
@@ -9,7 +10,7 @@ use crate::extension::install;
 use crate::extension::ExtensionError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
@@ -74,6 +75,8 @@ pub struct PackageInfo {
   pub tampered: bool,
   pub review_required: bool,
   pub dev: bool,
+  /// `user` / `dev` / `bundled`
+  pub origin: String,
   pub window: PackageWindow,
   pub lifecycle: String,
   pub network: Vec<String>,
@@ -90,6 +93,12 @@ struct GrantRecord {
   /// 启用时的 `widget.json` 哈希；缺失表示旧记录，首次启用时补齐。
   #[serde(default)]
   manifest_hash: Option<String>,
+  /// 上次协调时清单声明的能力；用于区分「用户撤销」与「新版本新增」。
+  #[serde(default)]
+  declared: Vec<String>,
+  /// `bundled`（随包分发，由启动协调维护）或 `user`（旧记录缺省）。
+  #[serde(default)]
+  source: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -158,11 +167,33 @@ pub fn entry_url(id: &str, entry: &str) -> String {
   format!("{origin}/{id}/{entry}")
 }
 
+/// 实际注入 iframe 的地址：开发模式挂载且声明了 `.lull-dev.json` 时用 dev server，
+/// 否则回落到包内相对入口。dev URL 只在 debug 构建生效。
+pub fn effective_entry_url(app: &AppHandle, id: &str, entry: &str) -> String {
+  if let Some(url) = crate::extension::dev::entry_url(app, id) {
+    return url;
+  }
+  entry_url(id, entry)
+}
+
 pub fn resolve_dir(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
   if let Some(dir) = crate::extension::dev::resolve(app, id) {
     return Ok(dir);
   }
+  if let Some(dir) = official::resolve(app, id) {
+    return Ok(dir);
+  }
   package_dir(app, id)
+}
+
+/// 是否由开发模式挂载（关闭开发模式后不算，即使配置里仍保留挂载记录）。
+fn is_dev_mounted(app: &AppHandle, id: &str) -> bool {
+  crate::extension::dev::enabled(app) && crate::extension::dev::contains(app, id)
+}
+
+/// 当前解析到的是否为官方包；开发包 shadow 时返回 `false`。
+pub fn is_official(app: &AppHandle, id: &str) -> bool {
+  !is_dev_mounted(app, id) && official::resolve(app, id).is_some()
 }
 
 /// 读取清单：正式包要求目录名与 id 一致；开发包目录名可任意，但清单 id 必须匹配。
@@ -187,28 +218,38 @@ pub fn find(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
 pub fn ensure_package(app: &AppHandle, id: &str) -> Result<PackageManifest, String> {
   let dir = resolve_dir(app, id)?;
   let manifest = load_manifest(app, id)?;
+  let dev_package = is_dev_mounted(app, id);
+  let official_package = !dev_package && official::resolve(app, id).is_some();
   // 开发包的文件本来就会被反复修改，不参与摘要锁/签名校验。
-  if !crate::extension::dev::contains(app, id) {
-    if let Err(error) = digest::check(&dir, &manifest.id, &manifest.version) {
-      return Err(format!("内容包摘要不匹配，已阻止加载：{error}"));
+  if !dev_package {
+    match digest::check(&dir, &manifest.id, &manifest.version) {
+      Ok(Some(_)) => {}
+      Ok(None) if official_package => {
+        return Err(format!("官方扩展缺少摘要锁，已阻止加载：{}", dir.display()));
+      }
+      Ok(None) => {}
+      Err(error) => return Err(format!("内容包摘要不匹配，已阻止加载：{error}")),
     }
-    if let Ok(computed) = digest::compute(&dir, &manifest.id, &manifest.version) {
-      let policy = crate::content_trust::policy::load(app);
-      let signature = verify_installed(
-        &dir,
-        &PackageClaim {
-          kind: PackageKind::Widget,
-          id: manifest.id.clone(),
-          version: manifest.version.clone(),
-          digest: computed,
-        },
-        &policy,
-      );
-      if signature.decision == SignatureDecision::Block {
-        let reason = signature
-          .reason
-          .unwrap_or_else(|| "发布签名未通过".to_string());
-        return Err(format!("发布签名未通过，已阻止加载：{reason}"));
+    // 官方包由安装包承载分发信任，不参与社区发布者签名策略。
+    if !official_package {
+      if let Ok(computed) = digest::compute(&dir, &manifest.id, &manifest.version) {
+        let policy = crate::content_trust::policy::load(app);
+        let signature = verify_installed(
+          &dir,
+          &PackageClaim {
+            kind: PackageKind::Widget,
+            id: manifest.id.clone(),
+            version: manifest.version.clone(),
+            digest: computed,
+          },
+          &policy,
+        );
+        if signature.decision == SignatureDecision::Block {
+          let reason = signature
+            .reason
+            .unwrap_or_else(|| "发布签名未通过".to_string());
+          return Err(format!("发布签名未通过，已阻止加载：{reason}"));
+        }
       }
     }
   }
@@ -217,6 +258,9 @@ pub fn ensure_package(app: &AppHandle, id: &str) -> Result<PackageManifest, Stri
 
 /// 清单在启用后是否发生变化（需要重新确认权限）。
 pub fn review_required(app: &AppHandle, id: &str) -> bool {
+  if is_official(app, id) {
+    return false;
+  }
   let Ok(dir) = resolve_dir(app, id) else {
     return false;
   };
@@ -245,35 +289,77 @@ pub fn ensure_intact(app: &AppHandle, id: &str) -> Result<PackageManifest, Strin
 }
 
 pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
-  let Ok(root) = root(app) else {
-    return Vec::new();
-  };
   let grants = load_grants(app).unwrap_or_default();
   let policy = crate::content_trust::policy::load(app);
   let mut packages: Vec<PackageInfo> = Vec::new();
-  if let Ok(entries) = std::fs::read_dir(&root) {
-    for entry in entries.filter_map(Result::ok) {
-      let path = entry.path();
-      if !path.is_dir() {
-        continue;
-      }
-      let Some(dir_name) = path.file_name().and_then(|name| name.to_str()) else {
-        continue;
-      };
-      if dir_name.starts_with('.') || !path.join("widget.json").is_file() {
-        continue;
-      }
-      let running = is_running(app, dir_name);
-      match PackageManifest::load(&path, dir_name) {
-        Ok(manifest) => packages.push(info_from(
-          &path,
-          &manifest,
-          grants.widgets.get(dir_name),
-          running,
-          false,
-          &policy,
-        )),
-        Err(error) => packages.push(invalid_info(dir_name, &error, false)),
+  let mut seen: HashSet<String> = HashSet::new();
+  let dev_ids: HashSet<String> = if crate::extension::dev::enabled(app) {
+    crate::extension::dev::packages(app)
+      .into_iter()
+      .map(|package| package.id)
+      .collect()
+  } else {
+    HashSet::new()
+  };
+
+  // 官方包优先；被开发包 shadow 时只保留开发条目。
+  for package in official::packages(app) {
+    if dev_ids.contains(&package.id) {
+      continue;
+    }
+    let running = is_running(app, &package.id);
+    let mut info = info_from(
+      &package.dir,
+      &package.manifest,
+      grants.widgets.get(&package.id),
+      running,
+      "bundled",
+      effective_entry_url(app, &package.id, &package.manifest.entry),
+      &policy,
+    );
+    if let Some(name) = official_display_name(&package.id) {
+      info.name = name;
+    }
+    if let Some(description) = official_display_description(&package.id) {
+      info.description = Some(description);
+    }
+    seen.insert(package.id);
+    packages.push(info);
+  }
+
+  if let Ok(root) = root(app) {
+    if let Ok(entries) = std::fs::read_dir(&root) {
+      for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if !path.is_dir() {
+          continue;
+        }
+        let Some(dir_name) = path.file_name().and_then(|name| name.to_str()) else {
+          continue;
+        };
+        if dir_name.starts_with('.') || !path.join("widget.json").is_file() {
+          continue;
+        }
+        if dev_ids.contains(dir_name) {
+          continue;
+        }
+        if seen.contains(dir_name) {
+          eprintln!("[official] 忽略用户包 {dir_name}：与官方扩展 id 冲突");
+          continue;
+        }
+        let running = is_running(app, dir_name);
+        match PackageManifest::load(&path, dir_name) {
+          Ok(manifest) => packages.push(info_from(
+            &path,
+            &manifest,
+            grants.widgets.get(dir_name),
+            running,
+            "user",
+            effective_entry_url(app, dir_name, &manifest.entry),
+            &policy,
+          )),
+          Err(error) => packages.push(invalid_info(dir_name, &error, "user")),
+        }
       }
     }
   }
@@ -289,15 +375,16 @@ pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
           &manifest,
           grants.widgets.get(&package.id),
           running,
-          true,
+          "dev",
+          effective_entry_url(app, &package.id, &manifest.entry),
           &policy,
         )),
         Ok(manifest) => packages.push(invalid_info(
           &package.id,
           &format!("清单 id={} 与挂载 id 不一致", manifest.id),
-          true,
+          "dev",
         )),
-        Err(error) => packages.push(invalid_info(&package.id, &error, true)),
+        Err(error) => packages.push(invalid_info(&package.id, &error, "dev")),
       }
     }
   }
@@ -306,17 +393,42 @@ pub fn list(app: &AppHandle) -> Vec<PackageInfo> {
   packages
 }
 
+fn official_display_name(id: &str) -> Option<String> {
+  let key = match id {
+    "noise" => "widget_noise_name",
+    "player" => "widget_player_name",
+    _ => return None,
+  };
+  let name = crate::i18n::t(key);
+  (!name.is_empty()).then_some(name)
+}
+
+fn official_display_description(id: &str) -> Option<String> {
+  let key = match id {
+    "noise" => "widget_noise_description",
+    "player" => "widget_player_description",
+    _ => return None,
+  };
+  let description = crate::i18n::t(key);
+  (!description.is_empty()).then_some(description)
+}
+
 fn info_from(
   dir: &Path,
   manifest: &PackageManifest,
   grant: Option<&GrantRecord>,
   running: bool,
-  dev: bool,
+  origin: &str,
+  entry_url: String,
   policy: &TrustPolicy,
 ) -> PackageInfo {
+  let dev = origin == "dev";
+  let official = origin == "bundled";
   let enabled_by_grant = grant.is_some_and(|record| record.enabled);
   // 清单在启用后变化：不加载、不建窗，等用户重新确认权限。
-  let review_required = enabled_by_grant
+  // 官方包的哈希由启动协调维护，不进入 needs-review。
+  let review_required = !official
+    && enabled_by_grant
     && grant
       .and_then(|record| record.manifest_hash.as_deref())
       .is_some_and(|expected| digest::manifest_hash(dir).map_or(true, |actual| actual != expected));
@@ -333,12 +445,20 @@ fn info_from(
   } else {
     match digest::check(dir, &manifest.id, &manifest.version) {
       Ok(Some(record)) => (true, record.source, false, None),
+      Ok(None) if official => (
+        false,
+        "none".to_string(),
+        false,
+        Some("官方扩展缺少摘要锁，请重装应用".to_string()),
+      ),
       Ok(None) => (false, "none".to_string(), false, None),
       Err(error) => (false, "none".to_string(), true, Some(error)),
     }
   };
   let status = if tampered {
     "tampered"
+  } else if official && integrity == "none" {
+    "invalid"
   } else if review_required {
     "needs-review"
   } else {
@@ -349,9 +469,16 @@ fn info_from(
   } else {
     integrity_error
   };
-  let signature = if dev {
-    // 开发包不参与发布签名，也不应被严格模式挡在门外。
-    SignatureInfo::unsigned(&TrustPolicy::default(), "dev-package")
+  let signature = if dev || official {
+    // 开发包不参与发布签名；官方包由安装包承载分发信任。
+    SignatureInfo::unsigned(
+      &TrustPolicy::default(),
+      if official {
+        "official-bundle"
+      } else {
+        "dev-package"
+      },
+    )
   } else {
     match digest::compute(dir, &manifest.id, &manifest.version) {
       Ok(computed) => verify_installed(
@@ -386,15 +513,16 @@ fn info_from(
     tampered,
     review_required,
     dev,
+    origin: origin.to_string(),
     window: PackageWindow::from(&manifest.window),
     lifecycle: manifest.lifecycle.clone(),
     network: manifest.network.clone(),
-    entry_url: entry_url(&manifest.id, &manifest.entry),
+    entry_url,
     host_api: manifest.host_api,
   }
 }
 
-fn invalid_info(id: &str, error: &str, dev: bool) -> PackageInfo {
+fn invalid_info(id: &str, error: &str, origin: &str) -> PackageInfo {
   PackageInfo {
     id: id.to_string(),
     name: id.to_string(),
@@ -413,7 +541,8 @@ fn invalid_info(id: &str, error: &str, dev: bool) -> PackageInfo {
     signature: SignatureInfo::unsigned(&TrustPolicy::default(), "manifest-invalid"),
     tampered: false,
     review_required: false,
-    dev,
+    dev: origin == "dev",
+    origin: origin.to_string(),
     window: PackageWindow::from(&WindowSpec::default()),
     lifecycle: "background".to_string(),
     network: Vec::new(),
@@ -466,6 +595,11 @@ pub fn set_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(), Strin
     None
   };
   let mut grants = load_grants(app)?;
+  let source = if is_official(app, id) {
+    "bundled"
+  } else {
+    "user"
+  };
   if enabled {
     grants.widgets.insert(
       id.to_string(),
@@ -473,6 +607,8 @@ pub fn set_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(), Strin
         enabled: true,
         granted: manifest.capabilities.clone(),
         manifest_hash,
+        declared: manifest.capabilities.clone(),
+        source: Some(source.to_string()),
       },
     );
   } else {
@@ -482,6 +618,8 @@ pub fn set_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(), Strin
         enabled: false,
         granted: Vec::new(),
         manifest_hash: None,
+        declared: manifest.capabilities.clone(),
+        source: Some(source.to_string()),
       },
     );
   }
@@ -539,9 +677,12 @@ pub fn remove(app: &AppHandle, id: &str) -> Result<(), String> {
     return Err("插件 id 非法".to_string());
   }
   // 开发包只取消挂载，不删除用户目录。
-  if crate::extension::dev::contains(app, id) {
+  if is_dev_mounted(app, id) {
     revoke(app, id)?;
     return crate::extension::dev::remove(app, id);
+  }
+  if is_official(app, id) {
+    return Err("官方扩展随应用分发，不能卸载；可以停用".to_string());
   }
   let dir = resolve_dir(app, id)?;
   if !dir.is_dir() {
@@ -567,6 +708,12 @@ pub fn install_from_staged(
 ) -> Result<PackageInfo, ExtensionError> {
   let manifest = PackageManifest::from_dir(staged.bundle())
     .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
+  if official::is_reserved(&manifest.id) {
+    return Err(ExtensionError::new(
+      "manifest.id-reserved",
+      format!("{} 是官方保留 id，不能作为用户包安装", manifest.id),
+    ));
+  }
   if manifest
     .license
     .as_deref()
@@ -605,9 +752,83 @@ pub fn install_from_staged(
     &manifest,
     None,
     false,
-    false,
+    "user",
+    entry_url(&manifest.id, &manifest.entry),
     &TrustPolicy::default(),
   ))
+}
+
+/// 启动协调：官方包首次默认启用、升级补授新增能力、保留用户撤销。
+pub(crate) fn reconcile_official(
+  app: &AppHandle,
+  packages: &[OfficialPackage],
+) -> Result<(), String> {
+  let mut grants = load_grants(app)?;
+  let dev_ids: HashSet<String> = if crate::extension::dev::enabled(app) {
+    crate::extension::dev::packages(app)
+      .into_iter()
+      .map(|package| package.id)
+      .collect()
+  } else {
+    HashSet::new()
+  };
+  apply_official_grants(&mut grants, packages, &dev_ids)?;
+  save_grants(app, &grants)
+}
+
+fn apply_official_grants(
+  grants: &mut GrantsFile,
+  packages: &[OfficialPackage],
+  dev_ids: &HashSet<String>,
+) -> Result<(), String> {
+  let official_ids: HashSet<&str> = packages.iter().map(|package| package.id.as_str()).collect();
+  // 资源里已消失的官方包只清授权记录，保留状态 KV。
+  grants.widgets.retain(|id, record| {
+    record.source.as_deref() != Some("bundled") || official_ids.contains(id.as_str())
+  });
+
+  for package in packages {
+    if dev_ids.contains(&package.id) {
+      continue;
+    }
+    let manifest_hash = digest::manifest_hash(&package.dir)?;
+    let declared = package.manifest.capabilities.clone();
+    if let Some(record) = grants.widgets.get_mut(&package.id) {
+      let previous_declared = if record.declared.is_empty() {
+        // 旧记录没有声明快照：把当时已授予的当作旧声明，避免一次性重新授予用户撤销过的能力。
+        record.granted.clone()
+      } else {
+        record.declared.clone()
+      };
+      let mut granted: Vec<String> = record
+        .granted
+        .iter()
+        .filter(|capability| declared.iter().any(|item| item == *capability))
+        .cloned()
+        .collect();
+      for capability in &declared {
+        if !previous_declared.contains(capability) && !granted.contains(capability) {
+          granted.push(capability.clone());
+        }
+      }
+      record.granted = granted;
+      record.declared = declared;
+      record.manifest_hash = Some(manifest_hash);
+      record.source = Some("bundled".to_string());
+    } else {
+      grants.widgets.insert(
+        package.id.clone(),
+        GrantRecord {
+          enabled: true,
+          granted: declared.clone(),
+          manifest_hash: Some(manifest_hash),
+          declared,
+          source: Some("bundled".to_string()),
+        },
+      );
+    }
+  }
+  Ok(())
 }
 
 pub fn is_enabled(app: &AppHandle, id: &str) -> bool {
@@ -762,7 +983,7 @@ mod tests {
 
   #[test]
   fn invalid_info_uses_safe_defaults() {
-    let info = invalid_info("broken", "bad manifest", false);
+    let info = invalid_info("broken", "bad manifest", "user");
     assert_eq!(info.status, "invalid");
     assert!(!info.enabled);
     assert!(info.window.width >= 320.0);
@@ -856,7 +1077,8 @@ mod tests {
       &manifest,
       None,
       false,
-      false,
+      "user",
+      entry_url(&manifest.id, &manifest.entry),
       &TrustPolicy::default(),
     );
     assert_eq!(info.status, "tampered");
@@ -886,13 +1108,16 @@ mod tests {
       enabled: true,
       granted: vec!["widget.state".to_string()],
       manifest_hash: Some(hash),
+      declared: vec!["widget.state".to_string()],
+      source: Some("user".to_string()),
     };
     let info = info_from(
       &dir,
       &manifest,
       Some(&grant),
       false,
-      false,
+      "user",
+      entry_url(&manifest.id, &manifest.entry),
       &TrustPolicy::default(),
     );
     assert_eq!(info.status, "ready");
@@ -914,12 +1139,220 @@ mod tests {
       &manifest,
       Some(&grant),
       false,
-      false,
+      "user",
+      entry_url(&manifest.id, &manifest.entry),
       &TrustPolicy::default(),
     );
     assert_eq!(info.status, "needs-review");
     assert!(!info.enabled);
     assert!(info.review_required);
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  fn official_package(
+    root: &Path,
+    id: &str,
+    capabilities: &[&str],
+  ) -> Option<crate::widget_package::official::OfficialPackage> {
+    let dir = root.join(id);
+    std::fs::create_dir_all(&dir).ok()?;
+    let caps = capabilities
+      .iter()
+      .map(|capability| format!("\"{capability}\""))
+      .collect::<Vec<_>>()
+      .join(", ");
+    std::fs::write(
+      dir.join("widget.json"),
+      format!(
+        r#"{{
+          "schemaVersion": 2,
+          "type": "widget",
+          "id": "{id}",
+          "name": "Official {id}",
+          "version": "1.0.0",
+          "license": "GPL-3.0-or-later",
+          "builtin": false,
+          "hostApi": 1,
+          "entry": "index.html",
+          "capabilities": [{caps}],
+          "window": {{
+            "width": 420,
+            "height": 320,
+            "minWidth": 360,
+            "minHeight": 260,
+            "resizable": false,
+            "transparent": false,
+            "chrome": "host"
+          }}
+        }}"#
+      ),
+    )
+    .ok()?;
+    std::fs::write(dir.join("index.html"), b"<!doctype html>").ok()?;
+    let manifest = PackageManifest::load(&dir, id).ok()?;
+    Some(crate::widget_package::official::OfficialPackage {
+      id: id.to_string(),
+      dir,
+      manifest,
+    })
+  }
+
+  #[test]
+  fn official_seed_enables_and_grants_declared_capabilities() {
+    let Some(root) = temp_root("official-seed") else {
+      return;
+    };
+    let Some(package) = official_package(&root, "echo", &["widget.ui", "widget.theme"]) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let mut grants = GrantsFile::default();
+    let dev_ids = HashSet::new();
+    assert!(apply_official_grants(&mut grants, &[package], &dev_ids).is_ok());
+    let Some(record) = grants.widgets.get("echo") else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    assert!(record.enabled);
+    assert_eq!(record.source.as_deref(), Some("bundled"));
+    assert_eq!(
+      record.granted,
+      vec!["widget.ui".to_string(), "widget.theme".to_string()]
+    );
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn official_upgrade_adds_new_caps_and_keeps_revocations() {
+    let Some(root) = temp_root("official-upgrade") else {
+      return;
+    };
+    let Some(package) = official_package(
+      &root,
+      "echo",
+      &["widget.state", "widget.theme", "widget.audio"],
+    ) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let mut grants = GrantsFile::default();
+    grants.widgets.insert(
+      "echo".to_string(),
+      GrantRecord {
+        enabled: true,
+        granted: vec!["widget.state".to_string()],
+        manifest_hash: None,
+        declared: vec!["widget.state".to_string(), "widget.theme".to_string()],
+        source: Some("bundled".to_string()),
+      },
+    );
+    grants.widgets.insert(
+      "gone".to_string(),
+      GrantRecord {
+        enabled: true,
+        granted: Vec::new(),
+        manifest_hash: None,
+        declared: Vec::new(),
+        source: Some("bundled".to_string()),
+      },
+    );
+    let dev_ids = HashSet::new();
+    assert!(apply_official_grants(&mut grants, &[package], &dev_ids).is_ok());
+    let Some(record) = grants.widgets.get("echo") else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    assert!(record.enabled);
+    assert_eq!(
+      record.granted,
+      vec!["widget.state".to_string(), "widget.audio".to_string()]
+    );
+    assert!(!grants.widgets.contains_key("gone"));
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn official_reconcile_keeps_disabled_state() {
+    let Some(root) = temp_root("official-disabled") else {
+      return;
+    };
+    let Some(package) = official_package(&root, "echo", &["widget.ui"]) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let mut grants = GrantsFile::default();
+    grants.widgets.insert(
+      "echo".to_string(),
+      GrantRecord {
+        enabled: false,
+        granted: Vec::new(),
+        manifest_hash: None,
+        declared: vec!["widget.ui".to_string()],
+        source: Some("bundled".to_string()),
+      },
+    );
+    let dev_ids = HashSet::new();
+    assert!(apply_official_grants(&mut grants, &[package], &dev_ids).is_ok());
+    assert!(grants
+      .widgets
+      .get("echo")
+      .is_some_and(|record| !record.enabled));
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn official_reconcile_skips_dev_shadow() {
+    let Some(root) = temp_root("official-dev-shadow") else {
+      return;
+    };
+    let Some(package) = official_package(&root, "echo", &["widget.ui"]) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let mut grants = GrantsFile::default();
+    let mut dev_ids = HashSet::new();
+    dev_ids.insert("echo".to_string());
+    assert!(apply_official_grants(&mut grants, &[package], &dev_ids).is_ok());
+    assert!(!grants.widgets.contains_key("echo"));
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn official_missing_lock_is_invalid() {
+    let Some(root) = temp_root("official-no-lock") else {
+      return;
+    };
+    let dir = root.join("echo");
+    if write_widget_package(&dir).is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let Ok(text) = std::fs::read_to_string(dir.join("widget.json")) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let _ = std::fs::write(
+      dir.join("widget.json"),
+      text.replace("community-test", "echo"),
+    );
+    let Ok(manifest) = PackageManifest::load(&dir, "echo") else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    let info = info_from(
+      &dir,
+      &manifest,
+      None,
+      false,
+      "bundled",
+      entry_url(&manifest.id, &manifest.entry),
+      &TrustPolicy::default(),
+    );
+    assert_eq!(info.status, "invalid");
+    assert!(info
+      .error
+      .as_deref()
+      .is_some_and(|message| message.contains("摘要锁")));
     let _ = std::fs::remove_dir_all(&root);
   }
 }

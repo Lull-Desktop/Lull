@@ -1,11 +1,12 @@
-//! N5 Widget 媒体权限矩阵。
+//! N5/N7 Widget 媒体权限矩阵。
 //!
 //! 官方窗口继续使用静态 label 矩阵；`widget-*` 必须带 Rust 下发的 bridge token，
-//! 再按 `.grants.json` 的 8 个 Noise capability 逐方法校验。
+//! 再按 `.grants.json` 的 capability 逐方法校验。玩家/队列/曲库能力与 Noise 能力
+//! 同为公开能力，官方扩展只是默认授权的使用方。
 
 use super::errors::MediaError;
 
-pub const LIBRARY_READ: &str = "media.noise.library.read";
+pub const NOISE_LIBRARY_READ: &str = "media.noise.library.read";
 pub const SESSION_READ: &str = "media.noise.session.read";
 pub const SESSION_CONTROL: &str = "media.noise.session.control";
 pub const TRACKS_READ: &str = "media.noise.tracks.read";
@@ -14,9 +15,16 @@ pub const VOLUME_WRITE: &str = "media.noise.volume.write";
 pub const PRESETS_READ: &str = "media.noise.presets.read";
 pub const PRESETS_WRITE: &str = "media.noise.presets.write";
 
+pub const PLAYER_READ: &str = "media.player.read";
+pub const PLAYER_CONTROL: &str = "media.player.control";
+pub const PLAYER_VOLUME_WRITE: &str = "media.player.volume.write";
+pub const QUEUE_READ: &str = "media.queue.read";
+pub const MEDIA_LIBRARY_READ: &str = "media.library.read";
+pub const MEDIA_LIBRARY_SOURCES_WRITE: &str = "media.library.sources.write";
+
 #[allow(dead_code)]
 pub const NOISE_CAPABILITIES: &[&str] = &[
-  LIBRARY_READ,
+  NOISE_LIBRARY_READ,
   SESSION_READ,
   SESSION_CONTROL,
   TRACKS_READ,
@@ -26,34 +34,66 @@ pub const NOISE_CAPABILITIES: &[&str] = &[
   PRESETS_WRITE,
 ];
 
+/// 至少拿到一项读能力才允许 `media.connect`，避免只有控制权的包拿到快照。
+pub const WIDGET_READ_CAPABILITIES: &[&str] = &[
+  NOISE_LIBRARY_READ,
+  SESSION_READ,
+  TRACKS_READ,
+  PRESETS_READ,
+  PLAYER_READ,
+  QUEUE_READ,
+  MEDIA_LIBRARY_READ,
+];
+
 /// Widget 可调用方法 → capability。`None` 表示 Widget 不允许该方法。
 #[must_use]
 pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> {
-  if namespace != "noise" {
-    return None;
+  match namespace {
+    "noise" => Some(match method {
+      "getState" | "getSession" | "getSounds" => SESSION_READ,
+      "createSession"
+      | "playSession"
+      | "pauseSession"
+      | "stopSession"
+      | "setSleepTimer"
+      | "setSessionSleepTimer"
+      | "activate"
+      | "reset" => SESSION_CONTROL,
+      "setSessionVolume" | "setSessionMuted" | "setMaster" | "setMuted" | "setTrackVolume" => {
+        VOLUME_WRITE
+      }
+      "addTrack" | "removeTrack" | "setTrackEnabled" | "setTrackLoop" | "reorderTracks"
+      | "setLayer" => TRACKS_WRITE,
+      "listAssets" | "getAsset" | "getCategories" | "getTags" | "setAssetFavorite" => {
+        NOISE_LIBRARY_READ
+      }
+      "listPresets" | "getPreset" => PRESETS_READ,
+      "savePreset" | "updatePreset" | "deletePreset" | "loadPreset" | "mapPresetTrack"
+      | "setPresetFavorite" => PRESETS_WRITE,
+      // 文件导入/导出、Asset 编辑/删除只属于设置窗。
+      _ => return None,
+    }),
+    "player" => Some(match method {
+      "getState" => PLAYER_READ,
+      "play" | "pause" | "resume" | "stop" | "seek" | "next" | "previous" | "setMode" => {
+        PLAYER_CONTROL
+      }
+      "setVolume" | "setMuted" => PLAYER_VOLUME_WRITE,
+      _ => return None,
+    }),
+    "queue" => match method {
+      "get" => Some(QUEUE_READ),
+      _ => None,
+    },
+    "library" => match method {
+      "listTracks" | "getTrack" | "getCoverUrl" | "listArtists" | "listAlbums" => {
+        Some(MEDIA_LIBRARY_READ)
+      }
+      "addSource" | "startScan" => Some(MEDIA_LIBRARY_SOURCES_WRITE),
+      _ => None,
+    },
+    _ => None,
   }
-  Some(match method {
-    "getState" | "getSession" | "getSounds" => SESSION_READ,
-    "createSession"
-    | "playSession"
-    | "pauseSession"
-    | "stopSession"
-    | "setSleepTimer"
-    | "setSessionSleepTimer"
-    | "activate"
-    | "reset" => SESSION_CONTROL,
-    "setSessionVolume" | "setSessionMuted" | "setMaster" | "setMuted" | "setTrackVolume" => {
-      VOLUME_WRITE
-    }
-    "addTrack" | "removeTrack" | "setTrackEnabled" | "setTrackLoop" | "reorderTracks"
-    | "setLayer" => TRACKS_WRITE,
-    "listAssets" | "getAsset" | "getCategories" | "getTags" | "setAssetFavorite" => LIBRARY_READ,
-    "listPresets" | "getPreset" => PRESETS_READ,
-    "savePreset" | "updatePreset" | "deletePreset" | "loadPreset" | "mapPresetTrack"
-    | "setPresetFavorite" => PRESETS_WRITE,
-    // 文件导入/导出、Asset 编辑/删除只属于设置窗。
-    _ => return None,
-  })
 }
 
 /// 官方窗口的 Noise 方法权限；资产写操作仍由 `noise::library` 自己限制到 settings。
@@ -86,7 +126,7 @@ pub fn official_noise_allowed(label: &str, method: &str) -> Result<(), MediaErro
   }
 }
 
-/// Widget 可订阅的默认 topic（不含 player/queue/output）。
+/// Widget 的 Noise topic 集合（原有 8 能力）。
 pub const WIDGET_TOPICS: &[&str] = &[
   "noise.state",
   "noise.session.changed",
@@ -101,6 +141,15 @@ pub const WIDGET_TOPICS: &[&str] = &[
   "noise.preset.updated",
   "noise.preset.deleted",
   "noise.level",
+];
+
+/// Widget 的播放/队列/曲库 topic；`library.changed` 目前仍由资料库全局广播。
+pub const PLAYER_WIDGET_TOPICS: &[&str] = &[
+  "player.state",
+  "player.progress",
+  "player.level",
+  "queue.changed",
+  "library.changed",
 ];
 
 pub const PLAYER_TOPICS: &[&str] = &[
@@ -137,6 +186,20 @@ pub fn official_topics(label: &str) -> &'static [&'static str] {
   }
 }
 
+/// 按已授权能力计算 Widget 可订阅的 topic 并集；连接与默认集合都用它。
+#[must_use]
+pub fn widget_topics_for(granted: &[String]) -> Vec<&'static str> {
+  WIDGET_TOPICS
+    .iter()
+    .chain(PLAYER_WIDGET_TOPICS)
+    .copied()
+    .filter(|topic| {
+      widget_topic_capability(topic)
+        .is_some_and(|capability| granted.iter().any(|item| item == capability))
+    })
+    .collect()
+}
+
 #[must_use]
 pub fn widget_topic_capability(topic: &str) -> Option<&'static str> {
   match topic {
@@ -149,8 +212,11 @@ pub fn widget_topic_capability(topic: &str) -> Option<&'static str> {
     | "noise.track.removed"
     | "noise.track.updated"
     | "noise.track.state-changed" => Some(TRACKS_READ),
-    "noise.library.changed" => Some(LIBRARY_READ),
+    "noise.library.changed" => Some(NOISE_LIBRARY_READ),
     "noise.preset.created" | "noise.preset.updated" | "noise.preset.deleted" => Some(PRESETS_READ),
+    "player.state" | "player.progress" | "player.level" => Some(PLAYER_READ),
+    "queue.changed" => Some(QUEUE_READ),
+    "library.changed" => Some(MEDIA_LIBRARY_READ),
     _ => None,
   }
 }
@@ -159,8 +225,15 @@ pub fn widget_topic_capability(topic: &str) -> Option<&'static str> {
 mod tests {
   use super::*;
 
+  fn granted(capabilities: &[&str]) -> Vec<String> {
+    capabilities
+      .iter()
+      .map(|item| (*item).to_string())
+      .collect()
+  }
+
   #[test]
-  fn widget_methods_are_mapped_to_eight_capabilities() {
+  fn widget_noise_methods_are_mapped_to_eight_capabilities() {
     assert_eq!(widget_capability("noise", "getSession"), Some(SESSION_READ));
     assert_eq!(
       widget_capability("noise", "playSession"),
@@ -179,14 +252,38 @@ mod tests {
       widget_capability("noise", "savePreset"),
       Some(PRESETS_WRITE)
     );
-    assert_eq!(widget_capability("noise", "listAssets"), Some(LIBRARY_READ));
+    assert_eq!(
+      widget_capability("noise", "listAssets"),
+      Some(NOISE_LIBRARY_READ)
+    );
     assert_eq!(widget_capability("noise", "importAssets"), None);
-    assert_eq!(widget_capability("player", "play"), None);
     assert_eq!(NOISE_CAPABILITIES.len(), 8);
   }
 
   #[test]
-  fn widget_topics_require_read_capability() {
+  fn widget_player_queue_library_methods_are_mapped() {
+    assert_eq!(widget_capability("player", "getState"), Some(PLAYER_READ));
+    assert_eq!(widget_capability("player", "play"), Some(PLAYER_CONTROL));
+    assert_eq!(
+      widget_capability("player", "setVolume"),
+      Some(PLAYER_VOLUME_WRITE)
+    );
+    assert_eq!(widget_capability("player", "addSource"), None);
+    assert_eq!(widget_capability("queue", "get"), Some(QUEUE_READ));
+    assert_eq!(widget_capability("queue", "add"), None);
+    assert_eq!(
+      widget_capability("library", "getCoverUrl"),
+      Some(MEDIA_LIBRARY_READ)
+    );
+    assert_eq!(
+      widget_capability("library", "addSource"),
+      Some(MEDIA_LIBRARY_SOURCES_WRITE)
+    );
+    assert_eq!(widget_capability("library", "removeSource"), None);
+  }
+
+  #[test]
+  fn widget_topics_require_matching_read_capability() {
     assert_eq!(
       widget_topic_capability("noise.session.changed"),
       Some(SESSION_READ)
@@ -199,7 +296,25 @@ mod tests {
       widget_topic_capability("noise.preset.created"),
       Some(PRESETS_READ)
     );
-    assert_eq!(widget_topic_capability("player.state"), None);
+    assert_eq!(widget_topic_capability("player.state"), Some(PLAYER_READ));
+    assert_eq!(widget_topic_capability("queue.changed"), Some(QUEUE_READ));
+    assert_eq!(
+      widget_topic_capability("library.changed"),
+      Some(MEDIA_LIBRARY_READ)
+    );
+  }
+
+  #[test]
+  fn widget_topics_are_the_union_of_granted_read_caps() {
+    let topics = widget_topics_for(&granted(&[PLAYER_READ, QUEUE_READ]));
+    assert!(topics.contains(&"player.state"));
+    assert!(topics.contains(&"queue.changed"));
+    assert!(!topics.contains(&"noise.state"));
+
+    let noise = widget_topics_for(&granted(&[SESSION_READ]));
+    assert_eq!(noise.len(), 5);
+    assert!(noise.contains(&"noise.session.changed"));
+    assert!(!noise.contains(&"noise.track.added"));
   }
 
   #[test]

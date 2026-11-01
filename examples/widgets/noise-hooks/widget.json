@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "type": "widget",
+  "id": "community-noise-hooks",
+  "name": "Noise Hooks 验证（示例）",
+  "version": "1.0.0",
+  "description": "使用 @lull/media-sdk/react 验证共享连接、重渲染与卸载 disconnect 的 React 示例。",
+  "author": "Lull",
+  "license": "MIT",
+  "builtin": false,
+  "hostApi": 1,
+  "entry": "index.html",
+  "capabilities": [
+    "widget.theme",
+    "widget.state",
+    "widget.media",
+    "media.noise.session.read",
+    "media.noise.tracks.read"
+  ],
+  "window": {
+    "width": 620,
+    "height": 560,
+    "minWidth": 520,
+    "minHeight": 440,
+    "resizable": false,
+    "transparent": true,
+    "chrome": "host"
+  }
+}

@@ -108,6 +108,8 @@ pub fn run() {
     .setup(|app| {
       // 语言必须在建窗与建托盘之前定下来，否则系统托盘会先出基准语言再跳变。
       i18n::init(app.handle());
+      // 官方扩展随安装包分发：启动时默认启用、升级补授新增能力、保留用户撤销。
+      widget_package::official::reconcile(app.handle());
       media::init(app.handle().clone());
       tray::init(app)?;
       if wallpaper::enabled() {

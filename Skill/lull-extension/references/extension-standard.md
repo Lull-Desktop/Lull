@@ -14,7 +14,7 @@
 | Manifest | `widget.json`, schemaVersion **2** | `catalog.json` + one scene, schemaVersion **1** |
 | Install location | `%APPDATA%\app.lull.desktop\widgets\<id>\` | `%APPDATA%\app.lull.desktop\content\<pkg>\` |
 | iframe | `allow-scripts`, opaque origin | `""` (static) or `allow-scripts` (script) |
-| Host capabilities | postMessage bridge + capability grants (7) | frames and params only (5 capabilities, read-only) |
+| Host capabilities | postMessage bridge + capability grants (21) | frames and params only (5 capabilities, read-only) |
 | State | host Rust KV | none (scenes do not persist anything) |
 | Integrity | `.lull-integrity.json` digest lock | `integrity` inside `catalog.json` (+ official catalog signature) |
 | Lifecycle | enable / disable / uninstall; close = hide | install / uninstall; loaded by wallpaper mode |

@@ -1,0 +1,48 @@
+:root {
+  color-scheme: light;
+  font-family: var(
+    --font-body,
+    "Noto Sans SC",
+    "Microsoft YaHei",
+    system-ui,
+    sans-serif
+  );
+  background: var(--paper, #f6f3ec);
+  color: var(--ink, #22302a);
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+p[data-state="pending"] {
+  color: var(--ink-soft, #64736b);
+}
+
+p[data-state="error"] {
+  color: #a13d2d;
+}
+
+button {
+  align-self: flex-start;
+  padding: 8px 14px;
+  border: 1px solid var(--bamboo, #3f6f5f);
+  border-radius: 999px;
+  background: var(--bamboo-mist, #e8f0ec);
+  color: var(--bamboo, #3f6f5f);
+  font: inherit;
+  cursor: pointer;
+}

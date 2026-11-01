@@ -66,7 +66,7 @@ Relative paths only, single-entry HTML, hash routing, no site-root assumptions.
 | `entry` | yes | package-relative `.html`, <= 128 chars, no `..` / `\` / `%` / absolute path | `W-ENTRY-SAFE` / `W-ENTRY-MISSING` |
 | `icon` | no | package-relative `.png/.jpg/.jpeg/.webp`, no path segment starting with `.` | `W-ICON` |
 | `lifecycle` | no | `background` (close hides, default) or `suspend` (close destroys) | `W-LIFECYCLE` |
-| `capabilities` | yes | non-empty, no duplicates, only the 7 in §3 | `W-CAPS-*` |
+| `capabilities` | yes | non-empty, no duplicates, only those in §3 | `W-CAPS-*` |
 | `window.width/height` | yes | 320x240 - 1600x1200 | `W-WINDOW-SIZE` |
 | `window.minWidth/minHeight` | no | must not exceed the initial size | `W-WINDOW-MIN` |
 | `window.resizable` | no | **must be `false`** (fixed size in v1) | `W-WINDOW-RESIZABLE` |
@@ -88,6 +88,20 @@ Relative paths only, single-entry HTML, hash routing, no site-root assumptions.
 | `widget.media` | soft | the check before importing local media | do not pretend you can pick files when denied |
 | `widget.network` | hard | only the origins in the manifest enter the CSP | keep the allowlist precise, no wildcards |
 | `widget.chrome` | hard | `startDrag/minimize/setTransparent` (`close` needs no grant) | with `chrome: "custom"` draw the drag region and buttons yourself |
+| `media.noise.library.read` | hard | noise asset/category/tag/favorite reads | read-only |
+| `media.noise.session.read` | hard | noise session/state/snapshot/event reads | read-only |
+| `media.noise.session.control` | hard | create/play/pause/stop/sleep | only act on user input |
+| `media.noise.tracks.read` | hard | noise track events | read-only |
+| `media.noise.tracks.write` | hard | add/remove/reorder/enable/loop tracks | no bulk churn |
+| `media.noise.volume.write` | hard | session/track volume and mute | respect user mute |
+| `media.noise.presets.read` | hard | list/get presets | read-only |
+| `media.noise.presets.write` | hard | save/load/delete/map/favorite presets | no preset file import/export |
+| `media.player.read` | hard | player state/progress/level + snapshot | read-only |
+| `media.player.control` | hard | play/pause/resume/stop/seek/next/previous/mode | only act on user input |
+| `media.player.volume.write` | hard | player volume and mute | respect user mute |
+| `media.queue.read` | hard | queue snapshot + `queue.changed` | read-only |
+| `media.library.read` | hard | tracks/artists/albums + cover URL | read-only |
+| `media.library.sources.write` | hard | open the folder picker and start a scan | never hand-write paths |
 
 Not requestable: `widget.window` (create/control windows), `widget.native` (Win32 / native
 host). Either one rejects the package at load.

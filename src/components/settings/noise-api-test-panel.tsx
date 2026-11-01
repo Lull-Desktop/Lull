@@ -937,7 +937,7 @@ export function NoiseApiTestPanel() {
               <span>top revision</span>
               <span className="font-mono">{snapshot.revision}</span>
               <span>player status</span>
-              <span className="font-mono">{snapshot.player.status}</span>
+              <span className="font-mono">{snapshot.player?.status ?? "-"}</span>
               <span>noise revision</span>
               <span className="font-mono">{snapshot.noise.revision}</span>
               <span>session revision</span>

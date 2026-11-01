@@ -26,6 +26,12 @@ pub const PLUGIN_CAPABILITIES: &[&str] = &[
   "media.noise.volume.write",
   "media.noise.presets.read",
   "media.noise.presets.write",
+  "media.player.read",
+  "media.player.control",
+  "media.player.volume.write",
+  "media.queue.read",
+  "media.library.read",
+  "media.library.sources.write",
 ];
 
 const MIN_WIDTH: f64 = 320.0;
@@ -49,6 +55,13 @@ pub struct WindowSpec {
   /// `host`：宿主绘制顶栏；`custom`：插件自己绘制拖拽区与窗口按钮。
   #[serde(default = "default_chrome")]
   pub chrome: String,
+  /// `none`（默认，固定尺寸）或 `content`（允许按内容高度调整）。
+  #[serde(default = "default_fit")]
+  pub fit: String,
+}
+
+fn default_fit() -> String {
+  "none".to_string()
 }
 
 fn default_transparent() -> bool {
@@ -69,6 +82,7 @@ impl Default for WindowSpec {
       resizable: false,
       transparent: true,
       chrome: default_chrome(),
+      fit: default_fit(),
     }
   }
 }
@@ -217,6 +231,23 @@ impl PackageManifest {
       other => {
         return Err(format!(
           "window.chrome 只能是 host 或 custom，当前为 {other}"
+        ));
+      }
+    }
+    match self.window.fit.as_str() {
+      "none" => {}
+      "content" => {
+        if !self
+          .capabilities
+          .iter()
+          .any(|capability| capability == "widget.chrome")
+        {
+          return Err("window.fit=content 必须同时申请 widget.chrome 能力".to_string());
+        }
+      }
+      other => {
+        return Err(format!(
+          "window.fit 只能是 none 或 content，当前为 {other}"
         ));
       }
     }
