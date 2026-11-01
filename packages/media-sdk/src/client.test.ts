@@ -106,12 +106,14 @@ describe("media client", () => {
     await media.player.seek(1200.6);
     await media.queue.add("trk_1", 0);
     await media.noise.setLayer("rain", { enabled: true, volume: 0.4 });
+    await media.player.setAdvanceList(["trk_1", "trk_2"]);
 
     expect(transport.requests.map((request) => request.method)).toEqual([
       "play",
       "seek",
       "add",
       "setLayer",
+      "setAdvanceList",
     ]);
     expect(transport.requests[0]?.args).toEqual({ trackId: "trk_1" });
     expect(transport.requests[1]?.args).toEqual({ positionMs: 1201 });
@@ -120,6 +122,9 @@ describe("media client", () => {
       soundId: "rain",
       enabled: true,
       volume: 0.4,
+    });
+    expect(transport.requests[4]?.args).toEqual({
+      trackIds: ["trk_1", "trk_2"],
     });
   });
 

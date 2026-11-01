@@ -140,6 +140,8 @@ export interface LullMediaClient {
     setVolume(volume: number): Promise<PlayerState>;
     setMuted(muted: boolean): Promise<PlayerState>;
     setMode(mode: PlayerState["mode"]): Promise<PlayerState>;
+    /** 同步当前 UI 页签的曲目顺序，供自然播完时按该列表选下一首。 */
+    setAdvanceList(trackIds: string[]): Promise<void>;
   };
   queue: {
     get(): Promise<QueueState>;
@@ -533,6 +535,9 @@ export function createMediaClient(
       call<PlayerState>("player", "setMuted", { muted }),
     setMode: (mode: PlayerState["mode"]) =>
       call<PlayerState>("player", "setMode", { mode }),
+    setAdvanceList: async (trackIds: string[]) => {
+      await call<null>("player", "setAdvanceList", { trackIds });
+    },
   };
 
   const queue = {

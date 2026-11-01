@@ -77,9 +77,8 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
     }),
     "player" => Some(match method {
       "getState" => PLAYER_READ,
-      "play" | "pause" | "resume" | "stop" | "seek" | "next" | "previous" | "setMode" => {
-        PLAYER_CONTROL
-      }
+      "play" | "pause" | "resume" | "stop" | "seek" | "next" | "previous" | "setMode"
+      | "setAdvanceList" => PLAYER_CONTROL,
       "setVolume" | "setMuted" => PLAYER_VOLUME_WRITE,
       _ => return None,
     }),
@@ -272,6 +271,10 @@ mod tests {
   fn widget_player_queue_library_methods_are_mapped() {
     assert_eq!(widget_capability("player", "getState"), Some(PLAYER_READ));
     assert_eq!(widget_capability("player", "play"), Some(PLAYER_CONTROL));
+    assert_eq!(
+      widget_capability("player", "setAdvanceList"),
+      Some(PLAYER_CONTROL)
+    );
     assert_eq!(
       widget_capability("player", "setVolume"),
       Some(PLAYER_VOLUME_WRITE)

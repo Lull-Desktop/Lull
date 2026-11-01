@@ -48,6 +48,8 @@ struct Service {
   duration_ms: Option<i64>,
   error: Option<Value>,
   queue: Vec<String>,
+  /// 当前 UI 页签的曲目顺序；自然播完时优先按它选下一首。
+  advance_list: Option<Vec<String>>,
   revision: u64,
   engine_ready: bool,
   syncing: bool,
@@ -184,6 +186,7 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     duration_ms,
     error: None,
     queue,
+    advance_list: None,
     revision: 0,
     engine_ready: false,
     syncing: false,
@@ -309,6 +312,25 @@ pub async fn call(
       set_mode(&app, &pool, mode)?;
       let service = lock()?;
       Ok(serde_json::to_value(player_view(&service)).unwrap_or(Value::Null))
+    }
+    ("player", "setAdvanceList") => {
+      let ids = args
+        .get("trackIds")
+        .and_then(Value::as_array)
+        .ok_or_else(|| MediaError::invalid("缺少 trackIds"))?;
+      let mut track_ids = Vec::with_capacity(ids.len());
+      for id in ids {
+        if let Some(id) = id.as_str() {
+          track_ids.push(id.to_string());
+        }
+      }
+      let mut service = lock()?;
+      service.advance_list = if track_ids.is_empty() {
+        None
+      } else {
+        Some(track_ids)
+      };
+      Ok(Value::Null)
     }
     ("queue", "get") => {
       let service = lock()?;
@@ -857,11 +879,46 @@ pub fn on_engine_event(app: &AppHandle, event: engine::EngineEvent) {
   }
 }
 
+fn choose_advance_target(list: &[String], current: Option<&str>, shuffle: bool) -> Option<String> {
+  if list.is_empty() {
+    return None;
+  }
+  if list.len() == 1 {
+    return list.first().cloned();
+  }
+  let current_index = current.and_then(|id| list.iter().position(|item| item == id));
+  let index = if shuffle {
+    // 与宿主队列的随机策略保持一致：按时间轮转，避免连续重复。
+    let seed = usize::try_from(now_ms()).unwrap_or(0);
+    let offset = seed % (list.len() - 1) + 1;
+    (current_index.unwrap_or(seed % list.len()) + offset) % list.len()
+  } else {
+    current_index.map_or(0, |index| (index + 1) % list.len())
+  };
+  list.get(index).cloned()
+}
+
 async fn handle_ended(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
-  let mode = lock().map(|service| service.player.mode.clone())?;
+  let (mode, advance_list, current) = {
+    let service = lock()?;
+    (
+      service.player.mode.clone(),
+      service.advance_list.clone(),
+      service.player.current_track_id.clone(),
+    )
+  };
   if mode == "repeat-one" {
     seek(app, pool, 0)?;
     return resume(app, pool).await;
+  }
+  // UI 已把当前页签的列表同步过来时，自然播完按该列表和播放模式选下一首。
+  if let Some(list) = advance_list {
+    if let Some(target) = choose_advance_target(&list, current.as_deref(), mode == "shuffle") {
+      if play(app, pool, Some(target)).await.is_ok() {
+        return Ok(());
+      }
+      // 列表里的曲目失效时回退到宿主队列，避免播完直接停住。
+    }
   }
   next(app, pool, 1).await
 }
@@ -967,4 +1024,45 @@ pub fn handle_engine_event(
   }
   on_engine_event(&window.app_handle().clone(), event);
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::choose_advance_target;
+
+  fn ids(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_string()).collect()
+  }
+
+  #[test]
+  fn advance_target_follows_sequence_and_wraps() {
+    let list = ids(&["a", "b", "c"]);
+    assert_eq!(
+      choose_advance_target(&list, Some("a"), false).as_deref(),
+      Some("b")
+    );
+    assert_eq!(
+      choose_advance_target(&list, Some("c"), false).as_deref(),
+      Some("a")
+    );
+    assert_eq!(
+      choose_advance_target(&list, Some("missing"), false).as_deref(),
+      Some("a")
+    );
+  }
+
+  #[test]
+  fn advance_target_shuffle_avoids_current_and_handles_single() {
+    let list = ids(&["a", "b", "c"]);
+    for _ in 0..20 {
+      let target = choose_advance_target(&list, Some("b"), true).expect("target");
+      assert_ne!(target, "b");
+      assert!(list.contains(&target));
+    }
+    assert_eq!(
+      choose_advance_target(&ids(&["only"]), Some("only"), true).as_deref(),
+      Some("only")
+    );
+    assert_eq!(choose_advance_target(&[], Some("a"), false), None);
+  }
 }

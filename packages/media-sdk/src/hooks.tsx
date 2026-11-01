@@ -271,6 +271,7 @@ export type PlayerActions = {
   setMode(mode: PlayerState["mode"]): Promise<void>;
   addToQueue(trackId: string): Promise<void>;
   setFavorite(trackId: string, favorite: boolean): Promise<void>;
+  setAdvanceList(trackIds: string[]): Promise<void>;
   addSource(): Promise<void>;
   refreshLibrary(): Promise<void>;
 };
@@ -494,6 +495,9 @@ export function usePlayerSession(): PlayerSession {
             track.id === trackId ? { ...track, favorite } : track,
           ),
         );
+      },
+      setAdvanceList: async (trackIds) => {
+        await client.player.setAdvanceList(trackIds);
       },
       addSource: async () => {
         const added = await client.library.addSource();

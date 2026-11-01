@@ -921,16 +921,21 @@ export function LiquidPlayer(): React.ReactElement {
       );
       // 当前曲目不在当前列表（例如从另一页签播放）时，下一首从表头开始，
       // 上一首从表尾开始；否则沿当前页签的列表顺序循环。
-      const target =
-        index < 0
-          ? direction > 0
-            ? list[0]
-            : list[list.length - 1]
-          : list[(index + direction + list.length) % list.length];
+      let target: PlayerTrack | undefined;
+      if (mode === "shuffle" && list.length > 1) {
+        const random = Math.floor(Math.random() * list.length);
+        const randomIndex =
+          index >= 0 && random === index ? (random + 1) % list.length : random;
+        target = list[randomIndex];
+      } else if (index < 0) {
+        target = direction > 0 ? list[0] : list[list.length - 1];
+      } else {
+        target = list[(index + direction + list.length) % list.length];
+      }
       if (!target) return;
       selectTrack(target, true);
     },
-    [selectTrack, showNotice, tab, visibleTracks],
+    [mode, selectTrack, showNotice, tab, visibleTracks],
   );
 
   const commitSeek = useCallback(
@@ -1304,6 +1309,21 @@ export function LiquidPlayer(): React.ReactElement {
     if (!row) return;
     row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [current, drawerOpen, tab, visibleTracks]);
+
+  // 宿主自然播完时按当前页签列表 + sequence/shuffle 选下一首。
+  useEffect(() => {
+    void session.actions
+      .setAdvanceList(visibleTracks.map((track) => track.id))
+      .catch(() => {});
+  }, [session.actions, visibleTracks]);
+
+  // 播放器窗口销毁后交还给宿主队列，避免关闭后仍用旧页签列表。
+  useEffect(
+    () => () => {
+      void session.actions.setAdvanceList([]).catch(() => {});
+    },
+    [session.actions],
+  );
 
   // 全局快捷键：空格播放 / 暂停，Shift + 左右切歌，左右快退 / 快进，M 静音。
   useEffect(() => {

@@ -83,6 +83,7 @@ Media Service（Rust）
 | `library.listGenres` | `{}` | `string[]` |
 | `player.getState` / `play` / `pause` / `resume` / `stop` / `seek` / `next` / `previous` | `trackId?`, `positionMs` | `PlayerState` |
 | `player.setVolume` / `setMuted` / `setMode` | `volume`, `muted`, `mode` | `PlayerState` |
+| `player.setAdvanceList` | `trackIds` | `null` |
 | `queue.get` / `add` / `remove` / `clear` / `move` / `playAt` | `trackId`, `index` | `QueueState` / `PlayerState` |
 | `playlists.list` / `get` / `create` / `update` / `delete` | `playlistId`, `name`, `description` | `PlaylistSummary[]` / `PlaylistDetail` |
 | `playlists.addTrack` / `removeTrack` / `reorder` | `playlistId`, `trackId`, `position` | `{ok}` / `{removed}` / `{moved}` |
@@ -103,6 +104,9 @@ Media Service（Rust）
 | `noise.presets.listPresets` / `getPreset` | `keyword`, `sourceType`, `favoriteOnly`, `page` | `Page<NoisePresetSummary>` / `NoisePresetDetail` |
 | `noise.presets.savePreset` / `updatePreset` / `deletePreset` | `name`, `description?`, `cover?`, `presetId` | `NoisePresetDetail` / `{removed}`（内置 Preset 不可改删） |
 | `noise.presets.loadPreset` / `mapPresetTrack` | `presetId`, `presetTrackId`, `assetId` | `NoisePresetLoadResult` / `NoisePresetDetail` |
+
+`player.setAdvanceList` 是官方播放器的运行时提示：自然播完后按 `sequence` / `shuffle`
+从这份列表选下一首；列表为空或未设置时回退到宿主队列。它不修改用户队列。
 | `noise.presets.importPreset` / `exportPreset` | `path?` | `NoisePresetDetail`（取消为 null）/ `NoisePresetExportResult`（仅 settings） |
 | `noise.presets.setPresetFavorite` | `presetId`, `favorite` | `NoisePresetSummary` |
 | `system.snapshot` | `{}` | `PlaybackSnapshot`（含 `output` / `noiseSession`） |
