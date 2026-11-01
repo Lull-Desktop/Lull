@@ -265,7 +265,7 @@ export default function Settings() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-4">
       <div
-        className="sticky top-0 z-10 mb-4 grid grid-cols-5 gap-1 rounded-2xl border border-border/60 bg-paper-warm/95 p-1 text-xs shadow-sm backdrop-blur"
+        className="sticky top-0 z-10 mb-3 grid grid-cols-5 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
         role="tablist"
         aria-label={m.settings_tabs_label()}
       >
@@ -276,7 +276,7 @@ export default function Settings() {
             role="tab"
             aria-selected={tab === value}
             onClick={() => setTab(value)}
-            className={`min-w-0 truncate rounded-full px-3 py-1.5 text-center transition-colors ${
+            className={`min-w-0 truncate rounded-lg px-2 py-0.5 leading-4 text-center transition-colors ${
               tab === value
                 ? "bg-paper text-ink shadow-sm"
                 : "text-muted-foreground hover:text-ink-soft"

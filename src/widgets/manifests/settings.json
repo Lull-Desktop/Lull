@@ -16,10 +16,10 @@
     "route": "setting",
     "title": "Lull 设置",
     "width": 768,
-    "height": 600,
+    "height": 980,
     "minWidth": 640,
     "minHeight": 320,
-    "maxHeight": 980,
+    "maxHeight": 1200,
     "resizable": true,
     "transparent": false
   }
