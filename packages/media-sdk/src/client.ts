@@ -159,6 +159,25 @@ export interface LullMediaClient {
       getAsset(assetId: string): Promise<NoiseAsset>;
       getCategories(): Promise<NoiseCategory[]>;
       getTags(): Promise<NoiseTag[]>;
+      createCategory(input: {
+        name: string;
+        parentId?: string;
+        icon?: string;
+        sortOrder?: number;
+      }): Promise<NoiseCategory>;
+      updateCategory(
+        categoryId: string,
+        patch: {
+          name?: string;
+          parentId?: string | null;
+          icon?: string | null;
+          sortOrder?: number;
+        },
+      ): Promise<NoiseCategory>;
+      deleteCategory(categoryId: string): Promise<void>;
+      createTag(name: string): Promise<NoiseTag>;
+      updateTag(tagId: string, name: string): Promise<NoiseTag>;
+      deleteTag(tagId: string): Promise<void>;
       importAssets(options?: {
         paths?: string[];
         categoryId?: string;
@@ -487,6 +506,37 @@ export function createMediaClient(
         call<NoiseAsset>("noise", "getAsset", { assetId }),
       getCategories: () => call<NoiseCategory[]>("noise", "getCategories"),
       getTags: () => call<NoiseTag[]>("noise", "getTags"),
+      createCategory: (input: {
+        name: string;
+        parentId?: string;
+        icon?: string;
+        sortOrder?: number;
+      }) => call<NoiseCategory>("noise", "createCategory", input),
+      updateCategory: (
+        categoryId: string,
+        patch: {
+          name?: string;
+          parentId?: string | null;
+          icon?: string | null;
+          sortOrder?: number;
+        },
+      ) =>
+        call<NoiseCategory>("noise", "updateCategory", {
+          categoryId,
+          ...patch,
+        }),
+      deleteCategory: async (categoryId: string) => {
+        await call<{ removed: boolean }>("noise", "deleteCategory", {
+          categoryId,
+        });
+      },
+      createTag: (name: string) =>
+        call<NoiseTag>("noise", "createTag", { name }),
+      updateTag: (tagId: string, name: string) =>
+        call<NoiseTag>("noise", "updateTag", { tagId, name }),
+      deleteTag: async (tagId: string) => {
+        await call<{ removed: boolean }>("noise", "deleteTag", { tagId });
+      },
       importAssets: (options = {}) =>
         call<NoiseImportResult>("noise", "importAssets", options),
       importFolder: (options = {}) =>

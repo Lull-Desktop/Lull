@@ -1,6 +1,6 @@
 # Lull Media Service 与音乐资料库
 
-> 状态：P0 + P1 + P2 + N1 + P3 + N2 + N3 已落地（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列、官方播放器迁移、Shared AudioGraph/engine protocol v2/全局输出音量、订阅与快照基础、歌单/喜欢/历史、M3U 导入导出与资料库窗口、Noise Asset/Track/Session 与旧 5 层兼容门面、Noise 本地素材导入/分类/标签/收藏/搜索/缺失检测）。Preset CRUD、第三方开放按阶段推进；Noise 决策见 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
+> 状态：P0 + P1 + P2 + N1 + P3 + N2 + N3 + N3.5 已落地（SQLite 曲库、扫描进度/取消、封面/歌词资产、完整列表筛选、revision/`media:event`、隐藏音频引擎、播放/队列、官方播放器迁移、Shared AudioGraph/engine protocol v2/全局输出音量、订阅与快照基础、歌单/喜欢/历史、M3U 导入导出与资料库窗口、Noise Asset/Track/Session 与旧 5 层兼容门面、Noise 本地素材导入/分类/标签/收藏/搜索/缺失检测、分类/标签独立 CRUD）。Preset CRUD、第三方开放按阶段推进；Noise 决策见 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
 
 ## 1. 边界
 
@@ -97,6 +97,8 @@ Media Service（Rust）
 | `noise.library.listAssets` / `getAsset` / `getCategories` / `getTags` | `keyword`, `categoryId`, `tagId`, `favoriteOnly`, `status`, `mediaKind`, `page`, `pageSize` | `Page<NoiseAsset>` / `NoiseAsset` / `NoiseCategory[]` / `NoiseTag[]` |
 | `noise.library.importAssets` / `importFolder` / `revalidateAssets` | `paths?`, `path?`, `categoryId?`, `tagIds?` | `NoiseImportResult` / `NoiseRevalidateResult`（仅 settings） |
 | `noise.library.updateAsset` / `removeAsset` | `assetId`, `name?`, `description?`, `categoryId?`, `tagIds?` | `NoiseAsset` / `{removed}`（仅 settings；内置 Asset 不可改删） |
+| `noise.library.createCategory` / `updateCategory` / `deleteCategory` | `name`, `parentId?`, `icon?`, `sortOrder?` | `NoiseCategory` / `{removed}`（仅 settings；内置分类不可改删） |
+| `noise.library.createTag` / `updateTag` / `deleteTag` | `name` | `NoiseTag` / `{removed}`（仅 settings；内置标签不可改删） |
 | `noise.library.setAssetFavorite` | `assetId`, `favorite` | `NoiseAsset` |
 | `system.snapshot` | `{}` | `PlaybackSnapshot`（含 `output` / `noiseSession`） |
 | `system.getOutput` / `setOutput` | `volume?`, `muted?` | `MediaOutput` |
@@ -116,7 +118,7 @@ Media Service（Rust）
 `packages/media-sdk`（Apache-2.0）：
 
 - `createMediaClient({ transport? })`：Tauri 环境自动使用 `media_call` / `media_connect`；测试传内存 transport。
-- `library.*`（含 scan progress/cancel、cover URL、genre/filter 参数）、`player.*`、`queue.*`、`playlists.*`、`favorites.*`、`history.*`、`noise.*`（含 `noise.session.*` / `noise.tracks.*` / `noise.library.*`）、`system.getOutput/setOutput`、`connect/disconnect`、`events.on`。
+- `library.*`（含 scan progress/cancel、cover URL、genre/filter 参数）、`player.*`、`queue.*`、`playlists.*`、`favorites.*`、`history.*`、`noise.*`（含 `noise.session.*` / `noise.tracks.*` / `noise.library.*`，含分类/标签 CRUD）、`system.getOutput/setOutput`、`connect/disconnect`、`events.on`。
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient`。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
 - 设置页音乐库面板、官方播放器、白噪音与资料库窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。资料库窗口（label `library`）包含曲库/歌单/喜欢/历史/队列五页。
@@ -141,6 +143,7 @@ P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公�
 - P3 已支持歌单、喜欢、历史与 M3U 导入导出；本地音频元素已设置 `crossOrigin="anonymous"`，以配合 asset protocol 的 CORS 让 `MediaElementAudioSourceNode` 正常输出。
 - N2 起 Noise 使用独立 `NoiseSession`/`NoiseTrack` 运行时；旧 5 层 `noise.*` 由兼容门面映射到同一 Session。Session/Track 不持久化，退出即停止；只保存 master/muted 等偏好。睡眠定时到点会暂停 Session（保留 muted 偏好），不会自动恢复播放。
 - N3 的 Noise 本地素材在导入时复制到受管目录并流式 SHA-256；支持 `mp3/flac/wav/ogg/m4a/aac`、单文件 100 MB/30 分钟上限，重复 hash 返回已有 Asset。文件播放走 `<audio>` + `MediaElementAudioSourceNode`，缺失文件由 `revalidateAssets` 标记，不每次打开全量重算 hash。
+- N3.5 起分类/标签有用户 CRUD：内置分类/标签只读，用户分类支持父子层级与循环保护，同名分类（同父级）和同名标签（跨内置/用户）拒绝；删除分类把素材置为未分类且子分类存在时拒绝删除，删除标签级联移除素材关联。
 - 设备切换依赖 `devicechange` 重载引擎页 + Rust 全量 resync；多设备选择、独占模式、SMTC 尚未接入。
 - 没有第三方媒体权限；`media:event` 只对官方窗口开放。
 - 扫描错误最多保留 100 条，写入 `music_scan_runs.errors_json`。
@@ -156,6 +159,7 @@ P5 扩展：`./widget`（宿主壳 transport）、`./vue`、查询缓存与公�
 | P3 | 歌单/喜欢/历史、M3U、资料库窗口 | 代码已落地，待手工验收 |
 | N2 | Noise Core：Session/Track、内置 procedural Asset、旧 API 兼容门面 | 代码已落地，待手工验收 |
 | N3 | Noise Library：导入、分类、标签、收藏、搜索、缺失检测 | 代码已落地，待手工验收 |
+| N3.5 | Noise Taxonomy：分类/标签独立 CRUD、层级循环保护、内置只读 | 代码已落地，待手工验收 |
 | N4 | Noise Presets：保存/加载/导入/导出/缺失映射 | 未开始 |
 | P4 | 元数据编辑、标签、实体合并/拆分、智能歌单 | 未开始 |
 | N5/P5 | 公开 Media SDK、Widget 桥、媒体权限、示例 | 未开始 |

@@ -12,7 +12,18 @@ import type {
   NoiseCategory,
   NoiseTag,
 } from "@lull/media-sdk";
-import { FolderPlus, Heart, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import {
+  Check,
+  FolderPlus,
+  Heart,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +53,19 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function categoryDepth(
+  categories: NoiseCategory[],
+  categoryId: string,
+): number {
+  let depth = 0;
+  let current = categories.find((item) => item.id === categoryId);
+  while (current?.parentId && depth < 16) {
+    depth += 1;
+    current = categories.find((item) => item.id === current?.parentId);
+  }
+  return depth;
+}
+
 export function NoiseLibraryPanel() {
   const [client, setClient] = useState<LullMediaClient | null>(null);
   const [assets, setAssets] = useState<NoiseAsset[]>([]);
@@ -62,6 +86,14 @@ export function NoiseLibraryPanel() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState(0);
+  const [newCategory, setNewCategory] = useState("");
+  const [newCategoryParent, setNewCategoryParent] = useState("");
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [categoryDraft, setCategoryDraft] = useState("");
+  const [categoryDraftParent, setCategoryDraftParent] = useState("");
+  const [newTag, setNewTag] = useState("");
+  const [editingTag, setEditingTag] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState("");
 
   const pageSize = 30;
   const refresh = useCallback(() => setVersion((value) => value + 1), []);
@@ -208,6 +240,85 @@ export function NoiseLibraryPanel() {
     });
   }, [client, run, selected]);
 
+  const createCategory = useCallback((): void => {
+    if (!client || !newCategory.trim()) return;
+    void run("category-create", async () => {
+      await client.noise.library.createCategory({
+        name: newCategory.trim(),
+        parentId: newCategoryParent || undefined,
+      });
+      setNewCategory("");
+      setNotice("分类已创建");
+    });
+  }, [client, newCategory, newCategoryParent, run]);
+
+  const saveCategory = useCallback(
+    (category: NoiseCategory): void => {
+      if (!client || !categoryDraft.trim()) return;
+      void run("category-update", async () => {
+        await client.noise.library.updateCategory(category.id, {
+          name: categoryDraft.trim(),
+          parentId: categoryDraftParent || null,
+        });
+        setEditingCategory(null);
+        setNotice("分类已更新");
+      });
+    },
+    [categoryDraft, categoryDraftParent, client, run],
+  );
+
+  const deleteCategory = useCallback(
+    (category: NoiseCategory): void => {
+      if (!client) return;
+      if (!window.confirm(`删除分类「${category.name}」？其中素材会变为未分类。`)) {
+        return;
+      }
+      void run("category-delete", async () => {
+        await client.noise.library.deleteCategory(category.id);
+        setCategoryId((current) => (current === category.id ? "" : current));
+        setSelected(null);
+        setNotice("分类已删除");
+      });
+    },
+    [client, run],
+  );
+
+  const createTag = useCallback((): void => {
+    if (!client || !newTag.trim()) return;
+    void run("tag-create", async () => {
+      await client.noise.library.createTag(newTag.trim());
+      setNewTag("");
+      setNotice("标签已创建");
+    });
+  }, [client, newTag, run]);
+
+  const saveTag = useCallback(
+    (tag: NoiseTag): void => {
+      if (!client || !tagDraft.trim()) return;
+      void run("tag-update", async () => {
+        await client.noise.library.updateTag(tag.id, tagDraft.trim());
+        setEditingTag(null);
+        setNotice("标签已更新");
+      });
+    },
+    [client, run, tagDraft],
+  );
+
+  const deleteTag = useCallback(
+    (tag: NoiseTag): void => {
+      if (!client) return;
+      if (!window.confirm(`删除标签「${tag.name}」？`)) return;
+      void run("tag-delete", async () => {
+        await client.noise.library.deleteTag(tag.id);
+        setTagId((current) => (current === tag.id ? "" : current));
+        setAssetTags((previous) => previous.filter((id) => id !== tag.id));
+        setSelected(null);
+        setNotice("标签已删除");
+      });
+    },
+    [client, run],
+  );
+
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -280,6 +391,7 @@ export function NoiseLibraryPanel() {
               <option value="">全部分类</option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
+                  {"　".repeat(categoryDepth(categories, category.id))}
                   {category.name}（{category.assetCount}）
                 </option>
               ))}
@@ -393,6 +505,218 @@ export function NoiseLibraryPanel() {
               >
                 下一页
               </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">分类与标签</CardTitle>
+          <CardDescription>
+            内置分类/标签只读；用户分类可建层级，删除分类不会删除素材。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-2">
+            <Label>分类</Label>
+            <div className="flex flex-wrap gap-2">
+              <input
+                className="h-9 min-w-32 flex-1 rounded-md border border-line bg-paper px-3 text-sm"
+                value={newCategory}
+                onChange={(event) => setNewCategory(event.target.value)}
+                placeholder="新分类名称"
+              />
+              <select
+                aria-label="新分类父级"
+                className="h-9 rounded-md border border-line bg-paper px-2 text-sm"
+                value={newCategoryParent}
+                onChange={(event) => setNewCategoryParent(event.target.value)}
+              >
+                <option value="">根分类</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {"　".repeat(categoryDepth(categories, category.id))}
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                size="sm"
+                aria-label="创建分类"
+                disabled={busy !== "" || !newCategory.trim()}
+                onClick={createCategory}
+              >
+                <Plus className="mr-1 h-4 w-4" />
+                创建
+              </Button>
+            </div>
+            <div className="max-h-64 divide-y divide-line overflow-auto rounded-md border border-line">
+              {categories.map((category) => (
+                <div key={category.id} className="flex items-center gap-2 px-2 py-2 text-sm">
+                  {editingCategory === category.id ? (
+                    <>
+                      <input
+                        aria-label="编辑分类名称"
+                        className="h-8 min-w-0 flex-1 rounded-md border border-line bg-paper px-2 text-sm"
+                        value={categoryDraft}
+                        onChange={(event) => setCategoryDraft(event.target.value)}
+                      />
+                      <select
+                        aria-label="编辑分类父级"
+                        className="h-8 rounded-md border border-line bg-paper px-1 text-xs"
+                        value={categoryDraftParent}
+                        onChange={(event) => setCategoryDraftParent(event.target.value)}
+                      >
+                        <option value="">根分类</option>
+                        {categories
+                          .filter((item) => item.id !== category.id)
+                          .map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {"　".repeat(categoryDepth(categories, item.id))}
+                              {item.name}
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        type="button"
+                        aria-label="保存分类"
+                        disabled={busy !== ""}
+                        onClick={() => saveCategory(category)}
+                      >
+                        <Check className="h-4 w-4 text-emerald-600" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="取消编辑"
+                        onClick={() => setEditingCategory(null)}
+                      >
+                        <X className="h-4 w-4 text-ink-faint" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 truncate">
+                        {"　".repeat(categoryDepth(categories, category.id))}
+                        {category.name}
+                      </span>
+                      <span className="text-xs text-ink-faint">{category.assetCount}</span>
+                      {category.sourceType === "user" ? (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="编辑分类"
+                            onClick={() => {
+                              setEditingCategory(category.id);
+                              setCategoryDraft(category.name);
+                              setCategoryDraftParent(category.parentId ?? "");
+                            }}
+                          >
+                            <Pencil className="h-4 w-4 text-ink-soft" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="删除分类"
+                            disabled={busy !== ""}
+                            onClick={() => deleteCategory(category)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-ink-faint">
+                          内置
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>标签</Label>
+            <div className="flex gap-2">
+              <input
+                className="h-9 min-w-0 flex-1 rounded-md border border-line bg-paper px-3 text-sm"
+                value={newTag}
+                onChange={(event) => setNewTag(event.target.value)}
+                placeholder="新标签名称"
+              />
+              <Button
+                type="button"
+                size="sm"
+                aria-label="创建标签"
+                disabled={busy !== "" || !newTag.trim()}
+                onClick={createTag}
+              >
+                <Plus className="mr-1 h-4 w-4" />
+                创建
+              </Button>
+            </div>
+            <div className="max-h-64 divide-y divide-line overflow-auto rounded-md border border-line">
+              {tags.map((tag) => (
+                <div key={tag.id} className="flex items-center gap-2 px-2 py-2 text-sm">
+                  {editingTag === tag.id ? (
+                    <>
+                      <input
+                        aria-label="编辑标签名称"
+                        className="h-8 min-w-0 flex-1 rounded-md border border-line bg-paper px-2 text-sm"
+                        value={tagDraft}
+                        onChange={(event) => setTagDraft(event.target.value)}
+                      />
+                      <button
+                        type="button"
+                        aria-label="保存标签"
+                        disabled={busy !== ""}
+                        onClick={() => saveTag(tag)}
+                      >
+                        <Check className="h-4 w-4 text-emerald-600" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="取消编辑"
+                        onClick={() => setEditingTag(null)}
+                      >
+                        <X className="h-4 w-4 text-ink-faint" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                      <span className="text-xs text-ink-faint">{tag.assetCount ?? 0}</span>
+                      {tag.sourceType === "user" ? (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="编辑标签"
+                            onClick={() => {
+                              setEditingTag(tag.id);
+                              setTagDraft(tag.name);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4 text-ink-soft" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="删除标签"
+                            disabled={busy !== ""}
+                            onClick={() => deleteTag(tag)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-ink-faint">
+                          内置
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </CardContent>

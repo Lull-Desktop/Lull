@@ -308,4 +308,52 @@ describe("media client", () => {
       categoryId: null,
     });
   });
+
+  test("routes Noise taxonomy CRUD", async () => {
+    const transport = createMemoryTransport((request) => {
+      if (request.method === "createTag" || request.method === "updateTag") {
+        return {
+          id: "tag-1",
+          name: "Rain",
+          assetCount: 0,
+          sourceType: "user",
+        };
+      }
+      if (request.method === "createCategory" || request.method === "updateCategory") {
+        return {
+          id: "cat-1",
+          name: "Weather",
+          sortOrder: 100,
+          assetCount: 0,
+          sourceType: "user",
+        };
+      }
+      return { removed: true };
+    });
+    const media = createMediaClient({ transport });
+
+    await media.noise.library.createCategory({ name: "Weather" });
+    await media.noise.library.updateCategory("cat-1", { name: "Climate" });
+    await media.noise.library.deleteCategory("cat-1");
+    await media.noise.library.createTag("Rain");
+    await media.noise.library.updateTag("tag-1", "Storm");
+    await media.noise.library.deleteTag("tag-1");
+
+    expect(transport.requests.map((request) => request.method)).toEqual([
+      "createCategory",
+      "updateCategory",
+      "deleteCategory",
+      "createTag",
+      "updateTag",
+      "deleteTag",
+    ]);
+    expect(transport.requests[1]?.args).toEqual({
+      categoryId: "cat-1",
+      name: "Climate",
+    });
+    expect(transport.requests[4]?.args).toEqual({
+      tagId: "tag-1",
+      name: "Storm",
+    });
+  });
 });

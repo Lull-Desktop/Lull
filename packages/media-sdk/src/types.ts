@@ -202,6 +202,7 @@ export interface NoiseTag {
   id: string;
   name: string;
   assetCount?: number;
+  sourceType?: "builtin" | "user" | string;
 }
 
 export interface NoiseAssetCapabilities {
@@ -237,6 +238,7 @@ export interface NoiseCategory {
   icon?: string;
   sortOrder: number;
   assetCount: number;
+  sourceType: "builtin" | "user" | string;
 }
 
 export interface NoiseAssetQuery {

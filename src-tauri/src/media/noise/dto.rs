@@ -131,6 +131,7 @@ pub struct NoiseCategoryView {
   pub icon: Option<String>,
   pub sort_order: i64,
   pub asset_count: i64,
+  pub source_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +141,8 @@ pub struct NoiseTagView {
   pub name: String,
   #[serde(default)]
   pub asset_count: i64,
+  #[serde(default)]
+  pub source_type: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

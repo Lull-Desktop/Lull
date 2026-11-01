@@ -161,6 +161,75 @@ fn asset_view(row: repository::AssetListRow) -> NoiseAssetView {
   }
 }
 
+fn category_view(row: repository::CategoryRow) -> NoiseCategoryView {
+  NoiseCategoryView {
+    id: row.id,
+    name: row.name,
+    parent_id: row.parent_id,
+    icon: row.icon,
+    sort_order: row.sort_order,
+    asset_count: row.asset_count,
+    source_type: row.source_type,
+  }
+}
+
+fn tag_view(row: repository::TagRow) -> NoiseTagView {
+  NoiseTagView {
+    id: row.id,
+    name: row.name,
+    asset_count: row.asset_count,
+    source_type: row.source_type,
+  }
+}
+
+fn optional_text(args: &Value, key: &str) -> Result<Option<Option<String>>, MediaError> {
+  let Some(value) = args.get(key) else {
+    return Ok(None);
+  };
+  match value {
+    Value::Null => Ok(Some(None)),
+    Value::String(value) => Ok(Some(Some(value.clone()))),
+    _ => Err(MediaError::invalid(format!("{key} 必须是字符串或 null"))),
+  }
+}
+
+fn taxonomy_name(value: &str, max: usize, label: &str) -> Result<String, MediaError> {
+  let value = value.trim();
+  if value.is_empty() || value.chars().count() > max {
+    return Err(MediaError::invalid(format!("{label}长度必须为 1–{max}")));
+  }
+  Ok(value.to_string())
+}
+
+async fn validate_category_parent(
+  pool: &sqlx::SqlitePool,
+  category_id: Option<&str>,
+  parent_id: Option<&str>,
+) -> Result<(), MediaError> {
+  let Some(parent_id) = parent_id else {
+    return Ok(());
+  };
+  if category_id == Some(parent_id) {
+    return Err(MediaError::invalid("分类不能以自身为父分类"));
+  }
+  if !repository::category_exists(pool, parent_id).await? {
+    return Err(MediaError::invalid("父分类不存在"));
+  }
+  let mut cursor = Some(parent_id.to_string());
+  let mut depth = 0;
+  while let Some(current) = cursor {
+    if category_id == Some(current.as_str()) {
+      return Err(MediaError::invalid("分类层级不能形成循环"));
+    }
+    depth += 1;
+    if depth > 64 {
+      return Err(MediaError::invalid("分类层级过深"));
+    }
+    cursor = repository::category_parent_id(pool, &current).await?;
+  }
+  Ok(())
+}
+
 async fn detail(pool: &sqlx::SqlitePool, asset_id: &str) -> Result<NoiseAssetView, MediaError> {
   repository::asset_detail(pool, asset_id)
     .await?
@@ -252,14 +321,7 @@ pub async fn call(
       let items: Vec<NoiseCategoryView> = repository::categories(pool)
         .await?
         .into_iter()
-        .map(|row| NoiseCategoryView {
-          id: row.id,
-          name: row.name,
-          parent_id: row.parent_id,
-          icon: row.icon,
-          sort_order: row.sort_order,
-          asset_count: row.asset_count,
-        })
+        .map(category_view)
         .collect();
       serde_json::to_value(items)
         .map_err(|error| MediaError::internal(format!("序列化 Noise 分类失败：{error}")))
@@ -270,14 +332,168 @@ pub async fn call(
       let items: Vec<NoiseTagView> = repository::tags(pool)
         .await?
         .into_iter()
-        .map(|row| NoiseTagView {
-          id: row.id,
-          name: row.name,
-          asset_count: row.asset_count,
-        })
+        .map(tag_view)
         .collect();
       serde_json::to_value(items)
         .map_err(|error| MediaError::internal(format!("序列化 Noise 标签失败：{error}")))
+    }
+    "createCategory" => {
+      require_write(label)?;
+      let name = taxonomy_name(string_arg(args, "name")?, 80, "分类名称")?;
+      let parent_id = optional_text(args, "parentId")?.unwrap_or(None);
+      let icon = optional_text(args, "icon")?.unwrap_or(None);
+      let sort_order = args.get("sortOrder").and_then(Value::as_i64).unwrap_or(100);
+      let pool = crate::media::library::pool()?;
+      validate_category_parent(pool, None, parent_id.as_deref()).await?;
+      if repository::category_name_exists(pool, &name, parent_id.as_deref(), None).await? {
+        return Err(MediaError::invalid("同一父分类下已存在同名分类"));
+      }
+      let category_id = new_id("noise_category");
+      repository::insert_category(
+        pool,
+        &category_id,
+        &name,
+        parent_id.as_deref(),
+        icon.as_deref(),
+        sort_order,
+      )
+      .await?;
+      emit_changed(app);
+      let category = repository::category(pool, &category_id)
+        .await?
+        .ok_or_else(|| MediaError::internal("创建 Noise 分类后读取失败"))?;
+      serde_json::to_value(category_view(category))
+        .map_err(|error| MediaError::internal(format!("序列化 Noise 分类失败：{error}")))
+    }
+    "updateCategory" => {
+      require_write(label)?;
+      let category_id = string_arg(args, "categoryId")?;
+      let pool = crate::media::library::pool()?;
+      let existing = repository::category(pool, category_id)
+        .await?
+        .ok_or_else(|| MediaError::new("noise.category.not-found", "Noise 分类不存在"))?;
+      if existing.source_type != "user" {
+        return Err(MediaError::new(
+          "noise.category.builtin",
+          "内置 Noise 分类不能修改",
+        ));
+      }
+      let name = match args.get("name") {
+        Some(Value::String(value)) => taxonomy_name(value, 80, "分类名称")?,
+        Some(_) => return Err(MediaError::invalid("name 必须是字符串")),
+        None => existing.name.clone(),
+      };
+      let parent_id =
+        optional_text(args, "parentId")?.unwrap_or_else(|| existing.parent_id.clone());
+      let icon = optional_text(args, "icon")?.unwrap_or_else(|| existing.icon.clone());
+      let sort_order = args
+        .get("sortOrder")
+        .and_then(Value::as_i64)
+        .unwrap_or(existing.sort_order);
+      validate_category_parent(pool, Some(category_id), parent_id.as_deref()).await?;
+      if repository::category_name_exists(pool, &name, parent_id.as_deref(), Some(category_id))
+        .await?
+      {
+        return Err(MediaError::invalid("同一父分类下已存在同名分类"));
+      }
+      repository::update_category(
+        pool,
+        category_id,
+        &name,
+        parent_id.as_deref(),
+        icon.as_deref(),
+        sort_order,
+      )
+      .await?;
+      emit_changed(app);
+      let category = repository::category(pool, category_id)
+        .await?
+        .ok_or_else(|| MediaError::internal("更新 Noise 分类后读取失败"))?;
+      serde_json::to_value(category_view(category))
+        .map_err(|error| MediaError::internal(format!("序列化 Noise 分类失败：{error}")))
+    }
+    "deleteCategory" => {
+      require_write(label)?;
+      let category_id = string_arg(args, "categoryId")?;
+      let pool = crate::media::library::pool()?;
+      let existing = repository::category(pool, category_id)
+        .await?
+        .ok_or_else(|| MediaError::new("noise.category.not-found", "Noise 分类不存在"))?;
+      if existing.source_type != "user" {
+        return Err(MediaError::new(
+          "noise.category.builtin",
+          "内置 Noise 分类不能删除",
+        ));
+      }
+      if repository::category_children_count(pool, category_id).await? > 0 {
+        return Err(MediaError::new(
+          "noise.category.has-children",
+          "请先删除或移动子分类",
+        ));
+      }
+      repository::delete_category(pool, category_id).await?;
+      emit_changed(app);
+      Ok(json!({ "removed": true }))
+    }
+    "createTag" => {
+      require_write(label)?;
+      let name = taxonomy_name(string_arg(args, "name")?, 40, "标签名称")?;
+      let normalized = repository::normalize_tag_name(&name);
+      let pool = crate::media::library::pool()?;
+      if repository::tag_name_exists(pool, &normalized, None).await? {
+        return Err(MediaError::invalid("已存在同名标签"));
+      }
+      let tag_id = new_id("noise_tag");
+      repository::insert_tag(pool, &tag_id, &name, &normalized).await?;
+      emit_changed(app);
+      let tag = repository::tag(pool, &tag_id)
+        .await?
+        .ok_or_else(|| MediaError::internal("创建 Noise 标签后读取失败"))?;
+      serde_json::to_value(tag_view(tag))
+        .map_err(|error| MediaError::internal(format!("序列化 Noise 标签失败：{error}")))
+    }
+    "updateTag" => {
+      require_write(label)?;
+      let tag_id = string_arg(args, "tagId")?;
+      let name = taxonomy_name(string_arg(args, "name")?, 40, "标签名称")?;
+      let normalized = repository::normalize_tag_name(&name);
+      let pool = crate::media::library::pool()?;
+      let existing = repository::tag(pool, tag_id)
+        .await?
+        .ok_or_else(|| MediaError::new("noise.tag.not-found", "Noise 标签不存在"))?;
+      if existing.source_type != "user" {
+        return Err(MediaError::new(
+          "noise.tag.builtin",
+          "内置 Noise 标签不能修改",
+        ));
+      }
+      if repository::tag_name_exists(pool, &normalized, Some(tag_id)).await? {
+        return Err(MediaError::invalid("已存在同名标签"));
+      }
+      repository::update_tag(pool, tag_id, &name, &normalized).await?;
+      emit_changed(app);
+      let tag = repository::tag(pool, tag_id)
+        .await?
+        .ok_or_else(|| MediaError::internal("更新 Noise 标签后读取失败"))?;
+      serde_json::to_value(tag_view(tag))
+        .map_err(|error| MediaError::internal(format!("序列化 Noise 标签失败：{error}")))
+    }
+    "deleteTag" => {
+      require_write(label)?;
+      let tag_id = string_arg(args, "tagId")?;
+      let pool = crate::media::library::pool()?;
+      let existing = repository::tag(pool, tag_id)
+        .await?
+        .ok_or_else(|| MediaError::new("noise.tag.not-found", "Noise 标签不存在"))?;
+      if existing.source_type != "user" {
+        return Err(MediaError::new(
+          "noise.tag.builtin",
+          "内置 Noise 标签不能删除",
+        ));
+      }
+      repository::delete_tag(pool, tag_id).await?;
+      emit_changed(app);
+      Ok(json!({ "removed": true }))
     }
     "setAssetFavorite" => {
       require_favorite(label)?;
@@ -692,6 +908,102 @@ mod tests {
         .await
         .expect("list fav");
       assert_eq!(total, 1);
+      crate::media::repository::db::close(&pool).await;
+    });
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+    let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+  }
+
+  #[test]
+  fn user_taxonomy_crud_and_cycle_guard() {
+    let path =
+      std::env::temp_dir().join(format!("lull-noise-taxonomy-{}.db", uuid::Uuid::now_v7()));
+    tauri::async_runtime::block_on(async {
+      let pool = crate::media::repository::db::open_at(&path)
+        .await
+        .expect("open db");
+      super::super::catalog::seed(&pool).await.expect("seed");
+      repository::insert_category(&pool, "cat_parent", "User parent", None, None, 100)
+        .await
+        .expect("parent");
+      repository::insert_category(
+        &pool,
+        "cat_child",
+        "User child",
+        Some("cat_parent"),
+        Some("leaf"),
+        101,
+      )
+      .await
+      .expect("child");
+      assert!(
+        repository::category_name_exists(&pool, "user child", Some("cat_parent"), None)
+          .await
+          .expect("name check")
+      );
+      assert!(
+        validate_category_parent(&pool, Some("cat_parent"), Some("cat_child"))
+          .await
+          .is_err()
+      );
+      assert!(
+        validate_category_parent(&pool, Some("cat_child"), Some("cat_parent"))
+          .await
+          .is_ok()
+      );
+      repository::update_category(
+        &pool,
+        "cat_child",
+        "Renamed child",
+        Some("cat_parent"),
+        None,
+        102,
+      )
+      .await
+      .expect("update category");
+      let category = repository::category(&pool, "cat_child")
+        .await
+        .expect("get category")
+        .expect("exists");
+      assert_eq!(category.name, "Renamed child");
+      assert_eq!(category.source_type, "user");
+      assert_eq!(
+        repository::category_children_count(&pool, "cat_parent")
+          .await
+          .expect("children"),
+        1
+      );
+
+      repository::insert_tag(&pool, "tag_user", "Rain", "rain")
+        .await
+        .expect("tag");
+      assert!(repository::tag_name_exists(&pool, "rain", None)
+        .await
+        .expect("tag check"));
+      repository::update_tag(&pool, "tag_user", "Heavy Rain", "heavy rain")
+        .await
+        .expect("update tag");
+      let tag = repository::tag(&pool, "tag_user")
+        .await
+        .expect("get tag")
+        .expect("exists");
+      assert_eq!(tag.name, "Heavy Rain");
+      assert_eq!(tag.source_type, "user");
+
+      repository::delete_tag(&pool, "tag_user")
+        .await
+        .expect("delete tag");
+      assert!(repository::tag(&pool, "tag_user")
+        .await
+        .expect("tag gone")
+        .is_none());
+      repository::delete_category(&pool, "cat_child")
+        .await
+        .expect("delete child");
+      repository::delete_category(&pool, "cat_parent")
+        .await
+        .expect("delete parent");
       crate::media::repository::db::close(&pool).await;
     });
     let _ = std::fs::remove_file(&path);

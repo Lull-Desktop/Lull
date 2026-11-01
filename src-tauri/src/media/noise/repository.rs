@@ -149,6 +149,7 @@ pub struct CategoryRow {
   pub icon: Option<String>,
   pub sort_order: i64,
   pub asset_count: i64,
+  pub source_type: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -156,6 +157,7 @@ pub struct TagRow {
   pub id: String,
   pub name: String,
   pub asset_count: i64,
+  pub source_type: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -473,10 +475,10 @@ pub async fn set_favorite(
 
 pub async fn categories(pool: &SqlitePool) -> Result<Vec<CategoryRow>, MediaError> {
   sqlx::query_as::<_, CategoryRow>(
-    "SELECT c.id, c.name, c.parent_id, c.icon, c.sort_order, \
+    "SELECT c.id, c.name, c.parent_id, c.icon, c.sort_order, c.source_type, \
        COUNT(a.id) AS asset_count \
      FROM noise_categories c LEFT JOIN noise_assets a ON a.category_id = c.id \
-     GROUP BY c.id, c.name, c.parent_id, c.icon, c.sort_order \
+     GROUP BY c.id, c.name, c.parent_id, c.icon, c.sort_order, c.source_type \
      ORDER BY c.sort_order, c.name COLLATE NOCASE",
   )
   .fetch_all(pool)
@@ -486,9 +488,9 @@ pub async fn categories(pool: &SqlitePool) -> Result<Vec<CategoryRow>, MediaErro
 
 pub async fn tags(pool: &SqlitePool) -> Result<Vec<TagRow>, MediaError> {
   sqlx::query_as::<_, TagRow>(
-    "SELECT t.id, t.name, COUNT(at.asset_id) AS asset_count \
+    "SELECT t.id, t.name, t.source_type, COUNT(at.asset_id) AS asset_count \
      FROM noise_tags t LEFT JOIN noise_asset_tags at ON at.tag_id = t.id \
-     GROUP BY t.id, t.name ORDER BY t.name COLLATE NOCASE",
+     GROUP BY t.id, t.name, t.source_type ORDER BY t.name COLLATE NOCASE",
   )
   .fetch_all(pool)
   .await
@@ -532,4 +534,218 @@ pub async fn category_exists(pool: &SqlitePool, category_id: &str) -> Result<boo
     .await
     .map_err(|error| MediaError::internal(format!("读取 Noise 分类失败：{error}")))?;
   Ok(count > 0)
+}
+
+pub async fn category(
+  pool: &SqlitePool,
+  category_id: &str,
+) -> Result<Option<CategoryRow>, MediaError> {
+  sqlx::query_as::<_, CategoryRow>(
+    "SELECT c.id, c.name, c.parent_id, c.icon, c.sort_order, c.source_type, \
+       (SELECT COUNT(*) FROM noise_assets a WHERE a.category_id = c.id) AS asset_count \
+     FROM noise_categories c WHERE c.id = ?",
+  )
+  .bind(category_id)
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取 Noise 分类失败：{error}")))
+}
+
+pub async fn tag(pool: &SqlitePool, tag_id: &str) -> Result<Option<TagRow>, MediaError> {
+  sqlx::query_as::<_, TagRow>(
+    "SELECT t.id, t.name, t.source_type, \
+       (SELECT COUNT(*) FROM noise_asset_tags at WHERE at.tag_id = t.id) AS asset_count \
+     FROM noise_tags t WHERE t.id = ?",
+  )
+  .bind(tag_id)
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取 Noise 标签失败：{error}")))
+}
+
+pub async fn category_children_count(
+  pool: &SqlitePool,
+  category_id: &str,
+) -> Result<i64, MediaError> {
+  sqlx::query_scalar("SELECT COUNT(*) FROM noise_categories WHERE parent_id = ?")
+    .bind(category_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("读取 Noise 子分类失败：{error}")))
+}
+
+pub async fn category_parent_id(
+  pool: &SqlitePool,
+  category_id: &str,
+) -> Result<Option<String>, MediaError> {
+  let parent: Option<Option<String>> =
+    sqlx::query_scalar("SELECT parent_id FROM noise_categories WHERE id = ?")
+      .bind(category_id)
+      .fetch_optional(pool)
+      .await
+      .map_err(|error| MediaError::internal(format!("读取 Noise 父分类失败：{error}")))?;
+  Ok(parent.flatten())
+}
+
+pub async fn category_name_exists(
+  pool: &SqlitePool,
+  name: &str,
+  parent_id: Option<&str>,
+  exclude_id: Option<&str>,
+) -> Result<bool, MediaError> {
+  let count: i64 = sqlx::query_scalar(
+    "SELECT COUNT(*) FROM noise_categories \
+     WHERE lower(name) = lower(?) \
+       AND ((parent_id IS NULL AND ? IS NULL) OR parent_id = ?) AND id != ?",
+  )
+  .bind(name)
+  .bind(parent_id)
+  .bind(parent_id)
+  .bind(exclude_id.unwrap_or(""))
+  .fetch_one(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("检查 Noise 分类名称失败：{error}")))?;
+  Ok(count > 0)
+}
+
+pub async fn tag_name_exists(
+  pool: &SqlitePool,
+  normalized_name: &str,
+  exclude_id: Option<&str>,
+) -> Result<bool, MediaError> {
+  let count: i64 = sqlx::query_scalar(
+    "SELECT COUNT(*) FROM noise_tags \
+     WHERE normalized_name = ? AND id != ?",
+  )
+  .bind(normalized_name)
+  .bind(exclude_id.unwrap_or(""))
+  .fetch_one(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("检查 Noise 标签名称失败：{error}")))?;
+  Ok(count > 0)
+}
+
+pub async fn insert_category(
+  pool: &SqlitePool,
+  category_id: &str,
+  name: &str,
+  parent_id: Option<&str>,
+  icon: Option<&str>,
+  sort_order: i64,
+) -> Result<(), MediaError> {
+  sqlx::query(
+    "INSERT INTO noise_categories \
+     (id, name, parent_id, icon, source_type, sort_order, created_at) \
+     VALUES (?, ?, ?, ?, 'user', ?, ?)",
+  )
+  .bind(category_id)
+  .bind(name)
+  .bind(parent_id)
+  .bind(icon)
+  .bind(sort_order)
+  .bind(now_ms())
+  .execute(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("创建 Noise 分类失败：{error}")))?;
+  Ok(())
+}
+
+pub async fn update_category(
+  pool: &SqlitePool,
+  category_id: &str,
+  name: &str,
+  parent_id: Option<&str>,
+  icon: Option<&str>,
+  sort_order: i64,
+) -> Result<(), MediaError> {
+  let changed = sqlx::query(
+    "UPDATE noise_categories SET name = ?, parent_id = ?, icon = ?, sort_order = ? \
+     WHERE id = ?",
+  )
+  .bind(name)
+  .bind(parent_id)
+  .bind(icon)
+  .bind(sort_order)
+  .bind(category_id)
+  .execute(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("更新 Noise 分类失败：{error}")))?;
+  if changed.rows_affected() == 0 {
+    return Err(MediaError::new(
+      "noise.category.not-found",
+      "Noise 分类不存在",
+    ));
+  }
+  Ok(())
+}
+
+pub async fn delete_category(pool: &SqlitePool, category_id: &str) -> Result<(), MediaError> {
+  let changed = sqlx::query("DELETE FROM noise_categories WHERE id = ?")
+    .bind(category_id)
+    .execute(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("删除 Noise 分类失败：{error}")))?;
+  if changed.rows_affected() == 0 {
+    return Err(MediaError::new(
+      "noise.category.not-found",
+      "Noise 分类不存在",
+    ));
+  }
+  Ok(())
+}
+
+pub async fn insert_tag(
+  pool: &SqlitePool,
+  tag_id: &str,
+  name: &str,
+  normalized_name: &str,
+) -> Result<(), MediaError> {
+  sqlx::query(
+    "INSERT INTO noise_tags (id, name, normalized_name, source_type, created_at) \
+     VALUES (?, ?, ?, 'user', ?)",
+  )
+  .bind(tag_id)
+  .bind(name)
+  .bind(normalized_name)
+  .bind(now_ms())
+  .execute(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("创建 Noise 标签失败：{error}")))?;
+  Ok(())
+}
+
+pub async fn update_tag(
+  pool: &SqlitePool,
+  tag_id: &str,
+  name: &str,
+  normalized_name: &str,
+) -> Result<(), MediaError> {
+  let changed = sqlx::query("UPDATE noise_tags SET name = ?, normalized_name = ? WHERE id = ?")
+    .bind(name)
+    .bind(normalized_name)
+    .bind(tag_id)
+    .execute(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("更新 Noise 标签失败：{error}")))?;
+  if changed.rows_affected() == 0 {
+    return Err(MediaError::new("noise.tag.not-found", "Noise 标签不存在"));
+  }
+  Ok(())
+}
+
+pub async fn delete_tag(pool: &SqlitePool, tag_id: &str) -> Result<(), MediaError> {
+  let changed = sqlx::query("DELETE FROM noise_tags WHERE id = ?")
+    .bind(tag_id)
+    .execute(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("删除 Noise 标签失败：{error}")))?;
+  if changed.rows_affected() == 0 {
+    return Err(MediaError::new("noise.tag.not-found", "Noise 标签不存在"));
+  }
+  Ok(())
+}
+
+#[must_use]
+pub fn normalize_tag_name(name: &str) -> String {
+  name.trim().to_lowercase()
 }
