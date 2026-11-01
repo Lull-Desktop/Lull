@@ -45,8 +45,11 @@ function Mixer() {
 }
 ```
 
-Hooks 按 client 共享一次 `connect`；最后一个订阅卸载时 disconnect。
-`useNoiseLibrary` / `useNoisePresets` 提供列表、loading/error 与 refresh。
+Hooks 共享每个 client 的 `MediaSessionHub`：按所有订阅者的 topic/进度/level 取并集，
+只 `connect` 一次；订阅归零不主动 disconnect（避免 StrictMode / HMR 抖动），窗口销毁时
+由宿主清理。`useNoiseLibrary` / `useNoisePresets` 提供列表、loading/error 与 refresh；
+`usePlayerSession` 提供 player/queue 快照、曲库与播放动作；`useMediaHubStatus` 给出
+连接状态与 revision。
 
 ## 音乐库 P4
 

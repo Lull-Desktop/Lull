@@ -6,9 +6,9 @@
 >
 > **实施进度（2026-11）**：P1 已落地——官方来源 / 默认授权 / 保留 id / 构建期摘要
 > （`widget_package::official` + store）、Vite 构建、`extensions/dist` 资源映射、
-> 便携版收录与 CI；`echo` 是 P1 自检包，P3 前删除。P2 已落地：Widget 的
+> 便携版收录与 CI；`echo` 是 P1 自检包，P3 前删除。P2 已完成：Widget 的
 > player/queue/library 媒体能力与快照裁剪、Tier 2 dev server、`widget_apply_resize` +
-> `window.fit`、locale / 主题 token 下发；媒体连接 Hub 仍待做。
+> `window.fit`、locale / 主题 token、媒体连接 Hub 均已落地。
 >
 > 关联文档：[Widget SDK](./widget-sdk.md)（包格式、能力词汇、桥协议）、
 > [扩展中心](./extension-center.md)（安装 / 启用 / 授权 / 卸载语义）、

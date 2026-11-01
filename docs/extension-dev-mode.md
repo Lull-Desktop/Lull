@@ -10,7 +10,7 @@
 >
 > **实施进度（2026-11）**：P1 的 Vite 构建、Tier 0、`extensions:watch` 与边界检查已落地；
 > P2 的媒体桥、Tier 2 dev server、`widget_apply_resize` + `window.fit`、locale 与主题
-> token 下发已落地；媒体连接 Hub 仍属 P2。
+> token、媒体连接 Hub 均已落地，P2 完成。
 
 ## 0. 一句话
 

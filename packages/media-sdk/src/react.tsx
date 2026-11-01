@@ -6,12 +6,16 @@ import type { LullMediaClient } from "./client";
 import { bindMediaClientHook } from "./hooks";
 
 export {
+  type NoiseLibraryState,
+  type NoisePresetsState,
+  type PlayerActions,
+  type PlayerSession,
+  useMediaHubStatus,
   useNoiseLibrary,
   useNoisePresets,
   useNoiseSession,
   useNoiseTracks,
-  type NoiseLibraryState,
-  type NoisePresetsState,
+  usePlayerSession,
 } from "./hooks";
 
 const MediaClientContext = createContext<LullMediaClient | null>(null);

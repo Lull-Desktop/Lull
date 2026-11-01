@@ -2,8 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import { createMediaClient } from "./client.js";
-import { LullMediaProvider, useNoiseSession } from "./react.js";
 import type { MediaResponse } from "./protocol.js";
+import { LullMediaProvider, useNoiseSession } from "./react.js";
 
 function Probe() {
   const session = useNoiseSession();
@@ -11,7 +11,7 @@ function Probe() {
 }
 
 describe("Noise React hooks", () => {
-  test("useNoiseSession connects once and unmounts disconnect", async () => {
+  test("useNoiseSession joins the shared hub and keeps it after unmount", async () => {
     const snapshot = {
       protocol: 1,
       revision: 3,
@@ -77,6 +77,8 @@ describe("Noise React hooks", () => {
     await waitFor(() => expect(screen.getByText("playing")).toBeDefined());
     expect(connect).toHaveBeenCalledTimes(1);
     view.unmount();
-    await waitFor(() => expect(disconnect).toHaveBeenCalled());
+    // Hub 设计为订阅归零也不主动断开，避免 StrictMode / HMR 抖动。
+    await Promise.resolve();
+    expect(disconnect).not.toHaveBeenCalled();
   });
 });

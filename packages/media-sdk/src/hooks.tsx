@@ -1,8 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
-import { type LullMediaClient } from "./client.js";
+import type { LullMediaClient } from "./client.js";
+import { type MediaHubStatus, mediaHubFor } from "./hub.js";
 import type {
   NoiseAsset,
   NoiseAssetQuery,
@@ -10,6 +19,9 @@ import type {
   NoisePresetSummary,
   NoiseSession,
   NoiseTrack,
+  PlayerState,
+  QueueState,
+  TrackSummary,
 } from "./types.js";
 
 const NOISE_TOPICS = [
@@ -35,6 +47,8 @@ class NoiseStore {
   private refs = 0;
   private started = false;
   private stopEvents: (() => void) | null = null;
+  private stopHub: (() => void) | null = null;
+  private release: (() => void) | null = null;
 
   constructor(client: LullMediaClient) {
     this.client = client;
@@ -71,6 +85,13 @@ class NoiseStore {
   private async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
+    const hub = mediaHubFor(this.client);
+    this.stopHub = hub.subscribe(() => {
+      const snapshot = hub.snapshot;
+      if (!snapshot) return;
+      this.session = snapshot.noiseSession;
+      this.emit();
+    });
     this.stopEvents = this.client.events.on((event) => {
       if (event.topic === "noise.session.changed") {
         this.session = event.payload as NoiseSession;
@@ -89,24 +110,23 @@ class NoiseStore {
       }
       for (const listener of this.eventListeners) listener(event.topic);
     });
-    try {
-      const snapshot = await this.client.connect({
-        topics: NOISE_TOPICS,
-        levels: false,
-      });
+    this.release = hub.ensure({ topics: NOISE_TOPICS, levels: false });
+    const snapshot = hub.snapshot;
+    if (snapshot) {
       this.session = snapshot.noiseSession;
       this.emit();
-    } catch {
-      // 连接失败时保持 null；调用方可通过 refresh 重新挂载。
     }
   }
 
   private stop(): void {
     if (!this.started) return;
     this.started = false;
+    this.release?.();
+    this.release = null;
+    this.stopHub?.();
+    this.stopHub = null;
     this.stopEvents?.();
     this.stopEvents = null;
-    void this.client.disconnect();
   }
 }
 
@@ -141,7 +161,9 @@ export type NoiseLibraryState = {
   refresh: () => void;
 };
 
-export function useNoiseLibrary(query: NoiseAssetQuery = {}): NoiseLibraryState {
+export function useNoiseLibrary(
+  query: NoiseAssetQuery = {},
+): NoiseLibraryState {
   const { useMediaClient } = requireReact();
   const client = useMediaClient();
   const store = storeFor(client);
@@ -165,7 +187,8 @@ export function useNoiseLibrary(query: NoiseAssetQuery = {}): NoiseLibraryState 
         setError(null);
       })
       .catch((reason: unknown) => {
-        if (alive) setError(reason instanceof Error ? reason.message : String(reason));
+        if (alive)
+          setError(reason instanceof Error ? reason.message : String(reason));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -216,7 +239,8 @@ export function useNoisePresets(
         setError(null);
       })
       .catch((reason: unknown) => {
-        if (alive) setError(reason instanceof Error ? reason.message : String(reason));
+        if (alive)
+          setError(reason instanceof Error ? reason.message : String(reason));
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -233,6 +257,150 @@ export function useNoisePresets(
   return { items, total, loading, error, refresh };
 }
 
+export type PlayerActions = {
+  play(trackId?: string): Promise<void>;
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  seek(positionMs: number): Promise<void>;
+  next(): Promise<void>;
+  previous(): Promise<void>;
+  setVolume(volume: number): Promise<void>;
+  setMuted(muted: boolean): Promise<void>;
+  setMode(mode: PlayerState["mode"]): Promise<void>;
+  addSource(): Promise<void>;
+  refreshLibrary(): Promise<void>;
+};
+
+export type PlayerSession = {
+  player: PlayerState | null;
+  queue: QueueState | null;
+  tracks: TrackSummary[];
+  levelRef: RefObject<number>;
+  getCoverUrl(trackId: string): Promise<string | null>;
+  actions: PlayerActions;
+};
+
+/** 当前 window 的媒体连接状态；所有 hook 共享同一个 Hub。 */
+export function useMediaHubStatus(): MediaHubStatus {
+  const { useMediaClient } = requireReact();
+  const client = useMediaClient();
+  const hub = mediaHubFor(client);
+  const getSnapshot = useCallback(() => hub.status, [hub]);
+  return useSyncExternalStore(hub.subscribe, getSnapshot, getSnapshot);
+}
+
+/**
+ * 官方播放器会话：player/queue 快照 + 曲库列表 + 控制动作。
+ * 与 Noise hooks 共用 `MediaSessionHub`，不会互相覆盖订阅。
+ */
+export function usePlayerSession(): PlayerSession {
+  const { useMediaClient } = requireReact();
+  const client = useMediaClient();
+  const hub = mediaHubFor(client);
+  useEffect(
+    () =>
+      hub.ensure({
+        topics: [
+          "player.state",
+          "player.progress",
+          "player.level",
+          "queue.changed",
+        ],
+        progressMs: 500,
+        levels: true,
+      }),
+    [hub],
+  );
+  const getSnapshot = useCallback(() => hub.snapshot, [hub]);
+  const snapshot = useSyncExternalStore(
+    hub.subscribe,
+    getSnapshot,
+    getSnapshot,
+  );
+  const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const levelRef = useRef(0);
+
+  const loadLibrary = useCallback(async (): Promise<void> => {
+    try {
+      const page = await client.library.listTracks({ pageSize: 200 });
+      setTracks(page.items);
+    } catch {
+      // 资料库暂不可用时保留当前列表。
+    }
+  }, [client]);
+
+  useEffect(() => {
+    void loadLibrary();
+    return hub.onEvent((event) => {
+      if (event.topic === "library.changed") void loadLibrary();
+    });
+  }, [hub, loadLibrary]);
+
+  useEffect(
+    () =>
+      hub.onEvent((event) => {
+        if (event.topic !== "player.level") return;
+        const payload = event.payload as { player?: number };
+        levelRef.current = payload.player ?? 0;
+      }),
+    [hub],
+  );
+
+  const getCoverUrl = useCallback(
+    (trackId: string): Promise<string | null> =>
+      client.library.getCoverUrl(trackId).catch(() => null),
+    [client],
+  );
+
+  const actions = useMemo<PlayerActions>(
+    () => ({
+      play: async (trackId) => {
+        await client.player.play(trackId);
+      },
+      pause: async () => {
+        await client.player.pause();
+      },
+      resume: async () => {
+        await client.player.resume();
+      },
+      seek: async (positionMs) => {
+        await client.player.seek(positionMs);
+      },
+      next: async () => {
+        await client.player.next();
+      },
+      previous: async () => {
+        await client.player.previous();
+      },
+      setVolume: async (volume) => {
+        await client.player.setVolume(volume);
+      },
+      setMuted: async (muted) => {
+        await client.player.setMuted(muted);
+      },
+      setMode: async (mode) => {
+        await client.player.setMode(mode);
+      },
+      addSource: async () => {
+        const added = await client.library.addSource();
+        if (!added) return;
+        await client.library.startScan(added.id);
+      },
+      refreshLibrary: loadLibrary,
+    }),
+    [client, loadLibrary],
+  );
+
+  return {
+    player: snapshot?.player ?? null,
+    queue: snapshot?.queue ?? null,
+    tracks,
+    levelRef,
+    getCoverUrl,
+    actions,
+  };
+}
+
 /**
  * 延迟读取 React 上下文钩子，避免把 hooks 包进额外的 React 依赖边界。
  * `requireReact` 只存在于本模块，实际构建时由 `./react` 重新导出。
@@ -242,7 +410,7 @@ function requireReact(): {
 } {
   // 由 ./react 在导入时注入，避免循环依赖。
   if (!mediaClientHook) {
-    throw new Error("Noise hooks 必须从 @lull/media-sdk/react 导入");
+    throw new Error("媒体 hooks 必须从 @lull/media-sdk/react 导入");
   }
   return { useMediaClient: mediaClientHook };
 }
