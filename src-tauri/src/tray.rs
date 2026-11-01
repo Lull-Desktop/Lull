@@ -58,10 +58,31 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     )?);
   }
 
-  // 只列已启用的第三方扩展；未启用时省略子菜单。
-  let enabled = crate::widget_package::store::list(app)
+  // 官方扩展与内置工具同级；第三方扩展仍收在「扩展」子菜单。
+  let packages = crate::widget_package::store::list(app);
+  let mut official = packages
+    .iter()
+    .filter(|package| package.enabled && package.origin == "bundled")
+    .collect::<Vec<_>>();
+  official.sort_by(|left, right| {
+    left
+      .order
+      .total_cmp(&right.order)
+      .then_with(|| left.id.cmp(&right.id))
+  });
+  for package in official {
+    tool_items.push(MenuItem::with_id(
+      app,
+      format!("open-ext-{}", package.id),
+      &package.name,
+      true,
+      None::<&str>,
+    )?);
+  }
+
+  let enabled = packages
     .into_iter()
-    .filter(|package| package.enabled)
+    .filter(|package| package.enabled && package.origin != "bundled")
     .collect::<Vec<_>>();
   let submenu = if enabled.is_empty() {
     None
@@ -102,6 +123,14 @@ pub fn init(app: &tauri::App) -> tauri::Result<()> {
       "toggle-settings" => toggle_settings(app),
       "quit" => app.exit(0),
       id => {
+        if let Some(plugin_id) = id.strip_prefix("open-ext-") {
+          let app = app.clone();
+          let plugin_id = plugin_id.to_string();
+          tauri::async_runtime::spawn(async move {
+            let _ = crate::widget_package::open(app, plugin_id).await;
+          });
+          return;
+        }
         if let Some(plugin_id) = id.strip_prefix("ext-") {
           let app = app.clone();
           let plugin_id = plugin_id.to_string();

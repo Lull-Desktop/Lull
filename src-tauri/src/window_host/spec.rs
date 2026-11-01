@@ -90,7 +90,7 @@ mod tests {
     assert_eq!(find("library").map(|spec| spec.label), Some("library"));
     assert!(find("nope").is_none());
     assert!(is_managed("settings"));
-    assert!(is_managed("noise"));
+    assert!(!is_managed("noise"));
     assert!(!is_managed("main"));
   }
 
@@ -98,7 +98,6 @@ mod tests {
   fn immersive_windows_are_fixed_size() {
     assert!(!PLAYER.resizable);
     assert!(!POMODORO.resizable);
-    assert!(!NOISE.resizable);
     assert!(SETTINGS.resizable);
     assert!(LIBRARY.resizable);
   }
@@ -114,7 +113,6 @@ mod tests {
   fn immersive_windows_are_transparent() {
     assert!(PLAYER.transparent);
     assert!(POMODORO.transparent);
-    assert!(NOISE.transparent);
     assert!(!SETTINGS.transparent);
     assert!(!LIBRARY.transparent);
   }
@@ -140,7 +138,7 @@ mod tests {
 
   #[test]
   fn tool_windows_declare_chrome_and_shell_keeps_window() {
-    for spec in [&PLAYER, &POMODORO, &NOISE, &LIBRARY] {
+    for spec in [&PLAYER, &POMODORO, &LIBRARY] {
       assert!(
         spec.capabilities.contains(&"widget.chrome"),
         "{} 缺少 chrome 能力",

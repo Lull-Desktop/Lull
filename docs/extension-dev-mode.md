@@ -10,7 +10,8 @@
 >
 > **实施进度（2026-11）**：P1 的 Vite 构建、Tier 0、`extensions:watch` 与边界检查已落地；
 > P2 的媒体桥、Tier 2 dev server、`widget_apply_resize` + `window.fit`、locale 与主题
-> token、媒体连接 Hub 均已落地，P2 完成。
+> token、媒体连接 Hub 均已落地，P2 完成。P3：白噪音已迁为 `extensions/official/noise`，
+> 走 `virtual:lull-messages` 与 SDK，`echo` 自检包已移除；播放器属 P4。
 
 ## 0. 一句话
 
@@ -296,6 +297,9 @@ esbuild 继续服务 `examples/widgets/*` 的第三方示例。新增 `vite` 为
     需要额外的 `.js→.ts` 插件，容易造成 dev/prod 两套解析）；
   - `server.fs.allow: [repoRoot]`（无 pnpm workspace，默认 allow 可能挡住 `packages/`）；
   - `server.host: "127.0.0.1"`、`strictPort: true`、`hmr.protocol: "ws"`；
+  - `server.cors: true`：插件 iframe 是 `sandbox="allow-scripts"`，origin 为 `null`；
+    Vite 默认只回显 localhost origin，模块脚本会被浏览器 CORS 拦截，表现为
+    「窗口只有 DEV 角标、没有内容」；
   - React 插件、CSS Modules、`build.modulePreload.polyfill: false`；
     不引入 Tailwind（工具用 CSS Modules + token）。
 - SDK 迭代：`pnpm sdk:watch`（widget-sdk + media-sdk 的 `tsc --watch`）持续更新
@@ -303,6 +307,8 @@ esbuild 继续服务 `examples/widgets/*` 的第三方示例。新增 `vite` 为
   `pnpm widgets:sdk && pnpm media:sdk`，避免用到旧 dist。
 - `virtual:lull-messages`：Vite 插件在请求时读取 `i18n/messages/*.json`，按 locale 生成
   模块；`handleHotUpdate` 监听 JSON 变化。生产构建把结果内联进包，不依赖宿主文件。
+  **当前实现**：`noise` 入口用 `HostSync` 调 `setLocale(locale)` 并包住组件子树，
+  locale 变化时整体重渲染；独立的 `MessagesProvider` / `useLullMessages` 尚未抽包。
 - 脚本：`extensions:build`、`extensions:dev <id>`、`extensions:watch <id>`、
   `extensions:check`、`extensions:pack`、`dev:ext <id>`（Tier 3）、`sdk:watch`；
   `prebuild.mjs` 依次构建 SDK → 扩展 → 前端；CI 调 build+check。

@@ -1,7 +1,7 @@
 /**
  * 应用窗口外壳：自绘顶栏 + 内容独立滚动 + 按内容贴合窗口高度 + 主题与消息提示。
- * 设置窗使用纸色外壳；播放器 / 番茄钟 / 白噪音使用透明沉浸式外壳，
- * 见 src/components/liquid-player、liquid-pomodoro 与 ether-bubbles。
+ * 设置窗使用纸色外壳；播放器 / 番茄钟使用透明沉浸式外壳，
+ * 见 src/components/liquid-player、liquid-pomodoro；白噪音已迁到官方扩展包。
  */
 "use client";
 

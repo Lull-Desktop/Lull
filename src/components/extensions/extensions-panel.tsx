@@ -570,6 +570,11 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                     {item.dev && (
                       <Badge variant="outline">{m.ext_dev_badge()}</Badge>
                     )}
+                    {item.origin === "bundled" && (
+                      <Badge variant="secondary">
+                        {m.ext_origin_official()}
+                      </Badge>
+                    )}
                     {item.kind === "widget" && item.enabled && (
                       <Badge variant="secondary">
                         {item.running
@@ -743,24 +748,28 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   >
                     {m.ext_action_details()}
                   </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={
-                      pendingRemove === itemKey(item) ? "destructive" : "ghost"
-                    }
-                    disabled={busy}
-                    aria-label={m.ext_aria_action({
-                      action: item.dev
-                        ? m.ext_action_remove()
-                        : m.ext_action_uninstall(),
-                      name: item.name,
-                    })}
-                    onClick={() => removeItem(item)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    {removeLabel(item, pendingRemove === itemKey(item))}
-                  </Button>
+                  {item.origin !== "bundled" && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={
+                        pendingRemove === itemKey(item)
+                          ? "destructive"
+                          : "ghost"
+                      }
+                      disabled={busy}
+                      aria-label={m.ext_aria_action({
+                        action: item.dev
+                          ? m.ext_action_remove()
+                          : m.ext_action_uninstall(),
+                        name: item.name,
+                      })}
+                      onClick={() => removeItem(item)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      {removeLabel(item, pendingRemove === itemKey(item))}
+                    </Button>
+                  )}
                 </div>
               </div>
             </article>

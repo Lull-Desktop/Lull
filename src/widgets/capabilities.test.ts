@@ -42,7 +42,7 @@ describe("generated window capabilities", () => {
     expect(settings.permissions).toContain("allow-window-prefs-set");
     expect(settings.permissions).toContain("allow-wallpaper-set-display");
 
-    for (const label of ["player", "pomodoro", "noise", "library"]) {
+    for (const label of ["player", "pomodoro", "library"]) {
       const capability = readCapability(label);
       expect(capability.permissions).toContain("allow-window-set-frame");
       expect(capability.permissions).not.toContain("allow-widget-open");

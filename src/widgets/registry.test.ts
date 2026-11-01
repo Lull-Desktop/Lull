@@ -7,13 +7,12 @@ describe("builtin widget registry", () => {
     expect(BUILTIN_WIDGETS.map((widget) => widget.id)).toEqual([
       "player",
       "pomodoro",
-      "noise",
       "library",
     ]);
     for (const widget of BUILTIN_WIDGETS) {
       expect(widget.role).toBe("tool");
     }
-    expect(WINDOW_MANIFESTS).toHaveLength(5);
+    expect(WINDOW_MANIFESTS).toHaveLength(4);
     expect(WINDOW_MANIFESTS[0]?.role).toBe("shell");
   });
 

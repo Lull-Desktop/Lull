@@ -117,6 +117,9 @@ pub struct PackageManifest {
   #[serde(default = "default_host_api")]
   pub host_api: u32,
   pub entry: String,
+  /// 托盘与扩展中心的排序权重，默认 100。
+  #[serde(default)]
+  pub order: Option<f64>,
   #[serde(default)]
   pub capabilities: Vec<String>,
   pub window: WindowSpec,
@@ -186,6 +189,11 @@ impl PackageManifest {
     }
     if !valid_version(&self.version) {
       return Err(format!("version 不是语义化版本：{}", self.version));
+    }
+    if let Some(order) = self.order {
+      if !order.is_finite() || order < 0.0 {
+        return Err("order 必须是非负数".to_string());
+      }
     }
     if self.builtin {
       return Err("用户插件目录不接受 builtin=true".to_string());
@@ -367,6 +375,7 @@ mod tests {
       builtin: false,
       host_api: HOST_API,
       entry: "index.html".to_string(),
+      order: None,
       capabilities: vec!["widget.state".to_string(), "widget.theme".to_string()],
       window: WindowSpec {
         width: 560.0,

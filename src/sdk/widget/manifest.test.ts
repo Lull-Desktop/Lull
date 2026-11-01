@@ -1,9 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import noiseManifest from "@/widgets/manifests/noise.json" with {
-  type: "json",
-};
 import playerManifest from "@/widgets/manifests/player.json" with {
   type: "json",
 };
@@ -16,12 +13,7 @@ import settingsManifest from "@/widgets/manifests/settings.json" with {
 import { parseWidgetContext, parseWidgetManifest } from "./manifest";
 import { WIDGET_CAPABILITIES } from "./types";
 
-const SHIPPED = [
-  settingsManifest,
-  playerManifest,
-  pomodoroManifest,
-  noiseManifest,
-];
+const SHIPPED = [settingsManifest, playerManifest, pomodoroManifest];
 
 describe("widget manifest", () => {
   test("随包清单全部可解析，角色与窗口字段完整", () => {
@@ -32,11 +24,9 @@ describe("widget manifest", () => {
       "settings",
       "player",
       "pomodoro",
-      "noise",
     ]);
     expect(manifests.map((manifest) => manifest.role)).toEqual([
       "shell",
-      "tool",
       "tool",
       "tool",
     ]);

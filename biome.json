@@ -80,7 +80,6 @@
         "src/components/settings/music-library-panel.tsx",
         "src/components/settings/music-library-panel.test.tsx",
         "src/components/liquid-player/liquid-player.tsx",
-        "src/components/ether-bubbles/ether-bubbles.tsx",
         "src/hooks/use-media-client.ts",
         "src/hooks/use-player-session.ts"
       ],

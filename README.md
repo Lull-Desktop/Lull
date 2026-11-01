@@ -234,7 +234,7 @@ src/
     content/               # 通用内容包清单
   scenes/                  # 官方内置场景（bamboo / aurora / dusk）、外部场景桥与注册表
   widgets/registry.ts      # 内置工具窗口元数据（设置页唯一来源）
-  components/              # 窗口外壳、共享 UI、播放器/番茄钟/白噪音实现
+  components/              # 窗口外壳、共享 UI、播放器/番茄钟实现（白噪音在官方扩展包）
   styles/                  # Tailwind 主题与壁纸动效
 packages/widget-sdk/       # 第三方插件侧 SDK：TypeScript 源码 → dist + .d.ts
 packages/scene-sdk/        # 场景侧 SDK：参数/几何/同步/可见性桥

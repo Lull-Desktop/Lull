@@ -209,7 +209,7 @@ pub fn widget_close(app: AppHandle, kind: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-  use super::spec::{NOISE, PLAYER, POMODORO};
+  use super::spec::{PLAYER, POMODORO};
   use super::*;
   use serde_json::Value;
 
@@ -250,7 +250,7 @@ mod tests {
 
   #[test]
   fn tools_do_not_get_window_creation_capability() {
-    for spec in [&PLAYER, &POMODORO, &NOISE] {
+    for spec in [&PLAYER, &POMODORO] {
       let context = context_of(spec);
       let grants_window = context["capabilities"].as_array().is_some_and(|items| {
         items

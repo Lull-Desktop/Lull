@@ -158,6 +158,7 @@
   "ext_drop_hint": "把 .zip 或扩展包文件夹拖到这里；拖不动就点「从文件安装」。",
   "ext_empty": "还没有安装扩展。从文件安装一个 `.zip`：工具包根目录含 `widget.json`，壁纸包根目录含 `catalog.json`。",
   "ext_dev_badge": "开发",
+  "ext_origin_official": "官方",
   "ext_dev_package": "开发包",
   "ext_state_enabled": "已启用",
   "ext_state_disabled": "未启用",

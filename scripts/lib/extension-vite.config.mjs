@@ -7,13 +7,68 @@
  * - 关闭 modulePreload polyfill：WebView2 原生支持，避免多余的 inline script。
  */
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 export const EXTENSION_PORTS = {
-  echo: 5272,
   noise: 5273,
   player: 5274,
 };
+
+/**
+ * `virtual:lull-messages`：把仓库的 i18n 消息表编进扩展包。
+ * 运行期由 `setLocale(locale)` 切换；m 是一个按 key 取文案的 Proxy。
+ */
+function lullMessagesPlugin(repoRoot) {
+  const virtualId = "\0virtual:lull-messages";
+  return {
+    name: "lull-messages",
+    resolveId(id) {
+      return id === "virtual:lull-messages" ? virtualId : null;
+    },
+    load(id) {
+      if (id !== virtualId) return null;
+      const read = (locale) =>
+        JSON.parse(
+          readFileSync(
+            resolve(repoRoot, "i18n", "messages", `${locale}.json`),
+            "utf8",
+          ),
+        );
+      const catalogs = {
+        "zh-CN": read("zh-CN"),
+        "en-US": read("en-US"),
+      };
+      return `
+const catalogs = ${JSON.stringify(catalogs)};
+let locale = "zh-CN";
+export function setLocale(next) {
+  locale = next === "en-US" ? "en-US" : "zh-CN";
+}
+function interpolate(template, params) {
+  if (!params) return template;
+  return template.replace(/\\{(\\w+)\\}/g, (match, key) =>
+    Object.prototype.hasOwnProperty.call(params, key) ? String(params[key]) : match,
+  );
+}
+export const m = new Proxy({}, {
+  get(_target, key) {
+    if (typeof key !== "string") return undefined;
+    return (params) => {
+      const dict = catalogs[locale] ?? catalogs["zh-CN"];
+      const template = dict[key] ?? catalogs["zh-CN"][key] ?? key;
+      return interpolate(template, params);
+    };
+  },
+});
+`;
+    },
+    handleHotUpdate(context) {
+      if (!context.file.includes("i18n/messages")) return;
+      context.server.ws.send({ type: "full-reload" });
+    },
+  };
+}
 
 function sdkAliases(repoRoot) {
   const alias = (pkg, sub = "") => {
@@ -48,7 +103,7 @@ export function createExtensionConfig({
     root: extensionDir,
     base: serve ? "/" : "./",
     publicDir: "public",
-    plugins: [react()],
+    plugins: [react(), lullMessagesPlugin(repoRoot)],
     // 扩展不使用仓库根的 Tailwind PostCSS 配置；显式清空，避免 Vite 向上查找。
     css: { postcss: { plugins: [] } },
     resolve: {
@@ -59,6 +114,9 @@ export function createExtensionConfig({
       host: "127.0.0.1",
       port,
       strictPort: true,
+      // 插件 iframe 是 sandbox="allow-scripts"，origin 为 `null`；
+      // Vite 默认只回显 localhost origin，会导致模块脚本被浏览器 CORS 拦截。
+      cors: true,
       fs: { allow: [repoRoot] },
       hmr: { protocol: "ws" },
     },

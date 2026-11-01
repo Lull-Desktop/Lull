@@ -6,9 +6,11 @@
 >
 > **实施进度（2026-11）**：P1 已落地——官方来源 / 默认授权 / 保留 id / 构建期摘要
 > （`widget_package::official` + store）、Vite 构建、`extensions/dist` 资源映射、
-> 便携版收录与 CI；`echo` 是 P1 自检包，P3 前删除。P2 已完成：Widget 的
-> player/queue/library 媒体能力与快照裁剪、Tier 2 dev server、`widget_apply_resize` +
-> `window.fit`、locale / 主题 token、媒体连接 Hub 均已落地。
+> 便携版收录与 CI；`echo` 自检包已移除，`noise` 已迁移为正式官方扩展。P2 已完成：
+> Widget 的 player/queue/library 媒体能力与快照裁剪、Tier 2 dev server、
+> `widget_apply_resize` + `window.fit`、locale / 主题 token、媒体连接 Hub 均已落地。
+> P3 代码完成：白噪音包、托盘与设置页入口、扩展中心官方徽章已接入；播放器迁移属 P4。
+> 剩余验收项是真机打开 / 停用 / 升级 / 篡改测试。
 >
 > 关联文档：[Widget SDK](./widget-sdk.md)（包格式、能力词汇、桥协议）、
 > [扩展中心](./extension-center.md)（安装 / 启用 / 授权 / 卸载语义）、
@@ -27,7 +29,7 @@
 ### 1.1 目标
 
 - 安装包（MSI / NSIS / 便携版 zip）自带 `noise` 与 `player` 两个标准 Widget 包，
-  首次启动默认启用，托盘与扩展中心可直接打开。
+  首次启动默认启用，托盘与扩展中心可直接打开（`noise` 已落地，`player` 待 P4 迁移后生效）。
 - 扩展中心把它们显示为「官方 · 随应用分发」：可停用 / 重新启用、查看详情与能力，
   **不可卸载**；用户安装包不能占用这两个 id。
 - 行为与迁移前一致：
@@ -103,14 +105,12 @@
 ```text
 extensions/
   official/
-    _shared/                  # locale m shim、token fallback、fit/主题适配、播放器会话 hook
-    echo/                     # P1 自检包（发布前删除）
-    noise/
+    _shared/                  # 构建期声明（virtual messages 类型等）
+    noise/                    # P3 已迁移：React + CSS Modules，只依赖 @lull/*-sdk
       widget.json
       index.html
-      src/                    # React + CSS Modules，只依赖 @lull/*-sdk
-      assets/
-    player/
+      src/
+    player/                   # P4
       widget.json
       index.html
       src/
@@ -305,7 +305,7 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 
 | 阶段 | 内容 |
 | --- | --- |
-| P1 | 官方来源、默认授权、构建/资源/便携版骨架（先用 echo 包验证） |
+| P1 | 官方来源、默认授权、构建/资源/便携版骨架（曾用 echo 包验证，验证后移除） |
 | P2 | 播放器 / 队列 / 曲库能力，`widget_apply_resize` + `fit`，locale / tokens，示例包验证 |
 | P3 | 白噪音迁移：移动 UI、包构建、托盘 / 设置 / 扩展中心整合，删除内置 noise |
 | P4 | 播放器迁移：移动 UI、播放器会话 hook、封面、抽屉宽度/锚点，删除内置 player |
@@ -313,10 +313,10 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 
 迁移后删除（git 历史保留）：
 
-- `src/app/(widgets)/noise/`、`src/app/(widgets)/player/` 及对应测试；
-- `src/components/ether-bubbles/`、`src/components/liquid-player/`；
+- `src/app/(widgets)/noise/`（已完成）、`src/app/(widgets)/player/` 及对应测试；
+- `src/components/ether-bubbles/`（已完成）、`src/components/liquid-player/`；
 - `src/hooks/use-player-session.ts`；
-- `src/widgets/manifests/noise.json`、`player.json`（及 `gen-widgets` 生成的两个
+- `src/widgets/manifests/noise.json`（已完成）、`player.json`（及 `gen-widgets` 生成的两个
   capability 文件）；
 - `src-tauri/src/media` 中只为 `noise` / `player` label 服务的官方矩阵分支。
 

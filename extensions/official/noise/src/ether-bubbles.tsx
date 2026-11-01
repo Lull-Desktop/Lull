@@ -36,17 +36,18 @@ import type {
   WheelEvent as ReactWheelEvent,
 } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getMediaClient } from "@/hooks/use-media-client";
-import { m } from "@/paraglide/messages";
 import {
+  getMediaClient,
+  m,
   onWidgetPrefsChanged,
   readWidgetStorage,
+  useWidgetFit,
+  useWidgetTheme,
   widgetHideWindow,
   widgetIsMinimizable,
   widgetMinimizeWindow,
   writeWidgetStorage,
-} from "@/sdk/widget";
-import { useWidgetFit, useWidgetTheme } from "@/sdk/widget/react";
+} from "./compat";
 import styles from "./ether-bubbles.module.css";
 import {
   type ChannelMap,

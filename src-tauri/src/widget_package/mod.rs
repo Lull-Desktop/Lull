@@ -641,6 +641,7 @@ mod tests {
       builtin: false,
       host_api: HOST_API,
       entry: "index.html".to_string(),
+      order: None,
       capabilities: vec!["widget.state".to_string()],
       window: WindowSpec::default(),
       network: Vec::new(),

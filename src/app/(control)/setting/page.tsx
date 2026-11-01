@@ -32,6 +32,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useFlowTheme } from "@/hooks/use-flow-theme";
+import { useExtensions } from "@/hooks/use-extensions";
 import { localizeError } from "@/i18n/errors";
 import {
   LOCALE_OPTIONS,
@@ -47,6 +48,11 @@ import {
   setTrustPolicy,
   type TrustPolicy,
 } from "@/lib/content-trust";
+import {
+  closeExtension,
+  openExtension,
+  type ExtensionInfo,
+} from "@/lib/extensions";
 import { FLOW_THEMES } from "@/lib/flow-theme";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
@@ -122,6 +128,11 @@ export default function Settings() {
     name: widgetDisplayName(widget),
     description: widgetDisplayDescription(widget),
   }));
+  const { items: extensions, refresh: refreshExtensions } = useExtensions();
+  const officialTools = (extensions ?? []).filter(
+    (item) =>
+      item.origin === "bundled" && item.kind === "widget" && item.enabled,
+  );
   /** null = 还没读到偏好（首帧），此时不高亮任何一项，避免选错又跳回去。 */
   const [languagePref, setLanguagePref] = useState<LocalePreference | null>(
     null,
@@ -254,6 +265,26 @@ export default function Settings() {
       );
     },
     [refreshWidgets],
+  );
+
+  const toggleOfficialTool = useCallback(
+    (item: ExtensionInfo, on: boolean): void => {
+      setWidgetMsg("");
+      const action = on
+        ? openExtension("widget", item.id)
+        : closeExtension(item.id);
+      void action
+        .then(() => refreshExtensions())
+        .catch((error: unknown) => {
+          setWidgetMsg(
+            m.settings_action_failed({
+              reason: localizeError(error),
+            }),
+          );
+          void refreshExtensions();
+        });
+    },
+    [refreshExtensions],
   );
 
   // 静态导出的预渲染 HTML 是基准语言，客户端首帧已是注入语言；
@@ -485,6 +516,33 @@ export default function Settings() {
                       checked={widgetStates?.[kind] === true}
                       disabled={widgetStates === null}
                       onCheckedChange={(on) => toggleWidget(kind, on)}
+                    />
+                  </div>
+                ))}
+                {officialTools.map((item) => (
+                  <div
+                    key={`official-${item.id}`}
+                    className="flex items-center justify-between"
+                  >
+                    <div className="space-y-0.5">
+                      <span className="text-sm text-ink-soft">
+                        {item.name}
+                        <span className="ml-1.5 text-[10px] text-ink-faint">
+                          {m.ext_origin_official()}
+                        </span>
+                      </span>
+                      {item.description && (
+                        <p className="text-xs text-muted-foreground">
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
+                    <Switch
+                      aria-label={m.settings_window_toggle_aria({
+                        name: item.name,
+                      })}
+                      checked={Boolean(item.running && item.visible)}
+                      onCheckedChange={(on) => toggleOfficialTool(item, on)}
                     />
                   </div>
                 ))}

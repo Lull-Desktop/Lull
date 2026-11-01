@@ -264,6 +264,20 @@ function writeIndex(entries) {
   );
 }
 
+/** 单包构建时保留其他已构建包的索引，避免索引被裁成一份。 */
+function mergeExistingIndex(entries) {
+  const indexPath = join(distRoot, "index.json");
+  if (!existsSync(indexPath)) return entries;
+  const existing = JSON.parse(readFileSync(indexPath, "utf8"));
+  const byId = new Map(
+    (existing.extensions ?? [])
+      .filter((entry) => existsSync(join(distRoot, entry.id)))
+      .map((entry) => [entry.id, entry]),
+  );
+  for (const entry of entries) byId.set(entry.id, entry);
+  return [...byId.values()];
+}
+
 const ids = extensionIds();
 if (ids.length === 0) fail("extensions/official 下没有可构建的扩展");
 mkdirSync(distRoot, { recursive: true });
@@ -294,6 +308,6 @@ if (checkOnly) {
   }
   const entries = [];
   for (const id of ids) entries.push(await buildOne(id));
-  writeIndex(entries);
+  writeIndex(requested.length > 0 ? mergeExistingIndex(entries) : entries);
   console.log(`[extensions] 构建完成：${entries.length} 个官方扩展`);
 }

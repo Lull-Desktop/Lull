@@ -167,6 +167,7 @@ mod tests {
       builtin: false,
       host_api: 1,
       entry: "index.html".to_string(),
+      order: None,
       capabilities: vec!["widget.network".to_string()],
       window: Default::default(),
       network: vec!["https://api.example.com".to_string()],

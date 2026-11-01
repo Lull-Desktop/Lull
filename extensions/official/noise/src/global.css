@@ -1,0 +1,48 @@
+:root {
+  --font-body: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-serif: "Source Han Serif SC", "Songti SC", serif;
+  --font-mono: "SFMono-Regular", Consolas, monospace;
+  --ink: #22302a;
+  --ink-soft: #64736b;
+  --paper: #f6f3ec;
+  --paper-warm: #faf7f0;
+  --paper-deep: #e5dfd2;
+  --bamboo: #3f6f5f;
+  --bamboo-light: #2f5a4c;
+  --bamboo-mist: #e8f0ec;
+  --bamboo-glow: #dbe9e2;
+  --flow-a: #ffe0a0;
+  --flow-b: #8fe4ff;
+  --flow-c: #b8a4ff;
+  --flow-accent: #2f7c93;
+  --flow-accent-surface: #e8f0ec;
+  --flow-accent-ink: #3f6f5f;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 18px;
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+html.lull-transparent-window,
+html.lull-transparent-window body {
+  background: transparent;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}

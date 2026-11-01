@@ -82,6 +82,8 @@ pub struct PackageInfo {
   pub network: Vec<String>,
   pub entry_url: String,
   pub host_api: u32,
+  /// 托盘 / 扩展中心排序权重；旧包缺省 100。
+  pub order: f64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -519,6 +521,7 @@ fn info_from(
     network: manifest.network.clone(),
     entry_url,
     host_api: manifest.host_api,
+    order: manifest.order.unwrap_or(100.0),
   }
 }
 
@@ -548,6 +551,7 @@ fn invalid_info(id: &str, error: &str, origin: &str) -> PackageInfo {
     network: Vec::new(),
     entry_url: String::new(),
     host_api: HOST_API,
+    order: 100.0,
   }
 }
 

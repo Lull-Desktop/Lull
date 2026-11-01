@@ -158,6 +158,7 @@
   "ext_drop_hint": "Drop a .zip or an extension folder here; if dragging does not work, use Install from file.",
   "ext_empty": "No extensions installed yet. Install a .zip: a tool package has widget.json at its root, a wallpaper package has catalog.json.",
   "ext_dev_badge": "Dev",
+  "ext_origin_official": "Official",
   "ext_dev_package": "Dev package",
   "ext_state_enabled": "Enabled",
   "ext_state_disabled": "Disabled",
