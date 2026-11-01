@@ -379,7 +379,7 @@ form-action 'none'
 
 ```text
 pnpm test              前端 52 个测试文件（270 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、播放器/白噪音、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、P4 元数据/标签/智能歌单/设置页曲库整理面板、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
-cargo test             Rust 188 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、内置曲 seed / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照与引擎协议）
+cargo test             Rust 189 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、内置曲 seed / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照与引擎协议）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
