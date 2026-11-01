@@ -7,7 +7,11 @@
  */
 "use client";
 
-import type { NoiseState } from "@lull/media-sdk";
+import type {
+  NoisePresetSummary,
+  NoiseSession,
+  NoiseTrack,
+} from "@lull/media-sdk";
 import {
   ChevronRight,
   ChevronsLeftRight,
@@ -16,6 +20,7 @@ import {
   Leaf,
   Minus,
   Moon,
+  Pause,
   Play,
   RotateCcw,
   Settings2,
@@ -46,6 +51,7 @@ import styles from "./ether-bubbles.module.css";
 import {
   type ChannelMap,
   type ChannelState,
+  BUILTIN_ASSET_IDS,
   channelMood,
   clampLevel,
   effectiveLevel,
@@ -133,6 +139,7 @@ type DragState = {
 type BubbleProps = {
   definition: SoundDefinition;
   channel: ChannelState;
+  playing: boolean;
   readout: boolean;
   onToggle: (id: SoundId) => void;
   onVolume: (id: SoundId, value: number) => void;
@@ -142,6 +149,7 @@ type BubbleProps = {
 function SoundBubble({
   definition,
   channel,
+  playing,
   readout,
   onToggle,
   onVolume,
@@ -151,9 +159,13 @@ function SoundBubble({
   const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const level = effectiveLevel(channel);
-  const active = level > 0;
+  const active = playing && level > 0;
   const Icon = SOUND_ICONS[definition.id];
-  const status = active ? `音量 ${level}%` : "已关闭";
+  const status = active
+    ? `音量 ${level}%`
+    : channel.enabled && level > 0
+      ? "待播放"
+      : "已关闭";
 
   const wheel = (event: ReactWheelEvent<HTMLButtonElement>): void => {
     const step = event.deltaY < 0 ? 4 : -4;
@@ -293,6 +305,7 @@ function SoundBubble({
 type MasterBubbleProps = {
   master: number;
   muted: boolean;
+  playing: boolean;
   readout: boolean;
   onVolume: (value: number) => void;
   onToggle: () => void;
@@ -302,6 +315,7 @@ type MasterBubbleProps = {
 function MasterBubble({
   master,
   muted,
+  playing,
   readout,
   onVolume,
   onToggle,
@@ -370,6 +384,7 @@ function MasterBubble({
     <div
       className={styles.masterShell}
       data-muted={muted ? "true" : "false"}
+      data-playing={playing ? "true" : "false"}
       data-dragging={dragging ? "true" : "false"}
       style={
         {
@@ -388,11 +403,13 @@ function MasterBubble({
         className={styles.masterButton}
         data-ether-wheel="true"
         aria-label={
-          muted
-            ? `白噪音，总音量 ${master}%，已静音。点击恢复声音，滚轮或上下拖动调节总音量`
-            : `白噪音，总音量 ${master}%。点击静音，滚轮或上下拖动调节总音量`
+          !playing
+            ? `白噪音，已暂停，总音量 ${master}%。点击播放`
+            : muted
+              ? `白噪音，总音量 ${master}%，已静音。点击恢复声音，滚轮或上下拖动调节总音量`
+              : `白噪音，总音量 ${master}%。点击静音，滚轮或上下拖动调节总音量`
         }
-        aria-pressed={muted}
+        aria-pressed={playing && muted}
         onWheel={wheel}
         onPointerDown={pointerDown}
         onPointerMove={pointerMove}
@@ -427,7 +444,8 @@ function MasterBubble({
 export function EtherBubbles() {
   const rootRef = useRef<HTMLDivElement>(null);
   const clientRef = useRef(getMediaClient());
-  const activatedRef = useRef(false);
+  const sessionRef = useRef<NoiseSession | null>(null);
+  const [session, setSession] = useState<NoiseSession | null>(null);
   const [awake, setAwake] = useState(false);
   const [channels, setChannels] = useState<ChannelMap>(initialChannels);
   const [master, setMaster] = useState(INITIAL_MASTER);
@@ -442,6 +460,8 @@ export function EtherBubbles() {
   const [switching, setSwitching] = useState(false);
   const [readout, setReadout] = useState<ReadoutTarget | null>(null);
   const [canMinimize, setCanMinimize] = useState(false);
+  const [presets, setPresets] = useState<NoisePresetSummary[]>([]);
+  const [presetId, setPresetId] = useState("");
 
   const readoutTimer = useRef<number | null>(null);
   const switchTimer = useRef<number | null>(null);
@@ -450,30 +470,45 @@ export function EtherBubbles() {
 
   useWidgetFit(rootRef);
 
+  // 浏览器预览/单测没有 Media Client，保留纯 UI 的“正在播放”演示态；
+  // 放到 effect 里避免 Tauri（有 client）与 SSR（无 window）首屏不一致。
+  useEffect(() => {
+    if (!clientRef.current) setAwake(true);
+  }, []);
+
   const activeCount = SOUNDS.reduce(
     (count, sound) => count + (channels[sound.id].enabled ? 1 : 0),
     0,
   );
-  const audible = awake && !muted && activeCount > 0;
+  const localTracks = (session?.tracks ?? []).filter(
+    (track) =>
+      !Object.values(BUILTIN_ASSET_IDS).includes(track.assetId),
+  );
+  const localAudible = localTracks.some((track) => track.enabled);
+  const audible = awake && !muted && (activeCount > 0 || localAudible);
 
-  const applyNoise = useCallback((state: NoiseState) => {
-    const next = initialChannels();
+  const applySession = useCallback((next: NoiseSession) => {
+    const current = sessionRef.current;
+    if (current && next.revision < current.revision) return;
+    sessionRef.current = next;
+    setSession(next);
+    const defaults = initialChannels();
+    const mapped = initialChannels();
     for (const sound of SOUNDS) {
-      const layer = state.layers.find((item) => item.soundId === sound.id);
-      if (!layer) continue;
-      next[sound.id] = {
-        enabled: layer.enabled,
-        level: Math.round(layer.volume * 100),
-      };
+      const track = next.tracks.find(
+        (item) => item.assetId === BUILTIN_ASSET_IDS[sound.id],
+      );
+      mapped[sound.id] = track
+        ? { enabled: track.enabled, level: Math.round(track.volume * 100) }
+        : { enabled: false, level: defaults[sound.id].level };
     }
-    setChannels(next);
-    setMaster(Math.round(state.master * 100));
-    setMuted(state.muted);
+    setChannels(mapped);
+    setMaster(Math.round(next.masterVolume * 100));
+    setMuted(next.muted);
     setSleepMinutes(
-      SLEEP_OPTIONS.find((option) => option === state.sleep.timerMinutes) ?? 0,
+      SLEEP_OPTIONS.find((option) => option === next.sleep.timerMinutes) ?? 0,
     );
-    setAwake(state.active);
-    if (state.active) activatedRef.current = true;
+    setAwake(next.state === "playing");
   }, []);
 
   useEffect(() => {
@@ -482,17 +517,18 @@ export function EtherBubbles() {
     let alive = true;
     let ready = false;
     let snapshotRevision = 0;
-    const pending: NoiseState[] = [];
-    const apply = (state: NoiseState): void => {
-      if (alive) applyNoise(state);
+    const pending: NoiseSession[] = [];
+    const apply = (next: NoiseSession): void => {
+      if (alive) applySession(next);
     };
     const stop = client.events.on((event) => {
-      if (event.topic === "noise.state") {
-        const state = event.payload as NoiseState;
+      if (event.topic === "noise.session.changed") {
+        const next = event.payload as NoiseSession;
         if (!ready) {
-          pending.push(state);
-        } else if (state.revision > snapshotRevision) {
-          apply(state);
+          pending.push(next);
+        } else if (next.revision > snapshotRevision) {
+          snapshotRevision = next.revision;
+          apply(next);
         }
       } else if (event.topic === "noise.level") {
         const payload = event.payload as { noise: number };
@@ -504,13 +540,13 @@ export function EtherBubbles() {
     });
     void client
       .connect({
-        topics: ["noise.state", "noise.level"],
+        topics: ["noise.session.changed", "noise.level"],
         levels: true,
       })
       .then((snapshot) => {
         if (!alive) return;
-        snapshotRevision = snapshot.noise.revision;
-        apply(snapshot.noise);
+        snapshotRevision = snapshot.noiseSession.revision;
+        apply(snapshot.noiseSession);
         ready = true;
         for (const state of pending) {
           if (state.revision > snapshotRevision) apply(state);
@@ -523,28 +559,7 @@ export function EtherBubbles() {
       stop();
       void client.disconnect();
     };
-  }, [applyNoise]);
-
-  const activateNoise = useCallback(
-    (unmute = false): void => {
-      const firstActivation = !activatedRef.current;
-      activatedRef.current = true;
-      setAwake(true);
-      const client = clientRef.current;
-      if (!client) return;
-      void client.noise
-        .activate()
-        .then(() => {
-          if (unmute) {
-            void client.noise.setMuted(false);
-          } else if (firstActivation && startupMode === "silent") {
-            void client.noise.setMuted(true);
-          }
-        })
-        .catch(() => {});
-    },
-    [startupMode],
-  );
+  }, [applySession]);
 
   // 启动行为：挂载后读取偏好，选择「静默启动」时先保持主泡静音。
   useEffect(() => {
@@ -576,19 +591,6 @@ export function EtherBubbles() {
     }, sleepMinutes * 60_000);
     return () => window.clearTimeout(timer);
   }, [sleepMinutes]);
-
-  // 首次键盘 / 指针手势里唤醒媒体服务；点击泡泡时也保留它自己的语义。
-  useEffect(() => {
-    const wake = (): void => {
-      activateNoise();
-    };
-    window.addEventListener("pointerdown", wake, { capture: true, once: true });
-    window.addEventListener("keydown", wake, { capture: true, once: true });
-    return () => {
-      window.removeEventListener("pointerdown", wake, { capture: true });
-      window.removeEventListener("keydown", wake, { capture: true });
-    };
-  }, [activateNoise]);
 
   // 滚轮只作用于泡泡，阻止页面在调节音量时滚动。
   useEffect(() => {
@@ -667,6 +669,31 @@ export function EtherBubbles() {
     }, 1600);
   }, []);
 
+  const ensureBuiltinTrack = useCallback(
+    async (
+      client: NonNullable<typeof clientRef.current>,
+      id: SoundId,
+    ): Promise<NoiseTrack> => {
+      const existing = sessionRef.current?.tracks.find(
+        (track) => track.assetId === BUILTIN_ASSET_IDS[id],
+      );
+      if (existing) return existing;
+      return client.noise.tracks.add(BUILTIN_ASSET_IDS[id]);
+    },
+    [],
+  );
+
+  const ensurePlaying = useCallback(
+    async (
+      client: NonNullable<typeof clientRef.current>,
+    ): Promise<NoiseSession> => {
+      const current = await client.noise.session.getCurrent();
+      if (current.state === "playing") return current;
+      return client.noise.session.play();
+    },
+    [],
+  );
+
   const setChannelVolume = useCallback(
     (id: SoundId, value: number): void => {
       const level = clampLevel(value);
@@ -675,39 +702,66 @@ export function EtherBubbles() {
         [id]: { enabled: level > 0, level },
       }));
       setMuted(false);
-      activateNoise(true);
-      const client = clientRef.current;
-      if (client) {
-        void client.noise.setMuted(false);
-        void client.noise.setLayer(id, {
-          enabled: level > 0,
-          volume: level / 100,
-        });
-      }
       markReadout(id);
+      const client = clientRef.current;
+      if (!client) return;
+      void (async () => {
+        const track = await ensureBuiltinTrack(client, id);
+        await client.noise.tracks.setVolume(track.id, level / 100);
+        await client.noise.tracks.setEnabled(track.id, level > 0);
+        const next = await ensurePlaying(client);
+        applySession(next);
+        applySession(await client.noise.session.setMuted(false));
+      })().catch(() => {});
     },
-    [activateNoise, markReadout],
+    [applySession, ensureBuiltinTrack, ensurePlaying, markReadout],
   );
 
   const toggleChannel = useCallback(
     (id: SoundId): void => {
       const current = channels[id];
-      const enabled = !current.enabled;
+      const playing = sessionRef.current
+        ? sessionRef.current.state === "playing"
+        : awake;
+      const enabled = playing ? !current.enabled : true;
       const level = enabled && current.level < 5 ? 50 : current.level;
       setChannels((prev) => ({
         ...prev,
         [id]: { enabled, level },
       }));
       setMuted(false);
-      activateNoise(true);
-      const client = clientRef.current;
-      if (client) {
-        void client.noise.setMuted(false);
-        void client.noise.setLayer(id, { enabled, volume: level / 100 });
-      }
       markReadout(id);
+      const client = clientRef.current;
+      if (!client) return;
+      if (!playing) {
+        void (async () => {
+          const track = await ensureBuiltinTrack(client, id);
+          await client.noise.tracks.setVolume(track.id, level / 100);
+          await client.noise.tracks.setEnabled(track.id, true);
+          applySession(await client.noise.session.play());
+          applySession(await client.noise.session.setMuted(false));
+        })().catch(() => {});
+        return;
+      }
+      void (async () => {
+        const track = await ensureBuiltinTrack(client, id);
+        await client.noise.tracks.setVolume(track.id, level / 100);
+        await client.noise.tracks.setEnabled(track.id, enabled);
+        const next = enabled
+          ? await ensurePlaying(client)
+          : await client.noise.session.getCurrent();
+        applySession(next);
+        applySession(await client.noise.session.setMuted(false));
+      })().catch(() => {});
     },
-    [activateNoise, channels, markReadout],
+    [
+      applySession,
+      awake,
+      channels,
+      ensureBuiltinTrack,
+      ensurePlaying,
+      markReadout,
+    ],
   );
 
   const setMasterVolume = useCallback(
@@ -715,49 +769,99 @@ export function EtherBubbles() {
       const level = clampLevel(value);
       setMaster(level);
       if (level > 0) setMuted(false);
-      activateNoise(level > 0);
-      const client = clientRef.current;
-      if (client) {
-        void client.noise.setMaster(level / 100);
-        if (level > 0) void client.noise.setMuted(false);
-      }
       markReadout("master");
+      const client = clientRef.current;
+      if (!client) return;
+      void (async () => {
+        await client.noise.session.setMasterVolume(level / 100);
+        if (level > 0) {
+          await client.noise.session.setMuted(false);
+          applySession(await ensurePlaying(client));
+        } else {
+          applySession(await client.noise.session.getCurrent());
+        }
+      })().catch(() => {});
     },
-    [activateNoise, markReadout],
+    [applySession, ensurePlaying, markReadout],
   );
 
   const toggleMaster = useCallback((): void => {
+    const playing = sessionRef.current
+      ? sessionRef.current.state === "playing"
+      : awake;
+    if (!playing) {
+      setMuted(false);
+      if (master === 0) setMaster(50);
+      const client = clientRef.current;
+      if (!client) return;
+      void (async () => {
+        if (master === 0) {
+          await client.noise.session.setMasterVolume(0.5);
+        }
+        await client.noise.session.setMuted(false);
+        applySession(await client.noise.session.play());
+      })().catch(() => {});
+      return;
+    }
     const nextMuted = !muted;
     if (!nextMuted && master === 0) setMaster(50);
     setMuted(nextMuted);
-    activateNoise(!nextMuted);
     const client = clientRef.current;
-    if (client) {
-      void client.noise.setMuted(nextMuted);
-      if (!nextMuted && master === 0) void client.noise.setMaster(0.5);
-    }
-  }, [activateNoise, master, muted]);
+    if (!client) return;
+    void (async () => {
+      if (!nextMuted && master === 0) {
+        await client.noise.session.setMasterVolume(0.5);
+      }
+      await client.noise.session.setMuted(nextMuted);
+      const next = !nextMuted
+        ? await ensurePlaying(client)
+        : await client.noise.session.getCurrent();
+      applySession(next);
+    })().catch(() => {});
+  }, [applySession, awake, ensurePlaying, master, muted]);
 
   const cycleSleep = useCallback((): void => {
     const current = SLEEP_OPTIONS.indexOf(sleepMinutes);
     const next = SLEEP_OPTIONS[(current + 1) % SLEEP_OPTIONS.length] ?? 0;
     setSleepMinutes(next);
     const client = clientRef.current;
-    if (client) void client.noise.setSleepTimer(next);
-  }, [sleepMinutes]);
+    if (client) {
+      void client.noise.session
+        .setSleepTimer(next)
+        .then(applySession)
+        .catch(() => {});
+    }
+  }, [applySession, sleepMinutes]);
+
+  const togglePlayback = useCallback((): void => {
+    const client = clientRef.current;
+    if (!client) return;
+    const playing = sessionRef.current?.state === "playing";
+    void (playing
+      ? client.noise.session.pause()
+      : client.noise.session.play()
+    )
+      .then(applySession)
+      .catch(() => {});
+  }, [applySession]);
 
   const cycleStartup = useCallback((): void => {
     const next: StartupMode = startupMode === "resume" ? "silent" : "resume";
     setStartupMode(next);
     setMuted(next === "silent");
     const client = clientRef.current;
-    if (client) void client.noise.setMuted(next === "silent");
+    if (client) {
+      void client.noise.session
+        .setMuted(next === "silent")
+        .then(applySession)
+        .catch(() => {});
+    }
     try {
       writeWidgetStorage(NOISE_WIDGET_ID, STARTUP_STORAGE_VERSION, next);
     } catch {
       // 存储不可用时只在当前会话生效。
     }
-  }, [startupMode]);
+  }, [applySession, startupMode]);
 
   const switchDock = useCallback(
     (side: "left" | "right"): void => {
@@ -770,15 +874,109 @@ export function EtherBubbles() {
     [dockSide],
   );
 
-  const resetMix = useCallback((): void => {
-    setChannels(initialChannels());
-    setMaster(INITIAL_MASTER);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const client = clientRef.current;
+    if (!client) return;
+    let alive = true;
+    void client.noise.presets
+      .listPresets({ pageSize: 50 })
+      .then((page) => {
+        if (!alive) return;
+        setPresets(page.items);
+        setPresetId((current) =>
+          current && page.items.some((item) => item.id === current)
+            ? current
+            : (page.items[0]?.id ?? ""),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [settingsOpen]);
+
+  const loadPreset = useCallback(
+    (id: string): void => {
+      const client = clientRef.current;
+      if (!client || !id) return;
+      void client.noise.presets
+        .loadPreset(id)
+        .then((result) => {
+          applySession(result.session);
+          setPresetId(id);
+          setSettingsOpen(false);
+        })
+        .catch(() => {});
+    },
+    [applySession],
+  );
+
+  const toggleLocalTrack = useCallback((track: NoiseTrack): void => {
+    const client = clientRef.current;
+    if (!client) return;
+    const playing = sessionRef.current?.state === "playing";
     setMuted(false);
-    setSleepMinutes(0);
+    if (!playing) {
+      void (async () => {
+        await client.noise.tracks.setEnabled(track.id, true);
+        await client.noise.session.setMuted(false);
+        applySession(await client.noise.session.play());
+      })().catch(() => {});
+      return;
+    }
+    void (async () => {
+      await client.noise.tracks.setEnabled(track.id, !track.enabled);
+      await client.noise.session.setMuted(false);
+      if (!track.enabled) applySession(await ensurePlaying(client));
+    })().catch(() => {});
+  }, [applySession, ensurePlaying]);
+
+  const setLocalTrackVolume = useCallback(
+    (track: NoiseTrack, value: number): void => {
+      const level = clampLevel(value);
+      const client = clientRef.current;
+      setMuted(false);
+      if (!client) return;
+      void (async () => {
+        await client.noise.tracks.setVolume(track.id, level / 100);
+        await client.noise.tracks.setEnabled(track.id, level > 0);
+        await client.noise.session.setMuted(false);
+        if (level > 0) applySession(await ensurePlaying(client));
+      })().catch(() => {});
+    },
+    [applySession, ensurePlaying],
+  );
+
+  const removeLocalTrack = useCallback((track: NoiseTrack): void => {
+    const client = clientRef.current;
+    if (!client) return;
+    void client.noise.tracks
+      .remove(track.id)
+      .then(() => client.noise.session.getCurrent())
+      .then(applySession)
+      .catch(() => {});
+  }, [applySession]);
+
+  const resetMix = useCallback((): void => {
     setSettingsOpen(false);
-    activateNoise(true);
-    void clientRef.current?.noise.reset();
-  }, [activateNoise]);
+    const client = clientRef.current;
+    if (!client) {
+      setChannels(initialChannels());
+      setMaster(INITIAL_MASTER);
+      setMuted(false);
+      setSleepMinutes(0);
+      return;
+    }
+    void client.noise.presets
+      .loadPreset("noise:preset:default")
+      .then(async (result) => {
+        applySession(result.session);
+        await client.noise.session.setMuted(false);
+        applySession(await client.noise.session.play());
+      })
+      .catch(() => {});
+  }, [applySession]);
 
   const nextDockSide = dockSide === "right" ? "left" : "right";
   const dockSideLabel =
@@ -790,6 +988,7 @@ export function EtherBubbles() {
       className={`${styles.root} ether-bubbles-root`}
       data-dormant={dormant ? "true" : "false"}
       data-muted={muted ? "true" : "false"}
+      data-playing={awake ? "true" : "false"}
       data-side={dockSide}
       data-switching={switching ? "true" : "false"}
       data-theme={currentTheme.id}
@@ -861,13 +1060,18 @@ export function EtherBubbles() {
               <div className={styles.rowLabel}>
                 <span className={styles.glyphTitle}>白噪音</span>
                 <span className={styles.rowMeta}>
-                  {master}% · {masterMood(master, muted)}
+                  {awake
+                    ? `${master}% · ${masterMood(master, muted)}`
+                    : muted
+                      ? "静默"
+                      : "待播放"}
                 </span>
               </div>
               <div className={styles.rowBubble}>
                 <MasterBubble
                   master={master}
                   muted={muted}
+                  playing={awake}
                   readout={readout === "master"}
                   onVolume={setMasterVolume}
                   onToggle={toggleMaster}
@@ -884,18 +1088,23 @@ export function EtherBubbles() {
                 <div
                   className={styles.soundRow}
                   key={sound.id}
-                  data-active={level > 0 ? "true" : "false"}
+                  data-active={awake && level > 0 ? "true" : "false"}
                 >
                   <div className={styles.rowLabel}>
                     <span className={styles.glyphTitle}>{sound.glyph}</span>
                     <span className={styles.rowMeta}>
-                      {level}% · {channelMood(channel, sound)}
+                      {awake
+                        ? `${level}% · ${channelMood(channel, sound)}`
+                        : channel.enabled && level > 0
+                          ? "待播放"
+                          : "静默"}
                     </span>
                   </div>
                   <div className={styles.rowBubble}>
                     <SoundBubble
                       definition={sound}
                       channel={channel}
+                      playing={awake}
                       readout={readout === sound.id}
                       onToggle={toggleChannel}
                       onVolume={setChannelVolume}
@@ -906,6 +1115,41 @@ export function EtherBubbles() {
                 </div>
               );
             })}
+
+            {localTracks.length > 0 ? (
+              <div className={styles.localList}>
+                <span className={styles.localTitle}>本地轨道</span>
+                {localTracks.map((track) => (
+                  <div
+                    key={track.id}
+                    className={styles.localTrack}
+                    data-enabled={track.enabled ? "true" : "false"}
+                  >
+                    <button
+                      type="button"
+                      className={styles.localToggle}
+                      aria-label={`${track.name}，${track.enabled ? "关闭" : "开启"}`}
+                      aria-pressed={track.enabled}
+                      onClick={() => toggleLocalTrack(track)}
+                    >
+                      {track.enabled ? "●" : "○"}
+                    </button>
+                    <span className={styles.localName}>{track.name}</span>
+                    <span className={styles.localLevel}>
+                      {Math.round(track.volume * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.localRemove}
+                      aria-label={`移除 ${track.name}`}
+                      onClick={() => removeLocalTrack(track)}
+                    >
+                      <X />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className={styles.gearRow}>
               <button
@@ -965,6 +1209,47 @@ export function EtherBubbles() {
                 </span>
               </div>
 
+              <div className={styles.presetRow}>
+                <span className={styles.settingLabel}>预设</span>
+                <select
+                  value={presetId}
+                  onChange={(event) => setPresetId(event.target.value)}
+                >
+                  {presets.length === 0 ? (
+                    <option value="">暂无预设</option>
+                  ) : (
+                    presets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name}
+                        {preset.sourceType === "builtin" ? "（内置）" : ""}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <button
+                  type="button"
+                  disabled={!presetId}
+                  onClick={() => loadPreset(presetId)}
+                >
+                  加载
+                </button>
+              </div>
+
+              <div className={styles.playbackRow}>
+                <span className={styles.settingLabel}>播放状态</span>
+                <button type="button" onClick={togglePlayback}>
+                  {session?.state === "playing" ? (
+                    <>
+                      <Pause aria-hidden="true" /> 暂停
+                    </>
+                  ) : (
+                    <>
+                      <Play aria-hidden="true" /> 播放
+                    </>
+                  )}
+                </button>
+              </div>
+
               <div className={styles.otherSection}>
                 <span className={styles.sectionLabel}>其他功能</span>
                 <button
@@ -1009,6 +1294,50 @@ export function EtherBubbles() {
                     <span />
                   </button>
                 </div>
+              </div>
+
+              <div className={styles.localList}>
+                <span className={styles.localTitle}>本地轨道</span>
+                {localTracks.length === 0 ? (
+                  <span className={styles.settingsNote}>当前 Preset 没有本地素材。</span>
+                ) : (
+                  localTracks.map((track) => (
+                    <div
+                      key={track.id}
+                      className={styles.localTrack}
+                      data-enabled={track.enabled ? "true" : "false"}
+                    >
+                      <button
+                        type="button"
+                        className={styles.localToggle}
+                        aria-label={`${track.name}，${track.enabled ? "关闭" : "开启"}`}
+                        aria-pressed={track.enabled}
+                        onClick={() => toggleLocalTrack(track)}
+                      >
+                        {track.enabled ? "●" : "○"}
+                      </button>
+                      <span className={styles.localName}>{track.name}</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={Math.round(track.volume * 100)}
+                        aria-label={`${track.name} 音量`}
+                        onChange={(event) =>
+                          setLocalTrackVolume(track, Number(event.target.value))
+                        }
+                      />
+                      <button
+                        type="button"
+                        className={styles.localRemove}
+                        aria-label={`移除 ${track.name}`}
+                        onClick={() => removeLocalTrack(track)}
+                      >
+                        <X />
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
 
               <div className={styles.settingsFoot}>

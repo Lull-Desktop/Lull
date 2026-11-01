@@ -5,6 +5,15 @@
 
 export type SoundId = "rain" | "thunder" | "wind" | "waves" | "fire";
 
+/** 新 Noise Session 中对应的内置 Asset ID；Preset/本地轨可用不同 ID。 */
+export const BUILTIN_ASSET_IDS: Record<SoundId, string> = {
+  rain: "noise:builtin:rain",
+  thunder: "noise:builtin:thunder",
+  wind: "noise:builtin:wind",
+  waves: "noise:builtin:waves",
+  fire: "noise:builtin:fire",
+};
+
 export type SoundDefinition = {
   id: SoundId;
   /** 大号单字，用于左侧竖排标题。 */
