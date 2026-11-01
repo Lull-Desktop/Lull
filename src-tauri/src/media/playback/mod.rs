@@ -163,7 +163,6 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     player.volume = PlayerData::default().volume;
     let _ = store::save_player(pool, &player).await;
   }
-  let queue = store::ensure_queue(pool, &queue).await?;
   let current_track_id = player
     .current_track_id
     .clone()
@@ -702,36 +701,20 @@ async fn resolve_source(
   let row = tracks::get(pool, track_id)
     .await?
     .ok_or_else(|| MediaError::new("track.not-found", "曲目不存在"))?;
-  let kind = row.kind.clone();
   let summary = TrackSummary::from(row);
-  let source = if kind == "builtin" {
-    let preset: Option<String> =
-      sqlx::query_scalar("SELECT playback_preset_json FROM music_tracks WHERE id = ?")
-        .bind(track_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|error| MediaError::internal(format!("读取内置曲预设失败：{error}")))?
-        .flatten();
-    let preset = preset.ok_or_else(|| MediaError::new("track.unavailable", "内置曲缺少预设"))?;
-    let preset: Value = serde_json::from_str(&preset)
-      .map_err(|error| MediaError::internal(format!("内置曲预设损坏：{error}")))?;
-    json!({ "kind": "ambient", "preset": preset })
-  } else {
-    let path = tracks::playable_path(pool, track_id).await?;
-    let path = path.ok_or_else(|| MediaError::new("track.unavailable", "曲目文件不可用"))?;
-    app
-      .asset_protocol_scope()
-      .allow_file(&path)
-      .map_err(|error| MediaError::internal(format!("媒体资源授权失败：{error}")))?;
-    let window = app
-      .get_webview_window(ENGINE_LABEL)
-      .ok_or_else(|| MediaError::unavailable("音频引擎窗口未就绪"))?;
-    let url = window
-      .convert_file_src(&path, None)
-      .map_err(|error| MediaError::internal(format!("媒体 URL 生成失败：{error}")))?;
-    json!({ "kind": "asset", "url": url })
-  };
-  Ok((summary, source))
+  let path = tracks::playable_path(pool, track_id).await?;
+  let path = path.ok_or_else(|| MediaError::new("track.unavailable", "曲目文件不可用"))?;
+  app
+    .asset_protocol_scope()
+    .allow_file(&path)
+    .map_err(|error| MediaError::internal(format!("媒体资源授权失败：{error}")))?;
+  let window = app
+    .get_webview_window(ENGINE_LABEL)
+    .ok_or_else(|| MediaError::unavailable("音频引擎窗口未就绪"))?;
+  let url = window
+    .convert_file_src(&path, None)
+    .map_err(|error| MediaError::internal(format!("媒体 URL 生成失败：{error}")))?;
+  Ok((summary, json!({ "kind": "asset", "url": url })))
 }
 
 fn set_error(app: &AppHandle, error: &MediaError) {

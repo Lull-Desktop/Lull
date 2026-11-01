@@ -55,7 +55,7 @@ pub async fn open_at(path: &Path) -> Result<SqlitePool, MediaError> {
     .await
     .map_err(|error| MediaError::unavailable(format!("打开音乐资料库失败：{error}")))?;
 
-  if let Err(error) = backup_before_folder_migration(&pool, path).await {
+  if let Err(error) = backup_before_media_migration(&pool, path).await {
     crate::wallpaper::wlog(&format!("迁移前备份音乐资料库失败：{error}"));
   }
 
@@ -69,8 +69,8 @@ pub async fn open_at(path: &Path) -> Result<SqlitePool, MediaError> {
   Ok(pool)
 }
 
-/// 0009 会删除 music_files 并重写 Track 文件列；首次升级前尽力留一份快照。
-async fn backup_before_folder_migration(pool: &SqlitePool, path: &Path) -> Result<(), MediaError> {
+/// 0009/0010 会重写 Track 文件列并删除旧内置曲；首次升级前尽力留一份快照。
+async fn backup_before_media_migration(pool: &SqlitePool, path: &Path) -> Result<(), MediaError> {
   let has_migrations: i64 = sqlx::query_scalar(
     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
   )
@@ -84,10 +84,10 @@ async fn backup_before_folder_migration(pool: &SqlitePool, path: &Path) -> Resul
     .fetch_one(pool)
     .await
     .map_err(|error| MediaError::internal(format!("读取迁移版本失败：{error}")))?;
-  if version.unwrap_or(0) >= 9 {
+  if version.unwrap_or(0) >= 10 {
     return Ok(());
   }
-  let backup = path.with_extension("db.pre-0009.bak");
+  let backup = path.with_extension("db.pre-0010.bak");
   if backup.exists() {
     return Ok(());
   }
@@ -241,6 +241,30 @@ mod tests {
         .execute(&pool)
         .await
         .expect("run 0009");
+      sqlx::raw_sql(
+        "INSERT INTO music_sources \
+           (id, kind, name, status, created_at, updated_at) \
+         VALUES ('src_builtin', 'builtin', 'Lull 精选', 'active', 1, 1); \
+         INSERT INTO music_tracks \
+           (id, kind, title, status, added_at, updated_at) \
+         VALUES ('online-test', 'builtin', '默认曲', 'active', 1, 1); \
+         INSERT INTO music_artists (id, name, created_at, updated_at) \
+         VALUES ('art_builtin', '默认艺术家', 1, 1); \
+         INSERT INTO music_track_artists \
+           (track_id, artist_id, role, position, source, updated_at) \
+         VALUES ('online-test', 'art_builtin', 'primary', 0, 'import', 1); \
+         INSERT INTO app_meta (key, value) VALUES ('catalog_seed_version', '1') \
+           ON CONFLICT(key) DO UPDATE SET value = '1';",
+      )
+      .execute(&pool)
+      .await
+      .expect("builtin rows");
+      sqlx::raw_sql(include_str!(
+        "../../../migrations/0010_remove_builtin_music.sql"
+      ))
+      .execute(&pool)
+      .await
+      .expect("run 0010");
 
       let (folder_id, relative, format, size, recursive): (String, String, String, i64, i64) =
         sqlx::query_as(
@@ -258,6 +282,16 @@ mod tests {
       .fetch_one(&pool)
       .await
       .expect("references");
+      let (builtin_tracks, builtin_sources, builtin_artists, catalog_key): (i64, i64, i64, i64) =
+        sqlx::query_as(
+          "SELECT (SELECT COUNT(*) FROM music_tracks WHERE kind = 'builtin'), \
+                  (SELECT COUNT(*) FROM music_sources WHERE kind = 'builtin'), \
+                  (SELECT COUNT(*) FROM music_artists WHERE id = 'art_builtin'), \
+                  (SELECT COUNT(*) FROM app_meta WHERE key = 'catalog_seed_version')",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("builtin cleanup");
       let removed_tables: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' \
          AND name IN ('music_files', 'music_folders')",
@@ -275,6 +309,10 @@ mod tests {
       assert_eq!(playlist_refs, 1);
       assert_eq!(favorite_refs, 1);
       assert_eq!(tag_refs, 1);
+      assert_eq!(builtin_tracks, 0);
+      assert_eq!(builtin_sources, 0);
+      assert_eq!(builtin_artists, 0);
+      assert_eq!(catalog_key, 0);
       assert_eq!(removed_tables, 0);
     });
     cleanup(&path);

@@ -10,8 +10,8 @@ import {
   formatTrackDuration,
   nextIndexForMode,
   nextPlayMode,
-  ONLINE_TRACKS,
   parseTrackName,
+  type PlayerTrack,
   persistPlayerPrefs,
   playModeLabel,
   previousIndex,
@@ -34,9 +34,9 @@ test("时间格式化：时钟、占位符与非法值", () => {
 });
 
 test("曲名解析支持 Artist - Title 与无艺术家兜底", () => {
-  expect(parseTrackName("Aurora Lane - Beyond the Horizon.mp3")).toEqual({
-    artist: "Aurora Lane",
-    title: "Beyond the Horizon",
+  expect(parseTrackName("Artist - Title.mp3")).toEqual({
+    artist: "Artist",
+    title: "Title",
   });
   expect(parseTrackName("夜航.flac")).toEqual({
     artist: "本地曲目",
@@ -68,13 +68,17 @@ test("封面色板循环取用，本地文件名哈希稳定", () => {
   expect(coverPalette(0).id).toBe("aurora-lake");
   expect(coverPalette(6).id).toBe("aurora-lake");
   expect(coverPalette(-1).id).toBe("last-light");
-  expect(coverToneForText("Aurora Lane-Beyond the Horizon")).toBe(
-    coverToneForText("Aurora Lane-Beyond the Horizon"),
+  expect(coverToneForText("Artist-Title")).toBe(
+    coverToneForText("Artist-Title"),
   );
 });
 
-test("在线精选时长与本地目录时长累加", () => {
-  expect(totalDuration(ONLINE_TRACKS)).toBe(252 + 236 + 265 + 228 + 260 + 312);
+test("本地曲目时长累加", () => {
+  const tracks: PlayerTrack[] = [
+    { id: "a", title: "A", artist: "", duration: 120, tone: 0 },
+    { id: "b", title: "B", artist: "", duration: 60, tone: 1 },
+  ];
+  expect(totalDuration(tracks)).toBe(180);
   expect(totalDuration([])).toBe(0);
 });
 

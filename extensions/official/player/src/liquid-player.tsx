@@ -2,7 +2,7 @@
  * LiquidPlayer（液态黑胶播放器）：把本地音频播放入口重构成参考稿里的水晶玻璃浮窗。
  *
  * 主球负责封面、播放 / 暂停、频响涟漪与进度环拖拽；左侧三颗循环泡切换播放模式，
- * 右侧水幕抽屉承载「曲库 / 队列」：曲库混合本地曲目与在线氛围声，队列按播放顺序展示。
+ * 右侧水幕抽屉承载「曲库 / 队列」：曲库只展示 Media Service 扫描到的本地曲目，队列按播放顺序展示。
  */
 "use client";
 
@@ -68,19 +68,14 @@ import {
   findTrackById,
   formatClock,
   formatTrackDuration,
-  ONLINE_TRACKS,
   PLAY_MODE_OPTIONS,
-  type PlayerSource,
-  type PlayerTrack,
   type PlayMode,
+  type PlayerTrack,
   persistPlayerPrefs,
   playModeLabel,
   readPlayerPrefs,
   totalDuration,
 } from "./player-model";
-
-const DEFAULT_TRACK = ONLINE_TRACKS[0] ?? null;
-const DEFAULT_TRACK_ID = DEFAULT_TRACK?.id ?? "";
 
 /** Media Service 的 TrackSummary → 现有玻璃 UI 的 PlayerTrack。 */
 function toPlayerTrack(track: TrackSummary): PlayerTrack {
@@ -89,7 +84,6 @@ function toPlayerTrack(track: TrackSummary): PlayerTrack {
     title: track.title,
     artist: track.artists.join(" / ") || "未知艺术家",
     duration: (track.durationMs ?? 0) / 1000,
-    source: track.source,
     favorite: track.favorite === true,
     hasCover: track.hasCover,
     tone: coverToneForText(track.id),
@@ -403,8 +397,8 @@ function ratioFromPointer(
 
 export function LiquidPlayer(): React.ReactElement {
   const [tab, setTab] = useState<DrawerTab>("library");
-  const [selectedId, setSelectedId] = useState(DEFAULT_TRACK_ID);
-  const [currentId, setCurrentId] = useState(DEFAULT_TRACK_ID);
+  const [selectedId, setSelectedId] = useState("");
+  const [currentId, setCurrentId] = useState("");
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [mode, setMode] = useState<PlayMode>("sequence");
@@ -458,8 +452,8 @@ export function LiquidPlayer(): React.ReactElement {
   const libraryTabRef = useRef<HTMLButtonElement>(null);
   const queueTabRef = useRef<HTMLButtonElement>(null);
 
-  const currentRef = useRef<PlayerTrack | null>(DEFAULT_TRACK);
-  const currentIdRef = useRef(DEFAULT_TRACK_ID);
+  const currentRef = useRef<PlayerTrack | null>(null);
+  const currentIdRef = useRef("");
   const playerRef = useRef(session.player);
   const playingRef = useRef(false);
   const progressRef = useRef(0);
@@ -482,18 +476,7 @@ export function LiquidPlayer(): React.ReactElement {
   // 不能再按内容高度贴合（100vh 内容叠加顶栏高度会让窗口反复长高）。
   useWidgetFit(rootRef, { fit: false });
 
-  const onlineTracks = useMemo(
-    () => remoteTracks.filter((track) => track.source === "online"),
-    [remoteTracks],
-  );
-  const allTracks = useMemo(() => {
-    const online = onlineTracks.length > 0 ? onlineTracks : ONLINE_TRACKS;
-    const seen = new Set(online.map((track) => track.id));
-    const local = remoteTracks.filter(
-      (track) => track.source === "local" && !seen.has(track.id),
-    );
-    return [...online, ...local];
-  }, [onlineTracks, remoteTracks]);
+  const allTracks = useMemo(() => remoteTracks, [remoteTracks]);
   const queueTracks = useMemo(
     () => session.queueTracks.map(toPlayerTrack),
     [session.queueTracks],
@@ -505,7 +488,7 @@ export function LiquidPlayer(): React.ReactElement {
     return [...byId.values()];
   }, [allTracks, hostCurrentTrack, queueTracks]);
   const current =
-    findTrackById(trackPool, currentId) ?? hostCurrentTrack ?? DEFAULT_TRACK ?? null;
+    findTrackById(trackPool, currentId) ?? hostCurrentTrack ?? null;
   const selectedTrack =
     findTrackById(trackPool, selectedId) ?? current ?? null;
   const favoriteOf = useCallback(
@@ -527,7 +510,7 @@ export function LiquidPlayer(): React.ReactElement {
   const duration =
     current?.duration ||
     (session.player?.track?.id === current?.id
-      ? (session.player.durationMs ?? 0) / 1000
+      ? (session.player?.durationMs ?? 0) / 1000
       : 0);
   const visibleTracks = tab === "queue" ? queueTracks : allTracks;
   const displayProgress = scrubbing ? scrubValue : progress;
@@ -616,7 +599,7 @@ export function LiquidPlayer(): React.ReactElement {
     }
   }, [scrubbing, session.player]);
 
-  // 曲库同时包含本地曲目与服务端返回的在线氛围声；队列页按 queue.trackIds 顺序展示。
+  // 队列页按 queue.trackIds 顺序展示。
 
   // WebView 页面透明：窗口本身在 Rust 侧以 transparent 创建，桌面从玻璃件之间透出来。
   useEffect(() => {

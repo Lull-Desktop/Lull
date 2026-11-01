@@ -207,11 +207,7 @@ impl From<TrackRow> for TrackSummary {
       track_number: row.track_number,
       disc_number: row.disc_number,
       tags: serde_json::from_str(&row.tags_json).unwrap_or_default(),
-      source: if is_file {
-        "local".to_string()
-      } else {
-        "online".to_string()
-      },
+      source: "local".to_string(),
       available: row.available != 0,
       has_cover: row.cover_asset_id.is_some(),
       favorite: row.favorite != 0,

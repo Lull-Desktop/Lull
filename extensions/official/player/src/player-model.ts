@@ -5,8 +5,6 @@
  */
 import { readStorage, writeStorage } from "./storage";
 
-export type PlayerSource = "local" | "online";
-
 export type PlayMode = "sequence" | "shuffle" | "repeat-one";
 
 export type CoverPalette = {
@@ -31,7 +29,7 @@ export type CoverPalette = {
 };
 
 /**
- * 在线精选曲目的「行封面」。
+ * 本地曲目的「行封面」。
  * 全部由 SVG 现绘，不依赖网络图片；同一套色板同时驱动主球氛围光、进度环与列表缩略图。
  */
 const AURORA_LAKE: CoverPalette = {
@@ -159,29 +157,13 @@ export const COVER_PALETTES: readonly CoverPalette[] = [
   },
 ];
 
-export type AmbientPreset = {
-  /** 每分钟拍数；一小节固定四拍。 */
-  bpm: number;
-  /** 四小节循环，每个和弦是一组 MIDI 音高。 */
-  chords: readonly (readonly number[])[];
-  /** 高音铃的候选 MIDI 音高。 */
-  melody: readonly number[];
-  wave: "sine" | "triangle";
-  /** 低通滤波截止频率，越高越亮。 */
-  brightness: number;
-  /** 空气底噪电平，0–1。 */
-  air: number;
-  seed: number;
-};
-
 export type PlayerTrack = {
   id: string;
   title: string;
   artist: string;
   /** 秒；本地文件在元数据回来前是 0。 */
   duration: number;
-  source: PlayerSource;
-  /** 曲库喜欢状态；在线内置曲没有该标记。 */
+  /** 曲库喜欢状态。 */
   favorite?: boolean;
   /** 是否有可读取的封面；列表缩略图只在有封面时请求图片。 */
   hasCover?: boolean;
@@ -189,145 +171,7 @@ export type PlayerTrack = {
   tone: number;
   /** 本地曲目的 object URL。 */
   url?: string;
-  /** 在线精选曲目的实时合成参数。 */
-  ambient?: AmbientPreset;
 };
-
-/** 在线精选：设计稿里的六首曲目，用本地实时合成替代网络串流。 */
-export const ONLINE_TRACKS: readonly PlayerTrack[] = [
-  {
-    id: "online-beyond-the-horizon",
-    title: "Beyond the Horizon",
-    artist: "Aurora Lane",
-    duration: 252,
-    source: "online",
-    tone: 0,
-    ambient: {
-      bpm: 54,
-      chords: [
-        [50, 57, 62, 66],
-        [47, 54, 59, 62],
-        [43, 50, 55, 59],
-        [45, 52, 57, 61],
-      ],
-      melody: [74, 78, 81, 76, 73, 69, 74, 81],
-      wave: "sine",
-      brightness: 1650,
-      air: 0.14,
-      seed: 7,
-    },
-  },
-  {
-    id: "online-star-sea",
-    title: "星海漫游",
-    artist: "Lumine",
-    duration: 236,
-    source: "online",
-    tone: 1,
-    ambient: {
-      bpm: 48,
-      chords: [
-        [45, 52, 57, 60],
-        [41, 48, 53, 57],
-        [43, 50, 55, 58],
-        [40, 47, 52, 55],
-      ],
-      melody: [76, 72, 69, 67, 64, 69, 72, 79],
-      wave: "sine",
-      brightness: 1250,
-      air: 0.2,
-      seed: 19,
-    },
-  },
-  {
-    id: "online-moonlit-solitude",
-    title: "月光下的孤独",
-    artist: "The Midnight",
-    duration: 265,
-    source: "online",
-    tone: 2,
-    ambient: {
-      bpm: 46,
-      chords: [
-        [42, 49, 54, 57],
-        [38, 45, 50, 54],
-        [45, 52, 57, 61],
-        [44, 51, 56, 59],
-      ],
-      melody: [73, 69, 66, 61, 66, 69, 76, 73],
-      wave: "triangle",
-      brightness: 980,
-      air: 0.12,
-      seed: 31,
-    },
-  },
-  {
-    id: "online-lost-in-dreams",
-    title: "Lost in Dreams",
-    artist: "Silva",
-    duration: 228,
-    source: "online",
-    tone: 3,
-    ambient: {
-      bpm: 50,
-      chords: [
-        [51, 58, 63, 67],
-        [48, 55, 60, 63],
-        [46, 53, 58, 62],
-        [43, 50, 55, 58],
-      ],
-      melody: [75, 70, 67, 63, 67, 72, 75, 82],
-      wave: "sine",
-      brightness: 1480,
-      air: 0.18,
-      seed: 43,
-    },
-  },
-  {
-    id: "online-back-to-future",
-    title: "回到未来",
-    artist: "Echoes",
-    duration: 260,
-    source: "online",
-    tone: 4,
-    ambient: {
-      bpm: 58,
-      chords: [
-        [48, 55, 60, 63],
-        [44, 51, 56, 60],
-        [46, 53, 58, 62],
-        [43, 50, 55, 58],
-      ],
-      melody: [72, 75, 79, 82, 79, 75, 72, 70],
-      wave: "triangle",
-      brightness: 1750,
-      air: 0.16,
-      seed: 59,
-    },
-  },
-  {
-    id: "online-the-last-light",
-    title: "The Last Light",
-    artist: "Sunset Riders",
-    duration: 312,
-    source: "online",
-    tone: 5,
-    ambient: {
-      bpm: 44,
-      chords: [
-        [43, 50, 55, 59],
-        [40, 47, 52, 55],
-        [36, 43, 48, 52],
-        [38, 45, 50, 54],
-      ],
-      melody: [74, 71, 67, 62, 67, 71, 74, 79],
-      wave: "sine",
-      brightness: 1120,
-      air: 0.22,
-      seed: 71,
-    },
-  },
-];
 
 export const PLAY_MODE_OPTIONS = [
   { id: "sequence", label: "顺序播放" },

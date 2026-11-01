@@ -43,22 +43,6 @@ pub async fn load(pool: &SqlitePool) -> Result<(PlayerData, Vec<String>), MediaE
   ))
 }
 
-/// 队列为空时用内置曲目填充；已有队列保持用户顺序。
-pub async fn ensure_queue(pool: &SqlitePool, queue: &[String]) -> Result<Vec<String>, MediaError> {
-  if !queue.is_empty() {
-    return Ok(queue.to_vec());
-  }
-  let ids: Vec<String> = sqlx::query_scalar(
-    "SELECT id FROM music_tracks WHERE kind = 'builtin' \
-     ORDER BY title COLLATE NOCASE, id",
-  )
-  .fetch_all(pool)
-  .await
-  .map_err(|error| MediaError::internal(format!("读取内置曲目失败：{error}")))?;
-  save_queue(pool, &ids).await?;
-  Ok(ids)
-}
-
 pub async fn save_player(pool: &SqlitePool, player: &PlayerData) -> Result<(), MediaError> {
   sqlx::query(
     "INSERT INTO player_state \
@@ -116,28 +100,28 @@ struct PlayerRow {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::media::library::catalog;
 
   #[test]
-  fn playback_state_roundtrips_and_queue_defaults_to_builtins() {
+  fn playback_state_roundtrips_with_empty_queue() {
     let path = std::env::temp_dir().join(format!("lull-playback-test-{}.db", uuid::Uuid::now_v7()));
     tauri::async_runtime::block_on(async {
       let pool = crate::media::repository::db::open_at(&path)
         .await
         .expect("open db");
-      catalog::seed(&pool).await.expect("seed catalog");
       let (player, queue) = load(&pool).await.expect("load defaults");
       assert!((player.volume - 0.78).abs() < f64::EPSILON);
+      assert!(player.current_track_id.is_none());
       assert!(queue.is_empty());
 
-      let queue = ensure_queue(&pool, &queue).await.expect("seed queue");
-      assert_eq!(
-        queue.first().map(String::as_str),
-        Some("online-beyond-the-horizon")
-      );
-
+      sqlx::query(
+        "INSERT INTO music_tracks (id, kind, title, status, added_at, updated_at) \
+         VALUES ('track-a', 'file', 'A', 'active', 1, 1)",
+      )
+      .execute(&pool)
+      .await
+      .expect("track");
       let player = PlayerData {
-        current_track_id: Some("online-beyond-the-horizon".to_string()),
+        current_track_id: Some("track-a".to_string()),
         position_ms: 1234,
         volume: 0.42,
         muted: true,

@@ -1,16 +1,14 @@
 /**
- * 引擎侧播放器：在线氛围声与本地音频共用一套传输控制。
+ * 引擎侧播放器：只播放本地音频文件。
  *
  * 它只负责发声、位置与状态，不认识歌单/队列；这些由 Rust Media Service 持有。
  * 隐藏窗口里每 250ms 上报进度，由宿主再按订阅节流转发。
  *
  * N1 起所有声音进入共享 AudioGraph：本地音频用 MediaElementAudioSource，
- * 内置氛围曲接 musicBus，播放器音量只由 graph 控制。
+ * 播放器音量只由 graph 控制。
  */
-import { AmbientStream } from "./ambient-stream";
 import type { AudioGraph } from "./audio-graph";
 import { clamp01 } from "./gain";
-import type { AmbientPreset } from "./preset";
 import type { EngineEvent, PlaybackSource } from "./protocol";
 
 type Emit = (event: EngineEvent) => void;
@@ -19,18 +17,14 @@ export class PlayerEngine {
   private readonly emit: Emit;
   private readonly graph: AudioGraph;
   private readonly timer: number;
-  private ambient: AmbientStream | null = null;
   private audio: HTMLAudioElement | null = null;
   private localSource: MediaElementAudioSourceNode | null = null;
-  private source: PlaybackSource | null = null;
   private loadId = "";
   private durationMs: number | null = null;
   private offsetMs = 0;
-  private startedAt = 0;
   private playing = false;
   private volume = 0.78;
   private muted = false;
-  private ended = false;
 
   constructor(emit: Emit, graph: AudioGraph) {
     this.emit = emit;
@@ -48,21 +42,8 @@ export class PlayerEngine {
   }): Promise<void> {
     this.stopInternal();
     this.loadId = command.loadId;
-    this.source = command.source;
     this.durationMs = command.durationMs;
     this.offsetMs = Math.max(0, command.positionMs);
-    this.ended = false;
-
-    if (command.source.kind === "ambient") {
-      this.emitLoaded();
-      if (command.autoplay) {
-        this.startAmbient(command.source.preset, this.offsetMs);
-      } else {
-        this.playing = false;
-        this.emitState("paused");
-      }
-      return;
-    }
 
     const audio = new Audio();
     audio.preload = "auto";
@@ -103,7 +84,6 @@ export class PlayerEngine {
     audio.addEventListener("ended", () => {
       if (this.audio !== audio) return;
       this.playing = false;
-      this.ended = true;
       this.offsetMs = this.durationMs ?? 0;
       this.emitState("ended");
     });
@@ -119,10 +99,6 @@ export class PlayerEngine {
   async play(): Promise<void> {
     if (this.audio) {
       await this.playAudio(this.audio);
-      return;
-    }
-    if (this.source?.kind === "ambient") {
-      this.startAmbient(this.source.preset, this.offsetMs);
     }
   }
 
@@ -130,9 +106,6 @@ export class PlayerEngine {
     if (this.audio) {
       this.offsetMs = Math.round(this.audio.currentTime * 1000);
       this.audio.pause();
-    } else if (this.ambient) {
-      this.offsetMs = this.positionMs();
-      this.ambient.stop();
     }
     this.playing = false;
     this.emitState("paused");
@@ -147,7 +120,6 @@ export class PlayerEngine {
     const duration = this.durationMs ?? Number.MAX_SAFE_INTEGER;
     const position = Math.min(Math.max(0, Math.round(positionMs)), duration);
     this.offsetMs = position;
-    this.ended = false;
     if (this.audio) {
       try {
         this.audio.currentTime = position / 1000;
@@ -155,14 +127,6 @@ export class PlayerEngine {
         // 元数据未就绪时忽略；loadedmetadata 会应用 offset。
       }
       this.emitState(this.playing ? "playing" : "paused");
-      return;
-    }
-    if (this.source?.kind === "ambient") {
-      if (this.playing) {
-        this.startAmbient(this.source.preset, position);
-      } else {
-        this.emitState("paused");
-      }
     }
   }
 
@@ -183,33 +147,10 @@ export class PlayerEngine {
   dispose(): void {
     window.clearInterval(this.timer);
     this.stopInternal();
-    this.ambient?.dispose();
-    this.ambient = null;
   }
 
   private effectiveVolume(): number {
     return this.muted ? 0 : this.volume;
-  }
-
-  private startAmbient(preset: AmbientPreset, offsetMs: number): boolean {
-    try {
-      this.graph.resume();
-      this.ambient ??= new AmbientStream(this.graph);
-      this.ambient.start(preset, offsetMs / 1000);
-    } catch (error) {
-      this.playing = false;
-      this.emitError(
-        "player.audio-graph",
-        error instanceof Error ? error.message : "音频图初始化失败",
-      );
-      return false;
-    }
-    this.offsetMs = offsetMs;
-    this.startedAt = performance.now();
-    this.playing = true;
-    this.ended = false;
-    this.emitState("playing");
-    return true;
   }
 
   private async playAudio(audio: HTMLAudioElement): Promise<void> {
@@ -218,8 +159,6 @@ export class PlayerEngine {
       audio.volume = this.localSource ? 1 : this.effectiveVolume();
       await audio.play();
       this.playing = true;
-      this.ended = false;
-      this.startedAt = performance.now();
       this.offsetMs = Math.round(audio.currentTime * 1000);
       this.emitState("playing");
     } catch (error) {
@@ -233,7 +172,6 @@ export class PlayerEngine {
 
   private stopInternal(): void {
     this.playing = false;
-    this.ambient?.stop();
     this.graph.detachMediaElement(this.localSource);
     this.localSource = null;
     if (this.audio) {
@@ -246,39 +184,13 @@ export class PlayerEngine {
 
   private positionMs(): number {
     if (this.audio) return Math.round(this.audio.currentTime * 1000);
-    if (!this.playing && this.offsetMs > 0) return this.offsetMs;
-    if (!this.playing) return this.offsetMs;
-    const elapsed = performance.now() - this.startedAt;
-    const position = this.offsetMs + elapsed;
-    return this.durationMs
-      ? Math.min(position, this.durationMs)
-      : Math.round(position);
+    return this.offsetMs;
   }
 
   private tick(): void {
-    if (!this.playing) return;
+    if (!this.playing || !this.audio) return;
     const position = this.positionMs();
-    if (this.audio) {
-      this.offsetMs = position;
-      this.emit({
-        type: "player.progress",
-        loadId: this.loadId,
-        positionMs: position,
-      });
-      return;
-    }
-    if (
-      !this.ended &&
-      this.durationMs !== null &&
-      position >= this.durationMs
-    ) {
-      this.ended = true;
-      this.playing = false;
-      this.ambient?.stop();
-      this.offsetMs = this.durationMs;
-      this.emitState("ended");
-      return;
-    }
+    this.offsetMs = position;
     this.emit({
       type: "player.progress",
       loadId: this.loadId,

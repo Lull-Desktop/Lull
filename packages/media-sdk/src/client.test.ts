@@ -10,7 +10,7 @@ const track: TrackSummary = {
   id: "trk_1",
   title: "雨",
   artists: ["Lull"],
-  source: "online",
+  source: "local",
   available: true,
   hasCover: false,
 };

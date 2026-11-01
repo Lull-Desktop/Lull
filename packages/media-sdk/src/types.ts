@@ -106,7 +106,7 @@ export interface TrackSummary {
   trackNumber?: number;
   discNumber?: number;
   tags?: TagView[];
-  source: "local" | "online";
+  source: "local";
   available: boolean;
   hasCover: boolean;
   favorite?: boolean;

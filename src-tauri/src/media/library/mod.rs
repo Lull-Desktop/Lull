@@ -4,7 +4,6 @@
 
 pub mod assets;
 mod backup;
-pub mod catalog;
 pub mod events;
 pub mod favorites;
 pub mod folders;
@@ -86,9 +85,6 @@ pub fn init(app: tauri::AppHandle) {
         .await;
         if let Err(error) = folders::revalidate(&pool).await {
           crate::wallpaper::wlog(&format!("音乐目录可用性检查失败：{error}"));
-        }
-        if let Err(error) = catalog::seed(&pool).await {
-          crate::wallpaper::wlog(&format!("内置曲目 seed 失败：{error}"));
         }
         if let Err(error) = super::output::init(&pool).await {
           crate::wallpaper::wlog(&format!("输出音量初始化失败：{error}"));

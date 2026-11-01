@@ -225,7 +225,7 @@ mod tests {
   fn builds_commands_with_expected_wire_shape() {
     let command = player_load(
       "load-2",
-      &json!({ "kind": "ambient", "preset": {} }),
+      &json!({ "kind": "asset", "url": "asset://localhost/a.mp3" }),
       100,
       Some(200),
       true,

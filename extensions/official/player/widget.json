@@ -4,7 +4,7 @@
   "id": "player",
   "name": "播放器",
   "version": "1.0.0",
-  "description": "液态黑胶播放器与在线氛围声。",
+  "description": "液态黑胶播放器与本地音乐。",
   "author": "Lull",
   "license": "GPL-3.0-or-later",
   "builtin": false,

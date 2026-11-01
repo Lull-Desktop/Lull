@@ -1,11 +1,7 @@
-import type { AmbientPreset } from "./preset";
-
 /** Rust `media::engine::ENGINE_PROTOCOL` 必须与该值一致。 */
 export const ENGINE_PROTOCOL = 2 as const;
 
-export type PlaybackSource =
-  | { kind: "ambient"; preset: AmbientPreset }
-  | { kind: "asset"; url: string };
+export type PlaybackSource = { kind: "asset"; url: string };
 
 export type NoiseLayer = {
   soundId: string;
