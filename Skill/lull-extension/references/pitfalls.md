@@ -115,8 +115,9 @@ With `chrome: "custom"` you must bind the drag region yourself
 By design: `close()` hides and the process stays in the tray. To really destroy the window,
 declare `lifecycle: "suspend"`.
 
-**The window cannot be resized**
-v1 is fixed size; `requestResize` only reports measurements (`applied: false`).
+**The window cannot resize arbitrarily**
+Width is clamped to the manifest's `[minWidth, width]`; height only changes when the
+manifest declares `window.fit: "content"` (still capped at 1200 px / the work area).
 
 **A revoked capability silently breaks a feature**
 Grants are per capability and revocable. Check `has(cap)` at startup and degrade (no audio ->

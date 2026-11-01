@@ -3,11 +3,7 @@
  * 曲目、封面色板、播放模式、本地曲名解析、偏好持久化都在这里，
  * 组件只负责把它们映射成玻璃 UI；这样模型可以在 Vitest 里脱离 DOM 单测。
  */
-import {
-  readWidgetStorage,
-  widgetStorageKey,
-  writeWidgetStorage,
-} from "@/sdk/widget";
+import { readStorage, writeStorage } from "./storage";
 
 export type PlayerSource = "local" | "online";
 
@@ -185,6 +181,10 @@ export type PlayerTrack = {
   /** 秒；本地文件在元数据回来前是 0。 */
   duration: number;
   source: PlayerSource;
+  /** 曲库喜欢状态；在线内置曲没有该标记。 */
+  favorite?: boolean;
+  /** 是否有可读取的封面；列表缩略图只在有封面时请求图片。 */
+  hasCover?: boolean;
   /** COVER_PALETTES 的下标。 */
   tone: number;
   /** 本地曲目的 object URL。 */
@@ -445,7 +445,7 @@ export function findTrackById(
   return tracks.find((track) => track.id === id) ?? null;
 }
 
-export const PLAYER_PREFS_KEY = widgetStorageKey("player", "v1");
+export const PLAYER_PREFS_KEY = "v1";
 
 export type PlayerPrefs = {
   mode: PlayMode;
@@ -455,7 +455,7 @@ export type PlayerPrefs = {
 export function readPlayerPrefs(): Partial<PlayerPrefs> {
   if (typeof window === "undefined") return {};
   try {
-    const raw = readWidgetStorage("player", "v1");
+    const raw = readStorage(PLAYER_PREFS_KEY);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
@@ -473,7 +473,7 @@ export function readPlayerPrefs(): Partial<PlayerPrefs> {
 export function persistPlayerPrefs(prefs: PlayerPrefs): void {
   if (typeof window === "undefined") return;
   try {
-    writeWidgetStorage("player", "v1", JSON.stringify(prefs));
+    writeStorage(PLAYER_PREFS_KEY, JSON.stringify(prefs));
   } catch {
     // 存储不可用只影响下次启动的默认值，不影响本次播放。
   }

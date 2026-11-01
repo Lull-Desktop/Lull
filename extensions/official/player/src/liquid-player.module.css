@@ -295,6 +295,18 @@
   opacity: 1;
 }
 
+.likeBubble {
+  color: rgba(244, 194, 214, 0.72);
+}
+
+.likeBubble:hover {
+  color: #ffd7e6;
+}
+
+.likeBubble[data-active="true"] {
+  color: #8d2748;
+}
+
 .modeBubble[data-active="true"]::after {
   content: "";
   position: absolute;
@@ -1333,7 +1345,7 @@
   transition: transform 0.58s var(--ease-liquid);
 }
 
-.sourceLiquid[data-at="online"] {
+.sourceLiquid[data-at="queue"] {
   transform: translateX(100%);
 }
 
@@ -1358,7 +1370,7 @@
     left 0.58s var(--ease-liquid);
 }
 
-.sourceLiquid[data-at="online"]::after {
+.sourceLiquid[data-at="queue"]::after {
   right: auto;
   left: -4px;
 }
@@ -1488,6 +1500,17 @@
 .listScroll::-webkit-scrollbar-thumb {
   border-radius: 2px;
   background: rgba(190, 225, 255, 0.22);
+}
+
+.listMore {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-faint);
+  font-size: 9px;
+  letter-spacing: 0.08em;
 }
 
 .trackList {
@@ -1706,6 +1729,7 @@
   display: flex;
   padding-left: 3px;
   flex: 0 0 auto;
+  gap: 5px;
   align-items: center;
   color: var(--text-faint);
   font-size: 9px;
@@ -1715,6 +1739,28 @@
 
 .trackRow[data-active="true"] .rowMeta {
   color: color-mix(in srgb, var(--accent) 62%, #ffffff);
+}
+
+.trackRow[data-selected="true"] {
+  border-color: color-mix(
+    in srgb,
+    var(--accent) 30%,
+    rgba(190, 225, 255, 0.18)
+  );
+}
+
+.rowHeart {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  color: #f0a7bf;
+  filter: drop-shadow(0 0 5px rgba(240, 167, 191, 0.45));
+  stroke-width: 1.5;
+}
+
+.rowHeart[data-liked="false"] {
+  color: rgba(202, 224, 255, 0.32);
+  filter: none;
 }
 
 .rowSpinner {

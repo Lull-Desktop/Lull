@@ -74,10 +74,16 @@ export function useLullLocale(): string {
 /**
  * 按内容高度请求宿主贴高；只在清单声明 `window.fit: "content"` 时生效。
  * 宿主未授权 / 未声明时返回 `applied: false`，hook 忽略即可。
+ * `fit: false` 只观察不提交（播放器固定高度，宽度由 `requestResize` 单独控制）。
  */
-export function useWidgetFit(contentRef: RefObject<HTMLElement | null>): void {
+export function useWidgetFit(
+  contentRef: RefObject<HTMLElement | null>,
+  options: { fit?: boolean } = {},
+): void {
   const client = useLull();
+  const fit = options.fit ?? true;
   useEffect(() => {
+    if (!fit) return;
     const element = contentRef.current;
     if (!element) return;
     let frame = 0;
@@ -98,7 +104,7 @@ export function useWidgetFit(contentRef: RefObject<HTMLElement | null>): void {
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [client, contentRef]);
+  }, [client, contentRef, fit]);
 }
 
 /**

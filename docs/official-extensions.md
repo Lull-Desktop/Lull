@@ -6,11 +6,12 @@
 >
 > **实施进度（2026-11）**：P1 已落地——官方来源 / 默认授权 / 保留 id / 构建期摘要
 > （`widget_package::official` + store）、Vite 构建、`extensions/dist` 资源映射、
-> 便携版收录与 CI；`echo` 自检包已移除，`noise` 已迁移为正式官方扩展。P2 已完成：
+> 便携版收录与 CI；`echo` 自检包已移除，`noise` 与 `player` 已迁移为正式官方扩展。P2 已完成：
 > Widget 的 player/queue/library 媒体能力与快照裁剪、Tier 2 dev server、
 > `widget_apply_resize` + `window.fit`、locale / 主题 token、媒体连接 Hub 均已落地。
-> P3 代码完成：白噪音包、托盘与设置页入口、扩展中心官方徽章已接入；播放器迁移属 P4。
-> 剩余验收项是真机打开 / 停用 / 升级 / 篡改测试。
+> P3 代码完成：白噪音包、托盘与设置页入口、扩展中心官方徽章已接入。P4 代码完成：
+> 播放器包、`window.alignPlayer`、封面兜底与设置/托盘入口已接入；剩余验收项是
+> 真机打开 / 停用 / 升级 / 篡改测试，以及封面 `asset:` 与 HMR 的 WebView2 验证。
 >
 > 关联文档：[Widget SDK](./widget-sdk.md)（包格式、能力词汇、桥协议）、
 > [扩展中心](./extension-center.md)（安装 / 启用 / 授权 / 卸载语义）、
@@ -29,7 +30,7 @@
 ### 1.1 目标
 
 - 安装包（MSI / NSIS / 便携版 zip）自带 `noise` 与 `player` 两个标准 Widget 包，
-  首次启动默认启用，托盘与扩展中心可直接打开（`noise` 已落地，`player` 待 P4 迁移后生效）。
+  首次启动默认启用，托盘与扩展中心可直接打开。
 - 扩展中心把它们显示为「官方 · 随应用分发」：可停用 / 重新启用、查看详情与能力，
   **不可卸载**；用户安装包不能占用这两个 id。
 - 行为与迁移前一致：
@@ -110,11 +111,10 @@ extensions/
       widget.json
       index.html
       src/
-    player/                   # P4
+    player/                   # P4 已迁移：React + CSS Modules + Media Hub 会话
       widget.json
       index.html
       src/
-      assets/
   dist/                       # 构建产物（gitignore；.gitkeep 保留目录供 resources 指向）
   README.md                   # 维护者说明：如何新增 / 构建 / 调试官方扩展
 ```
@@ -235,7 +235,9 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 | `media.player.control` | `play` / `pause` / `resume` / `stop` / `seek` / `next` / `previous` / `setMode` | — | 播放控制 |
 | `media.player.volume.write` | `setVolume` / `setMuted` | — | 播放器音量 |
 | `media.queue.read` | `queue.get` | `queue.changed`、snapshot.queue | 队列视图（只读） |
+| `media.queue.write` | `queue.add` / `remove` / `clear` / `move` / `playAt` | — | 加入队列与队列调整 |
 | `media.library.read` | `listTracks` / `getTrack` / `getCoverUrl` / `listArtists` / `listAlbums` | `library.changed` | 曲目与封面 |
+| `media.library.favorites.write` | `favorites.set` | — | 播放器喜欢按钮 |
 | `media.library.sources.write` | `library.addSource` / `startScan` | — | 播放器「添加音乐文件夹」（见 §13） |
 
 现有 8 个 `media.noise.*` 能力不变；`widget.media` 仍是总开关。
@@ -308,15 +310,14 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 | P1 | 官方来源、默认授权、构建/资源/便携版骨架（曾用 echo 包验证，验证后移除） |
 | P2 | 播放器 / 队列 / 曲库能力，`widget_apply_resize` + `fit`，locale / tokens，示例包验证 |
 | P3 | 白噪音迁移：移动 UI、包构建、托盘 / 设置 / 扩展中心整合，删除内置 noise |
-| P4 | 播放器迁移：移动 UI、播放器会话 hook、封面、抽屉宽度/锚点，删除内置 player |
-| P5 | 发布加固：便携版、CI、升级 / 篡改 / 缺资源测试、文档与 Skill 同步 |
+| P4 | 播放器迁移：移动 UI、播放器会话 hook、封面、抽屉宽度/锚点，删除内置 player || P5 | 发布加固：便携版、CI、升级 / 篡改 / 缺资源测试、文档与 Skill 同步 |
 
 迁移后删除（git 历史保留）：
 
-- `src/app/(widgets)/noise/`（已完成）、`src/app/(widgets)/player/` 及对应测试；
-- `src/components/ether-bubbles/`（已完成）、`src/components/liquid-player/`；
-- `src/hooks/use-player-session.ts`；
-- `src/widgets/manifests/noise.json`（已完成）、`player.json`（及 `gen-widgets` 生成的两个
+- `src/app/(widgets)/noise/`、`src/app/(widgets)/player/`（均已完成）及对应测试；
+- `src/components/ether-bubbles/`、`src/components/liquid-player/`（均已完成）；
+- `src/hooks/use-player-session.ts`（已完成）；
+- `src/widgets/manifests/noise.json`、`player.json`（均已完成，及 `gen-widgets` 生成的
   capability 文件）；
 - `src-tauri/src/media` 中只为 `noise` / `player` label 服务的官方矩阵分支。
 
@@ -380,10 +381,8 @@ P0 契约修订（2026-11，随开发模式设计补充）：
   真机验证（P1/P2 的 spike，结论回写本节）。
 - 官方包冷启动耗时与内存占用的基线（P3/P4 记录，不设硬门槛）。
 - `media.library.sources.write` 是否在 P4 保留（见上）。
-- `Skill/lull-extension` 的校验器与 `references/extension-standard.md` 目前只列 7 个
-  widget 能力（缺 8 个 `media.noise.*`），`lull-ext validate --strict` 会误报
-  `W-CAPS-UNKNOWN`；P2 与新能力一起补齐，并跑
-  `node Skill/lull-extension/scripts/self-test.mjs`。
+- ~~`Skill/lull-extension` 校验器只列 7 个 widget 能力~~：已补齐到 23 项
+  （含 8 个 `media.noise.*`、8 个 Player/Queue/Library 能力），`self-test` 通过。
 
 ## 14. 参考
 

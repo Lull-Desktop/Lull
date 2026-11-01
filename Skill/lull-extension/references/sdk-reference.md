@@ -82,23 +82,25 @@ return the same promise). `options`: `{ transport?, timeoutMs? }` (waits 10 s fo
 | Member | Description |
 | --- | --- |
 | `id` / `hostApi` / `protocol` | plugin id, host API version, bridge protocol version |
-| `window` | `{ width, height, minWidth, minHeight, resizable, transparent, chrome }` |
+| `window` | `{ width, height, minWidth, minHeight, resizable, transparent, chrome, fit }` |
 | `minimizable` / `transparent` / `visible` | current window state; `transparent` follows `setTransparent` |
 | `capabilities` / `has(cap)` | granted capabilities (manifest ∩ user consent); unknown caps are always `false` |
-| `theme` / `viewport` | theme tokens / content-area size (CSS pixels + dpr) |
+| `theme` / `viewport` / `locale` | theme tokens / content-area size / UI language |
 | `getState(key, fallback?)` / `setState` / `removeState` | host KV; key `[A-Za-z0-9._-]` 1-64; one value <= 32 KiB, 256 KiB per plugin |
 | `requestAudio()` | whether audio was granted |
-| `requestResize(w, h)` | v1 only reports measurements (`applied: false`), it does not resize |
+| `requestResize({ width?, height?, anchor? })` | width clamped to manifest `[minWidth, width]`; height only with `fit: "content"`; returns `applied` |
+| `alignPlayer({ currentSide, nextSide, width, playerAnchor })` | change width and move the window while keeping the player anchor fixed |
 | `startDrag()` / `minimize()` / `setTransparent()` | requires `widget.chrome` |
 | `close()` | no capability needed; closing hides the window |
 | `log(message, level?)` | forwards to the host console with prefix `[plugin:<id>]` |
-| `onTheme` / `onViewport` / `onVisibility` | subscribe and **replay the current value immediately**; returns an unsubscribe function |
+| `onTheme` / `onViewport` / `onVisibility` / `onLocale` | subscribe and **replay the current value immediately**; returns an unsubscribe function |
 | `request(method, params)` | call a bridge method directly, typed via `WidgetBridgeMethods` |
 | `destroy()` | unsubscribes everything and rejects pending requests; later calls return `disposed` |
 
 Bridge methods: `state.get` / `state.set` / `state.remove` / `audio.request` /
 `resize.request` / `window.startDrag` / `window.minimize` / `window.setTransparent` /
-`close` / `log`. Every message carries `v: 1`; requests also carry the `token` from `init`.
+`window.alignPlayer` / `close` / `log`. Every message carries `v: 1`; requests also carry
+the `token` from `init`.
 
 Errors: `LullWidgetError`, branch on `code` (`not-embedded` / `init-timeout` / `bad-init` /
 `timeout` / `host-error` / `disposed`) - **never match on the message text**.

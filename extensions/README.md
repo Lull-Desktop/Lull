@@ -7,7 +7,7 @@
 ```text
 extensions/official/
   noise/         # P3：白噪音（React + 媒体 SDK）
-  player/        # P4：播放器（规划）
+  player/        # P4：播放器（React + Media Hub 会话）
   _shared/       # 官方扩展共享的构建期声明（virtual messages 类型等）
 extensions/dist/  # 构建产物（gitignore，保留 .gitkeep 供 bundle.resources 指向）
 ```
@@ -17,7 +17,8 @@ extensions/dist/  # 构建产物（gitignore，保留 .gitkeep 供 bundle.resour
 ```powershell
 pnpm extensions:build                 # 构建全部官方扩展 → extensions/dist/<id>/
 pnpm extensions:build noise           # 只构建一个
-pnpm extensions:dev noise             # Tier 2：Vite dev server（5273），宿主直接加载 HMR
+pnpm extensions:dev player            # Tier 2：Vite dev server（5274），宿主直接加载 HMR
+pnpm extensions:mount player          # 把源码目录写进宿主 dev 配置（免目录选择器）
 pnpm extensions:watch noise           # Tier 1：监听源码变化并重建；宿主里点「重载」
 pnpm extensions:check                 # 边界检查 + 产物/摘要/index 校验（CI）
 ```
@@ -25,11 +26,20 @@ pnpm extensions:check                 # 边界检查 + 产物/摘要/index 校�
 Tier 2 需要在扩展源码目录放 `.lull-dev.json`（点号文件，不进包）：
 
 ```json
-{ "schemaVersion": 1, "server": "http://127.0.0.1:5273" }
+{ "schemaVersion": 1, "server": "http://127.0.0.1:5274" }
 ```
 
 宿主只在 **debug 构建**、且地址是 loopback 时加载 dev server；release 会忽略并拒绝挂载
-带 `.lull-dev.json` 的目录。`noise` 已带一份示例。
+带 `.lull-dev.json` 的目录。`noise` / `player` 均带示例。
+
+`extensions/dist/<id>` 同时是 debug 宿主的**官方静态包**：即使开发模式开着，只要没有
+挂载源码目录，宿主仍会把它识别成官方扩展并加载 `index.html`。实机调试播放器时必须
+额外执行 `pnpm extensions:mount player`（或通过设置页挂载），让 `devPackages` 指向源码。
+
+`extensions:mount` 写的是本机
+`%APPDATA%\app.lull.desktop\extensions.json`（`devMode: true` + `devPackages`）。
+写入后需要让宿主重新读取：重启 debug 应用，或在设置里重新打开扩展面板后点卡片「重载」。
+如果只开了开发模式但 `devPackages` 为空，播放器仍会加载 `extensions/dist` 的静态产物。
 
 > 开发服务器已设置 `server.cors: true`。插件 iframe 是 `sandbox="allow-scripts"`，
 > origin 为 `null`；若去掉该配置，Vite 默认不会回显 `null` origin，模块脚本会被

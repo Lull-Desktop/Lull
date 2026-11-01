@@ -251,8 +251,8 @@ Full standard in `references/extension-standard.md`; these are the ones people t
   iframe canvas opaque.
 - **Closing is not exiting**: `close()` hides the window and the process stays in the tray;
   only `lifecycle: "suspend"` destroys the window.
-- **Size is fixed**: v1 windows cannot resize; `requestResize` only reports measurements
-  (`applied: false`).
+- **Size needs a manifest opt-in**: width changes are clamped to `[minWidth, width]`;
+  height changes only work when the manifest declares `window.fit: "content"`.
 - **Capability revocation**: users can revoke per capability; revoking `widget.chrome` falls
   back to the host title bar, so code must tolerate it.
 - **Network tightening needs a reload**: after revoking `widget.network` the current page CSP

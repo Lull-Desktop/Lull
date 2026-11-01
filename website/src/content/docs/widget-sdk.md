@@ -99,7 +99,9 @@ widgets/<id>/
 | `media.player.control` | 播放 / 暂停 / 跳转 / 切歌 / 模式 |
 | `media.player.volume.write` | 播放器音量与静音 |
 | `media.queue.read` | 队列快照与 `queue.changed` |
+| `media.queue.write` | 加入/移除/清空/排序队列与 `playAt` |
 | `media.library.read` | 曲目 / 艺术家 / 专辑查询与封面 |
+| `media.library.favorites.write` | 喜欢 / 取消喜欢曲目 |
 | `media.library.sources.write` | 打开文件夹选择器并触发扫描 |
 
 > 插件运行在 `sandbox="allow-scripts"` 的不透明源 iframe 里；透明背景由 `window.transparent` / `setTransparent` 控制，与 sandbox 无关。
@@ -171,7 +173,8 @@ IndexedDB / Cookie，也没有 Service Worker，不能通过 `window.parent` 访
 
 ### 窗口
 
-尺寸由清单与宿主决定，`resize.request` 只探测不改尺寸；关闭 = 隐藏，进程驻留托盘；
+尺寸由清单与宿主决定：宽度夹在 `[minWidth, width]`，高度仅在 `window.fit: "content"`
+时按内容贴高；关闭 = 隐藏，进程驻留托盘；
 透明只影响背景色，Windows 下没有原生阴影。
 
 > 透明窗口不要给 `:root` / `html` 设置 `color-scheme: dark`，否则 WebView2 会把 iframe 画成不透明深色。

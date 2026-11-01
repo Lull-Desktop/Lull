@@ -11,7 +11,6 @@ import {
   nextIndexForMode,
   nextPlayMode,
   ONLINE_TRACKS,
-  PLAYER_PREFS_KEY,
   parseTrackName,
   persistPlayerPrefs,
   playModeLabel,
@@ -19,9 +18,10 @@ import {
   readPlayerPrefs,
   totalDuration,
 } from "./player-model";
+import { resetStorageForTests, writeStorage } from "./storage";
 
 beforeEach(() => {
-  window.localStorage.clear();
+  resetStorageForTests();
 });
 
 test("时间格式化：时钟、占位符与非法值", () => {
@@ -86,9 +86,6 @@ test("音量夹取与偏好持久化", () => {
   persistPlayerPrefs({ mode: "repeat-one", volume: 42 });
   expect(readPlayerPrefs()).toEqual({ mode: "repeat-one", volume: 42 });
 
-  window.localStorage.setItem(
-    PLAYER_PREFS_KEY,
-    JSON.stringify({ mode: "nope", volume: 999 }),
-  );
+  writeStorage("v1", JSON.stringify({ mode: "nope", volume: 999 }));
   expect(readPlayerPrefs()).toEqual({ volume: 100 });
 });

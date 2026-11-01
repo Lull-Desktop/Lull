@@ -11,7 +11,8 @@
 > **实施进度（2026-11）**：P1 的 Vite 构建、Tier 0、`extensions:watch` 与边界检查已落地；
 > P2 的媒体桥、Tier 2 dev server、`widget_apply_resize` + `window.fit`、locale 与主题
 > token、媒体连接 Hub 均已落地，P2 完成。P3：白噪音已迁为 `extensions/official/noise`，
-> 走 `virtual:lull-messages` 与 SDK，`echo` 自检包已移除；播放器属 P4。
+> 走 `virtual:lull-messages` 与 SDK，`echo` 自检包已移除；P4：播放器已迁为
+> `extensions/official/player`，使用 `usePlayerSession` + `window.alignPlayer`。
 
 ## 0. 一句话
 
@@ -38,8 +39,8 @@
 | 原内置依赖 | 包内替代 |
 | --- | --- |
 | `@/hooks/use-media-client`、`createMediaClient` | `createWidgetMediaClient({ request, onMediaEvent })`（`@lull/media-sdk/widget`） |
-| `@/hooks/use-player-session` | 包内 `_shared/use-player-session.ts`，基于共享媒体 Hub（见 2.4） |
-| `@/sdk/widget`（hide / minimize / drag / resize / align） | `@lull/widget-sdk` 的 `lull.close() / minimize() / startDrag() / requestResize()` |
+| `@/hooks/use-player-session` | `usePlayerSession` from `@lull/media-sdk/react`（共享媒体 Hub，见 2.4） |
+| `@/sdk/widget`（hide / minimize / drag / resize / align） | `@lull/widget-sdk` 的 `lull.close() / minimize() / startDrag() / requestResize() / alignPlayer()` |
 | `@/sdk/widget/react`（theme / fit / state） | `@lull/widget-sdk/react` + 包内 `_shared` 钩子 |
 | `@/paraglide/messages` | 构建期 `virtual:lull-messages`（来自 `i18n/messages/*.json`） |
 | `widgetStorageKey` / `readWidgetStorage` | `lull.getState / setState`（异步，prefs 合并成单键） |
@@ -365,15 +366,20 @@ esbuild 继续服务 `examples/widgets/*` 的第三方示例。新增 `vite` 为
 
 ## 6. 日常开发流程
 
+> `extensions/dist/player` 是 debug 宿主的**官方静态包**：只要它存在，宿主就会把
+> `player` 识别为官方扩展。要让播放器走 Vite，必须在开发模式里额外挂载源码目录
+> （`devPackages` 非空）；只构建 dist 或在扩展中心点“重载”不会自动切到 dev server。
+
 1. 终端 A：`pnpm dev`（Tauri + Next 宿主，debug 构建）。
-2. 终端 B：`pnpm extensions:dev noise`（Vite，5273）。
-3. 首次：设置 → 扩展 → 开发模式 → 添加 `extensions/official/noise`；卡片显示
-   「开发 · 127.0.0.1:5273」。
+2. 终端 B：`pnpm extensions:dev player`（Vite，5274）。
+3. 首次：`pnpm extensions:mount player`，或 设置 → 扩展 → 开发模式 → 添加
+   `extensions/official/player`；卡片显示「开发 · 127.0.0.1:5274」。
+   只打开开发模式不会自动挂载源码目录，`devPackages` 为空时仍加载静态产物。
 4. 改组件 / 样式 / 文案 → HMR；改入口 / Provider → 自动整页 reload。
-5. DevTools 选中 `widget-noise` 窗口的 iframe 上下文；诊断面板看 hostApi / locale /
+5. DevTools 选中 `widget-player` 窗口的 iframe 上下文；诊断面板看 hostApi / locale /
    媒体连接；桥日志用 `lull.log`。
 6. 提交前：`pnpm extensions:build && pnpm extensions:check`；CI 同。
-7. 验收前：Tier 0 挂 `extensions/dist/noise`，确认与生产同路径。
+7. 验收前：Tier 0 挂 `extensions/dist/player`，确认与生产同路径。
 
 ## 7. 失败模式与诊断
 

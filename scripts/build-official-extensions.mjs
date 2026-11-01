@@ -152,7 +152,14 @@ function scanBuiltPackage(dir, id) {
             parsed.hostname === "lullwidget.localhost") ||
           (parsed.protocol === "lullwidget:" &&
             parsed.hostname === "localhost");
-        if (!isWidgetOrigin) {
+        // data:image/svg+xml 里的 XML 命名空间不是资源请求。
+        const isXmlNamespace =
+          parsed.protocol === "http:" &&
+          parsed.hostname === "www.w3.org" &&
+          ["/2000/svg", "/1999/xlink", "/1999/xhtml"].includes(
+            parsed.pathname,
+          );
+        if (!isWidgetOrigin && !isXmlNamespace) {
           fail(`${id} 的产物 ${path} 含不应发布的远程资源：${url}`);
         }
       }

@@ -1,14 +1,15 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "type": "widget",
-  "role": "tool",
   "id": "player",
   "name": "播放器",
   "version": "1.0.0",
   "description": "液态黑胶播放器与在线氛围声。",
   "author": "Lull",
   "license": "GPL-3.0-or-later",
-  "builtin": true,
+  "builtin": false,
+  "hostApi": 1,
+  "entry": "index.html",
   "order": 10,
   "capabilities": [
     "widget.ui",
@@ -16,17 +17,23 @@
     "widget.state",
     "widget.audio",
     "widget.media",
-    "widget.chrome"
+    "widget.chrome",
+    "media.player.read",
+    "media.player.control",
+    "media.player.volume.write",
+    "media.queue.read",
+    "media.queue.write",
+    "media.library.read",
+    "media.library.favorites.write",
+    "media.library.sources.write"
   ],
   "window": {
-    "label": "player",
-    "route": "player",
-    "title": "Lull 播放器",
     "width": 880,
     "height": 552,
     "minWidth": 500,
     "minHeight": 520,
     "resizable": false,
-    "transparent": true
+    "transparent": true,
+    "chrome": "custom"
   }
 }

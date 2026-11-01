@@ -91,6 +91,13 @@ export interface LullWidgetClient {
   startDrag(): Promise<void>;
   minimize(): Promise<void>;
   setTransparent(transparent: boolean, color?: string | null): Promise<void>;
+  /** 换边时移动窗口并改宽，保持 `playerAnchor` 指向的主球屏幕坐标不变。 */
+  alignPlayer(options: {
+    currentSide: "left" | "right";
+    nextSide: "left" | "right";
+    width: number;
+    playerAnchor: number;
+  }): Promise<WidgetViewport & { applied: boolean }>;
   close(): Promise<void>;
   log(message: unknown, level?: WidgetLogLevel): void;
 
@@ -385,6 +392,14 @@ export function createLullWidgetClient(
       });
       applyWindowBackground(next, nextColor);
       state.transparent = next;
+    },
+    async alignPlayer(options) {
+      return request("window.alignPlayer", {
+        currentSide: options.currentSide,
+        nextSide: options.nextSide,
+        width: options.width,
+        playerAnchor: options.playerAnchor,
+      });
     },
     async close() {
       await request("close", {});

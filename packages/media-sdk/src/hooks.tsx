@@ -12,6 +12,7 @@ import {
 
 import type { LullMediaClient } from "./client.js";
 import { type MediaHubStatus, mediaHubFor } from "./hub.js";
+import { queueTracksFor } from "./queue.js";
 import type {
   NoiseAsset,
   NoiseAssetQuery,
@@ -24,6 +25,7 @@ import type {
   TrackSummary,
 } from "./types.js";
 
+const LIBRARY_PAGE_SIZE = 200;
 const NOISE_TOPICS = [
   "noise.session.changed",
   "noise.session.state-changed",
@@ -267,6 +269,8 @@ export type PlayerActions = {
   setVolume(volume: number): Promise<void>;
   setMuted(muted: boolean): Promise<void>;
   setMode(mode: PlayerState["mode"]): Promise<void>;
+  addToQueue(trackId: string): Promise<void>;
+  setFavorite(trackId: string, favorite: boolean): Promise<void>;
   addSource(): Promise<void>;
   refreshLibrary(): Promise<void>;
 };
@@ -274,7 +278,14 @@ export type PlayerActions = {
 export type PlayerSession = {
   player: PlayerState | null;
   queue: QueueState | null;
+  /** 按宿主队列顺序解析出的完整曲目；不受曲库分页限制。 */
+  queueTracks: TrackSummary[];
   tracks: TrackSummary[];
+  /** 曲库总条数（服务端分页 total）。 */
+  total: number;
+  hasMore: boolean;
+  loadingMore: boolean;
+  loadMore(): Promise<void>;
   levelRef: RefObject<number>;
   getCoverUrl(trackId: string): Promise<string | null>;
   actions: PlayerActions;
@@ -305,6 +316,7 @@ export function usePlayerSession(): PlayerSession {
           "player.progress",
           "player.level",
           "queue.changed",
+          "library.changed",
         ],
         progressMs: 500,
         levels: true,
@@ -318,14 +330,71 @@ export function usePlayerSession(): PlayerSession {
     getSnapshot,
   );
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
+  const [queueTracks, setQueueTracks] = useState<TrackSummary[]>([]);
+  const [libraryTotal, setLibraryTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const pageRef = useRef(1);
+  const totalRef = useRef(0);
+  const loadedRef = useRef(0);
+  const loadingMoreRef = useRef(false);
+  const generationRef = useRef(0);
   const levelRef = useRef(0);
 
   const loadLibrary = useCallback(async (): Promise<void> => {
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
     try {
-      const page = await client.library.listTracks({ pageSize: 200 });
-      setTracks(page.items);
+      const first = await client.library.listTracks({
+        page: 1,
+        pageSize: LIBRARY_PAGE_SIZE,
+      });
+      if (generation !== generationRef.current) return;
+      pageRef.current = 1;
+      totalRef.current = first.total;
+      loadedRef.current = first.items.length;
+      setTracks(first.items);
+      setLibraryTotal(first.total);
     } catch {
       // 资料库暂不可用时保留当前列表。
+    }
+  }, [client]);
+
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (
+      loadingMoreRef.current ||
+      loadedRef.current >= totalRef.current
+    ) {
+      return;
+    }
+    const generation = generationRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const nextPage = pageRef.current + 1;
+    try {
+      const next = await client.library.listTracks({
+        page: nextPage,
+        pageSize: LIBRARY_PAGE_SIZE,
+      });
+      if (generation !== generationRef.current) return;
+      pageRef.current = nextPage;
+      totalRef.current = next.total;
+      setTracks((previous) => {
+        const seen = new Set(previous.map((track) => track.id));
+        const appended = next.items.filter((track) => !seen.has(track.id));
+        const merged = [...previous, ...appended];
+        loadedRef.current = merged.length;
+        return merged;
+      });
+      setLibraryTotal(next.total);
+    } catch {
+      // 滚动加载失败时保留已加载页，下次滚动重试。
+    } finally {
+      if (generation === generationRef.current) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
     }
   }, [client]);
 
@@ -335,6 +404,40 @@ export function usePlayerSession(): PlayerSession {
       if (event.topic === "library.changed") void loadLibrary();
     });
   }, [hub, loadLibrary]);
+
+  // 队列必须按 ID 解析：曲库列表只取第一页，队列里的老曲目可能不在其中。
+  const queueKey = (snapshot?.queue?.trackIds ?? []).join("\u0000");
+  useEffect(() => {
+    const ids = queueKey ? queueKey.split("\u0000") : [];
+    if (ids.length === 0) {
+      setQueueTracks([]);
+      return;
+    }
+    let alive = true;
+    const byId = new Map(tracks.map((track) => [track.id, track]));
+    const missing = ids.filter((id) => !byId.has(id));
+    const publish = (): void => {
+      setQueueTracks(queueTracksFor(ids, byId));
+    };
+    publish();
+    if (missing.length === 0) return;
+    void Promise.all(
+      missing.map((id) =>
+        client.library
+          .getTrack(id)
+          .catch(() => null),
+      ),
+    ).then((resolved) => {
+      if (!alive) return;
+      for (const track of resolved) {
+        if (track) byId.set(track.id, track);
+      }
+      setQueueTracks(queueTracksFor(ids, byId));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [client, queueKey, tracks]);
 
   useEffect(
     () =>
@@ -381,20 +484,43 @@ export function usePlayerSession(): PlayerSession {
       setMode: async (mode) => {
         await client.player.setMode(mode);
       },
+      addToQueue: async (trackId) => {
+        await client.queue.add(trackId);
+      },
+      setFavorite: async (trackId, favorite) => {
+        await client.favorites.set(trackId, favorite);
+        setTracks((previous) =>
+          previous.map((track) =>
+            track.id === trackId ? { ...track, favorite } : track,
+          ),
+        );
+      },
       addSource: async () => {
         const added = await client.library.addSource();
         if (!added) return;
         await client.library.startScan(added.id);
+        // 扫描在 Rust 后台执行；轻量轮询几次，避免用户停留在空列表。
+        for (const delay of [1200, 3500, 7000, 12000]) {
+          window.setTimeout(() => {
+            void loadLibrary();
+          }, delay);
+        }
       },
       refreshLibrary: loadLibrary,
     }),
     [client, loadLibrary],
   );
 
+  const hasMore = tracks.length < libraryTotal;
   return {
     player: snapshot?.player ?? null,
     queue: snapshot?.queue ?? null,
+    queueTracks,
     tracks,
+    total: libraryTotal,
+    hasMore,
+    loadingMore,
+    loadMore,
     levelRef,
     getCoverUrl,
     actions,

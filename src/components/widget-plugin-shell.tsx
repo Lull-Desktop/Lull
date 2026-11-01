@@ -382,6 +382,23 @@ export function WidgetPluginShell() {
           }).catch(() => {});
           return { transparent };
         }
+        case "window.alignPlayer": {
+          if (!context?.granted.includes("widget.chrome")) {
+            throw new Error("未获得 widget.chrome 权限");
+          }
+          const currentSide =
+            params.currentSide === "right" ? "right" : "left";
+          const nextSide = params.nextSide === "right" ? "right" : "left";
+          const width = typeof params.width === "number" ? params.width : 0;
+          const playerAnchor =
+            typeof params.playerAnchor === "number"
+              ? params.playerAnchor
+              : 0;
+          return invoke<Viewport & { applied: boolean }>(
+            "widget_align_player",
+            { currentSide, nextSide, width, playerAnchor },
+          );
+        }
         case "close":
           await closePluginWindow();
           return { closed: true };

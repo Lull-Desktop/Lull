@@ -351,6 +351,91 @@ pub fn widget_apply_resize(
   })
 }
 
+#[allow(clippy::cast_possible_truncation)]
+fn player_anchor_offset(
+  current_width: f64,
+  target_width: f64,
+  current_side: &str,
+  next_side: &str,
+  player_anchor: f64,
+  scale: f64,
+) -> Result<i32, String> {
+  if !matches!(current_side, "left" | "right") {
+    return Err("currentSide 只能是 left 或 right".to_string());
+  }
+  if !matches!(next_side, "left" | "right") {
+    return Err("nextSide 只能是 left 或 right".to_string());
+  }
+  if !(scale.is_finite() && scale > 0.0) {
+    return Err("窗口缩放因子非法".to_string());
+  }
+  let anchor = player_anchor.clamp(0.0, target_width.min(current_width).max(0.0));
+  let current_local = if current_side == "right" {
+    anchor
+  } else {
+    current_width - anchor
+  };
+  let next_local = if next_side == "right" {
+    anchor
+  } else {
+    target_width - anchor
+  };
+  Ok(((current_local - next_local) * scale).round() as i32)
+}
+
+/// 播放器换边：同时改宽与横向位置，保持主球球心的屏幕坐标不变。
+#[tauri::command]
+pub fn widget_align_player(
+  window: Window,
+  current_side: String,
+  next_side: String,
+  width: f64,
+  player_anchor: f64,
+) -> Result<WidgetViewportInfo, String> {
+  let id = package_id_from_window(&window)?;
+  let app = window.app_handle();
+  store::require_grant(app, &id, "widget.chrome")?;
+  let manifest = store::find(app, &id)?;
+  if !(width.is_finite() && width > 0.0) {
+    return Err("窗口宽度必须是正数".to_string());
+  }
+  if !(player_anchor.is_finite() && player_anchor >= 0.0) {
+    return Err("playerAnchor 必须是非负数".to_string());
+  }
+  let scale = window.scale_factor().map_err(|error| error.to_string())?;
+  let position = window
+    .inner_position()
+    .map_err(|error| format!("读取窗口位置失败：{error}"))?;
+  let size = window
+    .inner_size()
+    .map_err(|error| format!("读取窗口尺寸失败：{error}"))?;
+  let spec = LayoutSpec::from(&manifest.window);
+  let target_width = width.clamp(spec.min_width, spec.max_width);
+  let current_width = f64::from(size.width) / scale;
+  let delta = player_anchor_offset(
+    current_width,
+    target_width,
+    &current_side,
+    &next_side,
+    player_anchor,
+    scale,
+  )?;
+  let target_physical = logical_to_physical(target_width * scale);
+  let frame = FrameRect {
+    x: position.x.saturating_add(delta),
+    y: position.y,
+    width: target_physical,
+    height: size.height,
+  };
+  crate::window_frame::apply_frame(&window, frame.x, frame.y, frame.width, frame.height)?;
+  Ok(WidgetViewportInfo {
+    width: f64::from(frame.width) / scale,
+    height: f64::from(frame.height) / scale,
+    dpr: scale,
+    applied: true,
+  })
+}
+
 /// 运行时切换插件窗口背景：`transparent=true` 用全透明，否则用给定/默认颜色。
 #[tauri::command]
 pub fn widget_set_transparent(
@@ -624,6 +709,20 @@ mod tests {
       return;
     };
     assert_eq!(frame.height, 652);
+  }
+
+  #[test]
+  fn player_anchor_keeps_ball_position() {
+    let offset = player_anchor_offset(530.0, 880.0, "right", "left", 287.0, 1.0);
+    assert_eq!(offset.ok(), Some(-306));
+    let back = player_anchor_offset(880.0, 530.0, "left", "right", 287.0, 1.0);
+    assert_eq!(back.ok(), Some(306));
+  }
+
+  #[test]
+  fn player_anchor_rejects_unknown_sides() {
+    assert!(player_anchor_offset(530.0, 880.0, "top", "left", 287.0, 1.0).is_err());
+    assert!(player_anchor_offset(530.0, 880.0, "left", "bottom", 287.0, 1.0).is_err());
   }
 
   #[test]

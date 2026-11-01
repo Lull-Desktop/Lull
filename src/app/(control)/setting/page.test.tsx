@@ -431,23 +431,22 @@ test("工具窗开关按当前显示状态渲染，并能打开/关闭窗口", a
     }),
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
     widget_states: () => [
-      { kind: "player", visible: false },
       { kind: "pomodoro", visible: true },
-      { kind: "noise", visible: false },
+      { kind: "library", visible: false },
     ],
     widget_open: () => null,
     widget_close: () => null,
   });
   render(<Page />);
 
-  const player = (await screen.findByRole("switch", {
-    name: "播放器窗口",
+  const library = (await screen.findByRole("switch", {
+    name: "音乐库窗口",
   })) as HTMLButtonElement;
-  expect(player.getAttribute("aria-checked")).toBe("false");
+  expect(library.getAttribute("aria-checked")).toBe("false");
 
-  fireEvent.click(player);
+  fireEvent.click(library);
   await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "player" });
+    expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "library" });
   });
 
   const pomodoro = screen.getByRole("switch", {

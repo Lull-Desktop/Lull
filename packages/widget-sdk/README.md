@@ -101,16 +101,17 @@ createApp(App).use(createLullPlugin(client)).mount("#app");
 | 成员 | 说明 |
 | --- | --- |
 | `id` / `hostApi` / `protocol` | 插件 id、宿主 API 版本、桥协议版本 |
-| `window` | 清单解析后的窗口描述（尺寸、是否透明、chrome 归属） |
+| `window` | 清单解析后的窗口描述（尺寸、`fit`、是否透明、chrome 归属） |
 | `minimizable` / `transparent` / `visible` | 当前窗口状态；`transparent` 会随 `setTransparent` 更新 |
 | `capabilities` / `has(cap)` | 已授予能力（清单声明 ∩ 用户授权），未知能力恒为 `false` |
-| `theme` / `viewport` | 当前主题令牌与内容区尺寸 |
+| `theme` / `viewport` / `locale` | 当前主题令牌、内容区尺寸与界面语言 |
 | `getState(key, fallback?)` / `setState` / `removeState` | 宿主 KV 读写；键只允许字母数字与 `._-`，单值 ≤ 32 KiB，单插件 ≤ 256 KiB |
 | `requestAudio()` | 音频是否被授权 |
-| `requestResize(w, h)` | v1 宿主只回报测量值（`applied: false`），不会真的改窗口尺寸 |
+| `requestResize({ width?, height?, anchor? })` | 宽度夹在清单 `[minWidth, width]`；高度仅 `fit: "content"` 时生效；返回 `applied` |
+| `alignPlayer({ currentSide, nextSide, width, playerAnchor })` | 换边时改宽并移动窗口，保持主球锚点屏幕坐标不变 |
 | `startDrag()` / `minimize()` / `setTransparent()` / `close()` | 需要 `widget.chrome` 能力（`close` 不需要） |
 | `log(message, level?)` | 转发到宿主控制台，前缀 `[plugin:<id>]` |
-| `onTheme` / `onViewport` / `onVisibility` | 订阅并**立刻回放当前值**，返回退订函数 |
+| `onTheme` / `onViewport` / `onVisibility` / `onLocale` | 订阅并**立刻回放当前值**，返回退订函数 |
 | `request(method, params)` | 直接调用桥方法，参数与返回值按 `WidgetBridgeMethods` 推导 |
 | `destroy()` | 退订全部监听并拒绝未完成请求，之后所有调用返回 `disposed` |
 
@@ -133,10 +134,11 @@ createApp(App).use(createLullPlugin(client)).mount("#app");
 | `state.set` | `{ key, value }` | `{ saved }` |
 | `state.remove` | `{ key }` | `{ removed }` |
 | `audio.request` | `{}` | `{ granted }` |
-| `resize.request` | `{ width, height }` | `{ width, height, dpr, applied }` |
+| `resize.request` | `{ width?, height?, anchor? }` | `{ width, height, dpr, applied }` |
 | `window.startDrag` | `{}` | `{ dragging }` |
 | `window.minimize` | `{}` | `{ minimized }` |
 | `window.setTransparent` | `{ transparent, color }` | `{ transparent }` |
+| `window.alignPlayer` | `{ currentSide, nextSide, width, playerAnchor }` | `{ width, height, dpr, applied }` |
 | `close` | `{}` | `{ closed }` |
 | `log` | `{ level, message }` | `{ logged }` |
 
@@ -199,7 +201,8 @@ packages/widget-sdk/
   本窗口的状态命令。
 - 本地 ZIP 安装器与 `.lull-integrity.json` 摘要锁已落地；仍没有发布者签名、在线目录
   与自动更新。手动放入 `%APPDATA%\app.lull.desktop\widgets\<id>\` 的包会在启用时补锁。
-- `resize.request` 在 v1 是只读探测；窗口尺寸由清单与宿主偏好决定。
+- `resize.request` 的宽度上限是清单初始宽度；高度只在 `window.fit: "content"` 时生效，
+  仍受最小高度、1200px 与屏幕工作区限制。`window.alignPlayer` 只用于自绘播放器换边。
 - 网络访问受宿主按插件注入的 CSP 限制，白名单来自清单 `network` 字段。
 
 许可：Apache-2.0（见仓库根 `SDK-LICENSE.md`）。

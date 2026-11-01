@@ -19,7 +19,9 @@ pub const PLAYER_READ: &str = "media.player.read";
 pub const PLAYER_CONTROL: &str = "media.player.control";
 pub const PLAYER_VOLUME_WRITE: &str = "media.player.volume.write";
 pub const QUEUE_READ: &str = "media.queue.read";
+pub const QUEUE_WRITE: &str = "media.queue.write";
 pub const MEDIA_LIBRARY_READ: &str = "media.library.read";
+pub const MEDIA_LIBRARY_FAVORITES_WRITE: &str = "media.library.favorites.write";
 pub const MEDIA_LIBRARY_SOURCES_WRITE: &str = "media.library.sources.write";
 
 #[allow(dead_code)]
@@ -83,6 +85,7 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
     }),
     "queue" => match method {
       "get" => Some(QUEUE_READ),
+      "add" | "remove" | "clear" | "move" | "playAt" => Some(QUEUE_WRITE),
       _ => None,
     },
     "library" => match method {
@@ -90,6 +93,11 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
         Some(MEDIA_LIBRARY_READ)
       }
       "addSource" | "startScan" => Some(MEDIA_LIBRARY_SOURCES_WRITE),
+      _ => None,
+    },
+    "favorites" => match method {
+      "list" => Some(MEDIA_LIBRARY_READ),
+      "set" => Some(MEDIA_LIBRARY_FAVORITES_WRITE),
       _ => None,
     },
     _ => None,
@@ -270,7 +278,9 @@ mod tests {
     );
     assert_eq!(widget_capability("player", "addSource"), None);
     assert_eq!(widget_capability("queue", "get"), Some(QUEUE_READ));
-    assert_eq!(widget_capability("queue", "add"), None);
+    assert_eq!(widget_capability("queue", "add"), Some(QUEUE_WRITE));
+    assert_eq!(widget_capability("queue", "remove"), Some(QUEUE_WRITE));
+    assert_eq!(widget_capability("queue", "playAt"), Some(QUEUE_WRITE));
     assert_eq!(
       widget_capability("library", "getCoverUrl"),
       Some(MEDIA_LIBRARY_READ)
@@ -278,6 +288,14 @@ mod tests {
     assert_eq!(
       widget_capability("library", "addSource"),
       Some(MEDIA_LIBRARY_SOURCES_WRITE)
+    );
+    assert_eq!(
+      widget_capability("favorites", "list"),
+      Some(MEDIA_LIBRARY_READ)
+    );
+    assert_eq!(
+      widget_capability("favorites", "set"),
+      Some(MEDIA_LIBRARY_FAVORITES_WRITE)
     );
     assert_eq!(widget_capability("library", "removeSource"), None);
   }

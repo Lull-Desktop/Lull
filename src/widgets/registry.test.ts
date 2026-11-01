@@ -5,14 +5,13 @@ import { BUILTIN_WIDGETS, WINDOW_MANIFESTS, widgetById } from "./registry";
 describe("builtin widget registry", () => {
   test("工具清单按 order 从 manifest 派生，设置外壳单独归类", () => {
     expect(BUILTIN_WIDGETS.map((widget) => widget.id)).toEqual([
-      "player",
       "pomodoro",
       "library",
     ]);
     for (const widget of BUILTIN_WIDGETS) {
       expect(widget.role).toBe("tool");
     }
-    expect(WINDOW_MANIFESTS).toHaveLength(4);
+    expect(WINDOW_MANIFESTS).toHaveLength(3);
     expect(WINDOW_MANIFESTS[0]?.role).toBe("shell");
   });
 
@@ -49,7 +48,7 @@ describe("builtin widget registry", () => {
   });
 
   test("lookup by id is stable", () => {
-    expect(widgetById("player")?.window.label).toBe("player");
+    expect(widgetById("pomodoro")?.window.label).toBe("pomodoro");
     expect(widgetById("missing")).toBeNull();
   });
 });

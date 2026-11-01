@@ -209,7 +209,7 @@ pub fn widget_close(app: AppHandle, kind: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-  use super::spec::{PLAYER, POMODORO};
+  use super::spec::{LIBRARY, POMODORO};
   use super::*;
   use serde_json::Value;
 
@@ -219,7 +219,7 @@ mod tests {
 
   #[test]
   fn context_script_assigns_both_globals() {
-    let script = widget_context_script(&PLAYER);
+    let script = widget_context_script(&POMODORO);
     // 语言必须排在前面：前端 i18n 在模块求值时就要读到它。
     assert!(
       script.starts_with("window.__LULL_LOCALE__ = \""),
@@ -233,24 +233,24 @@ mod tests {
 
   #[test]
   fn context_carries_capabilities_and_window_limits() {
-    let context = context_of(&PLAYER);
-    assert_eq!(context["id"], "player");
+    let context = context_of(&POMODORO);
+    assert_eq!(context["id"], "pomodoro");
     assert_eq!(context["hostApi"], 1);
     assert_eq!(context["schemaVersion"], 1);
     assert!(
       context["capabilities"].as_array().is_some_and(|items| items
         .iter()
         .any(|item| item.as_str() == Some("widget.chrome"))),
-      "播放器需要 chrome 能力"
+      "番茄钟需要 chrome 能力"
     );
-    assert_eq!(context["window"]["label"], "player");
+    assert_eq!(context["window"]["label"], "pomodoro");
     let min_width = context["window"]["minWidth"].as_f64().unwrap_or_default();
-    assert!((min_width - 500.0).abs() < f64::EPSILON);
+    assert!((min_width - 560.0).abs() < f64::EPSILON);
   }
 
   #[test]
   fn tools_do_not_get_window_creation_capability() {
-    for spec in [&PLAYER, &POMODORO] {
+    for spec in [&POMODORO, &LIBRARY] {
       let context = context_of(spec);
       let grants_window = context["capabilities"].as_array().is_some_and(|items| {
         items

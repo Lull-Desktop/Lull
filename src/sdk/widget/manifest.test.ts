@@ -1,9 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import playerManifest from "@/widgets/manifests/player.json" with {
-  type: "json",
-};
 import pomodoroManifest from "@/widgets/manifests/pomodoro.json" with {
   type: "json",
 };
@@ -13,7 +10,7 @@ import settingsManifest from "@/widgets/manifests/settings.json" with {
 import { parseWidgetContext, parseWidgetManifest } from "./manifest";
 import { WIDGET_CAPABILITIES } from "./types";
 
-const SHIPPED = [settingsManifest, playerManifest, pomodoroManifest];
+const SHIPPED = [settingsManifest, pomodoroManifest];
 
 describe("widget manifest", () => {
   test("随包清单全部可解析，角色与窗口字段完整", () => {
@@ -22,41 +19,39 @@ describe("widget manifest", () => {
     );
     expect(manifests.map((manifest) => manifest.id)).toEqual([
       "settings",
-      "player",
       "pomodoro",
     ]);
     expect(manifests.map((manifest) => manifest.role)).toEqual([
       "shell",
       "tool",
-      "tool",
     ]);
-    const player = manifests.find((manifest) => manifest.id === "player");
-    expect(player?.capabilities).toContain("widget.chrome");
-    expect(player?.capabilities).toContain("widget.state");
-    expect(player?.window.width).toBe(880);
+    const pomodoro = manifests.find((manifest) => manifest.id === "pomodoro");
+    expect(pomodoro?.capabilities).toContain("widget.chrome");
+    expect(pomodoro?.capabilities).toContain("widget.state");
+    expect(pomodoro?.window.width).toBe(600);
   });
 
   test("未知能力、越界尺寸与非内置清单会被拒绝", () => {
     expect(() =>
       parseWidgetManifest({
-        ...playerManifest,
+        ...pomodoroManifest,
         capabilities: ["widget.ui", "widget.shell"],
       }),
     ).toThrow(/capabilities/);
 
     expect(() =>
       parseWidgetManifest({
-        ...playerManifest,
-        window: { ...playerManifest.window, minWidth: 2000 },
+        ...pomodoroManifest,
+        window: { ...pomodoroManifest.window, minWidth: 2000 },
       }),
     ).toThrow(/最小尺寸/);
 
     expect(() =>
-      parseWidgetManifest({ ...playerManifest, builtin: false }),
+      parseWidgetManifest({ ...pomodoroManifest, builtin: false }),
     ).toThrow(/builtin/);
 
     expect(() =>
-      parseWidgetManifest({ ...playerManifest, role: "plugin" }),
+      parseWidgetManifest({ ...pomodoroManifest, role: "plugin" }),
     ).toThrow(/role/);
   });
 
@@ -66,10 +61,10 @@ describe("widget manifest", () => {
       hostApi: 1,
       id: "player",
       capabilities: ["widget.ui", "widget.chrome"],
-      window: playerManifest.window,
+      window: pomodoroManifest.window,
     });
     expect(context?.id).toBe("player");
-    expect(context?.window.minWidth).toBe(500);
+    expect(context?.window.minWidth).toBe(560);
 
     expect(parseWidgetContext({ id: "player" })).toBeNull();
     expect(
@@ -78,7 +73,7 @@ describe("widget manifest", () => {
         hostApi: 1,
         id: "player",
         capabilities: [],
-        window: playerManifest.window,
+        window: pomodoroManifest.window,
       }),
     ).toBeNull();
     expect(
@@ -87,7 +82,7 @@ describe("widget manifest", () => {
         hostApi: 1,
         id: "Bad Id",
         capabilities: ["widget.ui"],
-        window: playerManifest.window,
+        window: pomodoroManifest.window,
       }),
     ).toBeNull();
     expect(
@@ -96,7 +91,7 @@ describe("widget manifest", () => {
         hostApi: 99,
         id: "player",
         capabilities: ["widget.ui"],
-        window: playerManifest.window,
+        window: pomodoroManifest.window,
       }),
     ).toBeNull();
   });

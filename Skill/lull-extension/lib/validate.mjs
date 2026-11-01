@@ -45,7 +45,9 @@ export const WIDGET_CAPABILITIES = [
   "media.player.control",
   "media.player.volume.write",
   "media.queue.read",
+  "media.queue.write",
   "media.library.read",
+  "media.library.favorites.write",
   "media.library.sources.write",
 ];
 /** Cannot be requested by plugins (host-only). */

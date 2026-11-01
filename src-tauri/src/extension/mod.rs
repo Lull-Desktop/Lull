@@ -700,15 +700,16 @@ pub async fn extensions_dev_reload(app: AppHandle, id: String) -> Result<(), Ext
     ));
   }
   let label = format!("widget-{id}");
+  // `window.reload()` 会复用创建时注入的旧 entryUrl；销毁后重建才能从
+  // 最新 dev 配置读取 Vite 地址（也用于首次从静态包切到 dev server）。
   if let Some(window) = app.get_webview_window(&label) {
     window
-      .reload()
-      .map_err(|error| ExtensionError::new("extension.reload-failed", error.to_string()))
-  } else {
-    widget_package::open(app, id)
-      .await
-      .map_err(|error| ExtensionError::new("extension.open-failed", error))
+      .destroy()
+      .map_err(|error| ExtensionError::new("extension.reload-failed", error.to_string()))?;
   }
+  widget_package::open(app, id)
+    .await
+    .map_err(|error| ExtensionError::new("extension.open-failed", error))
 }
 
 fn pick_dev_dir() -> Option<PathBuf> {

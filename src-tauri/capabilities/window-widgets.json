@@ -19,6 +19,7 @@
     "allow-widget-package-notify",
     "allow-widget-set-transparent",
     "allow-widget-apply-resize",
+    "allow-widget-align-player",
     "allow-media-call",
     "allow-media-connect",
     "allow-media-disconnect"

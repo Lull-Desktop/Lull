@@ -8,14 +8,12 @@
 import { m } from "@/paraglide/messages";
 import { parseWidgetManifest, type WidgetManifest } from "@/sdk/widget";
 import libraryManifest from "./manifests/library.json" with { type: "json" };
-import playerManifest from "./manifests/player.json" with { type: "json" };
 import pomodoroManifest from "./manifests/pomodoro.json" with { type: "json" };
 import settingsManifest from "./manifests/settings.json" with { type: "json" };
 
 /** 所有由宿主管理的窗口（含设置外壳）。 */
 export const WINDOW_MANIFESTS: readonly WidgetManifest[] = [
   settingsManifest,
-  playerManifest,
   pomodoroManifest,
   libraryManifest,
 ].map((input, index) => parseWidgetManifest(input, `manifests[${index}]`));
@@ -33,13 +31,11 @@ export const BUILTIN_WIDGETS: readonly WidgetManifest[] =
  * 界面展示走消息表：清单保持中文原文作为兜底，第三方窗口继续用它自己的元数据。
  */
 const DISPLAY_NAME: Record<string, () => string> = {
-  player: m.widget_player_name,
   pomodoro: m.widget_pomodoro_name,
   library: m.widget_library_name,
 };
 
 const DISPLAY_DESCRIPTION: Record<string, () => string> = {
-  player: m.widget_player_description,
   pomodoro: m.widget_pomodoro_description,
   library: m.widget_library_description,
 };

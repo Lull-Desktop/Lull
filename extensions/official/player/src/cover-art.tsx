@@ -3,7 +3,7 @@
  * 同一张封面在 300px 的主球里作为内嵌透镜画面，也在列表里缩成 38px 缩略图；
  * 不依赖任何图片资源，本地文件也能根据文件名稳定映射到一组封面色。
  */
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { type CoverPalette, coverPalette } from "./player-model";
 
 const STARS = [
@@ -59,13 +59,16 @@ export function CoverArt({
 }): React.ReactElement {
   const rawId = useId();
   const uid = safeId(rawId);
-  if (imageUrl) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [imageUrl]);
+  if (imageUrl && !imageFailed) {
     return (
       <img
         src={imageUrl}
         alt=""
         className={className}
         style={{ objectFit: "cover" }}
+        onError={() => setImageFailed(true)}
       />
     );
   }

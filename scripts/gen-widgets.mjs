@@ -360,6 +360,7 @@ const pluginShellCapability = {
     "allow-widget-package-notify",
     "allow-widget-set-transparent",
     "allow-widget-apply-resize",
+    "allow-widget-align-player",
     // 媒体请求由 Rust 再校验 bridge token + 8 个 Noise capability；
     // Tauri ACL 只表示“壳页可以调用这三个命令”。
     ...MEDIA_TOOL_PERMISSIONS,

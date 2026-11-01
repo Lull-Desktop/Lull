@@ -35,7 +35,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 
 - 单进程、多窗口；所有窗口关闭都只隐藏，托盘「退出」才结束进程。
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
-- 内置工具窗口 label 为 `settings` / `player` / `pomodoro` / `library`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）；白噪音已迁为官方 Widget 包，窗口 label 为 `widget-noise`。
+- 内置工具窗口 label 为 `settings` / `pomodoro` / `library`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）；播放器与白噪音已迁为官方 Widget 包，窗口 label 分别为 `widget-player`、`widget-noise`。
 - 第三方/官方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
 - 壁纸窗口只有一条**只读** capability 基础（`window-wallpaper`：`content_packages` +
   事件订阅 + 视频会话命令）：
@@ -96,11 +96,13 @@ app/(wallpaper) ──► scenes/host ──► hooks/use-scene-catalog ──�
 app/(control) ──► components/settings ──► widgets/registry ──► widgets/manifests/*.json
        │                └──► components/settings/media-panel ──► core/media
        │
-app/(widgets) ──► components/{liquid-player,liquid-pomodoro,library}
+app/(widgets) ──► components/{liquid-pomodoro,library}
                          │
                          ├──► sdk/widget/react ──► sdk/widget ──► core/window + hooks
                          │        （theme / fit / state）   （能力 / 状态 / chrome / 音频闸门）
-                         └──► components 自身的纯模型（player-model / timer-model / sound-model）
+                         └──► 纯模型（timer-model）
+
+官方工具 ──► extensions/official/{player,noise} ──► @lull/widget-sdk + @lull/media-sdk
 
 app/(widgets)/embed ──► components/widget-plugin-shell ──► iframe（sandbox）
                                  └──► postMessage 桥 ──► widget_state_*（Rust）
@@ -255,9 +257,9 @@ lib.rs
 {
   "schemaVersion": 1,
   "hostApi": 1,
-  "id": "player",
+  "id": "pomodoro",
   "capabilities": ["widget.ui", "widget.theme", "widget.state", "widget.audio", "widget.media", "widget.chrome"],
-  "window": { "label": "player", "width": 880, "minWidth": 500, "minHeight": 520 }
+  "window": { "label": "pomodoro", "width": 600, "minWidth": 560, "minHeight": 640 }
 }
 ```
 
@@ -269,9 +271,9 @@ lib.rs
 - `build.rs` 用 `tauri_build::AppManifest::new().commands(APP_COMMANDS)` 为全部自定义命令生成 `allow-<command>` 权限；`lib.rs` 的 `generate_handler!` 与 `APP_COMMANDS` 必须完全一致（`pnpm widgets:check` 会比对）。
 - `scripts/gen-widgets.mjs` 为每个窗口生成一份 `src-tauri/capabilities/window-<label>.json`：
   - `settings`：`core` 窗口权限 + 全部自定义命令（宿主控制面）；
-  - `player` / `pomodoro`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
+  - `pomodoro`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
   - `library`：`core` 窗口权限 + `allow-window-set-frame` + `allow-media-call/connect/disconnect`，可管理歌单/收藏/历史/队列，但不读来源根路径、不能扫描；
-  - `player` 额外获得 `allow-media-call/connect/disconnect`，只能走 Media API，不拿引擎命令；官方 `widget-noise` 通过 `window-widgets` 与 Widget 能力清单获得同类媒体权限；
+  - 官方 `widget-player` / `widget-noise` 通过 `window-widgets` 与 Widget 能力清单获得媒体权限，不拿引擎命令；
   - `media-engine`：仅 `core:event:allow-listen/unlisten` + `allow-media-engine-ready/event`，不能打开窗口、读资料库或调用 `media_call`；
   - 壁纸窗口 `wallpaper-*`：`core:event` 的 listen/unlisten + `allow-content-packages`（解析场景 id 用）
     + `allow-media-capabilities/config-get/open/attach/detach/degrade`；媒体命令还必须带 Rust
@@ -378,8 +380,8 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 51 个测试文件（268 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、播放器、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、P4 元数据/标签/智能歌单/设置页曲库整理面板、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
-cargo test             Rust 210 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、内置曲 seed / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / P6 备份、歌词 sidecar / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照与引擎协议）
+pnpm test              前端 51 个测试文件（264 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、队列解析、seek 整数化、懒加载分页、P4 元数据/标签/智能歌单/设置页曲库整理面板、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心）
+cargo test             Rust 212 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、内置曲 seed / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / P6 备份、歌词 sidecar / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照与引擎协议）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名

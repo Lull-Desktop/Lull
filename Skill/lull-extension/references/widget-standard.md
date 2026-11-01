@@ -101,7 +101,9 @@ Relative paths only, single-entry HTML, hash routing, no site-root assumptions.
 | `media.player.control` | hard | play/pause/resume/stop/seek/next/previous/mode | only act on user input |
 | `media.player.volume.write` | hard | player volume and mute | respect user mute |
 | `media.queue.read` | hard | queue snapshot + `queue.changed` | read-only |
+| `media.queue.write` | hard | add/remove/clear/reorder queue and `playAt` | only act on user input |
 | `media.library.read` | hard | tracks/artists/albums + cover URL | read-only |
+| `media.library.favorites.write` | hard | favorite/unfavorite a track | only act on user input |
 | `media.library.sources.write` | hard | open the folder picker and start a scan | never hand-write paths |
 
 Not requestable: `widget.window` (create/control windows), `widget.native` (Win32 / native

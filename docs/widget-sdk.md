@@ -52,7 +52,9 @@ window label = widget-<id>
 | `media.player.control` | 硬约束 | 播放/暂停/恢复/停止/跳转/切歌/播放模式 |
 | `media.player.volume.write` | 硬约束 | 播放器音量与静音 |
 | `media.queue.read` | 硬约束 | 队列快照与 `queue.changed` |
+| `media.queue.write` | 硬约束 | 加入/移除/清空/排序队列与 `playAt` |
 | `media.library.read` | 硬约束 | 曲目/艺术家/专辑查询与封面 URL |
+| `media.library.favorites.write` | 硬约束 | 喜欢/取消喜欢曲目 |
 | `media.library.sources.write` | 硬约束 | 打开文件夹选择器并触发扫描 |
 
 `widget.window`（创建或控制其他窗口）与 `widget.native`（Win32 / 原生宿主）**不可申请**。
@@ -121,7 +123,7 @@ window label = widget-<id>
 | `entry` | 包内相对 `.html`；禁止 `..`、反斜杠、百分号编码与绝对路径 |
 | `icon` | 可选，包内 `.png` / `.jpg` / `.jpeg` / `.webp` |
 | `lifecycle` | `background`（默认，关闭只隐藏）或 `suspend`（关闭即销毁窗口） |
-| `capabilities` | 只能申请上表的 21 个 |
+| `capabilities` | 只能申请上表的 23 个 |
 | `window.width/height` | 320×240 – 1600×1200；`minWidth/minHeight` 不得大于初始值 |
 | `window.resizable` | 首期固定 `false`，窗口尺寸由宿主决定 |
 | `window.transparent` | 初始是否透明（默认 `true`），运行时可用 `setTransparent` 切换 |
@@ -188,11 +190,11 @@ await media.noise.tracks.setVolume("track-id", 0.4);
 ```
 
 - `media.call` / `media.connect` / `media.disconnect` 由宿主壳代发，并附带 bridge token；Rust 还会按窗口 label 查 `.grants.json`，未授权方法返回 `capability.denied`。
-- Tauri 侧 `window-widgets` capability 只放开上述三个命令；真正的权限仍由 Rust 的 bridge token 与 8 个 Noise capability 校验。更新宿主后需要重新构建/重启应用，让 capability 生效。
-- Widget snapshot 是 redacted：只有 `output`、`noise`、`noiseSession`，不含 player/queue。
-- 可订阅 topic 受 read capability 限制；player/queue/output 事件不向 Widget 开放。
+- Tauri 侧 `window-widgets` capability 只放开上述三个命令；真正的权限仍由 Rust 的 bridge token 与能力清单校验（Noise 8 项 + Player/Queue/Library 8 项）。
+- Widget snapshot 按读能力裁剪：`output`/`noise`/`noiseSession` 始终存在；`player` 需 `media.player.read`，`queue` 需 `media.queue.read`。
+- 可订阅 topic 受 read capability 限制；`player.*` / `queue.changed` / `library.changed` 在对应读能力授权后才下发。
 - `noise.presets.importPreset` / `exportPreset`、Asset 导入/编辑/删除/缺失检查不向 Widget 开放。
-- `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` 可配合 `@lull/media-sdk/react` 使用；它们按 client 共享一次连接，最后一个订阅卸载时断开。
+- `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` / `usePlayerSession` 可配合 `@lull/media-sdk/react` 使用；它们共享 MediaSessionHub，订阅归零也不主动断开。
 
 React：
 
@@ -226,8 +228,9 @@ const prefs = useLullState("prefs", defaults);
 
 常用成员：`getState` / `setState` / `removeState`、`theme` / `onTheme`、`locale` / `onLocale`、
 `viewport` / `onViewport`、`onVisibility`、`onMediaEvent`、`has(cap)`、`requestAudio()`、
-`requestResize({ width?, height?, anchor? })`、`startDrag()` / `minimize()` / `setTransparent()` /
-`close()`、`log()`、`destroy()`。React 另提供 `useWidgetFit` 与 `useLullLocale`。
+`requestResize({ width?, height?, anchor? })`、`alignPlayer({ currentSide, nextSide, width, playerAnchor })`、
+`startDrag()` / `minimize()` / `setTransparent()` / `close()`、`log()`、`destroy()`。React 另提供
+`useWidgetFit` 与 `useLullLocale`。
 错误统一抛 `LullWidgetError`，按 `code` 分支，不要匹配文案。
 
 ### 3. 构建与安装
@@ -287,7 +290,8 @@ iframe 不带 `allow-same-origin`，是一个**不透明源**：
 
 ### 窗口与透明
 
-- 窗口尺寸由清单与宿主决定，`resize.request` 只是探测，不会真的改尺寸；
+- 宽度请求夹在清单 `[minWidth, width]`；高度只在 `window.fit: "content"` 时生效，并受
+  最小高度、1200px 与屏幕工作区限制。`requestResize` 返回宿主实际应用的尺寸；
 - 关闭窗口 = 隐藏（Alt+F4 同样只隐藏），进程继续驻留托盘；
 - `window.transparent` 只决定**初始**背景，运行时用 `lull.setTransparent` 切换，不会重建窗口或刷新插件；
 - 透明是 WebView 背景色，不改变窗口尺寸或阴影，Windows 下透明窗口没有原生阴影；

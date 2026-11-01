@@ -30,7 +30,9 @@ export const WIDGET_CAPABILITIES = [
   "media.player.control",
   "media.player.volume.write",
   "media.queue.read",
+  "media.queue.write",
   "media.library.read",
+  "media.library.favorites.write",
   "media.library.sources.write",
 ] as const;
 
@@ -200,6 +202,15 @@ export interface WidgetBridgeMethods {
   "window.setTransparent": {
     params: { transparent: boolean; color: string | null };
     result: { transparent: boolean };
+  };
+  "window.alignPlayer": {
+    params: {
+      currentSide: "left" | "right";
+      nextSide: "left" | "right";
+      width: number;
+      playerAnchor: number;
+    };
+    result: WidgetViewport & { applied: boolean };
   };
   close: { params: Record<string, never>; result: { closed: boolean } };
   log: {

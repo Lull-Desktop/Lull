@@ -20,8 +20,10 @@ pub(crate) struct OfficialPackage {
   pub manifest: PackageManifest,
 }
 
-/// 资源根：`LULL_EXTENSIONS_DIR` → 安装目录 `resource_dir()/extensions` → 仓库
-/// `extensions/dist`（开发态）。都不存在时返回 `None`，不 panic。
+/// 资源根：`LULL_EXTENSIONS_DIR` → debug 构建优先仓库 `extensions/dist`，
+/// release 优先安装目录 `resource_dir()/extensions`。debug 优先仓库目录可以避免
+/// Tauri 只在 Rust 构建时复制资源，导致改了官方包后仍加载旧的
+/// `target/debug/extensions`。
 pub(crate) fn root(app: &AppHandle) -> Option<PathBuf> {
   let env_dir = std::env::var_os(ENV_DIR).map(PathBuf::from);
   let resource_dir = app
@@ -29,7 +31,13 @@ pub(crate) fn root(app: &AppHandle) -> Option<PathBuf> {
     .resource_dir()
     .ok()
     .map(|dir| dir.join(EXTENSIONS_DIR));
-  pick_root([env_dir, resource_dir, Some(dev_fallback())])
+  let dev_dir = Some(dev_fallback());
+  let candidates = if cfg!(debug_assertions) {
+    [env_dir, dev_dir, resource_dir]
+  } else {
+    [env_dir, resource_dir, dev_dir]
+  };
+  pick_root(candidates)
 }
 
 fn dev_fallback() -> PathBuf {

@@ -522,7 +522,9 @@ export function createMediaClient(
     resume: () => call<PlayerState>("player", "resume"),
     stop: () => call<PlayerState>("player", "stop"),
     seek: (positionMs: number) =>
-      call<PlayerState>("player", "seek", { positionMs }),
+      call<PlayerState>("player", "seek", {
+        positionMs: Math.max(0, Math.round(positionMs)),
+      }),
     next: () => call<PlayerState>("player", "next"),
     previous: () => call<PlayerState>("player", "previous"),
     setVolume: (volume: number) =>
