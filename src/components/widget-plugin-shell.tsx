@@ -192,6 +192,7 @@ export function WidgetPluginShell() {
     /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?(?:\/|$)/.test(
       devServer,
     );
+  const fitContent = context?.window.fit === "content";
 
   useEffect(() => {
     if (!context) return;
@@ -277,8 +278,15 @@ export function WidgetPluginShell() {
     setReady(true);
     setError(null);
     sendInit();
-    revealWindow();
-  }, [revealWindow, sendInit]);
+    if (!fitContent) revealWindow();
+  }, [fitContent, revealWindow, sendInit]);
+
+  // fit=content 的包等第一次成功贴高再显示；插件没发 resize 时兜底。
+  useEffect(() => {
+    if (!context || !fitContent || !ready) return;
+    const timer = window.setTimeout(() => revealWindow(), 1500);
+    return () => window.clearTimeout(timer);
+  }, [context, fitContent, ready, revealWindow]);
 
   const handleRequest = useCallback(
     async (message: BridgeMessage): Promise<Record<string, unknown>> => {
@@ -378,12 +386,22 @@ export function WidgetPluginShell() {
           await closePluginWindow();
           return { closed: true };
         case "resize.request": {
-          const viewport = measure(iframeRef.current) ?? {
-            width: 0,
-            height: 0,
-            dpr: 1,
-          };
-          return { ...viewport, applied: false };
+          if (!context?.granted.includes("widget.chrome")) {
+            throw new Error("未获得 widget.chrome 权限");
+          }
+          const width =
+            typeof params.width === "number" ? params.width : undefined;
+          const height =
+            typeof params.height === "number" ? params.height : undefined;
+          const anchor =
+            params.anchor === "left" || params.anchor === "right"
+              ? params.anchor
+              : undefined;
+          const result = await invoke<
+            Viewport & { applied: boolean }
+          >("widget_apply_resize", { width, height, anchor });
+          if (result.applied && fitContent) revealWindow();
+          return result;
         }
         case "log": {
           const level =
@@ -402,7 +420,7 @@ export function WidgetPluginShell() {
           throw new Error(`不支持的桥方法：${message.method ?? "unknown"}`);
       }
     },
-    [closePluginWindow, context],
+    [closePluginWindow, context, fitContent, revealWindow],
   );
 
   useEffect(() => {
@@ -419,7 +437,7 @@ export function WidgetPluginShell() {
         setReady(true);
         setError(null);
         sendInit();
-        revealWindow();
+        if (!fitContent) revealWindow();
         return;
       }
       if (message.type !== "request") return;
@@ -457,7 +475,7 @@ export function WidgetPluginShell() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [context, handleRequest, revealWindow, send, sendInit]);
+  }, [context, fitContent, handleRequest, revealWindow, send, sendInit]);
 
   useEffect(() => {
     if (!context || !readyRef.current) return;

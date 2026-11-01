@@ -35,6 +35,17 @@ void (async () => {
     root.append(counter);
     await render();
 
+    // P2 布局自检：fit=content 时按内容高度请求宿主贴高；越界会被宿主夹取。
+    const fit = (): void => {
+      void lull
+        .requestResize({
+          height: Math.ceil(root.getBoundingClientRect().height),
+        })
+        .catch(() => {});
+    };
+    new ResizeObserver(fit).observe(root);
+    fit();
+
     lull.onTheme((theme) => {
       root.dataset.theme = theme?.id ?? "default";
     });

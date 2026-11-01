@@ -53,7 +53,8 @@ widgets/<id>/
 - `id` 与目录名一致（`^[a-z][a-z0-9-]{1,31}$`）；
 - `entry` 是包内相对 `.html`；
 - 窗口 320×240 – 1600×1200，`resizable` 首期固定 `false`；
-- `chrome: "custom"` 表示插件自绘拖拽区与按钮，必须同时申请 `widget.chrome`。
+- `chrome: "custom"` 表示插件自绘拖拽区与按钮，必须同时申请 `widget.chrome`；
+- `window.fit: "content"` 允许宿主按内容高度贴高，同样需要 `widget.chrome`。
 
 ## 版本与兼容约定
 

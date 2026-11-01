@@ -59,6 +59,8 @@ export interface LullWidgetClient {
   readonly theme: WidgetTheme | null;
   readonly viewport: WidgetViewport;
   readonly visible: boolean;
+  /** 当前界面语言（`zh-CN` / `en-US`），随宿主设置变化。 */
+  readonly locale: string;
 
   /** 能力查询；未声明的能力恒为 false。 */
   has(capability: WidgetCapability | string): boolean;
@@ -76,13 +78,15 @@ export interface LullWidgetClient {
   /** 音频是否被授权（未声明 `widget.audio` 时返回 false）。 */
   requestAudio(): Promise<boolean>;
   /**
-   * 请求宿主调整内容区尺寸。v1 宿主只回报当前测量值（`applied: false`），
-   * 不会真的改窗口大小——窗口尺寸由清单与宿主偏好决定。
+   * 请求宿主调整窗口尺寸。宽度受清单 `[minWidth, width]` 限制；
+   * 高度仅当清单声明 `window.fit: "content"` 时生效。宿主可能返回
+   * `applied: false`（未授权 / 越界 / 未声明），不会抛错。
    */
-  requestResize(
-    width: number,
-    height: number,
-  ): Promise<WidgetViewport & { applied: boolean }>;
+  requestResize(options: {
+    width?: number;
+    height?: number;
+    anchor?: "left" | "right";
+  }): Promise<WidgetViewport & { applied: boolean }>;
 
   startDrag(): Promise<void>;
   minimize(): Promise<void>;
@@ -93,6 +97,8 @@ export interface LullWidgetClient {
   onTheme(listener: (theme: WidgetTheme) => void): () => void;
   onViewport(listener: (viewport: WidgetViewport) => void): () => void;
   onVisibility(listener: (visible: boolean) => void): () => void;
+  /** 语言变化；订阅会立刻回放当前值。 */
+  onLocale(listener: (locale: string) => void): () => void;
   /** `media.connect` 后由宿主转发 `media:event`。 */
   onMediaEvent(listener: (event: unknown) => void): () => void;
 
@@ -210,6 +216,7 @@ export function createLullWidgetClient(
     viewport: normalizeViewport(init.viewport),
     visible: true,
     transparent: Boolean(init.window?.transparent),
+    locale: init.locale ?? "zh-CN",
   };
 
   if (init.window?.transparent === false) {
@@ -222,6 +229,7 @@ export function createLullWidgetClient(
   const themeListeners = new Set<(theme: WidgetTheme) => void>();
   const viewportListeners = new Set<(viewport: WidgetViewport) => void>();
   const visibilityListeners = new Set<(visible: boolean) => void>();
+  const localeListeners = new Set<(locale: string) => void>();
   const mediaListeners = new Set<(event: unknown) => void>();
 
   const stopListening = transport.listen((message) => {
@@ -240,6 +248,11 @@ export function createLullWidgetClient(
       case "visibility": {
         state.visible = message.visible !== false;
         for (const listener of visibilityListeners) listener(state.visible);
+        return;
+      }
+      case "locale": {
+        state.locale = message.locale;
+        for (const listener of localeListeners) listener(state.locale);
         return;
       }
       case "media.event": {
@@ -327,6 +340,9 @@ export function createLullWidgetClient(
     get visible() {
       return state.visible;
     },
+    get locale() {
+      return state.locale;
+    },
 
     has(capability) {
       return capabilities.has(capability as WidgetCapability);
@@ -346,8 +362,12 @@ export function createLullWidgetClient(
       const result = await request("audio.request", {});
       return Boolean(result?.granted);
     },
-    async requestResize(width, height) {
-      return request("resize.request", { width, height });
+    async requestResize(options) {
+      return request("resize.request", {
+        width: options.width,
+        height: options.height,
+        anchor: options.anchor,
+      });
     },
 
     async startDrag() {
@@ -396,6 +416,13 @@ export function createLullWidgetClient(
         visibilityListeners.delete(listener);
       };
     },
+    onLocale(listener) {
+      localeListeners.add(listener);
+      listener(state.locale);
+      return () => {
+        localeListeners.delete(listener);
+      };
+    },
     onMediaEvent(listener) {
       mediaListeners.add(listener);
       return () => {
@@ -415,6 +442,7 @@ export function createLullWidgetClient(
       themeListeners.clear();
       viewportListeners.clear();
       visibilityListeners.clear();
+      localeListeners.clear();
       mediaListeners.clear();
       shared = null;
     },

@@ -170,6 +170,187 @@ fn parse_hex_color(value: Option<&str>) -> Result<tauri::window::Color, String> 
   ))
 }
 
+/// 逻辑尺寸请求对应的物理窗口帧。
+#[derive(Debug, Clone, Copy)]
+struct FrameRect {
+  x: i32,
+  y: i32,
+  width: u32,
+  height: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LayoutSpec {
+  min_width: f64,
+  max_width: f64,
+  min_height: f64,
+  max_height: f64,
+  fit: bool,
+}
+
+#[derive(Debug, Default)]
+struct LayoutRequest {
+  width: Option<f64>,
+  height: Option<f64>,
+  anchor: Option<String>,
+}
+
+impl From<&WindowSpec> for LayoutSpec {
+  fn from(window: &WindowSpec) -> Self {
+    Self {
+      min_width: window.min_width(),
+      max_width: window.width,
+      min_height: window.min_height(),
+      max_height: manifest::MAX_HEIGHT,
+      fit: window.fit == "content",
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetViewportInfo {
+  pub width: f64,
+  pub height: f64,
+  pub dpr: f64,
+  pub applied: bool,
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn logical_to_physical(value: f64) -> u32 {
+  value.round().max(1.0) as u32
+}
+
+/// 计算贴高 / 换宽后的窗口帧；宽度夹在 `[minWidth, width]`，高度仅在
+/// `window.fit=content` 时允许，并夹在工作区与 1200 逻辑像素以内。
+fn compute_frame(
+  current: FrameRect,
+  monitor: Option<(i32, i32, u32, u32)>,
+  spec: LayoutSpec,
+  request: &LayoutRequest,
+  scale: f64,
+) -> Result<FrameRect, String> {
+  if !(scale.is_finite() && scale > 0.0) {
+    return Err("窗口缩放因子非法".to_string());
+  }
+  if request.width.is_none() && request.height.is_none() {
+    return Err("resize.request 至少需要 width 或 height".to_string());
+  }
+  if request.height.is_some() && !spec.fit {
+    return Err("清单未声明 window.fit=content，不能按内容调整高度".to_string());
+  }
+  if let Some(width) = request.width {
+    if !(width.is_finite() && width > 0.0) {
+      return Err("窗口宽度必须是正数".to_string());
+    }
+  }
+  if let Some(height) = request.height {
+    if !(height.is_finite() && height > 0.0) {
+      return Err("窗口高度必须是正数".to_string());
+    }
+  }
+
+  let current_width = f64::from(current.width) / scale;
+  let current_height = f64::from(current.height) / scale;
+  let monitor_width = monitor.map(|(_, _, width, _)| f64::from(width) / scale);
+  let monitor_height = monitor.map(|(_, _, _, height)| f64::from(height) / scale);
+  let max_width = monitor_width.map_or(spec.max_width, |width| (width - 48.0).max(spec.min_width));
+  let max_width = max_width.min(spec.max_width).max(spec.min_width);
+  let max_height = monitor_height.map_or(spec.max_height, |height| {
+    (height - 48.0).max(spec.min_height)
+  });
+  let max_height = max_height.min(spec.max_height).max(spec.min_height);
+
+  let target_width = request.width.map_or(current_width, |width| {
+    width.clamp(spec.min_width, max_width)
+  });
+  let target_height = request.height.map_or(current_height, |height| {
+    height.clamp(spec.min_height, max_height)
+  });
+  let width = logical_to_physical(target_width * scale);
+  let height = logical_to_physical(target_height * scale);
+
+  let anchor = request.anchor.as_deref().unwrap_or("left");
+  let mut x = match anchor {
+    "left" => current.x,
+    "right" => current.x.saturating_add(
+      i32::try_from(current.width).unwrap_or(i32::MAX) - i32::try_from(width).unwrap_or(i32::MAX),
+    ),
+    other => return Err(format!("anchor 只能是 left 或 right，当前为 {other}")),
+  };
+  let mut y = current.y;
+  if let Some((monitor_x, monitor_y, monitor_width, monitor_height)) = monitor {
+    let monitor_width = i32::try_from(monitor_width).unwrap_or(i32::MAX);
+    let monitor_height = i32::try_from(monitor_height).unwrap_or(i32::MAX);
+    let max_x = monitor_x
+      .saturating_add(monitor_width)
+      .saturating_sub(i32::try_from(width).unwrap_or(i32::MAX));
+    let max_y = monitor_y
+      .saturating_add(monitor_height)
+      .saturating_sub(i32::try_from(height).unwrap_or(i32::MAX));
+    x = x.clamp(monitor_x, max_x.max(monitor_x));
+    y = y.clamp(monitor_y, max_y.max(monitor_y));
+  }
+  Ok(FrameRect {
+    x,
+    y,
+    width,
+    height,
+  })
+}
+
+/// 插件窗口的尺寸请求：宽度按 anchor 固定对侧边，高度固定顶边。
+#[tauri::command]
+pub fn widget_apply_resize(
+  window: Window,
+  width: Option<f64>,
+  height: Option<f64>,
+  anchor: Option<String>,
+) -> Result<WidgetViewportInfo, String> {
+  let id = package_id_from_window(&window)?;
+  let app = window.app_handle();
+  store::require_grant(app, &id, "widget.chrome")?;
+  let manifest = store::find(app, &id)?;
+  let scale = window.scale_factor().map_err(|error| error.to_string())?;
+  let position = window
+    .inner_position()
+    .map_err(|error| format!("读取窗口位置失败：{error}"))?;
+  let size = window
+    .inner_size()
+    .map_err(|error| format!("读取窗口尺寸失败：{error}"))?;
+  let monitor = window.current_monitor().ok().flatten().map(|monitor| {
+    (
+      monitor.position().x,
+      monitor.position().y,
+      monitor.size().width,
+      monitor.size().height,
+    )
+  });
+  let frame = compute_frame(
+    FrameRect {
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height,
+    },
+    monitor,
+    LayoutSpec::from(&manifest.window),
+    &LayoutRequest {
+      width,
+      height,
+      anchor,
+    },
+    scale,
+  )?;
+  crate::window_frame::apply_frame(&window, frame.x, frame.y, frame.width, frame.height)?;
+  Ok(WidgetViewportInfo {
+    width: f64::from(frame.width) / scale,
+    height: f64::from(frame.height) / scale,
+    dpr: scale,
+    applied: true,
+  })
+}
+
 /// 运行时切换插件窗口背景：`transparent=true` 用全透明，否则用给定/默认颜色。
 #[tauri::command]
 pub fn widget_set_transparent(
@@ -347,6 +528,102 @@ mod tests {
     assert!(!verify_bridge_token("widget-test-token", None));
     on_window_destroyed("widget-test-token");
     assert!(!verify_bridge_token("widget-test-token", Some(&token)));
+  }
+
+  #[test]
+  fn resize_clamps_width_and_anchors_right() {
+    let spec = LayoutSpec {
+      min_width: 530.0,
+      max_width: 880.0,
+      min_height: 240.0,
+      max_height: manifest::MAX_HEIGHT,
+      fit: true,
+    };
+    let current = FrameRect {
+      x: 100,
+      y: 200,
+      width: 880,
+      height: 552,
+    };
+    let result = compute_frame(
+      current,
+      None,
+      spec,
+      &LayoutRequest {
+        width: Some(530.0),
+        height: None,
+        anchor: Some("right".to_string()),
+      },
+      1.0,
+    );
+    let Ok(frame) = result else {
+      return;
+    };
+    assert_eq!(frame.width, 530);
+    assert_eq!(frame.height, 552);
+    assert_eq!(frame.x, 450);
+    assert_eq!(frame.y, 200);
+  }
+
+  #[test]
+  fn resize_height_requires_fit_content() {
+    let spec = LayoutSpec {
+      min_width: 320.0,
+      max_width: 600.0,
+      min_height: 240.0,
+      max_height: manifest::MAX_HEIGHT,
+      fit: false,
+    };
+    let current = FrameRect {
+      x: 0,
+      y: 0,
+      width: 600,
+      height: 400,
+    };
+    assert!(compute_frame(
+      current,
+      None,
+      spec,
+      &LayoutRequest {
+        width: None,
+        height: Some(500.0),
+        anchor: None,
+      },
+      1.0,
+    )
+    .is_err());
+  }
+
+  #[test]
+  fn resize_height_is_clamped_to_monitor() {
+    let spec = LayoutSpec {
+      min_width: 320.0,
+      max_width: 600.0,
+      min_height: 240.0,
+      max_height: manifest::MAX_HEIGHT,
+      fit: true,
+    };
+    let current = FrameRect {
+      x: 0,
+      y: 0,
+      width: 600,
+      height: 400,
+    };
+    let result = compute_frame(
+      current,
+      Some((0, 0, 1920, 700)),
+      spec,
+      &LayoutRequest {
+        width: None,
+        height: Some(2000.0),
+        anchor: None,
+      },
+      1.0,
+    );
+    let Ok(frame) = result else {
+      return;
+    };
+    assert_eq!(frame.height, 652);
   }
 
   #[test]

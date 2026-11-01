@@ -5,13 +5,28 @@
  * 生命周期钩子，也避免 CI 里必须先记得跑 `pnpm widgets:sdk`。
  */
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+
+function newestMtime(dir) {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) newest = Math.max(newest, newestMtime(path));
+    else if (entry.isFile()) newest = Math.max(newest, statSync(path).mtimeMs);
+  }
+  return newest;
+}
 
 export function ensureSdkDist(repoRoot) {
   const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
   for (const pkg of ["widget-sdk", "media-sdk"]) {
-    if (existsSync(join(repoRoot, "packages", pkg, "dist", "index.js"))) {
+    const sourceDir = join(repoRoot, "packages", pkg, "src");
+    const distEntry = join(repoRoot, "packages", pkg, "dist", "index.js");
+    const stale =
+      !existsSync(distEntry) ||
+      newestMtime(sourceDir) > statSync(distEntry).mtimeMs;
+    if (!stale) {
       continue;
     }
     const result = spawnSync(

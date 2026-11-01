@@ -9,9 +9,8 @@
 > 本文是计划：标 P1–P5 的部分尚未实现，实施后以代码与文档为准。
 >
 > **实施进度（2026-11）**：P1 的 Vite 构建、Tier 0、`extensions:watch` 与边界检查已落地；
-> P2 的媒体桥（player/queue/library 能力与快照裁剪）和 Tier 2 dev server
-> （`.lull-dev.json`、debug/loopback 守卫、`extensions:dev`、DEV 角标）已落地；
-> 媒体连接 Hub、locale/theme tokens、`widget_apply_resize` 仍属 P2。
+> P2 的媒体桥、Tier 2 dev server、`widget_apply_resize` + `window.fit`、locale 与主题
+> token 下发已落地；媒体连接 Hub 仍属 P2。
 
 ## 0. 一句话
 

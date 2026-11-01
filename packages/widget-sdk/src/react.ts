@@ -9,6 +9,7 @@ import {
   createElement,
   type ReactElement,
   type ReactNode,
+  type RefObject,
   useContext,
   useEffect,
   useRef,
@@ -60,6 +61,44 @@ export function useLullVisibility(): boolean {
   const [visible, setVisible] = useState<boolean>(() => client.visible);
   useEffect(() => client.onVisibility(setVisible), [client]);
   return visible;
+}
+
+/** 当前界面语言；宿主切换语言后就地更新，不重建窗口。 */
+export function useLullLocale(): string {
+  const client = useLull();
+  const [locale, setLocale] = useState<string>(() => client.locale);
+  useEffect(() => client.onLocale(setLocale), [client]);
+  return locale;
+}
+
+/**
+ * 按内容高度请求宿主贴高；只在清单声明 `window.fit: "content"` 时生效。
+ * 宿主未授权 / 未声明时返回 `applied: false`，hook 忽略即可。
+ */
+export function useWidgetFit(contentRef: RefObject<HTMLElement | null>): void {
+  const client = useLull();
+  useEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+    let frame = 0;
+    const measure = (): void => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const height = Math.ceil(element.getBoundingClientRect().height);
+        if (height <= 0) return;
+        void client.requestResize({ height }).catch(() => {
+          // 未声明 fit/content 时宿主会拒绝，保留固定高度即可。
+        });
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [client, contentRef]);
 }
 
 /**

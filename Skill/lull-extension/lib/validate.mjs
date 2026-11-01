@@ -359,7 +359,7 @@ function validateWidget(root, report, add, files) {
   if (!isRecord(win)) {
     add("error", "W-WINDOW", "window must be an object");
   } else {
-    const { width, height, minWidth, minHeight, resizable, chrome } = win;
+    const { width, height, minWidth, minHeight, resizable, chrome, fit } = win;
     const sizeOk =
       Number.isFinite(width) &&
       Number.isFinite(height) &&
@@ -388,6 +388,12 @@ function validateWidget(root, report, add, files) {
     }
     if (chrome === "custom" && !(Array.isArray(caps) && caps.includes("widget.chrome"))) {
       add("error", "W-CHROME-CAP", 'window.chrome="custom" requires the widget.chrome capability');
+    }
+    if (fit !== undefined && fit !== "none" && fit !== "content") {
+      add("error", "W-WINDOW-FIT", 'window.fit must be "none" or "content"');
+    }
+    if (fit === "content" && !(Array.isArray(caps) && caps.includes("widget.chrome"))) {
+      add("error", "W-FIT-CAP", 'window.fit="content" requires the widget.chrome capability');
     }
     if (chrome === "custom") {
       add(

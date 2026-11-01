@@ -39,6 +39,7 @@ const APP_COMMANDS: &[&str] = &[
   "widget_state_set",
   "widget_state_remove",
   "widget_set_transparent",
+  "widget_apply_resize",
   "extensions_list",
   "extensions_inspect",
   "extensions_pick",

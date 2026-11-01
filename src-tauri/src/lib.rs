@@ -70,6 +70,7 @@ pub fn run() {
       widget_package::widget_state_set,
       widget_package::widget_state_remove,
       widget_package::widget_set_transparent,
+      widget_package::widget_apply_resize,
       wallpaper::runtime::wallpaper_status,
       wallpaper::runtime::wallpaper_detach,
       wallpaper::runtime::wallpaper_set_visible,

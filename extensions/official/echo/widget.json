@@ -11,7 +11,7 @@
   "hostApi": 1,
   "entry": "index.html",
   "order": 99,
-  "capabilities": ["widget.ui", "widget.theme", "widget.state"],
+  "capabilities": ["widget.ui", "widget.theme", "widget.state", "widget.chrome"],
   "window": {
     "width": 420,
     "height": 320,
@@ -19,6 +19,7 @@
     "minHeight": 260,
     "resizable": false,
     "transparent": false,
-    "chrome": "host"
+    "chrome": "host",
+    "fit": "content"
   }
 }

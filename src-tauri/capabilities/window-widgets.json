@@ -18,6 +18,7 @@
     "allow-widget-state-remove",
     "allow-widget-package-notify",
     "allow-widget-set-transparent",
+    "allow-widget-apply-resize",
     "allow-media-call",
     "allow-media-connect",
     "allow-media-disconnect"

@@ -20,7 +20,13 @@ pub fn window_set_frame(
 
 #[cfg(windows)]
 #[allow(unsafe_code)]
-fn apply_frame(window: &Window, x: i32, y: i32, width: u32, height: u32) -> Result<(), String> {
+pub(crate) fn apply_frame(
+  window: &Window,
+  x: i32,
+  y: i32,
+  width: u32,
+  height: u32,
+) -> Result<(), String> {
   use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOZORDER};
 
   let hwnd = window.hwnd().map_err(|error| error.to_string())?;
@@ -43,7 +49,13 @@ fn apply_frame(window: &Window, x: i32, y: i32, width: u32, height: u32) -> Resu
 }
 
 #[cfg(not(windows))]
-fn apply_frame(window: &Window, x: i32, y: i32, width: u32, height: u32) -> Result<(), String> {
+pub(crate) fn apply_frame(
+  window: &Window,
+  x: i32,
+  y: i32,
+  width: u32,
+  height: u32,
+) -> Result<(), String> {
   window
     .set_size(tauri::PhysicalSize::new(width, height))
     .map_err(|error| error.to_string())?;

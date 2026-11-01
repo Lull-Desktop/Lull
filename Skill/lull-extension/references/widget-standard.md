@@ -72,6 +72,7 @@ Relative paths only, single-entry HTML, hash routing, no site-root assumptions.
 | `window.resizable` | no | **must be `false`** (fixed size in v1) | `W-WINDOW-RESIZABLE` |
 | `window.transparent` | no | initial transparency, default `true` | - |
 | `window.chrome` | no | `host` (default, host draws the bar) / `custom` (self-drawn) | `W-WINDOW-CHROME` |
+| `window.fit` | no | `none` (default) / `content` (host fits height; requires `widget.chrome`) | `W-WINDOW-FIT` / `W-FIT-CAP` |
 | `network` | no | `https://` or `http://localhost:<port>`, <= 256 chars, no whitespace/quotes/semicolons | `W-NET-SOURCE` |
 
 `window.chrome: "custom"` <=> `widget.chrome` must be requested; a non-empty `network`

@@ -126,6 +126,7 @@ window label = widget-<id>
 | `window.resizable` | 首期固定 `false`，窗口尺寸由宿主决定 |
 | `window.transparent` | 初始是否透明（默认 `true`），运行时可用 `setTransparent` 切换 |
 | `window.chrome` | `host`（默认，宿主绘制顶栏）或 `custom`（插件自绘）；`custom` 必须同时申请 `widget.chrome` |
+| `window.fit` | `none`（默认）或 `content`（允许按内容高度调整窗口）；`content` 必须同时申请 `widget.chrome` |
 | `network` | 允许的 `https://` 源；非空时必须同时申请 `widget.network` |
 
 ### 2. 接入 SDK
@@ -145,9 +146,13 @@ const lull = await connectLullWidget();
 const prefs = await lull.getState("prefs", { focusMinutes: 25 });
 await lull.setState("prefs", { ...prefs, focusMinutes: 50 });
 
-// 主题与视口：订阅会立刻回放当前值
-lull.onTheme((theme) => applyTheme(theme));
+// 主题、语言与视口：订阅会立刻回放当前值
+lull.onTheme((theme) => applyTheme(theme)); // theme.tokens 是宿主 CSS 变量白名单
+lull.onLocale((locale) => setLocale(locale));
 lull.onViewport(({ width, height }) => layout(width, height));
+
+// window.fit = "content" 时按内容高度请求贴高；宽度受清单 [minWidth, width] 限制
+await lull.requestResize({ height: document.body.scrollHeight });
 
 if (lull.has("widget.audio") && (await lull.requestAudio())) {
   // 可以创建音频上下文
@@ -219,9 +224,11 @@ app.use(createLullPlugin(client));
 const prefs = useLullState("prefs", defaults);
 ```
 
-常用成员：`getState` / `setState` / `removeState`、`theme` / `onTheme`、`viewport` / `onViewport`、
-`onVisibility`、`onMediaEvent`、`has(cap)`、`requestAudio()`、`startDrag()` / `minimize()` / `setTransparent()` / `close()`、
-`log()`、`destroy()`。错误统一抛 `LullWidgetError`，按 `code` 分支，不要匹配文案。
+常用成员：`getState` / `setState` / `removeState`、`theme` / `onTheme`、`locale` / `onLocale`、
+`viewport` / `onViewport`、`onVisibility`、`onMediaEvent`、`has(cap)`、`requestAudio()`、
+`requestResize({ width?, height?, anchor? })`、`startDrag()` / `minimize()` / `setTransparent()` /
+`close()`、`log()`、`destroy()`。React 另提供 `useWidgetFit` 与 `useLullLocale`。
+错误统一抛 `LullWidgetError`，按 `code` 分支，不要匹配文案。
 
 ### 3. 构建与安装
 

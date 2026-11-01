@@ -71,6 +71,7 @@
     "allow-wallpaper-set-scene-params",
     "allow-wallpaper-set-visible",
     "allow-wallpaper-status",
+    "allow-widget-apply-resize",
     "allow-widget-close",
     "allow-widget-open",
     "allow-widget-package-notify",

@@ -37,7 +37,7 @@ pub const PLUGIN_CAPABILITIES: &[&str] = &[
 const MIN_WIDTH: f64 = 320.0;
 const MAX_WIDTH: f64 = 1600.0;
 const MIN_HEIGHT: f64 = 240.0;
-const MAX_HEIGHT: f64 = 1200.0;
+pub(crate) const MAX_HEIGHT: f64 = 1200.0;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -246,9 +246,7 @@ impl PackageManifest {
         }
       }
       other => {
-        return Err(format!(
-          "window.fit 只能是 none 或 content，当前为 {other}"
-        ));
+        return Err(format!("window.fit 只能是 none 或 content，当前为 {other}"));
       }
     }
     let mut seen = std::collections::HashSet::new();
@@ -378,6 +376,7 @@ mod tests {
         resizable: false,
         transparent: true,
         chrome: "host".to_string(),
+        fit: default_fit(),
       },
       network: Vec::new(),
       icon: None,
