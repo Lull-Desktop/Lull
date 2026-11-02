@@ -348,6 +348,10 @@ function permissionsFor(manifest) {
     ) {
       for (const permission of MEDIA_TOOL_PERMISSIONS) permissions.add(permission);
     }
+    if (manifest.id === "library") {
+      // 库窗口挂载时取走 widget_open 暂存的「打开后停留页签」。
+      permissions.add("allow-widget-take-open-tab");
+    }
     if (manifest.id === "backdrop") {
       for (const permission of BACKDROP_PERMISSIONS) permissions.add(permission);
     }
@@ -395,6 +399,11 @@ const pluginShellCapability = {
     "allow-widget-set-transparent",
     "allow-widget-apply-resize",
     "allow-widget-align-player",
+    // 插件壳经桥转发「打开/关闭/查询工具窗口」；iframe 侧还要过 widget.chrome +
+    // kind 白名单双重校验，Tauri ACL 只表示壳页可以调用该命令。
+    "allow-widget-open",
+    "allow-widget-close",
+    "allow-widget-visibility",
     // 媒体请求由 Rust 再校验 bridge token + 8 个 Noise capability；
     // Tauri ACL 只表示“壳页可以调用这三个命令”。
     ...MEDIA_TOOL_PERMISSIONS,

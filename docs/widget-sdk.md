@@ -222,7 +222,7 @@ await media.noise.tracks.setVolume("track-id", 0.4);
 ```
 
 - `media.call` / `media.connect` / `media.disconnect` 由宿主壳代发，并附带 bridge token；Rust 还会按窗口 label 查 `.grants.json`，未授权方法返回 `capability.denied`。
-- Tauri 侧 `window-widgets` capability 只放开上述三个命令；真正的权限仍由 Rust 的 bridge token 与能力清单校验（Noise 8 项 + Player/Queue/Library 9 项）。
+- Tauri 侧 `window-widgets` capability 放开上述三个命令，以及 `widget_open` / `widget_close` / `widget_visibility`（插件壳经 `window.open` / `window.close` / `window.isOpen` 桥方法转发）；真正的权限仍由 Rust 的 bridge token 与能力清单校验（Noise 8 项 + Player/Queue/Library 9 项）。
 - Widget snapshot 按读能力裁剪：`output`/`noise`/`noiseSession` 始终存在；`player` 需 `media.player.read`，`queue` 需 `media.queue.read`。
 - 可订阅 topic 受 read capability 限制；`player.*` / `queue.changed` / `library.changed` 在对应读能力授权后才下发。
 - `noise.presets.importPreset` / `exportPreset`、Asset 导入/编辑/删除/缺失检查不向 Widget 开放。
@@ -261,9 +261,21 @@ const prefs = useLullState("prefs", defaults);
 常用成员：`getState` / `setState` / `removeState`、`theme` / `onTheme`、`locale` / `onLocale`、
 `viewport` / `onViewport`、`onVisibility`、`onMediaEvent`、`has(cap)`、`requestAudio()`、
 `requestResize({ width?, height?, anchor? })`、`alignPlayer({ currentSide, nextSide, width, playerAnchor })`、
-`startDrag()` / `minimize()` / `setTransparent()` / `close()`、`log()`、`destroy()`。React 另提供
+`startDrag()` / `minimize()` / `setTransparent()` / `close()`、`openWindow({ kind, tab? })` /
+`closeWindow({ kind })` / `isWindowOpen(kind)` / `onWindowState(fn)`、`log()`、`destroy()`。React 另提供
 `useWidgetFit` 与 `useLullLocale`。
 错误统一抛 `LullWidgetError`，按 `code` 分支，不要匹配文案。
+
+`openWindow` 需要 `widget.chrome` 能力：打开（或唤醒）宿主工具窗口，`kind` 由宿主壳白名单
+校验（当前仅 `"library"`），`tab` 可指定工具窗口打开后停留的页签（由工具窗口自行校验合法性）。
+官方播放器用它从「队列 / 收藏」页签跳到音乐库窗口的对应页签。
+
+`closeWindow` 隐藏同一个工具窗口（保留挂载，不销毁 WebView），权限与白名单同上；`isWindowOpen`
+拉一次真实可见性，`onWindowState` 订阅变化。用户在工具窗口里点关闭、或从托盘 / 设置页隐藏时，
+宿主会主动推送 `{ kind, visible }`；工具窗口自己切换页签时还会带上 `tab`。所以「打开 / 关闭」
+一个按钮的插件不必自己猜状态，也能据此区分「再点一次是关闭，还是切到另一个页签」。
+官方播放器的「状态监控」泡与抽屉页签右侧的齿轮按钮都用这套组合：点一次打开音乐库窗口对应页签，
+再点一次收起，按钮高亮（以及关闭判定所依据的页签）始终跟随真实窗口。
 
 ### 3. 构建与安装
 

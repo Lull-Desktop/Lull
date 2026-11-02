@@ -90,6 +90,16 @@ declare global {
 
 const PROTOCOL_VERSION = 1;
 const READY_TIMEOUT_MS = 8000;
+/** 桥允许插件打开 / 关闭 / 查询的工具窗口白名单。 */
+const BRIDGE_WINDOW_KINDS = ["library"] as const;
+
+/** 白名单校验：不在名单里的 kind 一律当非法，避免插件探测任意窗口。 */
+function bridgeWindowKind(value: unknown): string | null {
+  return typeof value === "string" &&
+    (BRIDGE_WINDOW_KINDS as readonly string[]).includes(value)
+    ? value
+    : null;
+}
 
 function isPluginContext(value: unknown): value is PluginContext {
   if (typeof value !== "object" || value === null) return false;
@@ -234,6 +244,74 @@ export function WidgetPluginShell() {
       })
       .catch(() => {
         // 浏览器预览/单测没有 Tauri 事件系统；媒体事件不可用。
+      });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [context, send]);
+
+  // 工具窗可见性同步：用户直接点库窗口的关闭按钮、或从托盘/设置页隐藏时，
+  // 插件里的开关也要跟着熄灭。事件本身只表示「可能变了」，状态再拉一次。
+  useEffect(() => {
+    if (!context || !context.granted.includes("widget.chrome")) return;
+    let stop: (() => void) | null = null;
+    let disposed = false;
+    const pushWindowState = (kind: string): void => {
+      void invoke<boolean>("widget_visibility", { kind })
+        .then((visible) => {
+          if (disposed) return;
+          send({
+            v: PROTOCOL_VERSION,
+            type: "window.state",
+            kind,
+            visible: visible === true,
+          });
+        })
+        .catch(() => {
+          // 窗口未创建或命令不可用时忽略：插件仍可自己查询。
+        });
+    };
+    void listen("widgets-changed", () => {
+      for (const kind of BRIDGE_WINDOW_KINDS) pushWindowState(kind);
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      })
+      .catch(() => {
+        // 浏览器预览 / 单测没有 Tauri 事件系统。
+      });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [context, send]);
+
+  // 工具窗内部页签同步：库窗口切换页签时广播，插件据此区分「再点一次」
+  // 是关闭窗口还是切页签，开关按钮的高亮也跟住真实页签。
+  useEffect(() => {
+    if (!context || !context.granted.includes("widget.chrome")) return;
+    let stop: (() => void) | null = null;
+    let disposed = false;
+    void listen<{ tab?: string }>("library-tab-changed", (event) => {
+      const tab =
+        typeof event.payload?.tab === "string" ? event.payload.tab : "";
+      if (!tab) return;
+      send({
+        v: PROTOCOL_VERSION,
+        type: "window.state",
+        kind: "library",
+        visible: true,
+        tab,
+      });
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      })
+      .catch(() => {
+        // 浏览器预览 / 单测没有 Tauri 事件系统。
       });
     return () => {
       disposed = true;
@@ -408,6 +486,42 @@ export function WidgetPluginShell() {
             "widget_align_player",
             { currentSide, nextSide, width, playerAnchor },
           );
+        }
+        case "window.open": {
+          if (!context?.granted.includes("widget.chrome")) {
+            throw new Error("未获得 widget.chrome 权限");
+          }
+          // 只允许打开白名单内的工具窗口；页签由工具窗口自行校验。
+          const kind = bridgeWindowKind(params.kind);
+          if (!kind) {
+            throw new Error(`不支持打开窗口：${String(params.kind ?? "")}`);
+          }
+          const tab =
+            typeof params.tab === "string" && params.tab ? params.tab : null;
+          await invoke("widget_open", { kind, tab });
+          return { opened: true };
+        }
+        case "window.close": {
+          if (!context?.granted.includes("widget.chrome")) {
+            throw new Error("未获得 widget.chrome 权限");
+          }
+          const kind = bridgeWindowKind(params.kind);
+          if (!kind) {
+            throw new Error(`不支持关闭窗口：${String(params.kind ?? "")}`);
+          }
+          await invoke("widget_close", { kind });
+          return { closed: true };
+        }
+        case "window.isOpen": {
+          if (!context?.granted.includes("widget.chrome")) {
+            throw new Error("未获得 widget.chrome 权限");
+          }
+          const kind = bridgeWindowKind(params.kind);
+          if (!kind) {
+            throw new Error(`不支持查询窗口：${String(params.kind ?? "")}`);
+          }
+          const visible = await invoke<boolean>("widget_visibility", { kind });
+          return { visible: visible === true };
         }
         case "close":
           await closePluginWindow();

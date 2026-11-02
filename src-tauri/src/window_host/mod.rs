@@ -16,6 +16,14 @@ pub use spec::{find, is_managed, WidgetSpec, ALL_WIDGETS, SETTINGS, WIDGET_HOST_
 /// 工具窗显示/隐藏后广播；设置页据此刷新「显示/关闭」开关。
 pub const WIDGETS_CHANGED_EVENT: &str = "widgets-changed";
 
+/// 指定工具窗打开后停留页签的事件（见 `widget_open` 的 `tab` 参数）。
+pub const WIDGET_OPEN_TAB_EVENT: &str = "widget-open-tab";
+
+/// 新建窗口时事件会比前端监听器注册得早，先暂存「打开后停留页签」，
+/// 等工具窗挂载时通过 `widget_take_open_tab` 取走。值为 `(kind, tab)`。
+static PENDING_OPEN_TAB: std::sync::Mutex<Option<(String, String)>> =
+  std::sync::Mutex::new(None);
+
 /// 通知所有窗口：工具窗可见性可能变了。
 pub(crate) fn notify_changed(app: &AppHandle) {
   let _ = app.emit(WIDGETS_CHANGED_EVENT, ());
@@ -157,11 +165,57 @@ pub fn open_async(app: &AppHandle, spec: &'static WidgetSpec) {
 }
 
 /// 前端/托盘打开窗口的入口。必须 async：同步命令跑在主线程，建 WebView2 会卡住。
+///
+/// `tab` 可指定工具窗打开后停留的页签：窗口已存在时直接 `emit_to` 通知；
+/// 新建窗口的监听器还没注册，暂存进 `PENDING_OPEN_TAB` 等挂载时取走。
 #[tauri::command]
-pub async fn widget_open(app: AppHandle, kind: String) -> Result<(), String> {
+pub async fn widget_open(
+  app: AppHandle,
+  kind: String,
+  tab: Option<String>,
+) -> Result<(), String> {
   let spec = find(&kind).ok_or_else(|| format!("未知窗口: {kind}"))?;
+  let existed = app.get_webview_window(spec.label).is_some();
   open(&app, spec);
+  if let Some(tab) = tab.filter(|value| !value.trim().is_empty()) {
+    if existed {
+      let _ = app.emit_to(
+        spec.label,
+        WIDGET_OPEN_TAB_EVENT,
+        serde_json::json!({ "tab": tab }),
+      );
+    } else if let Ok(mut pending) = PENDING_OPEN_TAB.lock() {
+      *pending = Some((kind, tab));
+    }
+  }
   Ok(())
+}
+
+/// 工具窗挂载时取走暂存的「打开后停留页签」；kind 不匹配时保持不动。
+#[tauri::command]
+pub fn widget_take_open_tab(kind: String) -> Option<String> {
+  let mut pending = PENDING_OPEN_TAB.lock().ok()?;
+  let matched = pending.as_ref().is_some_and(|(stored, _)| stored == &kind);
+  if matched {
+    pending.take().map(|(_, tab)| tab)
+  } else {
+    None
+  }
+}
+
+/// 单个工具窗当前是否可见。
+///
+/// 插件的开关按钮用它做首帧状态与事件校准：窗口可能被用户直接关掉、
+/// 或从托盘 / 设置页隐藏，只靠本地布尔值会和真实状态脱钩。
+#[tauri::command]
+pub fn widget_visibility(app: AppHandle, kind: String) -> Result<bool, String> {
+  let spec = find(&kind).ok_or_else(|| format!("未知窗口: {kind}"))?;
+  Ok(
+    app
+      .get_webview_window(spec.label)
+      .and_then(|window| window.is_visible().ok())
+      .unwrap_or(false),
+  )
 }
 
 #[derive(serde::Serialize)]

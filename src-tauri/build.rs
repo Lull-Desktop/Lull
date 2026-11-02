@@ -28,6 +28,8 @@ const ROLES: &[&str] = &["shell", "tool"];
 const APP_COMMANDS: &[&str] = &[
   "window_set_frame",
   "widget_open",
+  "widget_take_open_tab",
+  "widget_visibility",
   "widget_states",
   "widget_close",
   "window_prefs_get",

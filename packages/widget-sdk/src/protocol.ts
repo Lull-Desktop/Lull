@@ -134,6 +134,21 @@ export interface WidgetMediaEventMessage {
   event: unknown;
 }
 
+/**
+ * 宿主 → 插件：工具窗口可见性变化。
+ *
+ * 除了插件自己开关窗口，用户直接点工具窗口的关闭按钮、或从托盘 / 设置页
+ * 隐藏时也会推送，插件据此让开关按钮与真实状态保持一致。
+ */
+export interface WidgetWindowStateMessage {
+  v: typeof WIDGET_PROTOCOL;
+  type: "window.state";
+  kind: string;
+  visible: boolean;
+  /** 工具窗口内部当前页签（仅部分窗口提供）；缺省表示本次推送不带页签信息。 */
+  tab?: string;
+}
+
 /** 宿主 → 插件：请求结果。`ok=false` 时 `error` 为宿主给出的原因。 */
 export interface WidgetResponseMessage {
   v: typeof WIDGET_PROTOCOL;
@@ -151,6 +166,7 @@ export type WidgetHostMessage =
   | WidgetVisibilityMessage
   | WidgetLocaleMessage
   | WidgetMediaEventMessage
+  | WidgetWindowStateMessage
   | WidgetResponseMessage;
 
 /** 插件 → 宿主：握手请求（插件侧 SDK 自动发送）。 */
@@ -212,6 +228,21 @@ export interface WidgetBridgeMethods {
       playerAnchor: number;
     };
     result: WidgetViewport & { applied: boolean };
+  };
+  /** 打开（或唤醒）宿主工具窗口；`kind` 由宿主壳白名单校验。 */
+  "window.open": {
+    params: { kind: string; tab?: string };
+    result: { opened: boolean };
+  };
+  /** 隐藏宿主工具窗口（保留挂载，不销毁 WebView）。 */
+  "window.close": {
+    params: { kind: string };
+    result: { closed: boolean };
+  };
+  /** 查询宿主工具窗口当前是否可见，用于渲染开关状态。 */
+  "window.isOpen": {
+    params: { kind: string };
+    result: { visible: boolean };
   };
   close: { params: Record<string, never>; result: { closed: boolean } };
   log: {

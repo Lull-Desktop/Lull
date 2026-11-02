@@ -208,8 +208,8 @@
 .modeBubble {
   position: absolute;
   display: grid;
-  width: 44px;
-  height: 44px;
+  width: var(--bubble-size);
+  height: var(--bubble-size);
   padding: 0;
   place-items: center;
   pointer-events: auto;
@@ -325,51 +325,11 @@
   animation-delay: 1.4s;
 }
 
-.modeLabel {
-  position: absolute;
-  top: 50%;
-  right: 52px;
-  left: auto;
-  z-index: 8;
-  padding: 4px 8px;
-  border: 1px solid
-    color-mix(in srgb, var(--accent) 18%, rgba(200, 230, 255, 0.12));
-  border-radius: 6px;
-  color: rgba(236, 248, 255, 0.86);
-  background: rgba(5, 15, 29, 0.7);
-  box-shadow: 0 4px 10px rgba(0, 5, 14, 0.3);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(4px, -50%);
-  transition:
-    opacity 0.22s ease,
-    transform 0.22s ease;
-  backdrop-filter: blur(10px);
-}
-
-.modeBubble:hover .modeLabel,
-.modeBubble:focus-visible .modeLabel {
-  opacity: 1;
-  transform: translate(0, -50%);
-}
-
-.root[data-dock="left"] .modeLabel {
-  right: auto;
-  left: 52px;
-  transform: translate(-4px, -50%);
-}
-
-.root[data-dock="left"] .modeBubble:hover .modeLabel,
-.root[data-dock="left"] .modeBubble:focus-visible .modeLabel {
-  transform: translate(0, -50%);
-}
-
 /* ── 主球与高光进度环 ───────────────────────────────────────── */
 
 .orbColumn {
+  /* 环绕主球的所有圆泡共用这一个尺寸；JS 里的 MODE_BUBBLE_HALF 取它的一半。 */
+  --bubble-size: 44px;
   position: relative;
   display: flex;
   grid-column: 2;
@@ -852,8 +812,10 @@
 }
 
 .orbGlyph {
+  /* 播放键必须落在主球几何圆心（top 50% + translate(-50%,-50%)），
+     曲目信息在下方 32px 起排，不会与之相撞。 */
   position: absolute;
-  top: 43%;
+  top: 50%;
   left: 50%;
   z-index: 4;
   display: grid;
@@ -1055,118 +1017,15 @@
   stroke-width: 1.5;
 }
 
+/* 曲库开关：纯圆形泡，基础样式与 active 光效复用 .modeBubble；
+   弧位由 JS 按同一条半径算出（左右停靠自动镜像），这里只补层级。 */
 .libraryBubble {
-  position: absolute;
-  top: 0;
-  left: 234px;
   z-index: 8;
-  display: flex;
-  width: max-content;
-  height: 42px;
-  padding: 0 15px;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid
-    color-mix(in srgb, var(--accent) 18%, rgba(193, 226, 255, 0.18));
-  border-radius: 999px;
-  color: rgba(226, 242, 255, 0.72);
-  background:
-    radial-gradient(
-      circle at 32% 20%,
-      rgba(255, 255, 255, 0.1),
-      transparent 44%
-    ),
-    linear-gradient(150deg, rgba(24, 45, 69, 0.42), rgba(5, 15, 29, 0.56));
-  box-shadow:
-    0 4px 10px rgba(0, 6, 16, 0.32),
-    inset 0 1px 0 rgba(255, 255, 255, 0.13);
-  font-family: var(--font-body);
-  font-size: var(--button-font-size);
-  font-weight: 400;
-  letter-spacing: var(--button-letter-spacing);
-  line-height: 1.2;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    color 0.28s ease,
-    border-color 0.28s ease,
-    transform 0.3s var(--ease-liquid),
-    box-shadow 0.3s ease,
-    background 0.3s ease;
-  backdrop-filter: blur(18px) saturate(128%);
 }
 
-.libraryBubble:hover {
-  color: #ffffff;
-  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
-  transform: translateY(-2px);
-  box-shadow:
-    0 4px 10px rgba(0, 6, 16, 0.36),
-    0 0 10px color-mix(in srgb, var(--accent) 14%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-}
-
-.libraryBubble svg {
-  position: relative;
-  z-index: 2;
-  width: 16px;
-  height: 16px;
-  color: var(--accent);
-  stroke-width: 1.3;
-}
-
-.libraryBubble > span:last-child {
-  position: relative;
-  z-index: 2;
-}
-
-.libraryBubble[data-active="true"] {
-  color: #071a2a;
-  border-color: rgba(255, 255, 255, 0.64);
-  background:
-    radial-gradient(
-      circle at 30% 20%,
-      #ffffff,
-      rgba(240, 250, 255, 0.94) 34%,
-      transparent 74%
-    ),
-    radial-gradient(
-      circle at 50% 120%,
-      color-mix(in srgb, var(--accent) 58%, #e8f8ff),
-      #e3f6ff
-    );
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.24),
-    0 0 10px color-mix(in srgb, var(--accent) 30%, transparent),
-    inset 0 -4px 10px color-mix(in srgb, var(--accent) 28%, transparent);
-}
-
-.libraryBubble[data-active="true"] svg {
-  color: #0b273c;
-}
-
-.libraryHalo {
-  position: absolute;
-  inset: -7px;
-  border-radius: 999px;
-  background: radial-gradient(
-    ellipse at 50% 50%,
-    color-mix(in srgb, var(--accent) 22%, transparent),
-    transparent 70%
-  );
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s ease;
-}
-
-.libraryBubble[data-active="true"] .libraryHalo {
-  opacity: 1;
-}
-
-/* 展开态的细光线把「曲库」泡与当前停靠侧的水幕面板接起来。 */
-.root[data-dock="left"] .libraryBubble {
-  right: 234px;
-  left: auto;
+/* 音乐库管理泡：与曲库泡同弧、同尺寸，紧贴其下方一格。 */
+.libraryManage {
+  z-index: 8;
 }
 
 /* 主球变小后曲库泡与抽屉之间留白更宽，不再绘制长连接线，避免横跨空白。 */
@@ -1305,10 +1164,10 @@
 .sourcePill {
   position: relative;
   display: grid;
-  width: 164px;
+  width: 216px;
   height: 34px;
   padding: 3px;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   border: 1px solid rgba(202, 232, 255, 0.14);
   border-radius: 999px;
   background: rgba(5, 15, 29, 0.4);
@@ -1323,7 +1182,7 @@
   bottom: 3px;
   left: 3px;
   z-index: 0;
-  width: calc(50% - 3px);
+  width: calc(33.333% - 2px);
   border-radius: 999px;
   background:
     radial-gradient(
@@ -1349,6 +1208,10 @@
   transform: translateX(100%);
 }
 
+.sourceLiquid[data-at="favorites"] {
+  transform: translateX(200%);
+}
+
 .sourceLiquid::after {
   content: "";
   position: absolute;
@@ -1370,7 +1233,8 @@
     left 0.58s var(--ease-liquid);
 }
 
-.sourceLiquid[data-at="queue"]::after {
+.sourceLiquid[data-at="queue"]::after,
+.sourceLiquid[data-at="favorites"]::after {
   right: auto;
   left: -4px;
 }
@@ -1443,8 +1307,45 @@
   transform: rotate(90deg);
 }
 
+/* 「加入队列」是加号：旋转看不出变化，改用轻微放大做反馈，图标也稍大一点。 */
+.drawerAdd[data-action="add"]:hover {
+  transform: scale(1.12);
+}
+
+.drawerAdd[data-action="add"] svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.8;
+}
+
 .locateButton {
   margin-left: 0;
+}
+
+/* 齿轮开关亮起：库窗口正停在这个页签上，与主球的 active 泡同一套语言。 */
+.drawerAdd[data-active="true"] {
+  color: #071a2a;
+  border-color: rgba(255, 255, 255, 0.58);
+  background:
+    radial-gradient(
+      circle at 32% 20%,
+      #ffffff,
+      rgba(240, 250, 255, 0.94) 40%,
+      transparent 76%
+    ),
+    radial-gradient(
+      circle at 50% 118%,
+      color-mix(in srgb, var(--accent) 52%, #e8f8ff),
+      #e3f6ff
+    );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 0 9px color-mix(in srgb, var(--accent) 28%, transparent),
+    inset 0 -3px 8px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.drawerAdd[data-active="true"]:hover {
+  color: #071a2a;
 }
 
 .locateButton:hover {
@@ -1455,27 +1356,6 @@
   width: 12px;
   height: 12px;
   stroke-width: 1.5;
-}
-
-.drawerLive {
-  display: grid;
-  width: 25px;
-  height: 25px;
-  margin-left: auto;
-  place-items: center;
-  border: 1px solid
-    color-mix(in srgb, var(--accent) 18%, rgba(200, 232, 255, 0.12));
-  border-radius: 50%;
-  color: color-mix(in srgb, var(--accent) 72%, white);
-  background: rgba(6, 18, 33, 0.3);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.drawerLive svg {
-  width: 11px;
-  height: 11px;
-  stroke-width: 1.4;
-  animation: liveBars 2.6s ease-in-out infinite;
 }
 
 .listScroll {
@@ -2188,6 +2068,56 @@
   border: 0;
 }
 
+/* ── 悬停标签 ───────────────────────────────────────────────── */
+
+/* 由 <TipHost /> 固定定位渲染：默认浮在按钮正上方居中，
+   顶部放不下时才翻到按钮下方（data-below），永远避开指针。 */
+.tip {
+  position: fixed;
+  z-index: 40;
+  max-width: min(240px, calc(100vw - 24px));
+  padding: 5px 10px;
+  overflow: hidden;
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 26%, rgba(206, 234, 255, 0.18));
+  border-radius: 999px;
+  color: #f1f9ff;
+  background:
+    radial-gradient(
+      circle at 30% 14%,
+      rgba(255, 255, 255, 0.12),
+      transparent 58%
+    ),
+    rgba(5, 15, 29, 0.86);
+  box-shadow:
+    0 6px 14px rgba(0, 6, 16, 0.44),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(-100%);
+  backdrop-filter: blur(14px) saturate(130%);
+  animation: tipIn 0.14s var(--ease-liquid) both;
+}
+
+.tip[data-below="true"] {
+  transform: translateX(-50%);
+}
+
+@keyframes tipIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* ── 动效 ───────────────────────────────────────────────────── */
 
 @keyframes knobBreathe {
@@ -2326,18 +2256,6 @@
   }
   70% {
     transform: scaleY(0.66);
-  }
-}
-
-@keyframes liveBars {
-  0%,
-  100% {
-    opacity: 0.55;
-    transform: scaleY(0.82);
-  }
-  50% {
-    opacity: 1;
-    transform: scaleY(1.12);
   }
 }
 

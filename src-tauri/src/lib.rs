@@ -41,6 +41,8 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       window_frame::window_set_frame,
       window_host::widget_open,
+      window_host::widget_take_open_tab,
+      window_host::widget_visibility,
       window_host::widget_states,
       window_host::widget_close,
       extension::extensions_list,

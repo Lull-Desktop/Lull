@@ -20,6 +20,7 @@
     "allow-window-set-frame",
     "allow-media-call",
     "allow-media-connect",
-    "allow-media-disconnect"
+    "allow-media-disconnect",
+    "allow-widget-take-open-tab"
   ]
 }

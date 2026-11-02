@@ -7,10 +7,13 @@
 "use client";
 
 import type { DirectoryEntry, TrackSummary } from "@lull/media-sdk";
-import { useDirectoryBrowser, usePlayerSession } from "@lull/media-sdk/react";
+import {
+  useDirectoryBrowser,
+  useMediaClient,
+  usePlayerSession,
+} from "@lull/media-sdk/react";
 import {
   ArrowLeft,
-  AudioLines,
   ChevronLeft,
   ChevronRight,
   ChevronsLeftRight,
@@ -19,7 +22,6 @@ import {
   Heart,
   Library,
   ListMusic,
-  ListPlus,
   LoaderCircle,
   Minus,
   Pause,
@@ -27,6 +29,7 @@ import {
   Plus,
   Repeat1,
   Repeat2,
+  Settings,
   Shuffle,
   Upload,
   Volume2,
@@ -51,13 +54,17 @@ import {
 } from "react";
 import {
   isWidgetAudioAvailable,
+  onLibraryState,
   onWidgetPrefsChanged,
   useWidgetFit,
   useWidgetTheme,
   widgetAlignPlayer,
+  widgetCloseLibrary,
   widgetHideWindow,
   widgetIsMinimizable,
+  widgetLibraryVisible,
   widgetMinimizeWindow,
+  widgetOpenLibrary,
   widgetResizeWidth,
 } from "./compat";
 import { CoverArt } from "./cover-art";
@@ -77,6 +84,7 @@ import {
   readPlayerPrefs,
   totalDuration,
 } from "./player-model";
+import { TipHost, tip } from "./tooltip";
 
 /** Media Service 的 TrackSummary → 现有玻璃 UI 的 PlayerTrack。 */
 function toPlayerTrack(track: TrackSummary): PlayerTrack {
@@ -91,6 +99,8 @@ function toPlayerTrack(track: TrackSummary): PlayerTrack {
   };
 }
 const SEEK_STEP_SECONDS = 5;
+/** 收藏列表单页条数；滚动到底部时继续翻页。 */
+const FAVORITES_PAGE_SIZE = 100;
 /** 展开曲库的完整画布；收起时收到 530，左右留白正好包住主球与曲库泡。 */
 /** 右停靠展开的完整画布；收起时收到 530。左停靠始终保留 880。 */
 const PLAYER_OPEN_WIDTH = 880;
@@ -110,11 +120,44 @@ const PLAYER_DOCK_ANCHOR = 287;
 const MODE_ARC_ANGLES = [224, 206, 188] as const;
 /** 喜欢泡延续同一弧度、同一半径向下 18°，与三个模式泡等距。 */
 const LIKE_ARC_ANGLE = 170;
+/** 曲库 / 音乐库管理泡落在同一条弧上，角度取左侧 224° / 206° 的镜像，
+ *  与对面「循环 / 随机」两泡等高，整圈视觉对称。 */
+const LIBRARY_ARC_ANGLE = 316;
+const LIBRARY_MANAGE_ARC_ANGLE = 334;
 const MODE_ARC_RADIUS = 184;
+/** 泡半径：必须与 CSS 的 --bubble-size 一半保持一致。 */
 const MODE_BUBBLE_HALF = 22;
 const ORB_CENTER_IN_STAGE = 148;
 type DockSide = "left" | "right";
-type DrawerTab = "library" | "queue";
+type DrawerTab = "library" | "queue" | "favorites";
+/** 播放器能主动定位的音乐库页签，取值与 library-window 的 LibraryTab 一致。 */
+type LibraryTarget = "queue" | "favorites" | "folders";
+/** 页签的展示顺序；键盘左右键沿这个顺序循环。 */
+const DRAWER_TAB_ORDER: readonly DrawerTab[] = [
+  "library",
+  "queue",
+  "favorites",
+];
+
+/**
+ * 环绕主球的泡位换算：所有圆泡（模式、喜欢、曲库、音乐库管理）共用同一条
+ * 半径弧，停靠在哪一侧就沿 x 轴镜像，保证左右两列按钮围着主球对称。
+ */
+function arcBubbleOffset(
+  angleDeg: number,
+  side: DockSide,
+): { left: number; top: number } {
+  const angle = (angleDeg * Math.PI) / 180;
+  const arcX = Math.cos(angle) * MODE_ARC_RADIUS;
+  const arcY = Math.sin(angle) * MODE_ARC_RADIUS;
+  return {
+    left:
+      ORB_CENTER_IN_STAGE +
+      (side === "right" ? arcX : -arcX) -
+      MODE_BUBBLE_HALF,
+    top: ORB_CENTER_IN_STAGE + arcY - MODE_BUBBLE_HALF,
+  };
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -439,6 +482,10 @@ export function LiquidPlayer(): React.ReactElement {
   const [lastAudibleVolume, setLastAudibleVolume] = useState(78);
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [drawerHeld, setDrawerHeld] = useState(false);
+  // 音乐库窗口（状态监控）是否可见：由宿主推送校准，不靠本地猜测。
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  // 库窗口当前停留的页签：同样来自宿主推送，用来区分「关闭」与「切页签」。
+  const [libraryWindowTab, setLibraryWindowTab] = useState<string>("folders");
   const [dockSide, setDockSide] = useState<DockSide>("right");
   const [dockLeaving, setDockLeaving] = useState(false);
   const [dockSwitching, setDockSwitching] = useState(false);
@@ -455,9 +502,19 @@ export function LiquidPlayer(): React.ReactElement {
   const [canMinimize, setCanMinimize] = useState(false);
   const [themeReady, setThemeReady] = useState(false);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  // 收藏页：分页拉取，favorites.changed 事件触发重拉第一页。
+  const [favoritesState, setFavoritesState] = useState<{
+    tracks: PlayerTrack[];
+    hasMore: boolean;
+    total: number;
+  }>({ tracks: [], hasMore: false, total: 0 });
+  const [favoritesPage, setFavoritesPage] = useState(1);
+  const [favoritesLoading, setFavoritesLoading] = useState(false);
+  const [favoritesTick, setFavoritesTick] = useState(0);
 
   const session = usePlayerSession({ includeLibrary: false });
   const directory = useDirectoryBrowser();
+  const mediaClient = useMediaClient();
   const directoryTracks = useMemo(
     () =>
       (directory.listing?.tracks.items ?? []).map((track) =>
@@ -481,11 +538,13 @@ export function LiquidPlayer(): React.ReactElement {
   const scrollPositionsRef = useRef<Record<DrawerTab, number>>({
     library: 0,
     queue: 0,
+    favorites: 0,
   });
   const pendingScrollRef = useRef<number | null>(null);
   const lastAutoScrolledIdRef = useRef<string | null>(null);
   const libraryTabRef = useRef<HTMLButtonElement>(null);
   const queueTabRef = useRef<HTMLButtonElement>(null);
+  const favoritesTabRef = useRef<HTMLButtonElement>(null);
 
   const currentRef = useRef<PlayerTrack | null>(null);
   const currentIdRef = useRef("");
@@ -503,6 +562,8 @@ export function LiquidPlayer(): React.ReactElement {
   const noticeTimerRef = useRef<number | null>(null);
   const drawerWidthTimerRef = useRef<number | null>(null);
   const drawerOpenRef = useRef(true);
+  const libraryOpenRef = useRef(false);
+  const libraryWindowTabRef = useRef<string>("folders");
   const dockSideRef = useRef<DockSide>("right");
   const dockSwitchBusyRef = useRef(false);
   const dragDepthRef = useRef(0);
@@ -516,6 +577,7 @@ export function LiquidPlayer(): React.ReactElement {
     () => session.queueTracks.map(toPlayerTrack),
     [session.queueTracks],
   );
+  const favoritesTracks = favoritesState.tracks;
   const trackPool = useMemo(() => {
     const byId = new Map(allTracks.map((track) => [track.id, track]));
     for (const track of queueTracks) byId.set(track.id, track);
@@ -531,14 +593,9 @@ export function LiquidPlayer(): React.ReactElement {
     [favoriteOverrides],
   );
   const liked = favoriteOf(current);
-  const likeAngle = (LIKE_ARC_ANGLE * Math.PI) / 180;
-  const likeArcX = Math.cos(likeAngle) * MODE_ARC_RADIUS;
-  const likeArcY = Math.sin(likeAngle) * MODE_ARC_RADIUS;
-  const likeX =
-    ORB_CENTER_IN_STAGE +
-    (dockSide === "right" ? likeArcX : -likeArcX) -
-    MODE_BUBBLE_HALF;
-  const likeY = ORB_CENTER_IN_STAGE + likeArcY - MODE_BUBBLE_HALF;
+  const likePos = arcBubbleOffset(LIKE_ARC_ANGLE, dockSide);
+  const libraryPos = arcBubbleOffset(LIBRARY_ARC_ANGLE, dockSide);
+  const managePos = arcBubbleOffset(LIBRARY_MANAGE_ARC_ANGLE, dockSide);
   const currentTone = current?.tone ?? 0;
   const palette = coverPalette(currentTone);
   const duration =
@@ -546,7 +603,12 @@ export function LiquidPlayer(): React.ReactElement {
     (session.player?.track?.id === current?.id
       ? (session.player?.durationMs ?? 0) / 1000
       : 0);
-  const visibleTracks = tab === "queue" ? queueTracks : allTracks;
+  const visibleTracks =
+    tab === "queue"
+      ? queueTracks
+      : tab === "favorites"
+        ? favoritesTracks
+        : allTracks;
   const displayProgress = scrubbing ? scrubValue : progress;
   const progressRatio =
     duration > 0 ? Math.min(1, Math.max(0, displayProgress / duration)) : 0;
@@ -557,6 +619,45 @@ export function LiquidPlayer(): React.ReactElement {
   const scrubBubbleY = 50 + Math.sin(scrubAngle) * 46;
   const listLength = visibleTracks.length;
   const canSkip = current !== null && listLength > 1;
+  // 齿轮开关亮起判定：库窗口开着，且正停在对应页签上。
+  const queueGearActive = libraryOpen && libraryWindowTab === "queue";
+  const favoritesGearActive = libraryOpen && libraryWindowTab === "favorites";
+
+  /**
+   * 库窗口开关 + 页签的唯一状态入口：本地先生效，宿主推送回来再校准。
+   * `tab` 缺省表示这次推送没带页签信息，只改可见性；带页签时照单收下
+   * （库窗口可能停在播放器不认识的页签上，那样下次点击就按「切换」处理）。
+   */
+  const applyLibraryOpen = useCallback(
+    (visible: boolean, tab?: string): void => {
+      libraryOpenRef.current = visible;
+      setLibraryOpen(visible);
+      if (tab) {
+        libraryWindowTabRef.current = tab;
+        setLibraryWindowTab(tab);
+      }
+    },
+    [],
+  );
+
+  /**
+   * 库窗口状态同步：首帧问一次可见性，之后跟随宿主推送。
+   * 用户直接关掉库窗口、在库窗口里切页签、或从托盘 / 设置页隐藏时都会更新，
+   * 开关按钮的高亮与「再点一次是否关闭」的判断因此不会和真实窗口脱钩。
+   */
+  useEffect(() => {
+    let alive = true;
+    void widgetLibraryVisible().then((visible: boolean) => {
+      if (alive) applyLibraryOpen(visible);
+    });
+    const stop = onLibraryState(({ visible, tab }) =>
+      applyLibraryOpen(visible, tab),
+    );
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, [applyLibraryOpen]);
 
   useEffect(() => {
     const trackId = current?.id;
@@ -578,6 +679,46 @@ export function LiquidPlayer(): React.ReactElement {
       alive = false;
     };
   }, [current?.id, session.getCoverUrl]);
+
+  // 收藏列表：首次挂载与 favorites.changed（favoritesTick）时重拉第一页。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: favoritesTick is the refetch trigger.
+  useEffect(() => {
+    let alive = true;
+    setFavoritesLoading(true);
+    void mediaClient.favorites
+      .list(1, FAVORITES_PAGE_SIZE)
+      .then((page) => {
+        if (!alive) return;
+        setFavoritesPage(1);
+        setFavoritesState({
+          tracks: page.items.map(toPlayerTrack),
+          hasMore: page.hasMore,
+          total: page.total,
+        });
+      })
+      .catch(() => {
+        if (alive) {
+          setFavoritesState({ tracks: [], hasMore: false, total: 0 });
+        }
+      })
+      .finally(() => {
+        if (alive) setFavoritesLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [mediaClient, favoritesTick]);
+
+  // 喜欢状态在任何窗口变化（本窗口心形、音乐库窗口）都会广播 favorites.changed。
+  useEffect(
+    () =>
+      mediaClient.events.on((event) => {
+        if (event.topic === "favorites.changed") {
+          setFavoritesTick((value) => value + 1);
+        }
+      }),
+    [mediaClient],
+  );
 
   const rootStyle = {
     "--accent": palette.accent,
@@ -1205,28 +1346,88 @@ export function LiquidPlayer(): React.ReactElement {
     setDrawer(!drawerOpenRef.current);
   }, [setDrawer]);
 
+  /**
+   * 库窗口的开关（toggle）：目标页签已经开着就收起，否则打开 / 切到该页签。
+   * 先乐观翻转按钮，失败则回滚；真实状态仍以宿主推送为准。
+   */
+  const toggleLibraryWindow = useCallback(
+    (target: LibraryTarget): void => {
+      const closing =
+        libraryOpenRef.current && libraryWindowTabRef.current === target;
+      if (closing) {
+        applyLibraryOpen(false);
+        void widgetCloseLibrary().catch(() => {
+          applyLibraryOpen(true, target);
+          showNotice("关闭音乐库窗口失败");
+        });
+        return;
+      }
+      // 新建窗口时宿主不会广播（窗口先隐藏、贴合内容后才显示），
+      // 这里直接点亮按钮，与真实窗口保持一致。
+      applyLibraryOpen(true, target);
+      void widgetOpenLibrary(target).catch(() => {
+        applyLibraryOpen(false);
+        showNotice("打开音乐库窗口失败");
+      });
+    },
+    [applyLibraryOpen, showNotice],
+  );
+
+  const loadMoreFavorites = useCallback((): void => {
+    if (favoritesLoading || !favoritesState.hasMore) return;
+    const next = favoritesPage + 1;
+    setFavoritesLoading(true);
+    void mediaClient.favorites
+      .list(next, FAVORITES_PAGE_SIZE)
+      .then((page) => {
+        setFavoritesPage(next);
+        setFavoritesState((previous) => ({
+          tracks: [...previous.tracks, ...page.items.map(toPlayerTrack)],
+          hasMore: page.hasMore,
+          total: page.total,
+        }));
+      })
+      .catch(() => {})
+      .finally(() => {
+        setFavoritesLoading(false);
+      });
+  }, [favoritesLoading, favoritesPage, favoritesState.hasMore, mediaClient]);
+
   const loadMoreLibrary = useCallback((): void => {
-    if (
-      tab !== "library" ||
-      !directory.listing?.tracks.hasMore ||
-      directory.loadingMore
-    ) {
-      return;
-    }
+    const hasMore =
+      tab === "library"
+        ? Boolean(directory.listing?.tracks.hasMore) && !directory.loadingMore
+        : tab === "favorites"
+          ? favoritesState.hasMore && !favoritesLoading
+          : false;
+    if (!hasMore) return;
     const list = listRef.current;
     if (!list) return;
     const remaining = list.scrollHeight - list.scrollTop - list.clientHeight;
-    if (remaining < 260) void directory.loadMore();
+    if (remaining < 260) {
+      if (tab === "library") void directory.loadMore();
+      else loadMoreFavorites();
+    }
   }, [
     directory.listing?.tracks.hasMore,
     directory.loadMore,
     directory.loadingMore,
+    favoritesLoading,
+    favoritesState.hasMore,
+    loadMoreFavorites,
     tab,
   ]);
 
   // onScroll 在部分 WebView2/iframe 组合下不稳定；底部 sentinel 再兜一层。
   useEffect(() => {
-    if (tab !== "library" || !directory.listing?.tracks.hasMore) return;
+    const hasMore =
+      tab === "library"
+        ? Boolean(directory.listing?.tracks.hasMore)
+        : tab === "favorites"
+          ? favoritesState.hasMore
+          : false;
+    if (!hasMore) return;
+    const loadMore = tab === "library" ? directory.loadMore : loadMoreFavorites;
     const list = listRef.current;
     const sentinel = loadMoreSentinelRef.current;
     if (!list || !sentinel || typeof IntersectionObserver === "undefined") {
@@ -1235,29 +1436,39 @@ export function LiquidPlayer(): React.ReactElement {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          void directory.loadMore();
+          void loadMore();
         }
       },
       { root: list, rootMargin: "0px 0px 280px 0px", threshold: 0 },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [tab, directory.listing?.tracks.hasMore, directory.loadMore]);
+  }, [
+    tab,
+    directory.listing?.tracks.hasMore,
+    directory.loadMore,
+    favoritesState.hasMore,
+    loadMoreFavorites,
+  ]);
 
   const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
-    const next: DrawerTab =
-      event.key === "ArrowRight"
-        ? tab === "library"
-          ? "queue"
-          : "library"
-        : tab === "queue"
-          ? "library"
-          : "queue";
+    const index = DRAWER_TAB_ORDER.indexOf(tab);
+    const offset = event.key === "ArrowRight" ? 1 : -1;
+    const next =
+      DRAWER_TAB_ORDER[
+        (index + offset + DRAWER_TAB_ORDER.length) % DRAWER_TAB_ORDER.length
+      ] ?? tab;
     switchTab(next);
     window.setTimeout(() => {
-      (next === "library" ? libraryTabRef : queueTabRef).current?.focus();
+      const ref =
+        next === "library"
+          ? libraryTabRef
+          : next === "queue"
+            ? queueTabRef
+            : favoritesTabRef;
+      ref.current?.focus();
     }, 0);
   };
 
@@ -1421,7 +1632,13 @@ export function LiquidPlayer(): React.ReactElement {
   const timeText = formatClock(displayProgress);
   const durationText = formatTrackDuration(duration);
   const listTotal = formatClock(
-    totalDuration(tab === "queue" ? queueTracks : allTracks),
+    totalDuration(
+      tab === "queue"
+        ? queueTracks
+        : tab === "favorites"
+          ? favoritesTracks
+          : allTracks,
+    ),
   );
   const directoryCount = directory.listing?.directories.length ?? 0;
   const libraryTotal = directory.listing?.tracks.total ?? 0;
@@ -1431,7 +1648,8 @@ export function LiquidPlayer(): React.ReactElement {
       !directory.loading &&
       directoryCount === 0 &&
       allTracks.length === 0) ||
-    (tab === "queue" && queueTracks.length === 0);
+    (tab === "queue" && queueTracks.length === 0) ||
+    (tab === "favorites" && !favoritesLoading && favoritesTracks.length === 0);
   const orbLabel = current
     ? `${playing ? "暂停" : "播放"}：${current.title}，${current.artist}`
     : "播放";
@@ -1476,7 +1694,7 @@ export function LiquidPlayer(): React.ReactElement {
               <div
                 className={styles.dragHandle}
                 data-tauri-drag-region="deep"
-                title="拖动窗口"
+                {...tip("拖动窗口")}
               >
                 <span className={styles.grip} aria-hidden="true">
                   <i />
@@ -1498,7 +1716,7 @@ export function LiquidPlayer(): React.ReactElement {
                   className={styles.dockButton}
                   aria-label={dockSideLabel}
                   aria-busy={dockBusy || dockSwitching}
-                  title={dockSideLabel}
+                  {...tip(dockSideLabel)}
                   disabled={dockBusy || dockSwitching}
                   onClick={() => {
                     changeDockSide(nextDockSide);
@@ -1511,7 +1729,7 @@ export function LiquidPlayer(): React.ReactElement {
                     type="button"
                     className={styles.dockButton}
                     aria-label="最小化"
-                    title="最小化"
+                    {...tip("最小化")}
                     onClick={() => {
                       void widgetMinimizeWindow();
                     }}
@@ -1523,7 +1741,7 @@ export function LiquidPlayer(): React.ReactElement {
                   type="button"
                   className={styles.dockButton}
                   aria-label="关闭窗口"
-                  title="关闭（隐藏到托盘）"
+                  {...tip("关闭（隐藏到托盘）")}
                   onClick={() => {
                     void widgetHideWindow();
                   }}
@@ -1731,44 +1949,35 @@ export function LiquidPlayer(): React.ReactElement {
                 {PLAY_MODE_OPTIONS.map((option, index) => {
                   const Icon = MODE_GLYPHS[option.id];
                   const active = mode === option.id;
-                  const angle =
-                    ((MODE_ARC_ANGLES[index] ?? MODE_ARC_ANGLES[1]) * Math.PI) /
-                    180;
-                  const arcX = Math.cos(angle) * MODE_ARC_RADIUS;
-                  const arcY = Math.sin(angle) * MODE_ARC_RADIUS;
-                  const x =
-                    ORB_CENTER_IN_STAGE +
-                    (dockSide === "right" ? arcX : -arcX) -
-                    MODE_BUBBLE_HALF;
-                  const y = ORB_CENTER_IN_STAGE + arcY - MODE_BUBBLE_HALF;
+                  const pos = arcBubbleOffset(
+                    MODE_ARC_ANGLES[index] ?? MODE_ARC_ANGLES[1],
+                    dockSide,
+                  );
                   return (
                     <button
                       key={option.id}
                       type="button"
                       className={styles.modeBubble}
-                      style={{ left: `${x}px`, top: `${y}px` }}
+                      style={{ left: `${pos.left}px`, top: `${pos.top}px` }}
                       data-active={active ? "true" : "false"}
                       aria-label={option.label}
                       aria-pressed={active}
-                      title={option.label}
+                      {...tip(option.label)}
                       onClick={() => chooseMode(option.id)}
                     >
                       <span className={styles.modeHalo} aria-hidden="true" />
                       <Icon aria-hidden="true" />
-                      <span className={styles.modeLabel} aria-hidden="true">
-                        {option.label}
-                      </span>
                     </button>
                   );
                 })}
                 <button
                   type="button"
                   className={`${styles.modeBubble} ${styles.likeBubble}`}
-                  style={{ left: `${likeX}px`, top: `${likeY}px` }}
+                  style={{ left: `${likePos.left}px`, top: `${likePos.top}px` }}
                   data-active={liked ? "true" : "false"}
                   aria-label={liked ? "取消喜欢" : "喜欢"}
                   aria-pressed={liked}
-                  title={liked ? "取消喜欢" : "喜欢"}
+                  {...tip(liked ? "取消喜欢" : "喜欢")}
                   onClick={toggleFavorite}
                 >
                   <span className={styles.modeHalo} aria-hidden="true" />
@@ -1776,9 +1985,6 @@ export function LiquidPlayer(): React.ReactElement {
                     aria-hidden="true"
                     fill={liked ? "currentColor" : "none"}
                   />
-                  <span className={styles.modeLabel} aria-hidden="true">
-                    {liked ? "取消喜欢" : "喜欢"}
-                  </span>
                 </button>
               </section>
 
@@ -1787,7 +1993,7 @@ export function LiquidPlayer(): React.ReactElement {
                   type="button"
                   className={styles.skipButton}
                   aria-label="上一首"
-                  title="上一首"
+                  {...tip("上一首")}
                   disabled={!canSkip}
                   onClick={() => moveTrack(-1)}
                 >
@@ -1802,7 +2008,7 @@ export function LiquidPlayer(): React.ReactElement {
                   type="button"
                   className={styles.skipButton}
                   aria-label="下一首"
-                  title="下一首"
+                  {...tip("下一首")}
                   disabled={!canSkip}
                   onClick={() => moveTrack(1)}
                 >
@@ -1815,7 +2021,7 @@ export function LiquidPlayer(): React.ReactElement {
                   type="button"
                   className={styles.volumeMute}
                   aria-label={silent ? "取消静音" : "静音"}
-                  title={silent ? "取消静音（M）" : "静音（M）"}
+                  {...tip(silent ? "取消静音（M）" : "静音（M）")}
                   onClick={toggleMute}
                 >
                   {silent ? <VolumeX /> : <Volume2 />}
@@ -1855,17 +2061,35 @@ export function LiquidPlayer(): React.ReactElement {
 
             <button
               type="button"
-              className={styles.libraryBubble}
+              className={`${styles.modeBubble} ${styles.libraryBubble}`}
+              style={{
+                left: `${libraryPos.left}px`,
+                top: `${libraryPos.top}px`,
+              }}
               data-active={drawerOpen ? "true" : "false"}
-              aria-label="曲库"
+              aria-label={drawerOpen ? "收起列表" : "展开列表"}
               aria-expanded={drawerOpen}
               aria-controls={panelId}
-              title={drawerOpen ? "收起曲库" : "展开曲库"}
+              {...tip(drawerOpen ? "收起列表" : "展开列表")}
               disabled={dockBusy}
               onClick={toggleDrawer}
             >
-              <span className={styles.libraryHalo} aria-hidden="true" />
+              <span className={styles.modeHalo} aria-hidden="true" />
               <FolderOpen aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`${styles.modeBubble} ${styles.libraryManage}`}
+              style={{ left: `${managePos.left}px`, top: `${managePos.top}px` }}
+              data-active={libraryOpen ? "true" : "false"}
+              aria-label="状态监控"
+              aria-pressed={libraryOpen}
+              {...tip(libraryOpen ? "关闭状态监控" : "打开状态监控")}
+              disabled={dockBusy}
+              onClick={() => toggleLibraryWindow("folders")}
+            >
+              <span className={styles.modeHalo} aria-hidden="true" />
+              <Library aria-hidden="true" />
             </button>
           </div>
         </section>
@@ -1918,35 +2142,83 @@ export function LiquidPlayer(): React.ReactElement {
                   <ListMusic aria-hidden="true" />
                   队列
                 </button>
+                <button
+                  ref={favoritesTabRef}
+                  type="button"
+                  role="tab"
+                  className={styles.sourceTab}
+                  data-active={tab === "favorites" ? "true" : "false"}
+                  aria-selected={tab === "favorites"}
+                  aria-controls={panelId}
+                  id={`${panelId}-favorites`}
+                  onClick={() => switchTab("favorites")}
+                  onKeyDown={onTabKeyDown}
+                >
+                  <Heart aria-hidden="true" />
+                  收藏
+                </button>
               </div>
               {tab === "library" ? (
                 <button
                   type="button"
                   className={styles.drawerAdd}
+                  data-action="add"
                   aria-label={
                     selectedTrack
                       ? `将「${selectedTrack.title}」加入队列`
                       : "将选中曲目加入队列"
                   }
-                  title={
+                  {...tip(
                     selectedTrack
                       ? `将「${selectedTrack.title}」加入队列`
-                      : "将选中曲目加入队列"
-                  }
+                      : "将选中曲目加入队列",
+                  )}
                   onClick={addSelectedToQueue}
                 >
-                  <ListPlus />
+                  <Plus />
+                </button>
+              ) : tab === "queue" ? (
+                <button
+                  type="button"
+                  className={styles.drawerAdd}
+                  data-active={queueGearActive ? "true" : "false"}
+                  aria-label={
+                    queueGearActive ? "关闭音乐库队列" : "在音乐库中打开队列"
+                  }
+                  aria-pressed={queueGearActive}
+                  {...tip(
+                    queueGearActive ? "关闭音乐库队列" : "在音乐库中打开队列",
+                  )}
+                  onClick={() => toggleLibraryWindow("queue")}
+                >
+                  <Settings />
                 </button>
               ) : (
-                <span className={styles.drawerLive} title="播放队列">
-                  <AudioLines aria-hidden="true" />
-                </span>
+                <button
+                  type="button"
+                  className={styles.drawerAdd}
+                  data-active={favoritesGearActive ? "true" : "false"}
+                  aria-label={
+                    favoritesGearActive
+                      ? "关闭音乐库收藏"
+                      : "在音乐库中打开我的收藏"
+                  }
+                  aria-pressed={favoritesGearActive}
+                  {...tip(
+                    favoritesGearActive
+                      ? "关闭音乐库收藏"
+                      : "在音乐库中打开我的收藏",
+                  )}
+                  onClick={() => toggleLibraryWindow("favorites")}
+                >
+                  <Settings />
+                </button>
               )}
               <button
                 type="button"
                 className={`${styles.drawerAdd} ${styles.locateButton}`}
                 aria-label="定位当前播放"
-                title="定位当前播放"
+                {...tip("定位当前播放")}
                 onClick={locateCurrentInList}
               >
                 <Crosshair />
@@ -1959,7 +2231,7 @@ export function LiquidPlayer(): React.ReactElement {
                   type="button"
                   className={styles.directoryBack}
                   aria-label="返回上级目录"
-                  title="返回上级目录"
+                  {...tip("返回上级目录")}
                   disabled={!directory.listing?.parent}
                   onClick={directory.goBack}
                 >
@@ -2020,11 +2292,23 @@ export function LiquidPlayer(): React.ReactElement {
                     directory.error
                   )}
                 </div>
+              ) : tab === "favorites" &&
+                favoritesLoading &&
+                favoritesTracks.length === 0 ? (
+                <div className={styles.directoryLoading} aria-live="polite">
+                  <LoaderCircle
+                    className={styles.rowSpinner}
+                    aria-hidden="true"
+                  />
+                  加载收藏…
+                </div>
               ) : listEmpty ? (
                 <div className={styles.emptyState}>
                   <span className={styles.emptyIcon} aria-hidden="true">
                     {tab === "queue" ? (
                       <ListMusic />
+                    ) : tab === "favorites" ? (
+                      <Heart />
                     ) : atDirectoryRoot ? (
                       <Upload />
                     ) : (
@@ -2034,36 +2318,40 @@ export function LiquidPlayer(): React.ReactElement {
                   <strong>
                     {tab === "queue"
                       ? "队列还是空的"
-                      : atDirectoryRoot
-                        ? "曲库还空着"
-                        : "这个目录没有音频"}
+                      : tab === "favorites"
+                        ? "还没有喜欢的曲目"
+                        : atDirectoryRoot
+                          ? "曲库还空着"
+                          : "这个目录没有音频"}
                   </strong>
                   <p>
                     {tab === "queue"
                       ? "在曲库选中曲目，再点右上角按钮加入队列"
-                      : atDirectoryRoot
-                        ? "点击添加音乐文件夹，由 Media Service 扫描"
-                        : "返回上级目录继续浏览"}
+                      : tab === "favorites"
+                        ? "点亮曲目或当前播放旁的心形，收藏会同步到这里"
+                        : atDirectoryRoot
+                          ? "点击添加音乐文件夹，由 Media Service 扫描"
+                          : "返回上级目录继续浏览"}
                   </p>
                   <button
                     type="button"
                     className={styles.emptyAction}
                     onClick={
-                      tab === "queue"
+                      tab === "queue" || tab === "favorites"
                         ? () => switchTab("library")
                         : atDirectoryRoot
                           ? openFilePicker
                           : directory.goBack
                     }
                   >
-                    {tab === "queue" ? (
+                    {tab === "queue" || tab === "favorites" ? (
                       <Library aria-hidden="true" />
                     ) : atDirectoryRoot ? (
                       <Plus aria-hidden="true" />
                     ) : (
                       <ArrowLeft aria-hidden="true" />
                     )}
-                    {tab === "queue"
+                    {tab === "queue" || tab === "favorites"
                       ? "去曲库"
                       : atDirectoryRoot
                         ? "添加音乐文件夹"
@@ -2089,13 +2377,14 @@ export function LiquidPlayer(): React.ReactElement {
                   />
                 </>
               )}
-              {tab === "library" && directory.listing?.tracks.hasMore ? (
+              {(tab === "library" && directory.listing?.tracks.hasMore) ||
+              (tab === "favorites" && favoritesState.hasMore) ? (
                 <div
                   ref={loadMoreSentinelRef}
                   className={styles.listMore}
                   aria-live="polite"
                 >
-                  {directory.loadingMore ? (
+                  {directory.loadingMore || favoritesLoading ? (
                     <>
                       <LoaderCircle
                         className={styles.rowSpinner}
@@ -2115,9 +2404,11 @@ export function LiquidPlayer(): React.ReactElement {
                 <span className={styles.footDot} aria-hidden="true" />
                 {tab === "queue"
                   ? `队列 ${queueTracks.length} 首 · ${listTotal}`
-                  : atDirectoryRoot
-                    ? `目录 ${directoryCount} 个`
-                    : `目录 ${allTracks.length}/${libraryTotal} 首 · ${listTotal}`}
+                  : tab === "favorites"
+                    ? `收藏 ${favoritesState.total || favoritesTracks.length} 首 · ${listTotal}`
+                    : atDirectoryRoot
+                      ? `目录 ${directoryCount} 个`
+                      : `目录 ${allTracks.length}/${libraryTotal} 首 · ${listTotal}`}
               </div>
             </footer>
           </section>
@@ -2152,6 +2443,9 @@ export function LiquidPlayer(): React.ReactElement {
           ? `${current.title}，${current.artist}，${playing ? "正在播放" : "已暂停"}`
           : "未选择音频"}
       </p>
+
+      {/* 按钮悬停标签统一浮在按钮上方居中，避免系统 tooltip 压在指针上。 */}
+      <TipHost />
     </div>
   );
 }

@@ -21,6 +21,9 @@
     "allow-widget-set-transparent",
     "allow-widget-apply-resize",
     "allow-widget-align-player",
+    "allow-widget-open",
+    "allow-widget-close",
+    "allow-widget-visibility",
     "allow-media-call",
     "allow-media-connect",
     "allow-media-disconnect"

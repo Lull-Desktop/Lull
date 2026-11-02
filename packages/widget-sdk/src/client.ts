@@ -99,6 +99,20 @@ export interface LullWidgetClient {
     playerAnchor: number;
   }): Promise<WidgetViewport & { applied: boolean }>;
   close(): Promise<void>;
+  /**
+   * 打开（或唤醒）宿主工具窗口。`kind` 必须在宿主白名单内（当前仅
+   * `"library"`）；`tab` 可指定工具窗口打开后停留的页签。需要
+   * `widget.chrome` 能力，宿主拒绝时抛错。
+   */
+  openWindow(options: { kind: string; tab?: string }): Promise<void>;
+  /** 隐藏宿主工具窗口（保留挂载）。需要 `widget.chrome` 能力。 */
+  closeWindow(options: { kind: string }): Promise<void>;
+  /** 工具窗口当前是否可见；用于开关按钮的首帧状态。 */
+  isWindowOpen(kind: string): Promise<boolean>;
+  /** 工具窗口可见性变化；首帧状态用 `isWindowOpen` 拉一次。 */
+  onWindowState(
+    listener: (state: { kind: string; visible: boolean; tab?: string }) => void,
+  ): () => void;
   log(message: unknown, level?: WidgetLogLevel): void;
 
   onTheme(listener: (theme: WidgetTheme) => void): () => void;
@@ -242,6 +256,9 @@ export function createLullWidgetClient(
   const visibilityListeners = new Set<(visible: boolean) => void>();
   const localeListeners = new Set<(locale: string) => void>();
   const mediaListeners = new Set<(event: unknown) => void>();
+  const windowStateListeners = new Set<
+    (state: { kind: string; visible: boolean; tab?: string }) => void
+  >();
 
   const stopListening = transport.listen((message) => {
     switch (message.type) {
@@ -268,6 +285,15 @@ export function createLullWidgetClient(
       }
       case "media.event": {
         for (const listener of mediaListeners) listener(message.event);
+        return;
+      }
+      case "window.state": {
+        const kind = typeof message.kind === "string" ? message.kind : "";
+        if (!kind) return;
+        const visible = message.visible === true;
+        const tab = typeof message.tab === "string" ? message.tab : undefined;
+        for (const listener of windowStateListeners)
+          listener({ kind, visible, tab });
         return;
       }
       case "response": {
@@ -408,6 +434,19 @@ export function createLullWidgetClient(
     async close() {
       await request("close", {});
     },
+    async openWindow(options) {
+      await request("window.open", {
+        kind: options.kind,
+        tab: options.tab,
+      });
+    },
+    async closeWindow(options) {
+      await request("window.close", { kind: options.kind });
+    },
+    async isWindowOpen(kind) {
+      const result = await request("window.isOpen", { kind });
+      return Boolean(result?.visible);
+    },
     log(message, level = "log") {
       void request("log", { level, message: String(message) }).catch(() => {
         // 日志失败不影响插件主流程。
@@ -448,6 +487,12 @@ export function createLullWidgetClient(
         mediaListeners.delete(listener);
       };
     },
+    onWindowState(listener) {
+      windowStateListeners.add(listener);
+      return () => {
+        windowStateListeners.delete(listener);
+      };
+    },
 
     destroy() {
       if (disposed) return;
@@ -463,6 +508,7 @@ export function createLullWidgetClient(
       visibilityListeners.clear();
       localeListeners.clear();
       mediaListeners.clear();
+      windowStateListeners.clear();
       shared = null;
     },
   };

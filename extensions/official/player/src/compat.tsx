@@ -79,6 +79,41 @@ export async function widgetAlignPlayer(
     });
 }
 
+/** 打开（或唤醒）音乐库窗口；`tab` 指定停留页签。需宿主壳转发 window.open。 */
+export function widgetOpenLibrary(tab?: string): Promise<void> {
+  if (!widget) return Promise.resolve();
+  return widget.openWindow({ kind: "library", tab });
+}
+
+/** 关闭（隐藏）音乐库窗口。需宿主壳转发 window.close。 */
+export function widgetCloseLibrary(): Promise<void> {
+  if (!widget) return Promise.resolve();
+  return widget.closeWindow({ kind: "library" });
+}
+
+/** 音乐库窗口当前是否可见；桥不可用时按「关着」处理。 */
+export function widgetLibraryVisible(): Promise<boolean> {
+  if (!widget) return Promise.resolve(false);
+  return widget.isWindowOpen("library").catch(() => false);
+}
+
+/**
+ * 订阅音乐库窗口的可见性与当前页签。
+ *
+ * 除了自己点按钮开关，用户直接关掉库窗口、在库窗口里切换页签、或从托盘 /
+ * 设置页隐藏时宿主也会推送，开关按钮据此保持和真实窗口一致。
+ */
+export function onLibraryState(
+  listener: (state: { visible: boolean; tab?: string }) => void,
+): () => void {
+  if (!widget) return () => {};
+  return widget.onWindowState((state) => {
+    if (state.kind === "library") {
+      listener({ visible: state.visible, tab: state.tab });
+    }
+  });
+}
+
 const THEME_LABELS: Record<string, () => string> = {
   blueGold: m.flow_theme_blue_gold,
   jade: m.flow_theme_forest,

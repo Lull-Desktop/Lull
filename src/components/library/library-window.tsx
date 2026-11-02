@@ -21,6 +21,8 @@ import type {
   TrackQuery,
   TrackSummary,
 } from "@lull/media-sdk";
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
 import {
   ChevronDown,
   ChevronUp,
@@ -104,6 +106,11 @@ const LIBRARY_REFRESH_TABS: ReadonlySet<LibraryTab> = new Set([
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** 校验外部传入的页签 id（widget_open 的 tab 参数）是否合法。 */
+function isLibraryTab(value: string): value is LibraryTab {
+  return TABS.some((tab) => tab.id === value);
 }
 
 function formatDuration(durationMs?: number): string {
@@ -894,6 +901,44 @@ export function LibraryWindow({
     setError(null);
     setNotice(null);
   }, []);
+
+  // 外部（播放器扩展等）经 widget_open 指定打开页签：挂载时取走 Rust 侧
+  // 暂存值（覆盖新建窗口时事件早于监听注册的情况），运行中收
+  // widget-open-tab 事件（窗口关闭即隐藏、复用唤醒不会重建 WebView）。
+  useEffect(() => {
+    let disposed = false;
+    void invoke<string | null>("widget_take_open_tab", { kind: "library" })
+      .then((tab) => {
+        if (!disposed && tab && isLibraryTab(tab)) selectTab(tab);
+      })
+      .catch(() => {
+        // 浏览器预览 / 单测没有 Tauri IPC；页签保持默认。
+      });
+    let stop: (() => void) | null = null;
+    void listen<{ tab?: string }>("widget-open-tab", (event) => {
+      const tab = event.payload?.tab;
+      if (tab && isLibraryTab(tab)) selectTab(tab);
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      })
+      .catch(() => {
+        // 同上；事件不可用时只影响外部指定页签。
+      });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [selectTab]);
+
+  // 页签变化广播给宿主壳：播放器等扩展据此判断「再点一次」是关闭窗口
+  // 还是切到另一个页签，开关按钮的高亮也能跟住真实页签。
+  useEffect(() => {
+    void emit("library-tab-changed", { tab }).catch(() => {
+      // 浏览器预览 / 单测没有 Tauri 事件系统。
+    });
+  }, [tab]);
 
   return (
     <LibraryWindowFrame

@@ -90,6 +90,8 @@
     "allow-widget-state-remove",
     "allow-widget-state-set",
     "allow-widget-states",
+    "allow-widget-take-open-tab",
+    "allow-widget-visibility",
     "allow-window-prefs-get",
     "allow-window-prefs-set",
     "allow-window-set-frame"
