@@ -26,6 +26,7 @@ import {
   ChevronUp,
   Clock,
   Download,
+  FlaskConical,
   FolderOpen,
   Heart,
   History,
@@ -41,10 +42,14 @@ import {
   Square,
   Trash2,
   Upload,
+  Wrench,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CoverPreview } from "@/components/library/cover-preview";
+import { LibraryWindowFrame } from "@/components/library/library-window-frame";
+import { LibraryOrganizerPanel } from "@/components/settings/library-organizer-panel";
+import { MediaApiTestPanel } from "@/components/settings/media-api-test-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getMediaClient } from "@/hooks/use-media-client";
@@ -60,7 +65,9 @@ type LibraryTab =
   | "favorites"
   | "history"
   | "queue"
-  | "smart";
+  | "smart"
+  | "organizer"
+  | "media-test";
 
 type LibraryWindowProps = {
   /** 测试/嵌入时注入；不传则使用官方 Tauri 单例。 */
@@ -76,7 +83,21 @@ const TABS: { id: LibraryTab; label: () => string; icon: typeof Music }[] = [
   { id: "history", label: m.library_history, icon: History },
   { id: "playlists", label: m.library_playlists, icon: ListMusic },
   { id: "smart", label: m.library_smart_playlists, icon: Sparkles },
+  { id: "organizer", label: m.library_tab_organizer, icon: Wrench },
+  { id: "media-test", label: m.library_tab_media_test, icon: FlaskConical },
 ];
+
+/** 只在原资料库页签显示的窗口级刷新；两个工具页签各有自己的刷新入口。 */
+const LIBRARY_REFRESH_TABS: ReadonlySet<LibraryTab> = new Set([
+  "tracks",
+  "recent",
+  "folders",
+  "playlists",
+  "favorites",
+  "history",
+  "queue",
+  "smart",
+]);
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -256,6 +277,8 @@ export function LibraryWindow({
     void version;
     setError(null);
     const run = async (): Promise<void> => {
+      // 两个工具页签使用自己的面板数据，不触发资料库的列表请求。
+      if (tab === "organizer" || tab === "media-test") return;
       if (tab !== "playlists") {
         // 曲库/喜欢页也提供“加入歌单”，因此这些页签也要拉一次歌单列表。
         const list = await client.playlists.list();
@@ -776,55 +799,40 @@ export function LibraryWindow({
   const hasActiveFilters = Object.values(filters).some((value) => value !== "");
   const hasQuery = keyword.trim().length > 0 || hasActiveFilters;
 
+  const selectTab = useCallback((next: LibraryTab): void => {
+    setTab(next);
+    if (next !== "playlists") {
+      setSelectedId(null);
+      setSelected(null);
+    }
+    setError(null);
+    setNotice(null);
+  }, []);
+
   return (
-    <div className="mx-auto flex h-full min-h-[560px] w-full max-w-[1180px] flex-col gap-4 p-5">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-semibold text-2xl text-ink">
-            {m.library_title()}
-          </h1>
-          <p className="mt-1 text-sm text-ink-soft">
-            {m.widget_library_description()}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={refresh}
-            disabled={busy !== null}
-          >
-            <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            {m.library_refresh()}
-          </Button>
-        </div>
-      </header>
-
-      <nav className="flex flex-wrap gap-2" aria-label={m.library_title()}>
-        {TABS.map((item) => {
-          const Icon = item.icon;
-          return (
+    <LibraryWindowFrame
+      title={m.library_title()}
+      description={m.widget_library_description()}
+      tabs={TABS}
+      activeTab={tab}
+      onSelectTab={(id) => selectTab(id as LibraryTab)}
+      actions={
+        LIBRARY_REFRESH_TABS.has(tab) ? (
+          <div className="flex items-center gap-2">
             <Button
-              key={item.id}
               type="button"
-              variant={tab === item.id ? "default" : "outline"}
+              variant="outline"
               size="sm"
-              onClick={() => {
-                setTab(item.id);
-                if (item.id !== "playlists") {
-                  setSelectedId(null);
-                  setSelected(null);
-                }
-              }}
+              onClick={refresh}
+              disabled={busy !== null}
             >
-              <Icon className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              {item.label()}
+              <RefreshCw className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              {m.library_refresh()}
             </Button>
-          );
-        })}
-      </nav>
-
+          </div>
+        ) : null
+      }
+    >
       {/* 错误 / 成功提示紧跟页签，先于筛选与列表，避免被筛选面板挤到视线外。 */}
       {(error || notice) && (
         <div
@@ -969,6 +977,12 @@ export function LibraryWindow({
       )}
 
       <section className="min-h-0 flex-1">
+        {tab === "organizer" && (
+          <LibraryOrganizerPanel client={client ?? undefined} />
+        )}
+
+        {tab === "media-test" && <MediaApiTestPanel client={client} />}
+
         {tab === "tracks" && (
           <TrackTable
             tracks={tracks}
@@ -1591,7 +1605,7 @@ export function LibraryWindow({
           }}
         />
       ) : null}
-    </div>
+    </LibraryWindowFrame>
   );
 }
 

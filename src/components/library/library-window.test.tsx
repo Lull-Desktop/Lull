@@ -83,6 +83,7 @@ function createClient(state: PlayerState = idleState): LullMediaClient {
       listArtists: vi.fn(async () => [artist]),
       listAlbums: vi.fn(async () => [album]),
       listGenres: vi.fn(async () => ["电子"]),
+      listTags: vi.fn(async () => []),
       listSmartPlaylists: vi.fn(async () => []),
       runSmartPlaylist: vi.fn(async () => page([])),
       createSmartPlaylist: vi.fn(),
@@ -119,8 +120,8 @@ function createClient(state: PlayerState = idleState): LullMediaClient {
       get: vi.fn(async () => ({ trackIds: [], revision: 1 })),
       playAt: vi.fn(async () => ({ ...state, track, status: "playing" })),
     },
-    favorites: { set: vi.fn(), list: vi.fn() },
-    history: { list: vi.fn(), clear: vi.fn() },
+    favorites: { set: vi.fn(), list: vi.fn(async () => page([])) },
+    history: { list: vi.fn(async () => page([])), clear: vi.fn() },
   };
   return client as unknown as LullMediaClient;
 }
@@ -260,5 +261,47 @@ test("我的目录保留备份与恢复入口", async () => {
 
   await waitFor(() => {
     expect(client.library.exportBackup).toHaveBeenCalledTimes(1);
+  });
+});
+
+test("曲库整理页签渲染整理面板并复用窗口 client", async () => {
+  const client = createClient();
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "曲库整理" }));
+
+  expect(await screen.findByText("曲库整理测试")).toBeDefined();
+  await waitFor(() => {
+    expect(client.library.listTags).toHaveBeenCalled();
+  });
+});
+
+test("媒体测试页签渲染媒体 API 面板", async () => {
+  const client = createClient();
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "媒体测试" }));
+
+  expect(await screen.findByText("媒体 API 测试面板")).toBeDefined();
+});
+
+test("切换工具页签不会断开窗口的媒体订阅", async () => {
+  const client = createClient();
+  const { unmount } = render(<LibraryWindow client={client} />);
+
+  await waitFor(() => {
+    expect(client.connect).toHaveBeenCalledTimes(1);
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "曲库整理" }));
+  fireEvent.click(screen.getByRole("button", { name: "媒体测试" }));
+  fireEvent.click(screen.getByRole("button", { name: "全部歌曲" }));
+
+  expect(client.connect).toHaveBeenCalledTimes(1);
+  expect(client.disconnect).not.toHaveBeenCalled();
+
+  unmount();
+  await waitFor(() => {
+    expect(client.disconnect).toHaveBeenCalledTimes(1);
   });
 });

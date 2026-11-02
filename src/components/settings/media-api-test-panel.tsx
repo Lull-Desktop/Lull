@@ -1,8 +1,8 @@
 /**
  * 开发调试面板：直接驱动 @lull/media-sdk 的 P3 API，并把结果与 media:event
- * 原样展示出来，方便在设置窗内手工验收歌单/收藏/历史/队列/M3U。
+ * 原样展示出来，方便在音乐库窗口内手工验收歌单/收藏/历史/队列/M3U。
  *
- * 这不是面向用户的正式 UI；正式资料库界面见 components/library。
+ * 这不是面向用户的正式 UI；媒体连接由外层资料库窗口统一建立，这里只订阅事件。
  */
 "use client";
 
@@ -14,7 +14,6 @@ import type {
   QueueState,
   TrackSummary,
 } from "@lull/media-sdk";
-import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +23,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { getMediaClient } from "@/hooks/use-media-client";
 
 type LogEntry = {
   id: number;
@@ -45,8 +43,12 @@ function json(value: unknown): string {
   }
 }
 
-export function MediaApiTestPanel() {
-  const [client, setClient] = useState<LullMediaClient | null>(null);
+export function MediaApiTestPanel({
+  client,
+}: {
+  /** 由资料库窗口传入；连接所有权在窗口，面板不 connect/disconnect。 */
+  client: LullMediaClient | null;
+}) {
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [selectedTrackId, setSelectedTrackId] = useState("");
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
@@ -74,33 +76,15 @@ export function MediaApiTestPanel() {
   }, []);
 
   useEffect(() => {
-    setClient(getMediaClient());
-  }, []);
-
-  useEffect(() => {
     if (!client) return;
-    let alive = true;
     const stop = client.events.on((event) => {
-      if (!alive) return;
       push(`event ${event.topic}`, {
         revision: event.revision,
         eventId: event.eventId,
         payload: event.payload,
       });
     });
-    void client
-      .connect({
-        topics: ["player.state", "queue.changed"],
-        levels: false,
-      })
-      .catch((reason: unknown) => {
-        if (alive) setError(errorText(reason));
-      });
-    return () => {
-      alive = false;
-      stop();
-      void client.disconnect();
-    };
+    return stop;
   }, [client, push]);
 
   const selectedTrack = useMemo(
@@ -300,7 +284,7 @@ export function MediaApiTestPanel() {
           <CardTitle>媒体 API 测试面板</CardTitle>
           <CardDescription>
             开发调试用：直接调用 @lull/media-sdk，下方日志显示 API 结果与
-            media:event。正式资料库界面是“音乐库”窗口。
+            media:event。媒体连接由音乐库窗口统一维护，这里不会重复连接。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-2">
@@ -309,30 +293,6 @@ export function MediaApiTestPanel() {
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={addFolder}>
             导入音乐目录并扫描
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              void invoke("widget_open", { kind: "library" }).catch(
-                (reason: unknown) => setError(errorText(reason)),
-              );
-            }}
-          >
-            打开资料库窗口
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              void invoke("widget_close", { kind: "library" }).catch(
-                (reason: unknown) => setError(errorText(reason)),
-              );
-            }}
-          >
-            关闭资料库窗口
           </Button>
           <span className="text-xs text-muted-foreground">
             {busy

@@ -1,5 +1,5 @@
 /**
- * 设置页「曲库整理」调试面板：直接驱动 @lull/media-sdk 的 P4 编辑能力。
+ * 音乐库窗口「曲库整理」调试页签：直接驱动 @lull/media-sdk 的 P4 编辑能力。
  *
  * 这是开发验收面板，不是资料库正式 UI；覆盖元数据覆盖、标签、实体合并/拆分、
  * 智能歌单，以及每一步的原始返回，方便手工核对 Rust 行为。
@@ -456,7 +456,7 @@ export function LibraryOrganizerPanel({
           favoriteOnly: smartFavorite || undefined,
           pageSize: 100,
         },
-        "设置页曲库整理测试",
+        "曲库整理测试",
       ),
     );
   };

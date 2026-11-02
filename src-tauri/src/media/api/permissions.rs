@@ -114,7 +114,7 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
 /// 官方窗口的 Noise 方法权限；资产写操作仍由 `noise::library` 自己限制到 settings。
 pub fn official_noise_allowed(label: &str, method: &str) -> Result<(), MediaError> {
   let allowed = match label {
-    "settings" => true,
+    "settings" | "noise-library" => true,
     "noise" => !matches!(
       method,
       "importAssets"
@@ -195,7 +195,7 @@ pub const NOISE_WINDOW_TOPICS: &[&str] = &[
 #[must_use]
 pub fn official_topics(label: &str) -> &'static [&'static str] {
   match label {
-    "noise" => NOISE_WINDOW_TOPICS,
+    "noise" | "noise-library" => NOISE_WINDOW_TOPICS,
     "player" | "library" => PLAYER_TOPICS,
     _ => &[],
   }
@@ -363,10 +363,21 @@ mod tests {
   #[test]
   fn official_noise_matrix_keeps_player_out() {
     assert!(official_noise_allowed("settings", "importAssets").is_ok());
+    assert!(official_noise_allowed("noise-library", "importAssets").is_ok());
+    assert!(official_noise_allowed("noise-library", "importPreset").is_ok());
     assert!(official_noise_allowed("noise", "playSession").is_ok());
     assert!(official_noise_allowed("noise", "importAssets").is_err());
     assert!(official_noise_allowed("library", "listAssets").is_ok());
     assert!(official_noise_allowed("library", "playSession").is_err());
     assert!(official_noise_allowed("player", "getState").is_err());
+  }
+
+  #[test]
+  fn noise_library_window_subscribes_to_noise_topics() {
+    let topics = official_topics("noise-library");
+    assert!(topics.contains(&"noise.session.changed"));
+    assert!(topics.contains(&"noise.level"));
+    assert!(!topics.contains(&"player.state"));
+    assert!(official_topics("backdrop").is_empty());
   }
 }

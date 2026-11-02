@@ -7,13 +7,19 @@
  */
 import { m } from "@/paraglide/messages";
 import { parseWidgetManifest, type WidgetManifest } from "@/sdk/widget";
+import backdropManifest from "./manifests/backdrop.json" with { type: "json" };
 import libraryManifest from "./manifests/library.json" with { type: "json" };
+import noiseLibraryManifest from "./manifests/noise-library.json" with {
+  type: "json",
+};
 import settingsManifest from "./manifests/settings.json" with { type: "json" };
 
 /** 所有由宿主管理的窗口（含设置外壳）。 */
 export const WINDOW_MANIFESTS: readonly WidgetManifest[] = [
   settingsManifest,
   libraryManifest,
+  backdropManifest,
+  noiseLibraryManifest,
 ].map((input, index) => parseWidgetManifest(input, `manifests[${index}]`));
 
 /** 设置页 / 托盘消费的工具窗（不含设置外壳）。 */
@@ -30,10 +36,14 @@ export const BUILTIN_WIDGETS: readonly WidgetManifest[] =
  */
 const DISPLAY_NAME: Record<string, () => string> = {
   library: m.widget_library_name,
+  backdrop: m.widget_backdrop_name,
+  "noise-library": m.widget_noise_library_name,
 };
 
 const DISPLAY_DESCRIPTION: Record<string, () => string> = {
   library: m.widget_library_description,
+  backdrop: m.widget_backdrop_description,
+  "noise-library": m.widget_noise_library_description,
 };
 
 export function widgetDisplayName(widget: WidgetManifest): string {

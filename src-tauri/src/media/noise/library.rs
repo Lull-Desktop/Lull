@@ -1,8 +1,8 @@
 //! N3 Noise Library：本地素材导入、Asset 读取/编辑/删除、分类/标签/收藏、
 //! 缺失检测与搜索分页。
 //!
-//! 只允许官方 host 窗口访问；导入/删除/编辑仅 `settings`，`noise`/`library`
-//! 可读并切换收藏。公开 DTO 不包含 storage_key 或任何文件路径。
+//! 只允许官方 host 窗口访问；导入/删除/编辑仅 `settings` 与 `noise-library`，
+//! `noise`/`library` 可读并切换收藏。公开 DTO 不包含 storage_key 或任何文件路径。
 
 use std::path::PathBuf;
 
@@ -23,11 +23,12 @@ const MAX_NAME_CHARS: usize = 80;
 const MAX_DESCRIPTION_BYTES: usize = 2048;
 
 fn read_allowed(label: &str) -> bool {
-  matches!(label, "settings" | "noise" | "library") || label.starts_with("widget-")
+  matches!(label, "settings" | "noise" | "library" | "noise-library")
+    || label.starts_with("widget-")
 }
 
 fn write_allowed(label: &str) -> bool {
-  label == "settings"
+  matches!(label, "settings" | "noise-library")
 }
 
 fn favorite_allowed(label: &str) -> bool {
@@ -51,7 +52,7 @@ fn require_write(label: &str) -> Result<(), MediaError> {
   } else {
     Err(MediaError::new(
       "capability.denied",
-      "只有设置窗口可以导入/编辑/删除 Noise 素材",
+      "只有设置窗口或白噪音库窗口可以导入/编辑/删除 Noise 素材",
     ))
   }
 }
@@ -768,12 +769,15 @@ mod tests {
   }
 
   #[test]
-  fn access_matrix_keeps_import_to_settings() {
+  fn access_matrix_keeps_import_to_settings_and_noise_library() {
     assert!(write_allowed("settings"));
+    assert!(write_allowed("noise-library"));
     assert!(!write_allowed("noise"));
     assert!(!write_allowed("library"));
     assert!(read_allowed("noise"));
+    assert!(read_allowed("noise-library"));
     assert!(favorite_allowed("library"));
+    assert!(favorite_allowed("noise-library"));
     assert!(!read_allowed("player"));
   }
 

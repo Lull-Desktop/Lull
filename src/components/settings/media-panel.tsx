@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 设置页「媒体壁纸」面板。
+ * 壁纸库窗口内的「媒体壁纸」面板。
  *
  * 只在场景为 `lull.video` 时由 WallpaperPanel 渲染；配置写入走
  * `media_config_set` / `media_activate`，壁纸窗口通过 `media-config-changed` 热更。

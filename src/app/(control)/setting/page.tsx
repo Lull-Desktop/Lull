@@ -1,6 +1,6 @@
 /**
- * 设置窗口页面：偏好（主题 / 窗口 / 关于）、壁纸、曲库整理、噪音与扩展页签。
- * 壁纸层的显示与场景配置在 WallpaperPanel，本页只保留全局偏好卡片。
+ * 设置窗口页面：偏好（语言 / 主题 / 窗口与库窗口入口）、扩展、关于三个页签。
+ * 壁纸库、白噪音库与曲库整理/媒体测试分别迁到独立库窗口，本页只保留控制面。
  */
 "use client";
 
@@ -17,13 +17,7 @@ import {
 } from "react";
 import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
 import { SlotPanel } from "@/components/extensions/slot-panel";
-import { LibraryOrganizerPanel } from "@/components/settings/library-organizer-panel";
-import { MediaApiTestPanel } from "@/components/settings/media-api-test-panel";
-import { NoiseApiTestPanel } from "@/components/settings/noise-api-test-panel";
-import { NoiseLibraryPanel } from "@/components/settings/noise-library-panel";
-import { NoisePresetPanel } from "@/components/settings/noise-preset-panel";
 import { ThemeModeSwitch } from "@/components/settings/theme-mode-switch";
-import { WallpaperPanel } from "@/components/settings/wallpaper-panel";
 import {
   Card,
   CardContent,
@@ -77,29 +71,15 @@ type WidgetState = {
   visible: boolean;
 };
 
-/** 设置页签，顺序即展示顺序：偏好 → 壁纸 → 扩展。文案在渲染时按当前语言取。 */
-const SETTINGS_TABS = [
-  "preferences",
-  "wallpaper",
-  "library-organizer",
-  "noise-library",
-  "noise-presets",
-  "media-test",
-  "noise-test",
-  "extensions",
-] as const;
+/** 设置页签，顺序即展示顺序：偏好 → 扩展 → 关于。文案在渲染时按当前语言取。 */
+const SETTINGS_TABS = ["preferences", "extensions", "about"] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const TAB_LABELS: Record<SettingsTab, () => string> = {
   preferences: m.settings_tab_preferences,
-  wallpaper: m.settings_tab_wallpaper,
-  "library-organizer": m.settings_tab_library_organizer,
-  "noise-library": m.settings_tab_noise_library,
-  "noise-presets": m.settings_tab_noise_presets,
-  "media-test": m.settings_tab_media_test,
-  "noise-test": m.settings_tab_noise_test,
   extensions: m.settings_tab_extensions,
+  about: m.settings_tab_about,
 };
 
 /** 色板玻璃珠的自定义属性。 */
@@ -297,6 +277,14 @@ export default function Settings() {
     [refreshWidgets],
   );
 
+  // 扩展页的「壁纸设置」直接打开壁纸库窗口；失败提示统一走 widgetMsg。
+  const openToolWindow = useCallback((kind: string): void => {
+    setWidgetMsg("");
+    void invoke("widget_open", { kind }).catch((error: unknown) => {
+      setWidgetMsg(m.settings_action_failed({ reason: localizeError(error) }));
+    });
+  }, []);
+
   // SlotPanel 的变更同时刷新扩展列表与槽位：扩展页的 Provider 徽章要跟着更新。
   const refreshSlotViews = useCallback(async (): Promise<void> => {
     await Promise.all([refreshExtensions(), refreshSlots()]);
@@ -339,7 +327,7 @@ export default function Settings() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-4">
       <div
-        className="sticky top-0 z-10 mb-3 grid grid-cols-4 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
+        className="sticky top-0 z-10 mb-3 grid grid-cols-3 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
         role="tablist"
         aria-label={m.settings_tabs_label()}
       >
@@ -361,9 +349,15 @@ export default function Settings() {
         ))}
       </div>
 
+      {widgetMsg && (
+        <p className="mb-3 text-xs text-destructive" role="alert">
+          {widgetMsg}
+        </p>
+      )}
+
       {tab === "preferences" && (
         <main className="space-y-6">
-          {/* ── General（语言 / 主题流光 / 窗口 / 关于合并为一张卡片）── */}
+          {/* ── General（语言 / 主题流光 / 窗口合并为一张卡片）── */}
           <Card className="w-full" data-testid="settings-preferences-card">
             <CardContent className="space-y-6 p-6">
               {/* Language（界面语言，偏好以 Rust 的 preferences.json 为准） */}
@@ -595,9 +589,6 @@ export default function Settings() {
                 {windowPrefsMsg && (
                   <p className="text-xs text-destructive">{windowPrefsMsg}</p>
                 )}
-                {widgetMsg && (
-                  <p className="text-xs text-destructive">{widgetMsg}</p>
-                )}
 
                 <div
                   className="space-y-3 border-t border-border/50 pt-3"
@@ -620,21 +611,6 @@ export default function Settings() {
                     <p className="text-xs text-destructive">{slotError}</p>
                   )}
                 </div>
-              </section>
-
-              {/* About Lull（开源身份与扩展入口） */}
-              <section
-                className="space-y-3 border-t border-border/60 pt-6"
-                data-testid="settings-about-section"
-              >
-                <SectionHeading
-                  icon={<MoonStar className="h-4 w-4 text-bamboo" />}
-                  title={m.settings_about_title()}
-                  description={m.settings_about_description()}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {m.settings_about_version({ version: appVersion })}
-                </p>
               </section>
             </CardContent>
           </Card>
@@ -802,36 +778,6 @@ export default function Settings() {
           </Card> */}
         </main>
       )}
-      {tab === "wallpaper" && (
-        <main className="space-y-6">
-          <WallpaperPanel />
-        </main>
-      )}
-      {tab === "library-organizer" && (
-        <main className="space-y-6">
-          <LibraryOrganizerPanel />
-        </main>
-      )}
-      {tab === "noise-library" && (
-        <main className="space-y-6">
-          <NoiseLibraryPanel />
-        </main>
-      )}
-      {tab === "noise-presets" && (
-        <main className="space-y-6">
-          <NoisePresetPanel />
-        </main>
-      )}
-      {tab === "media-test" && (
-        <main className="space-y-6">
-          <MediaApiTestPanel />
-        </main>
-      )}
-      {tab === "noise-test" && (
-        <main className="space-y-6">
-          <NoiseApiTestPanel />
-        </main>
-      )}
       {tab === "extensions" && (
         <main className="space-y-6">
           <Card>
@@ -865,8 +811,32 @@ export default function Settings() {
             </CardContent>
           </Card>
           <ExtensionsPanel
-            onOpenWallpaperSettings={() => setTab("wallpaper")}
+            onOpenWallpaperSettings={() => openToolWindow("backdrop")}
           />
+        </main>
+      )}
+      {tab === "about" && (
+        <main className="space-y-6">
+          <Card className="w-full" data-testid="settings-about-card">
+            <CardContent className="space-y-4 p-6">
+              <section
+                className="space-y-3"
+                data-testid="settings-about-section"
+              >
+                <SectionHeading
+                  icon={<MoonStar className="h-4 w-4 text-bamboo" />}
+                  title={m.settings_about_title()}
+                  description={m.settings_about_description()}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {m.settings_about_version({ version: appVersion })}
+                </p>
+                <p className="border-t border-border/60 pt-3 text-xs leading-relaxed text-muted-foreground">
+                  {m.settings_about_extensions()}
+                </p>
+              </section>
+            </CardContent>
+          </Card>
         </main>
       )}
     </div>

@@ -1,0 +1,39 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "window-backdrop",
+  "description": "Lull backdrop window (generated from src/widgets/manifests/backdrop.json).",
+  "windows": [
+    "backdrop"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-minimize",
+    "core:window:allow-set-resizable",
+    "core:window:allow-set-size",
+    "core:window:allow-outer-position",
+    "core:window:allow-set-position",
+    "allow-window-set-frame",
+    "allow-content-packages",
+    "allow-wallpaper-get-visible",
+    "allow-wallpaper-monitors",
+    "allow-wallpaper-display-get",
+    "allow-wallpaper-set-visible",
+    "allow-wallpaper-set-display",
+    "allow-wallpaper-set-monitor-visible",
+    "allow-wallpaper-set-monitor-scene",
+    "allow-wallpaper-set-scene-params",
+    "allow-media-assets",
+    "allow-media-asset-pick",
+    "allow-media-asset-remove",
+    "allow-media-config-get",
+    "allow-media-config-set",
+    "allow-media-activate",
+    "allow-media-resync",
+    "allow-media-stats"
+  ]
+}

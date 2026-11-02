@@ -149,18 +149,18 @@ Media Service（Rust）
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` / `usePlayerSession` / `useDirectoryBrowser`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
 - `@lull/media-sdk/widget`：`createWidgetTransport` / `createWidgetMediaClient`，翻译为 Widget 桥的 `media.call/connect/disconnect`，并通过 `onMediaEvent` 接收宿主转发事件。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
-- 设置页音乐库面板、官方播放器、白噪音与资料库窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。资料库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单；设置页「我的目录」负责导入、扫描、重命名与移除。
+- 音乐库 / 壁纸库 / 白噪音库窗口、官方播放器与白噪音窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。音乐库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单，以及「曲库整理」「媒体测试」两个调试页签，并负责导入、扫描、重命名与移除目录；壁纸库（label `backdrop`）承载壁纸层与媒体壁纸配置；白噪音库（label `noise-library`）承载 Noise 素材、Preset 与 API 调试。
 
 P5 已落地：`./widget` 传输、8 个 Noise capability、Rust bridge token、`noise-mixer` 示例；`./vue` 与查询缓存仍未实现。
 
 P2（官方扩展迁移）已落地：Widget 新增 `media.player.read/control/volume.write`、`media.queue.read/write`、`media.library.read/favorites.write`、`media.library.sources.write`；`media_connect` 按授权裁剪 player/queue 快照与 topic；封面在授权时放开 `asset:` 的 CSP。
 
-P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD/多标签分配，智能歌单创建/运行/删除；实体合并/拆分通过 SDK/API 提供，暂未做专用管理 UI。设置页新增「曲库整理」调试面板，直接驱动同一组 SDK 方法并显示原始返回。
+P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD/多标签分配，智能歌单创建/运行/删除；实体合并/拆分通过 SDK/API 提供，暂未做专用管理 UI。音乐库窗口新增「曲库整理」调试页签，直接驱动同一组 SDK 方法并显示原始返回。
 
 ## 5. 安全与隐私
 
-- `media_call` 对 `settings/player/noise/library` 走官方矩阵；`widget-*` 必须携带 Rust 生成的 bridge token，并逐方法校验 Noise（8）+ Player/Queue/Library（9）共 17 个 `media.*` capability。引擎命令仅 `media-engine`。
-- 官方窗口矩阵：`settings` 全部；`noise` Noise 读写但不导入/删除 Asset、不导入/导出 Preset 文件；`player` 仅播放/队列；`library` 读取 Noise Library。Widget 不获得 `system.snapshot`、Asset 写与 Preset 文件导入导出。
+- `media_call` 对 `settings/player/noise/library/noise-library` 走官方矩阵；`widget-*` 必须携带 Rust 生成的 bridge token，并逐方法校验 Noise（8）+ Player/Queue/Library（9）共 17 个 `media.*` capability。引擎命令仅 `media-engine`。
+- 官方窗口矩阵：`settings` 全部；`noise-library` Noise 全量（素材/Preset/Session 管理）；`noise` Noise 读写但不导入/删除 Asset、不导入/导出 Preset 文件；`player` 仅播放/队列；`library` 读取 Noise Library。Widget 不获得 `system.snapshot`、Asset 写与 Preset 文件导入导出。
 - Widget `media_connect` 至少需要一项读能力；snapshot 按授权裁剪：`player` 需 `media.player.read`，`queue` 需 `media.queue.read`，output/noise 维持现状；topic 白名单 = 已授权读能力的并集。
 - bridge token 只注入顶层壳页，插件 iframe 拿不到；`media_call`/`media_connect`/`media_disconnect` 都校验 token，伪造 label/token 失败。
 - 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.*` 八项，以及 `media.player.read/control/volume.write`、`media.queue.read/write`、`media.library.read/directory.read/favorites.write`、`media.library.sources.write`（最后一项只允许 `folders.add` / `folders.scan`，通过系统选择器添加并扫描）。
@@ -189,7 +189,7 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 - N6 起白噪音窗口改用 `NoiseSession`/`NoiseTrack`：5 个内置 procedural 仍渲染为泡泡，本地轨道显示紧凑列表；支持 Preset 选择/加载、播放/暂停、睡眠和本地轨开关/音量/移除。加载 Preset 后 Session 保持 idle，泡泡显示“待播放”、主泡显示暂停，点击播放/泡泡才出声；关闭窗口只断开 UI 订阅，不停止 Session；重开取 snapshot，多窗口靠 `noise.session.changed` 同步。
 - P4 起元数据编辑写 `overrides_json` + `music_field_sources(source=manual)`，同步更新曲目/艺术家/专辑规范化字段；重扫看到 `manual/split/online` 不再覆盖该字段。标签是独立实体，`music_track_tags` 支持多标签与筛选；艺术家/专辑合并保留 `merged_into_id` 与别名，拆分把选中 Track 关系迁到新实体；智能歌单保存查询规则并在读取时实时查询。
 - P6 已支持同名 `.lrc` / `.txt` / `.srt` sidecar 歌词（按 lrc → txt → srt 优先级，内容原样保存）；组织数据备份为 JSON，只含 Track ID 引用、歌单、喜欢、历史、标签与智能歌单，不含音频/路径/资产，导入缺失 Track 自动跳过。在线元数据、文件监听与缩略图仍未开始。
-- 封面读取链路：`TrackSummary.hasCover` 表示是否有主封面；`library.getCoverUrl(trackId)` 返回经 asset protocol 授权的 URL；资产存 `music_assets`，关系存 `music_track_assets(role='cover')`，来源由扫描器写入 `embedded/folder`。当前没有用户上传/替换/删除封面的保存 API，`updateTrackMetadata` 也不覆盖封面；资料库元数据弹窗与设置页曲库整理面板只做只读预览。
+- 封面读取链路：`TrackSummary.hasCover` 表示是否有主封面；`library.getCoverUrl(trackId)` 返回经 asset protocol 授权的 URL；资产存 `music_assets`，关系存 `music_track_assets(role='cover')`，来源由扫描器写入 `embedded/folder`。当前没有用户上传/替换/删除封面的保存 API，`updateTrackMetadata` 也不覆盖封面；资料库元数据弹窗与音乐库窗口的曲库整理页签只做只读预览。
 - 设备切换依赖 `devicechange` 重载引擎页 + Rust 全量 resync；多设备选择、独占模式、SMTC 尚未接入。
 - Widget 已获得 8 个 `media.noise.*` 与 9 个 `media.player` / `media.queue` / `media.library` capability 的受限访问；bridge token 与 redacted snapshot 见 [Widget SDK](widget-sdk.md)。`system.snapshot`、文件夹根路径与 Asset/Preset 文件导入导出仍只属于宿主窗口。Slot Provider 的选择与切换不改变这些能力校验。
 - 扫描错误最多保留 100 条，写入 `music_scan_runs.errors_json`。
@@ -218,18 +218,17 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 
 ### 7.1 手工验收（开发调试）
 
-设置窗新增「媒体测试」页签（`components/settings/media-api-test-panel.tsx`），它直接调用 `@lull/media-sdk` 并显示 API 结果与 `media:event`，用于验收：
+音乐库窗口的「媒体测试」页签（`components/settings/media-api-test-panel.tsx`）直接调用 `@lull/media-sdk` 并显示 API 结果与 `media:event`，用于验收：
 
 - 添加音乐文件夹并扫描，得到可测试曲目；
 - 新建/重命名/删除歌单，加入/移除/排序曲目；
 - 收藏、清空历史、播放后确认 `history.changed` 与历史列表；
 - 队列播放/移出后确认 `player.state` / `queue.changed` 刷新；
-- 导入/导出 M3U，检查导入匹配与导出文件内容；
-- 打开/关闭「音乐库」窗口，确认关闭后播放继续、重开恢复队列与列表。
+- 导入/导出 M3U，检查导入匹配与导出文件内容。
 
-该页签是调试工具，不是正式资料库 UI；正式界面是 `library` 窗口。
+该页签是调试工具，不是正式资料库 UI；正式界面是同一窗口的曲库/歌单/收藏等页签。媒体连接由窗口根节点统一建立，页签只订阅事件，不重复 connect/disconnect。
 
-设置窗另有「白噪音测试」页签（`components/settings/noise-api-test-panel.tsx`），用于 N2 手工验收：
+白噪音库窗口的「噪音测试」页签（`components/settings/noise-api-test-panel.tsx`）用于 N2 手工验收：
 
 - 读取/切换 `noise.session.*` 状态，新建、播放、暂停、停止；
 - 按内置 profile 或 Asset ID 添加音轨，调整音量/enabled/loop/顺序并移除；

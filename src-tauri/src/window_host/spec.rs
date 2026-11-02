@@ -87,8 +87,15 @@ mod tests {
   #[test]
   fn find_matches_kind_and_label_management() {
     assert_eq!(find("library").map(|spec| spec.label), Some("library"));
+    assert_eq!(find("backdrop").map(|spec| spec.label), Some("backdrop"));
+    assert_eq!(
+      find("noise-library").map(|spec| spec.label),
+      Some("noise-library")
+    );
     assert!(find("nope").is_none());
     assert!(is_managed("settings"));
+    assert!(is_managed("backdrop"));
+    assert!(is_managed("noise-library"));
     assert!(!is_managed("pomodoro"));
     assert!(!is_managed("noise"));
     assert!(!is_managed("main"));
@@ -98,6 +105,8 @@ mod tests {
   fn builtin_windows_are_resizable() {
     assert!(SETTINGS.resizable);
     assert!(LIBRARY.resizable);
+    assert!(BACKDROP.resizable);
+    assert!(NOISE_LIBRARY.resizable);
   }
 
   #[test]
@@ -111,6 +120,20 @@ mod tests {
   fn builtin_windows_are_opaque() {
     assert!(!SETTINGS.transparent);
     assert!(!LIBRARY.transparent);
+    assert!(!BACKDROP.transparent);
+    assert!(!NOISE_LIBRARY.transparent);
+  }
+
+  /// 三个库窗口共用同一套尺寸与布局基准：1080×760、min 900×600。
+  #[test]
+  fn library_windows_share_library_dimensions() {
+    for spec in [&LIBRARY, &BACKDROP, &NOISE_LIBRARY] {
+      assert_eq!(spec.width, 1080.0, "{}", spec.kind);
+      assert_eq!(spec.height, 760.0, "{}", spec.kind);
+      assert_eq!(spec.min_width, 900.0, "{}", spec.kind);
+      assert_eq!(spec.min_height, 600.0, "{}", spec.kind);
+      assert!(spec.max_height.is_none(), "{}", spec.kind);
+    }
   }
 
   #[test]
@@ -140,6 +163,10 @@ mod tests {
     );
     assert!(!LIBRARY.capabilities.contains(&"widget.window"));
     assert!(SETTINGS.capabilities.contains(&"widget.window"));
+    for spec in [&BACKDROP, &NOISE_LIBRARY] {
+      assert!(spec.capabilities.contains(&"widget.chrome"));
+      assert!(!spec.capabilities.contains(&"widget.window"));
+    }
   }
 
   /// 生成的静态描述必须与 JSON 清单逐字段一致：

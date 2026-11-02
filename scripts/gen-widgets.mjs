@@ -55,6 +55,31 @@ const MEDIA_TOOL_PERMISSIONS = [
   "allow-media-disconnect",
 ];
 
+/**
+ * `backdrop` 是壁纸库窗口：需要壁纸配置、内容目录和媒体壁纸面板的命令。
+ * 窗口 id 不能叫 `wallpaper-*`：`window-wallpaper` capability 与壁纸媒体 token
+ * 校验都按这个前缀识别真正的渲染窗口，前缀重名会误授权/误判。
+ */
+const BACKDROP_PERMISSIONS = [
+  "allow-content-packages",
+  "allow-wallpaper-get-visible",
+  "allow-wallpaper-monitors",
+  "allow-wallpaper-display-get",
+  "allow-wallpaper-set-visible",
+  "allow-wallpaper-set-display",
+  "allow-wallpaper-set-monitor-visible",
+  "allow-wallpaper-set-monitor-scene",
+  "allow-wallpaper-set-scene-params",
+  "allow-media-assets",
+  "allow-media-asset-pick",
+  "allow-media-asset-remove",
+  "allow-media-config-get",
+  "allow-media-config-set",
+  "allow-media-activate",
+  "allow-media-resync",
+  "allow-media-stats",
+];
+
 const errors = [];
 const fail = (message) => errors.push(message);
 
@@ -314,9 +339,13 @@ function permissionsFor(manifest) {
     if (
       manifest.id === "player" ||
       manifest.id === "noise" ||
-      manifest.id === "library"
+      manifest.id === "library" ||
+      manifest.id === "noise-library"
     ) {
       for (const permission of MEDIA_TOOL_PERMISSIONS) permissions.add(permission);
+    }
+    if (manifest.id === "backdrop") {
+      for (const permission of BACKDROP_PERMISSIONS) permissions.add(permission);
     }
   }
   return [...permissions];

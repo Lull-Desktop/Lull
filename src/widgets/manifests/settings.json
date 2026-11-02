@@ -5,7 +5,7 @@
   "id": "settings",
   "name": "设置",
   "version": "1.0.0",
-  "description": "壁纸、工具窗与全局偏好。",
+  "description": "全局偏好、扩展中心与关于。",
   "author": "Lull",
   "license": "GPL-3.0-or-later",
   "builtin": true,

@@ -55,7 +55,7 @@ test("localizeError 兼容字符串、结构化错误与未知值", () => {
   expect(localizeError(42)).toBe("42");
 });
 
-test("设置页切到 English 后页签与关于卡片跟着换语言", async () => {
+test("设置页切到 English 后页签与关于页跟着换语言", async () => {
   renderSettingsPage();
 
   // 默认渲染基准语言（zh-CN）。
@@ -63,34 +63,26 @@ test("设置页切到 English 后页签与关于卡片跟着换语言", async ()
 
   fireEvent.click(await screen.findByRole("radio", { name: "English" }));
 
-  expect(await screen.findByRole("tab", { name: "Wallpaper" })).toBeTruthy();
-  expect(screen.getByRole("tab", { name: "Preferences" })).toBeTruthy();
-  expect(screen.getByText("About Lull")).toBeTruthy();
-  // 语言自称不翻译：英文界面下仍然显示「简体中文」。
+  expect(await screen.findByRole("tab", { name: "Preferences" })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "Extensions" })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "About" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "About" }));
+  expect(await screen.findByText("About Lull")).toBeTruthy();
+  // 语言入口在偏好页；切回去再验语言自称不翻译。
+  fireEvent.click(screen.getByRole("tab", { name: "Preferences" }));
   expect(screen.getByRole("radio", { name: "简体中文" })).toBeTruthy();
 
   fireEvent.click(screen.getByRole("radio", { name: "简体中文" }));
-  expect(await screen.findByRole("tab", { name: "壁纸" })).toBeTruthy();
+  expect(await screen.findByRole("tab", { name: "偏好" })).toBeTruthy();
 });
 
 test("英文界面下设置页的「偏好」页签不残留中文文案", async () => {
   renderSettingsPage();
   fireEvent.click(await screen.findByRole("radio", { name: "English" }));
-  expect(await screen.findByRole("tab", { name: "Wallpaper" })).toBeTruthy();
+  expect(await screen.findByRole("tab", { name: "Preferences" })).toBeTruthy();
 
-  // 只看默认页签（偏好）：壁纸与扩展页签按需渲染，各自的文案由对应组件测试覆盖。
+  // 只看默认页签（偏好）：扩展与关于页签按需渲染，各自的文案由对应组件测试覆盖。
   // 语言自称（简体中文 / English）按约定不翻译，比对前先剔除。
   const text = (document.body.textContent ?? "").replaceAll("简体中文", "");
   expect(text).not.toMatch(/[\u4e00-\u9fff]/);
-});
-
-test("英文界面下设置页的「偏好」页签不残留中文文案", async () => {
-  renderSettingsPage();
-  fireEvent.click(await screen.findByRole("radio", { name: "English" }));
-  expect(await screen.findByRole("tab", { name: "Wallpaper" })).toBeTruthy();
-
-  // 只看默认页签（偏好）：壁纸与扩展页签按需渲染，各自的文案由对应组件测试覆盖。
-  // 语言自称（简体中文 / English）按约定不翻译，比对前先剔除。
-  const text = (document.body.textContent ?? "").replaceAll("简体中文", "");
-  expect(text).not.toMatch(/[一-鿿]/);
 });

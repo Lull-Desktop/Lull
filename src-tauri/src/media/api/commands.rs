@@ -16,8 +16,10 @@ use crate::media::events::{self, ConnectRequest};
 use crate::media::{library, noise, output, playback};
 
 fn media_window(label: &str) -> Result<(), MediaError> {
-  if matches!(label, "settings" | "player" | "noise" | "library")
-    || crate::widget_package::is_plugin_label(label)
+  if matches!(
+    label,
+    "settings" | "player" | "noise" | "library" | "noise-library"
+  ) || crate::widget_package::is_plugin_label(label)
   {
     Ok(())
   } else {
@@ -358,6 +360,7 @@ mod tests {
     assert!(media_window("player").is_ok());
     assert!(media_window("noise").is_ok());
     assert!(media_window("library").is_ok());
+    assert!(media_window("noise-library").is_ok());
     assert!(media_window("wallpaper-0").is_err());
     assert!(media_window("widget-rain").is_ok());
     assert!(media_window("widget-").is_err());

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "type": "widget",
+  "role": "tool",
+  "id": "noise-library",
+  "name": "白噪音库",
+  "version": "1.0.0",
+  "description": "噪音素材、预设与调试。",
+  "author": "Lull",
+  "license": "GPL-3.0-or-later",
+  "builtin": true,
+  "order": 50,
+  "capabilities": [
+    "widget.ui",
+    "widget.theme",
+    "widget.state",
+    "widget.chrome"
+  ],
+  "window": {
+    "label": "noise-library",
+    "route": "noise-library",
+    "title": "Lull 白噪音库",
+    "width": 1080,
+    "height": 760,
+    "minWidth": 900,
+    "minHeight": 600,
+    "resizable": true,
+    "transparent": false
+  }
+}

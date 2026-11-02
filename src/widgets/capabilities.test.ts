@@ -42,15 +42,32 @@ describe("generated window capabilities", () => {
     expect(settings.permissions).toContain("allow-window-prefs-set");
     expect(settings.permissions).toContain("allow-wallpaper-set-display");
 
-    for (const label of ["library"]) {
-      const capability = readCapability(label);
-      expect(capability.permissions).toContain("allow-window-set-frame");
-      expect(capability.permissions).not.toContain("allow-widget-open");
-      expect(capability.permissions).not.toContain("allow-widget-states");
-      expect(capability.permissions).not.toContain(
-        "allow-wallpaper-set-display",
-      );
-    }
+    const library = readCapability("library");
+    expect(library.permissions).toContain("allow-window-set-frame");
+    expect(library.permissions).not.toContain("allow-widget-open");
+    expect(library.permissions).not.toContain("allow-widget-states");
+    expect(library.permissions).not.toContain("allow-wallpaper-set-display");
+    expect(library.permissions).toContain("allow-media-call");
+  });
+
+  test("壁纸库窗口拿壁纸/媒体配置权限，白噪音库窗口拿媒体权限", () => {
+    const backdrop = readCapability("backdrop");
+    expect(backdrop.permissions).toContain("allow-window-set-frame");
+    expect(backdrop.permissions).toContain("allow-content-packages");
+    expect(backdrop.permissions).toContain("allow-wallpaper-set-display");
+    expect(backdrop.permissions).toContain("allow-wallpaper-set-scene-params");
+    expect(backdrop.permissions).toContain("allow-media-config-set");
+    expect(backdrop.permissions).toContain("allow-media-stats");
+    expect(backdrop.permissions).not.toContain("allow-widget-open");
+    expect(backdrop.permissions).not.toContain("allow-media-call");
+
+    const noise = readCapability("noise-library");
+    expect(noise.permissions).toContain("allow-window-set-frame");
+    expect(noise.permissions).toContain("allow-media-call");
+    expect(noise.permissions).toContain("allow-media-connect");
+    expect(noise.permissions).toContain("allow-media-disconnect");
+    expect(noise.permissions).not.toContain("allow-wallpaper-set-display");
+    expect(noise.permissions).not.toContain("allow-widget-open");
   });
 
   test("旧版单文件 capability 已移除", () => {

@@ -4,7 +4,7 @@
  * 这是开发调试组件，不是正式 Mixer：它同时驱动 N2 的
  * `noise.session.* / noise.tracks.*` 与旧 5 层 `noise.*` 兼容门面，
  * 并展示 snapshot、事件与实时 level，方便确认两套 API 是否指向同一个
- * 运行时 Session。
+ * 运行时 Session。媒体连接由白噪音库窗口统一建立，本面板不 connect/disconnect。
  */
 "use client";
 
@@ -37,7 +37,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { getMediaClient } from "@/hooks/use-media-client";
 
 type LogEntry = {
   id: number;
@@ -45,19 +44,6 @@ type LogEntry = {
   label: string;
   data: unknown;
 };
-
-const SUBSCRIBED_TOPICS = [
-  "noise.state",
-  "noise.session.changed",
-  "noise.session.state-changed",
-  "noise.track.added",
-  "noise.track.removed",
-  "noise.track.updated",
-  "noise.track.state-changed",
-  "noise.volume.changed",
-  "noise.level",
-  "output.changed",
-];
 
 const SLEEP_OPTIONS = [0, 1, 5, 15, 30, 60];
 
@@ -83,14 +69,23 @@ function stateClass(state: string): string {
   return "bg-muted text-muted-foreground";
 }
 
-export function NoiseApiTestPanel() {
+export function NoiseApiTestPanel({
+  client,
+  snapshot,
+  onReconnect,
+}: {
+  /** 由白噪音库窗口传入；连接所有权在窗口。 */
+  client: LullMediaClient | null;
+  /** 窗口根节点 connect 返回的快照。 */
+  snapshot: PlaybackSnapshot | null;
+  /** 重新建立窗口级订阅并返回新快照；未提供时禁用“重连”按钮。 */
+  onReconnect?: () => Promise<PlaybackSnapshot | null>;
+}) {
   const panelId = useId();
-  const [client, setClient] = useState<LullMediaClient | null>(null);
   const [session, setSession] = useState<NoiseSession | null>(null);
   const [legacy, setLegacy] = useState<NoiseState | null>(null);
   const [sounds, setSounds] = useState<NoiseSound[]>([]);
   const [output, setOutput] = useState<MediaOutput | null>(null);
-  const [snapshot, setSnapshot] = useState<PlaybackSnapshot | null>(null);
   const [selectedSound, setSelectedSound] = useState("");
   const [assetId, setAssetId] = useState("noise:builtin:rain");
   const [sleepMinutes, setSleepMinutes] = useState(0);
@@ -123,7 +118,6 @@ export function NoiseApiTestPanel() {
 
   const applySnapshot = useCallback(
     (next: PlaybackSnapshot): void => {
-      setSnapshot(next);
       applySession(next.noiseSession);
       setLegacy(next.noise);
       setOutput(next.output);
@@ -150,15 +144,12 @@ export function NoiseApiTestPanel() {
 
   useEffect(() => {
     mounted.current = true;
-    const media = getMediaClient();
-    if (!media) {
-      setError("Media client 尚未初始化");
+    if (!client) {
       return () => {
         mounted.current = false;
       };
     }
-    setClient(media);
-    const stop = media.events.on((event) => {
+    const stop = client.events.on((event) => {
       if (event.topic === "noise.level") {
         const payload = event.payload as { noise?: number };
         setLevel(payload.noise ?? 0);
@@ -177,20 +168,16 @@ export function NoiseApiTestPanel() {
         setOutput(event.payload as MediaOutput);
       }
     });
-    void media
-      .connect({ topics: SUBSCRIBED_TOPICS, levels: true })
-      .then((next) => {
-        if (mounted.current) applySnapshot(next);
-      })
-      .catch((reason: unknown) => {
-        if (mounted.current) setError(errorText(reason));
-      });
     return () => {
       mounted.current = false;
       stop();
-      void media.disconnect();
     };
-  }, [applySession, applySnapshot, push]);
+  }, [applySession, client, push]);
+
+  // 窗口根节点连接完成后把快照灌进面板；面板不再自己发起连接。
+  useEffect(() => {
+    if (snapshot) applySnapshot(snapshot);
+  }, [applySnapshot, snapshot]);
 
   useEffect(() => {
     if (client) {
@@ -234,23 +221,21 @@ export function NoiseApiTestPanel() {
   );
 
   const reconnect = useCallback((): void => {
-    if (!client) return;
+    if (!client || !onReconnect) return;
     void run(
       "media_connect",
       () =>
-        client
-          .connect({ topics: SUBSCRIBED_TOPICS, levels: true })
-          .then((next) => {
-            applySnapshot(next);
-            return {
-              revision: next.revision,
-              noiseRevision: next.noise.revision,
-              sessionRevision: next.noiseSession.revision,
-            };
-          }),
+        onReconnect().then((next) => {
+          if (!next) return { connected: false };
+          return {
+            revision: next.revision,
+            noiseRevision: next.noise.revision,
+            sessionRevision: next.noiseSession.revision,
+          };
+        }),
       false,
     );
-  }, [applySnapshot, client, run]);
+  }, [client, onReconnect, run]);
 
   const addSelectedSound = useCallback((): void => {
     if (!client || !selectedSound) return;
@@ -361,6 +346,7 @@ export function NoiseApiTestPanel() {
               size="sm"
               variant="outline"
               onClick={reconnect}
+              disabled={!client || !onReconnect}
             >
               重连并取快照
             </Button>
@@ -937,7 +923,9 @@ export function NoiseApiTestPanel() {
               <span>top revision</span>
               <span className="font-mono">{snapshot.revision}</span>
               <span>player status</span>
-              <span className="font-mono">{snapshot.player?.status ?? "-"}</span>
+              <span className="font-mono">
+                {snapshot.player?.status ?? "-"}
+              </span>
               <span>noise revision</span>
               <span className="font-mono">{snapshot.noise.revision}</span>
               <span>session revision</span>

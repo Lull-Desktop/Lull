@@ -1,7 +1,7 @@
 //! 媒体 Tauri 命令：配置、素材库、会话与诊断。
 //!
 //! 安全边界：
-//! - 素材选择/配置写入只允许 `settings` 窗口；
+//! - 素材选择/配置写入只允许 `settings` 与 `backdrop` 窗口；
 //! - 壁纸窗口只能操作会话，且必须带顶层帧 token；
 //! - JS 永远不能传文件路径或 display/webview 标识。
 
@@ -42,11 +42,11 @@ const ALLOWED_ORIGINS: &[&str] = &[
   "http://127.0.0.1:3000",
 ];
 
-fn ensure_settings(label: &str) -> Result<(), String> {
-  if label == "settings" {
+fn ensure_media_host(label: &str) -> Result<(), String> {
+  if matches!(label, "settings" | "backdrop") {
     Ok(())
   } else {
-    Err("只有设置窗口可以执行该媒体操作".to_string())
+    Err("只有设置窗口或壁纸库窗口可以执行该媒体操作".to_string())
   }
 }
 
@@ -81,7 +81,7 @@ pub fn media_capabilities() -> MediaCapabilities {
 
 #[tauri::command]
 pub fn media_assets(app: AppHandle, webview: WebviewWindow) -> Result<Vec<MediaAssetView>, String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   Ok(assets::list(&app))
 }
 
@@ -90,7 +90,7 @@ pub async fn media_asset_pick(
   app: AppHandle,
   webview: WebviewWindow,
 ) -> Result<Option<MediaAssetView>, String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   let picked = tauri::async_runtime::spawn_blocking(|| {
     rfd::FileDialog::new()
       .add_filter("图片", assets::IMAGE_EXTENSIONS)
@@ -111,7 +111,7 @@ pub async fn media_asset_remove(
   webview: WebviewWindow,
   id: String,
 ) -> Result<(), String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   {
     let mut guard = runtime::config()?;
     let old = guard.data.display.media.clone();
@@ -165,7 +165,7 @@ pub async fn media_config_set(
   webview: WebviewWindow,
   config: MediaConfig,
 ) -> Result<MediaConfigView, String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   let normalized = config.normalized();
   let playback_changed = {
     let mut guard = runtime::config()?;
@@ -193,7 +193,7 @@ pub async fn media_activate(
   webview: WebviewWindow,
   asset_id: String,
 ) -> Result<MediaConfigView, String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   let asset = assets::find(&app, &asset_id).ok_or_else(|| "素材不存在".to_string())?;
   if !std::path::Path::new(&asset.path).is_file() {
     return Err("素材文件不存在或已被移动".to_string());
@@ -408,7 +408,7 @@ pub fn media_play(
   webview: WebviewWindow,
   session_id: String,
 ) -> Result<(), String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   engine().set_paused(&session_id, false)?;
   events::emit_changed(&app, vec![session_id]);
   Ok(())
@@ -420,7 +420,7 @@ pub fn media_pause(
   webview: WebviewWindow,
   session_id: String,
 ) -> Result<(), String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   engine().set_paused(&session_id, true)?;
   events::emit_changed(&app, vec![session_id]);
   Ok(())
@@ -433,7 +433,7 @@ pub fn media_seek(
   session_id: String,
   position_ms: u64,
 ) -> Result<(), String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   engine().seek(&session_id, position_ms)?;
   events::emit_changed(&app, vec![session_id]);
   Ok(())
@@ -445,7 +445,7 @@ pub async fn media_resync(
   webview: WebviewWindow,
   position_ms: u64,
 ) -> Result<usize, String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   let synced = engine().resync(position_ms)?;
   events::emit_resync(&app, position_ms);
   events::emit_changed(&app, Vec::new());
@@ -459,7 +459,7 @@ pub fn media_set_loop(
   session_id: String,
   enabled: bool,
 ) -> Result<(), String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   engine().set_loop(&session_id, enabled)?;
   events::emit_changed(&app, vec![session_id]);
   Ok(())
@@ -467,13 +467,13 @@ pub fn media_set_loop(
 
 #[tauri::command]
 pub fn media_status(webview: WebviewWindow) -> Result<Vec<MediaSessionView>, String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   Ok(engine().status())
 }
 
 #[tauri::command]
 pub fn media_stats(webview: WebviewWindow) -> Result<MediaStats, String> {
-  ensure_settings(webview.label())?;
+  ensure_media_host(webview.label())?;
   Ok(engine().stats())
 }
 
@@ -486,5 +486,14 @@ mod tests {
   fn webview_window_is_send() {
     fn assert_send<T: Send>() {}
     assert_send::<WebviewWindow>();
+  }
+
+  #[test]
+  fn media_host_commands_allow_settings_and_backdrop_only() {
+    assert!(ensure_media_host("settings").is_ok());
+    assert!(ensure_media_host("backdrop").is_ok());
+    assert!(ensure_media_host("library").is_err());
+    assert!(ensure_media_host("noise-library").is_err());
+    assert!(ensure_media_host("wallpaper-0").is_err());
   }
 }

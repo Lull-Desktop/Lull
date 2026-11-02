@@ -1,5 +1,7 @@
 /**
- * 设置页交互测试：验证显示器排序、开关与显示模式、事件订阅和 Tauri IPC 调用契约。
+ * 设置页交互测试：三页签信息架构、窗口开关、功能槽位与主题偏好。
+ *
+ * 壁纸库窗口的交互测试在 components/library/wallpaper-library-window.test.tsx。
  */
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -14,7 +16,6 @@ import { ThemeProvider } from "@/hooks/use-theme";
 import type { SlotInfo } from "@/lib/extensions";
 import { FLOW_THEME_STORAGE_KEY } from "@/lib/flow-theme";
 import { m } from "@/paraglide/messages";
-import type { SceneCatalogEntry } from "@/sdk/scene";
 import Page from "./page";
 
 afterEach(() => {
@@ -24,133 +25,9 @@ afterEach(() => {
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.reject(new Error("not in tauri"))),
 }));
-
-// 壁纸面板的场景目录由这里固定为「官方竹影 + 内置媒体」；目录合并本身由
-// use-scene-catalog 的单元测试覆盖，设置页测试只关心控件契约。
-const sceneCatalog = vi.hoisted(() => ({
-  entries: [
-    {
-      manifest: {
-        schemaVersion: 1,
-        type: "scene",
-        id: "lull.bamboo",
-        name: "竹影",
-        version: "1.2.0",
-        description: "深夜竹林、薄雾与远山。",
-        author: "Lull",
-        license: "GPL-3.0-or-later",
-        capabilities: [
-          "wallpaper.viewport",
-          "wallpaper.canvas",
-          "wallpaper.sync",
-          "wallpaper.params",
-          "wallpaper.script",
-        ],
-        entry: "scenes/bamboo/index.html",
-        params: [
-          {
-            key: "mist",
-            type: "number",
-            label: "薄雾浓度",
-            default: 0.5,
-            min: 0,
-            max: 1,
-            step: 0.05,
-          },
-        ],
-        compatibility: { hostApi: 1, platforms: ["windows"] },
-      },
-      source: "official",
-      entryUrl:
-        "http://lullcontent.localhost/lull.bamboo/scenes/bamboo/index.html",
-      component: null,
-    },
-    {
-      manifest: {
-        schemaVersion: 1,
-        type: "scene",
-        id: "lull.video",
-        name: "媒体",
-        version: "1.0.0",
-        description: "本地图片或视频壁纸。",
-        author: "Lull",
-        license: "GPL-3.0-or-later",
-        capabilities: [
-          "wallpaper.viewport",
-          "wallpaper.canvas",
-          "wallpaper.sync",
-        ],
-        compatibility: { hostApi: 1, platforms: ["windows"] },
-      },
-      source: "builtin",
-      entryUrl: null,
-      component: null,
-    },
-  ] as SceneCatalogEntry[],
-}));
-
-vi.mock("@/hooks/use-scene-catalog", () => ({
-  useSceneCatalog: () => ({
-    entries: sceneCatalog.entries,
-    loading: false,
-    error: null,
-    issues: [],
-  }),
-}));
-// 注意：listen 不用 vi.fn 包装——vitest 会给 vi.fn 返回的 promise 挂 then 做
-// settledResults 记账，rejection 永远到不了 unhandledRejection，测试就观测不到
-// "页面没处理 rejection" 这件事。用可替换的真实函数。
-const listenState = vi.hoisted(() => ({
-  impl: ((): Promise<() => void> => Promise.resolve(() => {})) as (
-    event: string,
-    handler: () => void,
-  ) => Promise<() => void>,
-}));
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: (event: string, handler: () => void) =>
-    listenState.impl(event, handler),
+  listen: () => Promise.resolve(() => {}),
 }));
-
-type MonitorRow = {
-  device: string;
-  index: number;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  dpi: number;
-  primary: boolean;
-  enabled: boolean;
-  scene: string;
-};
-
-// 真实双屏形状：DISPLAY2（2560x1440，副屏，在左）排在 DISPLAY1（1920x1080，主屏）前。
-const MONITORS: MonitorRow[] = [
-  {
-    device: "\\\\.\\DISPLAY2",
-    index: 1,
-    x: -2560,
-    y: 0,
-    w: 2560,
-    h: 1440,
-    dpi: 120,
-    primary: false,
-    enabled: false,
-    scene: "lull.bamboo",
-  },
-  {
-    device: "\\\\.\\DISPLAY1",
-    index: 0,
-    x: 0,
-    y: 0,
-    w: 1920,
-    h: 1080,
-    dpi: 96,
-    primary: true,
-    enabled: true,
-    scene: "lull.bamboo",
-  },
-];
 
 /** 偏好页功能槽位卡片固定用的音乐播放器 Slot。 */
 const MUSIC_SLOT: SlotInfo = {
@@ -189,42 +66,6 @@ function mockInvoke(
   }) as typeof invoke);
 }
 
-function mockWallpaper(monitors: MonitorRow[], masterVisible: boolean): void {
-  mockInvoke({
-    wallpaper_get_visible: () => masterVisible,
-    wallpaper_monitors: () => monitors,
-    wallpaper_display_get: () => ({
-      mode: "mirror",
-      sync: true,
-      scene: "lull.bamboo",
-    }),
-    wallpaper_set_monitor_visible: () => undefined,
-    wallpaper_set_visible: () => masterVisible,
-    wallpaper_set_display: () => undefined,
-    wallpaper_set_monitor_scene: () => undefined,
-    wallpaper_set_scene_params: () => undefined,
-    greet: () => "hi",
-  });
-}
-
-function mockWallpaperWithDisplay(display: {
-  mode: string;
-  sync: boolean;
-  scene: string;
-}): void {
-  mockInvoke({
-    wallpaper_get_visible: () => true,
-    wallpaper_monitors: () => MONITORS,
-    wallpaper_display_get: () => display,
-    wallpaper_set_monitor_visible: () => undefined,
-    wallpaper_set_visible: () => true,
-    wallpaper_set_display: () => undefined,
-    wallpaper_set_monitor_scene: () => undefined,
-    wallpaper_set_scene_params: () => undefined,
-    greet: () => "hi",
-  });
-}
-
 /**
  * 设置页在应用里始终挂在 WindowShell 的 ThemeProvider 下（黑白样式要用它），
  * 单独渲染页面时补齐同一层上下文。
@@ -237,301 +78,40 @@ function renderSettingsPage() {
   );
 }
 
-/** 渲染设置页并切到「壁纸」页签（壁纸层设置不在默认的「偏好」页签里）。 */
-function renderWallpaperTab(): void {
-  renderSettingsPage();
-  fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
-}
-
-test("moving a ranged scene param slider persists via wallpaper_set_scene_params", async () => {
-  mockWallpaper(MONITORS, true);
-  renderWallpaperTab();
-
-  const slider = await screen.findByRole("slider", { name: "薄雾浓度" });
-  fireEvent.keyDown(slider, { key: "End" });
-  fireEvent.keyUp(slider, { key: "End" });
-
-  await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("wallpaper_set_scene_params", {
-      scene: "lull.bamboo",
-      params: { mist: "1.00" },
-    });
-  });
-});
-
 test("Page renders in browser mode (no tauri)", () => {
   renderSettingsPage();
   expect(screen.getByRole("main")).toBeDefined();
 });
 
-test("设置页签按 偏好 / 壁纸 / 曲库整理 / 噪音素材库 / 噪音预设 / 媒体测试 / 白噪音测试 / 扩展 排列，壁纸层只在壁纸页签", () => {
+test("设置页签按 偏好 / 扩展 / 关于 排列，壁纸与噪音内容不再内嵌", () => {
   renderSettingsPage();
 
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
     "偏好",
-    "壁纸",
-    "曲库整理",
-    "噪音素材库",
-    "噪音预设",
-    "媒体测试",
-    "白噪音测试",
     "扩展",
+    "关于",
   ]);
   expect(
     screen.getByRole("tab", { name: "偏好" }).getAttribute("aria-selected"),
   ).toBe("true");
+  // 壁纸层/关于都不在默认偏好页签里。
   expect(screen.queryByText("壁纸层")).toBeNull();
-
-  fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
-  expect(screen.getByText("壁纸层")).toBeDefined();
-  expect(screen.queryByText("主题流光")).toBeNull();
+  expect(screen.queryByText("关于 Lull")).toBeNull();
 });
 
-test("renders monitors sorted by geometry, primary badge, per-monitor switches", async () => {
-  mockWallpaper(MONITORS, true);
-  renderWallpaperTab();
+test("关于页签展示版本与扩展模型", () => {
+  renderSettingsPage();
 
-  await waitFor(() => {
-    expect(screen.getByText("显示器 1")).toBeDefined();
-  });
-  // 按几何排序：x=-2560（DISPLAY2，副屏）在最左 → 显示器 1；主屏 DISPLAY1 → 显示器 2。
-  expect(screen.getByText("显示器 2")).toBeDefined();
-  expect(screen.getByText("主屏")).toBeDefined();
-  expect(screen.getByText("2560×1440")).toBeDefined();
-  expect(screen.getByText("1920×1080")).toBeDefined();
+  fireEvent.click(screen.getByRole("tab", { name: "关于" }));
 
-  const monitorsSwitches = [1, 2].map(
-    (n) =>
-      screen.getByRole("switch", { name: `显示器 ${n}` }) as HTMLButtonElement,
-  );
-  expect(monitorsSwitches.map((s) => s.getAttribute("aria-checked"))).toEqual([
-    "false", // DISPLAY2 配置为关闭
-    "true", // DISPLAY1 开启
-  ]);
-});
-
-test("toggling a monitor switch invokes wallpaper_set_monitor_visible with device", async () => {
-  mockWallpaper(MONITORS, true);
-  renderWallpaperTab();
-
-  await waitFor(() => {
-    expect(screen.getByText("显示器 2")).toBeDefined();
-  });
-  fireEvent.click(screen.getByRole("switch", { name: "显示器 2" }));
-
-  await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("wallpaper_set_monitor_visible", {
-      device: "\\\\.\\DISPLAY1",
-      visible: false,
-    });
-  });
-});
-
-test("monitor switches are disabled while master switch is off", async () => {
-  mockWallpaper(MONITORS, false);
-  renderWallpaperTab();
-
-  await waitFor(() => {
-    expect(screen.getByText("显示器 1")).toBeDefined();
-  });
-  const master = screen.getByRole("switch", {
-    name: "显示壁纸",
-  }) as HTMLButtonElement;
-  expect(master.getAttribute("aria-checked")).toBe("false");
-  expect(master.disabled).toBe(false);
-
-  const monitor2 = screen.getByRole("switch", { name: "显示器 2" });
-  expect((monitor2 as HTMLButtonElement).disabled).toBe(true);
-});
-
-test("wallpaper-changed event refreshes the monitor list", async () => {
-  const handlers: Array<() => void> = [];
-  listenState.impl = (_event, handler) => {
-    handlers.push(handler);
-    return Promise.resolve(() => {});
-  };
-
-  mockWallpaper(MONITORS, true);
-  renderWallpaperTab();
-  await waitFor(() => {
-    expect(screen.getByText("显示器 1")).toBeDefined();
-  });
-  expect(
-    (
-      screen.getByRole("switch", { name: "显示器 1" }) as HTMLButtonElement
-    ).getAttribute("aria-checked"),
-  ).toBe("false");
-
-  // 模拟后端拓扑变化后广播：DISPLAY2 变为开启。
-  mockWallpaper(
-    MONITORS.map((m) => ({ ...m, enabled: true })),
-    true,
-  );
-  for (const h of handlers) {
-    h();
-  }
-
-  await waitFor(() => {
-    expect(
-      (
-        screen.getByRole("switch", { name: "显示器 1" }) as HTMLButtonElement
-      ).getAttribute("aria-checked"),
-    ).toBe("true");
-  });
-});
-
-test("listen 被拒（权限缺失）时不产生未处理 rejection，页面降级为手动刷新", async () => {
-  const unhandled: unknown[] = [];
-  const onUnhandled = (reason: unknown): void => {
-    unhandled.push(reason);
-  };
-  process.on("unhandledRejection", onUnhandled);
-  try {
-    listenState.impl = () =>
-      Promise.reject(new Error("event.listen not allowed"));
-    mockWallpaper(MONITORS, true);
-    renderWallpaperTab();
-    await waitFor(() => {
-      expect(screen.getByText("显示器 1")).toBeDefined();
-    });
-    // 等 rejection 微任务跑完，给 unhandledRejection 触发机会。
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  } finally {
-    process.off("unhandledRejection", onUnhandled);
-  }
-  expect(unhandled).toEqual([]);
-});
-
-test("renders display mode selector reflecting config", async () => {
-  mockWallpaperWithDisplay({ mode: "span", sync: true, scene: "lull.bamboo" });
-  renderWallpaperTab();
-  await waitFor(() => expect(screen.getByText("显示模式")).toBeDefined());
-  const span = screen.getByRole("radio", { name: "跨屏" });
-  expect(span.getAttribute("aria-checked")).toBe("true");
-});
-
-test("switching mode invokes wallpaper_set_display", async () => {
-  mockWallpaperWithDisplay({
-    mode: "mirror",
-    sync: true,
-    scene: "lull.bamboo",
-  });
-  renderWallpaperTab();
-  await waitFor(() => expect(screen.getByText("显示模式")).toBeDefined());
-  fireEvent.click(screen.getByRole("radio", { name: "跨屏" }));
-  await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("wallpaper_set_display", {
-      mode: "span",
-    });
-  });
-});
-
-test("sync switch availability matrix", async () => {
-  mockWallpaperWithDisplay({
-    mode: "mirror",
-    sync: false,
-    scene: "lull.bamboo",
-  });
-  const { unmount } = renderSettingsPage();
-  fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
-  await waitFor(() => expect(screen.getByText("动画同步")).toBeDefined());
-  expect(
-    (screen.getByRole("switch", { name: "动画同步" }) as HTMLButtonElement)
-      .disabled,
-  ).toBe(false);
-  unmount();
-
-  mockWallpaperWithDisplay({ mode: "span", sync: false, scene: "lull.bamboo" });
-  renderWallpaperTab();
-  await waitFor(() =>
-    expect(screen.getByText("跨屏强制同步（防接缝撕裂）")).toBeDefined(),
-  );
-  const s = screen.getByRole("switch", {
-    name: "动画同步",
-  }) as HTMLButtonElement;
-  expect(s.disabled).toBe(true);
-  expect(s.getAttribute("aria-checked")).toBe("true");
-});
-
-test("global scene dropdown shows current value and invokes on select", async () => {
-  mockWallpaperWithDisplay({
-    mode: "mirror",
-    sync: true,
-    scene: "lull.bamboo",
-  });
-  renderWallpaperTab();
-  const trigger = await screen.findByRole("combobox", {
-    name: m.wallpaper_scene_global(),
-  });
-  expect(trigger.textContent).toContain("竹影");
-  fireEvent.keyDown(trigger, { key: "Enter" });
-  const option = await screen.findByRole("option", { name: "媒体" });
-  fireEvent.keyDown(option, { key: "ArrowDown" });
-  fireEvent.keyDown(option, { key: "Enter" });
-  await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("wallpaper_set_display", {
-      scene: "lull.video",
-    });
-  });
-});
-
-test("缺失的全局场景回退到默认竹影并写回宿主", async () => {
-  mockWallpaperWithDisplay({ mode: "mirror", sync: true, scene: "" });
-  renderWallpaperTab();
-
-  const trigger = await screen.findByRole("combobox", {
-    name: m.wallpaper_scene_global(),
-  });
-  expect(trigger.textContent).toContain("竹影");
-  await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("wallpaper_set_display", {
-      scene: "lull.bamboo",
-    });
-  });
-});
-
-test("independent shows per-row scene dropdowns; selecting invokes command", async () => {
-  mockWallpaperWithDisplay({
-    mode: "independent",
-    sync: true,
-    scene: "lull.bamboo",
-  });
-  renderWallpaperTab();
-  const trigger = await screen.findByRole("combobox", {
-    name: "显示器 2 场景",
-  });
-  fireEvent.keyDown(trigger, { key: "Enter" });
-  const option = await screen.findByRole("option", { name: "媒体" });
-  fireEvent.keyDown(option, { key: "ArrowDown" });
-  fireEvent.keyDown(option, { key: "Enter" });
-  await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("wallpaper_set_monitor_scene", {
-      device: "\\\\.\\DISPLAY1",
-      scene: "lull.video",
-    });
-  });
-});
-
-test("global scene group hidden in independent mode", async () => {
-  mockWallpaperWithDisplay({
-    mode: "independent",
-    sync: true,
-    scene: "lull.bamboo",
-  });
-  renderWallpaperTab();
-  await waitFor(() => expect(screen.getByText("显示模式")).toBeDefined());
-  expect(screen.queryByText(m.wallpaper_scene_global())).toBeNull();
+  expect(screen.getByRole("heading", { name: "关于 Lull" })).toBeDefined();
+  expect(screen.getByText(/版本 .*GPL-3.0-or-later/)).toBeDefined();
+  expect(screen.getByText(/扩展模型/)).toBeDefined();
+  expect(screen.queryByTestId("settings-preferences-card")).toBeNull();
 });
 
 test("窗口全局开关读取并保存 taskbarAndMinimize", async () => {
   mockInvoke({
-    wallpaper_get_visible: () => true,
-    wallpaper_monitors: () => MONITORS,
-    wallpaper_display_get: () => ({
-      mode: "mirror",
-      sync: true,
-      scene: "lull.bamboo",
-    }),
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
     window_prefs_set: (args) => ({
       taskbarAndMinimize: (args as { taskbarAndMinimize: boolean })
@@ -556,42 +136,43 @@ test("窗口全局开关读取并保存 taskbarAndMinimize", async () => {
   });
 });
 
-test("工具窗开关按当前显示状态渲染，并能打开窗口", async () => {
+test("工具窗开关按当前显示状态渲染，并能打开三个库窗口", async () => {
   mockInvoke({
-    wallpaper_get_visible: () => true,
-    wallpaper_monitors: () => MONITORS,
-    wallpaper_display_get: () => ({
-      mode: "mirror",
-      sync: true,
-      scene: "lull.bamboo",
-    }),
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
-    widget_states: () => [{ kind: "library", visible: false }],
+    widget_states: () => [
+      { kind: "library", visible: false },
+      { kind: "backdrop", visible: false },
+      { kind: "noise-library", visible: false },
+    ],
     widget_open: () => null,
     widget_close: () => null,
+    extensions_list: () => [],
+    extensions_slots: () => [],
   });
   renderSettingsPage();
 
-  const library = (await screen.findByRole("switch", {
-    name: "音乐库窗口",
-  })) as HTMLButtonElement;
-  expect(library.getAttribute("aria-checked")).toBe("false");
+  for (const name of ["音乐库窗口", "壁纸库窗口", "白噪音库窗口"]) {
+    const toggle = (await screen.findByRole("switch", {
+      name,
+    })) as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+  }
 
-  fireEvent.click(library);
+  fireEvent.click(screen.getByRole("switch", { name: "壁纸库窗口" }));
   await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "library" });
+    expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "backdrop" });
+  });
+
+  fireEvent.click(screen.getByRole("switch", { name: "白噪音库窗口" }));
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("widget_open", {
+      kind: "noise-library",
+    });
   });
 });
 
 test("偏好页合并为一张卡片，功能槽位位于窗口分区内", () => {
   mockInvoke({
-    wallpaper_get_visible: () => true,
-    wallpaper_monitors: () => MONITORS,
-    wallpaper_display_get: () => ({
-      mode: "mirror",
-      sync: true,
-      scene: "lull.bamboo",
-    }),
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
     widget_states: () => [],
     extensions_list: () => [],
@@ -600,9 +181,11 @@ test("偏好页合并为一张卡片，功能槽位位于窗口分区内", () =>
   renderSettingsPage();
 
   const card = screen.getByTestId("settings-preferences-card");
-  for (const title of ["语言", "主题流光", "窗口", "关于 Lull"]) {
+  for (const title of ["语言", "主题流光", "窗口"]) {
     expect(within(card).getByRole("heading", { name: title })).toBeDefined();
   }
+  // 关于已拆成独立页签，不再在偏好卡片底部重复。
+  expect(within(card).queryByText("关于 Lull")).toBeNull();
   // 功能槽位内容并入「窗口」分区，不再有独立卡片。
   const windowSection = within(card).getByTestId("settings-window-section");
   expect(
@@ -612,13 +195,6 @@ test("偏好页合并为一张卡片，功能槽位位于窗口分区内", () =>
 
 test("功能槽位面板迁到偏好页的窗口设置下方，并能打开当前实现", async () => {
   mockInvoke({
-    wallpaper_get_visible: () => true,
-    wallpaper_monitors: () => MONITORS,
-    wallpaper_display_get: () => ({
-      mode: "mirror",
-      sync: true,
-      scene: "lull.bamboo",
-    }),
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
     widget_states: () => [],
     extensions_list: () => [],
@@ -666,7 +242,7 @@ test("扩展页不再重复渲染功能槽位面板", async () => {
   expect(screen.queryByTestId("slot-panel")).toBeNull();
 });
 
-test("扩展页的「壁纸设置」切到壁纸页签", async () => {
+test("扩展页的「壁纸设置」打开壁纸库窗口", async () => {
   mockInvoke({
     extensions_list: () => [
       {
@@ -682,16 +258,16 @@ test("扩展页的「壁纸设置」切到壁纸页签", async () => {
       },
     ],
     extensions_dev_state: () => ({ devMode: false, packages: [] }),
+    widget_open: () => null,
   });
   renderSettingsPage();
 
   fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
   fireEvent.click(await screen.findByRole("button", { name: "壁纸设置" }));
 
-  expect(
-    screen.getByRole("tab", { name: "壁纸" }).getAttribute("aria-selected"),
-  ).toBe("true");
-  expect(screen.getByText("壁纸层")).toBeDefined();
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "backdrop" });
+  });
 });
 
 test("主题流光卡片切换全局主题并立即写入存储", () => {

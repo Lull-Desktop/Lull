@@ -28,15 +28,16 @@ const MAX_FILE_BYTES: u64 = 512 * 1024;
 const MAX_FADE_MS: i64 = 10_000;
 
 fn read_allowed(label: &str) -> bool {
-  matches!(label, "settings" | "noise" | "library") || label.starts_with("widget-")
+  matches!(label, "settings" | "noise" | "library" | "noise-library")
+    || label.starts_with("widget-")
 }
 
 fn write_allowed(label: &str) -> bool {
-  matches!(label, "settings" | "noise") || label.starts_with("widget-")
+  matches!(label, "settings" | "noise" | "noise-library") || label.starts_with("widget-")
 }
 
 fn file_allowed(label: &str) -> bool {
-  label == "settings"
+  matches!(label, "settings" | "noise-library")
 }
 
 fn require_read(label: &str) -> Result<(), MediaError> {
@@ -78,7 +79,7 @@ fn require_file(label: &str) -> Result<(), MediaError> {
   } else {
     Err(MediaError::new(
       "capability.denied",
-      "只有设置窗口可以导入/导出 Noise Preset 文件",
+      "只有设置窗口或白噪音库窗口可以导入/导出 Noise Preset 文件",
     ))
   }
 }
@@ -726,6 +727,16 @@ async fn candidates(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn access_matrix_allows_noise_library_window_management() {
+    assert!(read_allowed("noise-library"));
+    assert!(write_allowed("noise-library"));
+    assert!(file_allowed("noise-library"));
+    assert!(!file_allowed("noise"));
+    assert!(!file_allowed("library"));
+    assert!(!write_allowed("library"));
+  }
 
   #[test]
   fn preset_file_validation_rejects_versions_and_duplicate_orders() {
