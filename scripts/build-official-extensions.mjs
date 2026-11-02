@@ -304,6 +304,30 @@ if (checkOnly) {
       fail(`extensions/dist/index.json 与 ${entry.id} 不一致`);
     }
   }
+  if (requested.length === 0) {
+    const expected = new Set(entries.map((entry) => entry.id));
+    const extra = (index.extensions ?? []).filter(
+      (entry) => !expected.has(entry.id),
+    );
+    if (extra.length > 0) {
+      fail(
+        `extensions/dist/index.json 含已移除扩展：${extra
+          .map((entry) => entry.id)
+          .join(", ")}`,
+      );
+    }
+    const staleDirs = readdirSync(distRoot, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          !entry.name.startsWith(".") &&
+          !expected.has(entry.name),
+      )
+      .map((entry) => entry.name);
+    if (staleDirs.length > 0) {
+      fail(`extensions/dist 含未构建目录：${staleDirs.join(", ")}`);
+    }
+  }
   console.log(
     `[extensions] 校验通过：${entries.map((item) => item.id).join(", ")}`,
   );

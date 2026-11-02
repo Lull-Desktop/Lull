@@ -4,13 +4,13 @@
  */
 "use client";
 
+import { m } from "virtual:lull-messages";
 import type { LullWidgetClient } from "@lull/widget-sdk";
 import {
   useLullTheme,
   useWidgetFit as useSdkWidgetFit,
 } from "@lull/widget-sdk/react";
 import type { RefObject } from "react";
-import { m } from "virtual:lull-messages";
 import { installStorageWriter, seedStorage } from "./storage";
 
 let widget: LullWidgetClient | null = null;

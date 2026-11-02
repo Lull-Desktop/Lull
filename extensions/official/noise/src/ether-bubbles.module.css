@@ -1730,7 +1730,8 @@
   padding: 8px;
   border-radius: 12px;
   background: color-mix(in srgb, var(--ether-paper, #f6f3ec) 68%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ether-ink, #25302c) 10%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--ether-ink, #25302c) 10%, transparent);
 }
 
 .localTitle {
@@ -1809,7 +1810,8 @@
 .presetRow select {
   min-width: 0;
   flex: 1;
-  border: 1px solid color-mix(in srgb, var(--ether-ink, #25302c) 16%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--ether-ink, #25302c) 16%, transparent);
   border-radius: 8px;
   padding: 5px 7px;
   background: color-mix(in srgb, var(--ether-paper, #f6f3ec) 82%, transparent);

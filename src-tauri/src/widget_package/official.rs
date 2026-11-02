@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 /// 官方保留 id。用户从文件安装命中这些 id 时拒绝，避免遮挡随包分发的工具。
-pub(crate) const RESERVED_IDS: [&str; 3] = ["echo", "noise", "player"];
+pub(crate) const RESERVED_IDS: [&str; 2] = ["noise", "player"];
 
 const EXTENSIONS_DIR: &str = "extensions";
 const ENV_DIR: &str = "LULL_EXTENSIONS_DIR";
@@ -200,6 +200,20 @@ mod tests {
   fn reserved_ids_cover_migrated_tools() {
     assert!(is_reserved("noise"));
     assert!(is_reserved("player"));
+    assert!(!is_reserved("echo"));
     assert!(!is_reserved("community-noise"));
+  }
+
+  #[test]
+  fn packages_from_missing_root_is_empty() {
+    let missing = std::env::temp_dir().join(format!(
+      "lull-official-missing-{}-{}",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.subsec_nanos())
+        .unwrap_or_default()
+    ));
+    assert!(packages_from(&missing).is_empty());
   }
 }

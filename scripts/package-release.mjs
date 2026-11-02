@@ -151,6 +151,9 @@ function collectExtensions(dir, relative = "") {
       collectExtensions(join(dir, entry.name), path);
       continue;
     }
+    if (entry.name === ".lull-dev.json" || entry.name === "dev.json") {
+      fail(`extensions/dist 含开发配置：${path}`);
+    }
     extensionEntries.push({
       name: `${portableRoot}/extensions/${path}`,
       data: readFileSync(join(dir, entry.name)),

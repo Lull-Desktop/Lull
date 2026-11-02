@@ -50,9 +50,9 @@ import {
 } from "./compat";
 import styles from "./ether-bubbles.module.css";
 import {
+  BUILTIN_ASSET_IDS,
   type ChannelMap,
   type ChannelState,
-  BUILTIN_ASSET_IDS,
   channelMood,
   clampLevel,
   effectiveLevel,
@@ -482,8 +482,7 @@ export function EtherBubbles() {
     0,
   );
   const localTracks = (session?.tracks ?? []).filter(
-    (track) =>
-      !Object.values(BUILTIN_ASSET_IDS).includes(track.assetId),
+    (track) => !Object.values(BUILTIN_ASSET_IDS).includes(track.assetId),
   );
   const localAudible = localTracks.some((track) => track.enabled);
   const audible = awake && !muted && (activeCount > 0 || localAudible);
@@ -838,10 +837,7 @@ export function EtherBubbles() {
     const client = clientRef.current;
     if (!client) return;
     const playing = sessionRef.current?.state === "playing";
-    void (playing
-      ? client.noise.session.pause()
-      : client.noise.session.play()
-    )
+    void (playing ? client.noise.session.pause() : client.noise.session.play())
       .then(applySession)
       .catch(() => {});
   }, [applySession]);
@@ -913,25 +909,28 @@ export function EtherBubbles() {
     [applySession],
   );
 
-  const toggleLocalTrack = useCallback((track: NoiseTrack): void => {
-    const client = clientRef.current;
-    if (!client) return;
-    const playing = sessionRef.current?.state === "playing";
-    setMuted(false);
-    if (!playing) {
+  const toggleLocalTrack = useCallback(
+    (track: NoiseTrack): void => {
+      const client = clientRef.current;
+      if (!client) return;
+      const playing = sessionRef.current?.state === "playing";
+      setMuted(false);
+      if (!playing) {
+        void (async () => {
+          await client.noise.tracks.setEnabled(track.id, true);
+          await client.noise.session.setMuted(false);
+          applySession(await client.noise.session.play());
+        })().catch(() => {});
+        return;
+      }
       void (async () => {
-        await client.noise.tracks.setEnabled(track.id, true);
+        await client.noise.tracks.setEnabled(track.id, !track.enabled);
         await client.noise.session.setMuted(false);
-        applySession(await client.noise.session.play());
+        if (!track.enabled) applySession(await ensurePlaying(client));
       })().catch(() => {});
-      return;
-    }
-    void (async () => {
-      await client.noise.tracks.setEnabled(track.id, !track.enabled);
-      await client.noise.session.setMuted(false);
-      if (!track.enabled) applySession(await ensurePlaying(client));
-    })().catch(() => {});
-  }, [applySession, ensurePlaying]);
+    },
+    [applySession, ensurePlaying],
+  );
 
   const setLocalTrackVolume = useCallback(
     (track: NoiseTrack, value: number): void => {
@@ -949,15 +948,18 @@ export function EtherBubbles() {
     [applySession, ensurePlaying],
   );
 
-  const removeLocalTrack = useCallback((track: NoiseTrack): void => {
-    const client = clientRef.current;
-    if (!client) return;
-    void client.noise.tracks
-      .remove(track.id)
-      .then(() => client.noise.session.getCurrent())
-      .then(applySession)
-      .catch(() => {});
-  }, [applySession]);
+  const removeLocalTrack = useCallback(
+    (track: NoiseTrack): void => {
+      const client = clientRef.current;
+      if (!client) return;
+      void client.noise.tracks
+        .remove(track.id)
+        .then(() => client.noise.session.getCurrent())
+        .then(applySession)
+        .catch(() => {});
+    },
+    [applySession],
+  );
 
   const resetMix = useCallback((): void => {
     setSettingsOpen(false);
@@ -1300,7 +1302,9 @@ export function EtherBubbles() {
               <div className={styles.localList}>
                 <span className={styles.localTitle}>本地轨道</span>
                 {localTracks.length === 0 ? (
-                  <span className={styles.settingsNote}>当前 Preset 没有本地素材。</span>
+                  <span className={styles.settingsNote}>
+                    当前 Preset 没有本地素材。
+                  </span>
                 ) : (
                   localTracks.map((track) => (
                     <div

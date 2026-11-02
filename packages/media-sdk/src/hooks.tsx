@@ -178,13 +178,17 @@ export function useNoiseLibrary(
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const queryKey = JSON.stringify(query);
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const onEvent = store.onEvent;
   const refresh = useCallback(() => setTick((value) => value + 1), []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: queryKey intentionally triggers refetch; onEvent is stable.
   useEffect(() => {
     let alive = true;
     setLoading(true);
     void client.noise.library
-      .listAssets(query)
+      .listAssets(queryRef.current)
       .then((page) => {
         if (!alive) return;
         setItems(page.items);
@@ -198,14 +202,14 @@ export function useNoiseLibrary(
       .finally(() => {
         if (alive) setLoading(false);
       });
-    const off = store.onEvent((topic) => {
+    const off = onEvent((topic) => {
       if (topic === "noise.library.changed") setTick((value) => value + 1);
     });
     return () => {
       alive = false;
       off();
     };
-  }, [client, queryKey, tick]);
+  }, [client, queryKey, tick, onEvent]);
 
   return { items, total, loading, error, refresh };
 }
@@ -230,13 +234,17 @@ export function useNoisePresets(
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const queryKey = JSON.stringify(query);
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const onEvent = store.onEvent;
   const refresh = useCallback(() => setTick((value) => value + 1), []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: queryKey intentionally triggers refetch; onEvent is stable.
   useEffect(() => {
     let alive = true;
     setLoading(true);
     void client.noise.presets
-      .listPresets(query)
+      .listPresets(queryRef.current)
       .then((page) => {
         if (!alive) return;
         setItems(page.items);
@@ -250,14 +258,14 @@ export function useNoisePresets(
       .finally(() => {
         if (alive) setLoading(false);
       });
-    const off = store.onEvent((topic) => {
+    const off = onEvent((topic) => {
       if (topic.startsWith("noise.preset.")) setTick((value) => value + 1);
     });
     return () => {
       alive = false;
       off();
     };
-  }, [client, queryKey, tick]);
+  }, [client, queryKey, tick, onEvent]);
 
   return { items, total, loading, error, refresh };
 }
@@ -308,9 +316,9 @@ export function useMediaHubStatus(): MediaHubStatus {
  * 官方播放器会话：player/queue 快照 + 曲库列表 + 控制动作。
  * 与 Noise hooks 共用 `MediaSessionHub`，不会互相覆盖订阅。
  */
-export function usePlayerSession(options: {
-  includeLibrary?: boolean;
-} = {}): PlayerSession {
+export function usePlayerSession(
+  options: { includeLibrary?: boolean } = {},
+): PlayerSession {
   const includeLibrary = options.includeLibrary !== false;
   const { useMediaClient } = requireReact();
   const client = useMediaClient();
@@ -369,10 +377,7 @@ export function usePlayerSession(options: {
   }, [client]);
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (
-      loadingMoreRef.current ||
-      loadedRef.current >= totalRef.current
-    ) {
+    if (loadingMoreRef.current || loadedRef.current >= totalRef.current) {
       return;
     }
     const generation = generationRef.current;
@@ -430,11 +435,7 @@ export function usePlayerSession(options: {
     publish();
     if (missing.length === 0) return;
     void Promise.all(
-      missing.map((id) =>
-        client.library
-          .getTrack(id)
-          .catch(() => null),
-      ),
+      missing.map((id) => client.library.getTrack(id).catch(() => null)),
     ).then((resolved) => {
       if (!alive) return;
       for (const track of resolved) {
@@ -604,10 +605,7 @@ export function useDirectoryBrowser(): DirectoryBrowser {
             ...result,
             tracks: {
               ...result.tracks,
-              items: [
-                ...previous.tracks.items,
-                ...result.tracks.items,
-              ],
+              items: [...previous.tracks.items, ...result.tracks.items],
             },
           };
         });

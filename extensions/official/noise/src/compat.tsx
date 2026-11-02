@@ -7,6 +7,7 @@
  */
 "use client";
 
+import { m } from "virtual:lull-messages";
 import type { LullMediaClient } from "@lull/media-sdk";
 import type { LullWidgetClient } from "@lull/widget-sdk";
 import {
@@ -14,7 +15,6 @@ import {
   useWidgetFit as useSdkWidgetFit,
 } from "@lull/widget-sdk/react";
 import type { RefObject } from "react";
-import { m } from "virtual:lull-messages";
 
 let widget: LullWidgetClient | null = null;
 let media: LullMediaClient | null = null;
@@ -91,9 +91,7 @@ export function useWidgetTheme(): {
   return { themeId: id, theme: { id, label } };
 }
 
-export function useWidgetFit(
-  contentRef: RefObject<HTMLElement | null>,
-): void {
+export function useWidgetFit(contentRef: RefObject<HTMLElement | null>): void {
   useSdkWidgetFit(contentRef);
 }
 

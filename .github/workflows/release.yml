@@ -192,6 +192,10 @@ jobs:
         # msi + nsis。产物落在 src-tauri/target/release 与 bundle/{msi,nsis}。
         run: pnpm tauri build
 
+      - name: Validate official extensions
+        # 官方包必须已构建且摘要/索引一致，再进入便携版与安装包收集。
+        run: pnpm extensions:check
+
       - name: Collect release artifacts
         # 统一命名 + 便携版 zip + SHA256SUMS；本地同样可以跑 pnpm release:package。
         run: node scripts/package-release.mjs

@@ -1322,6 +1322,34 @@ mod tests {
   }
 
   #[test]
+  fn official_tampered_package_is_rejected() {
+    let Some(root) = temp_root("official-tamper") else {
+      return;
+    };
+    let Some(package) = official_package(&root, "echo", &["widget.ui"]) else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    if digest::seal(&package.dir, "echo", "1.0.0", "declared").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let _ = std::fs::write(package.dir.join("index.html"), b"<html>tampered</html>");
+    let info = info_from(
+      &package.dir,
+      &package.manifest,
+      None,
+      false,
+      "bundled",
+      entry_url(&package.manifest.id, &package.manifest.entry),
+      &TrustPolicy::default(),
+    );
+    assert_eq!(info.status, "tampered");
+    assert!(info.error.is_some());
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
   fn official_missing_lock_is_invalid() {
     let Some(root) = temp_root("official-no-lock") else {
       return;

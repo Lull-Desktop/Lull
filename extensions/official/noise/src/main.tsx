@@ -1,15 +1,15 @@
+import { setLocale } from "virtual:lull-messages";
+import { createWidgetMediaClient } from "@lull/media-sdk/widget";
 import { connectLullWidget } from "@lull/widget-sdk";
 import {
   LullProvider,
   useLullLocale,
   useLullTheme,
 } from "@lull/widget-sdk/react";
-import { createWidgetMediaClient } from "@lull/media-sdk/widget";
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { setLocale } from "virtual:lull-messages";
-import { EtherBubbles } from "./ether-bubbles";
 import { installNoiseBridge, preloadNoiseState } from "./compat";
+import { EtherBubbles } from "./ether-bubbles";
 import "./global.css";
 
 const rootElement = document.getElementById("root");

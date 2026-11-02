@@ -10,8 +10,11 @@
 > Widget 的 player/queue/library 媒体能力与快照裁剪、Tier 2 dev server、
 > `widget_apply_resize` + `window.fit`、locale / 主题 token、媒体连接 Hub 均已落地。
 > P3 代码完成：白噪音包、托盘与设置页入口、扩展中心官方徽章已接入。P4 代码完成：
-> 播放器包、`window.alignPlayer`、封面兜底与设置/托盘入口已接入；剩余验收项是
-> 真机打开 / 停用 / 升级 / 篡改测试，以及封面 `asset:` 与 HMR 的 WebView2 验证。
+> 播放器包、`window.alignPlayer`、封面兜底与设置/托盘入口已接入。P5 自动化完成：
+> 便携版冒烟验证 `extensions/{noise,player}` 与 `index.json` 均已入 zip、无
+> `.lull-dev.json`；release 流程新增 `extensions:check`；官方包补缺资源根、篡改、
+> 升级保留授权等测试。剩余验收项是真机打开 / 停用 / 升级 / 篡改，以及封面
+> `asset:` 与 HMR 的 WebView2 验证。
 >
 > 关联文档：[Widget SDK](./widget-sdk.md)（包格式、能力词汇、桥协议）、
 > [扩展中心](./extension-center.md)（安装 / 启用 / 授权 / 卸载语义）、
@@ -312,7 +315,6 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 | P2 | 播放器 / 队列 / 曲库能力，`widget_apply_resize` + `fit`，locale / tokens，示例包验证 |
 | P3 | 白噪音迁移：移动 UI、包构建、托盘 / 设置 / 扩展中心整合，删除内置 noise |
 | P4 | 播放器迁移：移动 UI、播放器会话 hook、封面、抽屉宽度/锚点，删除内置 player || P5 | 发布加固：便携版、CI、升级 / 篡改 / 缺资源测试、文档与 Skill 同步 |
-
 迁移后删除（git 历史保留）：
 
 - `src/app/(widgets)/noise/`、`src/app/(widgets)/player/`（均已完成）及对应测试；
@@ -350,9 +352,12 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 - [ ] App 升级后官方包更新、用户停用状态与状态 KV 保留、清单不再触发 `needs-review`。
 - [ ] 篡改 / 删除官方包文件后拒绝加载并给出诊断；重装后恢复。
 - [ ] zh-CN ↔ en-US 切换后，两个工具窗、扩展中心与托盘名称同步。
-- [ ] `pnpm typecheck`、`pnpm test`、`pnpm widgets:check`、`pnpm extensions:check`、
-      `cargo test`、`cargo clippy` 通过；`biome` 无新增错误。
-- [ ] 文档、Skill 标准与站点文档同步检查通过。
+- [x] `pnpm typecheck`、`pnpm test`、`pnpm widgets:check`、`pnpm extensions:check`、
+      `cargo test`、`cargo clippy` 通过；`extensions:check` 同时检查摘要、索引与
+      `dist` 中是否有已移除包。
+- [x] 文档、Skill 标准与站点文档同步检查通过。
+- [ ] biome 无新增错误（仓库基线仍有存量告警，发布前单独收敛）。
+- [ ] 安装包 / 便携版在干净 Windows 环境完成真机验收。
 
 ## 13. 已定决策与待补
 

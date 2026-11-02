@@ -1,16 +1,16 @@
+import { setLocale } from "virtual:lull-messages";
+import { LullMediaProvider } from "@lull/media-sdk/react";
+import { createWidgetMediaClient } from "@lull/media-sdk/widget";
 import { connectLullWidget } from "@lull/widget-sdk";
 import {
   LullProvider,
   useLullLocale,
   useLullTheme,
 } from "@lull/widget-sdk/react";
-import { LullMediaProvider } from "@lull/media-sdk/react";
-import { createWidgetMediaClient } from "@lull/media-sdk/widget";
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { setLocale } from "virtual:lull-messages";
-import { LiquidPlayer } from "./liquid-player";
 import { installPlayerBridge, preloadPlayerState } from "./compat";
+import { LiquidPlayer } from "./liquid-player";
 import "./global.css";
 
 const rootElement = document.getElementById("root");

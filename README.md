@@ -86,7 +86,7 @@
 | --------------- | --------------------------- |
 | 显示/隐藏设置         | 切换设置窗口，不结束进程                |
 | 播放器 / 番茄钟 / 白噪音 | 打开对应浮窗                      |
-| 扩展              | 只列出已启用的工具扩展，点击即打开；没有启用项时不显示 |
+| 扩展              | 只列出已启用的第三方工具扩展，点击即打开；没有启用项时不显示 |
 | 退出              | 结束进程，壁纸同时卸下并还原桌面            |
 
 关任何窗口都只是隐藏。壁纸窗口不进任务栏，也不参与窗口相关的偏好设置，它只管桌面那一层。
@@ -310,13 +310,15 @@ pnpm test-mode -NativeMedia -RequireNative   # 没有原生 attach 成功时退�
 pnpm build
 ```
 
-`scripts/prebuild.mjs` 会依次做这些事：校验内容目录 → 编译 `lull_native.dll` → 清理 `dist/.next` → Next 静态导出 → 触碰 `lib.rs` 强制重嵌入。
+`scripts/prebuild.mjs` 会依次做这些事：编译 i18n → 校验内容目录 → 校验 Widget capability → 构建官方扩展（`extensions/dist/`）→ 编译 `lull_native.dll` → 清理 `dist/.next` → Next 静态导出 → 触碰 `lib.rs` 强制重嵌入。
 
 产物整理（msi / exe / 便携版 zip + 校验和）：
 
 ```powershell
 pnpm release:package      # → artifacts/release/
 ```
+
+便携版 zip 会带上 `extensions/{noise,player}`、`extensions/index.json` 与摘要锁；缺少索引或混入 `.lull-dev.json` 时 `release:package` 直接失败。
 
 ### 自定义扩展的方式
 
