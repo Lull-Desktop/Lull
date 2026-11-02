@@ -44,7 +44,10 @@ export function WallpaperLibraryWindow() {
         data-testid="wallpaper-layer-pane"
         aria-hidden={tab === "layer" ? undefined : true}
         inert={tab === "layer" ? undefined : true}
-        className={cn("min-h-0 flex-1", tab === "layer" ? undefined : "hidden")}
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          tab === "layer" ? undefined : "hidden",
+        )}
       >
         <WallpaperPanel />
       </section>
@@ -52,7 +55,10 @@ export function WallpaperLibraryWindow() {
         data-testid="wallpaper-media-pane"
         aria-hidden={tab === "media" ? undefined : true}
         inert={tab === "media" ? undefined : true}
-        className={cn("min-h-0 flex-1", tab === "media" ? undefined : "hidden")}
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto",
+          tab === "media" ? undefined : "hidden",
+        )}
       >
         <MediaManagerPanel active={tab === "media"} />
       </section>

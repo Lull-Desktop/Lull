@@ -289,66 +289,46 @@ export function MediaPanel() {
         ) : null}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        {!isImage ? (
+      {/*
+        随素材类型增减的一整块（图片只有填充/对齐，视频还多循环、帧率、硬件解码、
+        共享），再加诊断表格。卡片高度由 WallpaperPanel 的 CardContent 统一滚动，
+        这里不再自带滚动条，避免嵌套滚动。
+      */}
+      <div className="space-y-3">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {!isImage ? (
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-ink-soft">{m.media_loop()}</Label>
+              <Switch
+                checked={config.loop}
+                disabled={busy}
+                onCheckedChange={(loop) => update({ loop })}
+              />
+            </div>
+          ) : null}
           <div className="flex items-center justify-between gap-3">
-            <Label className="text-ink-soft">{m.media_loop()}</Label>
-            <Switch
-              checked={config.loop}
-              disabled={busy}
-              onCheckedChange={(loop) => update({ loop })}
-            />
-          </div>
-        ) : null}
-        <div className="flex items-center justify-between gap-3">
-          <Label className="text-ink-soft">{m.media_fit()}</Label>
-          <Select
-            value={config.fit}
-            onValueChange={(value) => update({ fit: value as MediaFit })}
-            disabled={busy}
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="cover">{m.media_fit_cover()}</SelectItem>
-              <SelectItem value="contain">{m.media_fit_contain()}</SelectItem>
-              <SelectItem value="fill">{m.media_fit_fill()}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <Label className="text-ink-soft">{m.media_position()}</Label>
-          <Select
-            value={config.position}
-            onValueChange={(value) =>
-              update({ position: value as MediaPosition })
-            }
-            disabled={busy}
-          >
-            <SelectTrigger size="sm" className="w-32">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="center">
-                {m.media_position_center()}
-              </SelectItem>
-              <SelectItem value="top">{m.media_position_top()}</SelectItem>
-              <SelectItem value="bottom">
-                {m.media_position_bottom()}
-              </SelectItem>
-              <SelectItem value="left">{m.media_position_left()}</SelectItem>
-              <SelectItem value="right">{m.media_position_right()}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        {!isImage ? (
-          <div className="flex items-center justify-between gap-3">
-            <Label className="text-ink-soft">{m.media_fps()}</Label>
+            <Label className="text-ink-soft">{m.media_fit()}</Label>
             <Select
-              value={String(config.preferredFps)}
+              value={config.fit}
+              onValueChange={(value) => update({ fit: value as MediaFit })}
+              disabled={busy}
+            >
+              <SelectTrigger size="sm" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cover">{m.media_fit_cover()}</SelectItem>
+                <SelectItem value="contain">{m.media_fit_contain()}</SelectItem>
+                <SelectItem value="fill">{m.media_fit_fill()}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <Label className="text-ink-soft">{m.media_position()}</Label>
+            <Select
+              value={config.position}
               onValueChange={(value) =>
-                update({ preferredFps: Number(value) as 24 | 30 | 60 })
+                update({ position: value as MediaPosition })
               }
               disabled={busy}
             >
@@ -356,100 +336,135 @@ export function MediaPanel() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="24">24</SelectItem>
-                <SelectItem value="30">30</SelectItem>
-                <SelectItem value="60">60</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
-        {!isImage ? (
-          <div className="flex items-center justify-between gap-3">
-            <Label className="text-ink-soft">{m.media_hardware()}</Label>
-            <Select
-              value={config.hardwareDecode}
-              onValueChange={(value) =>
-                update({ hardwareDecode: value as HardwareDecode })
-              }
-              disabled={busy}
-            >
-              <SelectTrigger size="sm" className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">{m.media_hardware_auto()}</SelectItem>
-                <SelectItem value="required">
-                  {m.media_hardware_required()}
+                <SelectItem value="center">
+                  {m.media_position_center()}
                 </SelectItem>
-                <SelectItem value="disabled">
-                  {m.media_hardware_disabled()}
+                <SelectItem value="top">{m.media_position_top()}</SelectItem>
+                <SelectItem value="bottom">
+                  {m.media_position_bottom()}
+                </SelectItem>
+                <SelectItem value="left">{m.media_position_left()}</SelectItem>
+                <SelectItem value="right">
+                  {m.media_position_right()}
                 </SelectItem>
               </SelectContent>
             </Select>
           </div>
-        ) : null}
-        {!isImage ? (
-          <div className="flex items-center justify-between gap-3">
-            <Label className="text-ink-soft">{m.media_share()}</Label>
-            <Select
-              value={config.share}
-              onValueChange={(value) => update({ share: value as MediaShare })}
-              disabled={busy}
-            >
-              <SelectTrigger size="sm" className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">{m.media_share_auto()}</SelectItem>
-                <SelectItem value="shared">{m.media_share_shared()}</SelectItem>
-                <SelectItem value="independent">
-                  {m.media_share_independent()}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
-      </div>
+          {!isImage ? (
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-ink-soft">{m.media_fps()}</Label>
+              <Select
+                value={String(config.preferredFps)}
+                onValueChange={(value) =>
+                  update({ preferredFps: Number(value) as 24 | 30 | 60 })
+                }
+                disabled={busy}
+              >
+                <SelectTrigger size="sm" className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="24">24</SelectItem>
+                  <SelectItem value="30">30</SelectItem>
+                  <SelectItem value="60">60</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          {!isImage ? (
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-ink-soft">{m.media_hardware()}</Label>
+              <Select
+                value={config.hardwareDecode}
+                onValueChange={(value) =>
+                  update({ hardwareDecode: value as HardwareDecode })
+                }
+                disabled={busy}
+              >
+                <SelectTrigger size="sm" className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">
+                    {m.media_hardware_auto()}
+                  </SelectItem>
+                  <SelectItem value="required">
+                    {m.media_hardware_required()}
+                  </SelectItem>
+                  <SelectItem value="disabled">
+                    {m.media_hardware_disabled()}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          {!isImage ? (
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-ink-soft">{m.media_share()}</Label>
+              <Select
+                value={config.share}
+                onValueChange={(value) =>
+                  update({ share: value as MediaShare })
+                }
+                disabled={busy}
+              >
+                <SelectTrigger size="sm" className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">{m.media_share_auto()}</SelectItem>
+                  <SelectItem value="shared">
+                    {m.media_share_shared()}
+                  </SelectItem>
+                  <SelectItem value="independent">
+                    {m.media_share_independent()}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+        </div>
 
-      <p className="text-xs text-muted-foreground">
-        {backendLabel}
-        {backendReason
-          ? ` · ${m.media_fallback_reason({ reason: backendReason })}`
-          : ""}
-      </p>
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-      {qualitySamples.length > 0 ? (
         <p className="text-xs text-muted-foreground">
-          {m.media_quality({
-            dropped: qualityDropped,
-            total: qualityFrames,
-            screens: qualitySamples.length,
-          })}
+          {backendLabel}
+          {backendReason
+            ? ` · ${m.media_fallback_reason({ reason: backendReason })}`
+            : ""}
         </p>
-      ) : null}
-      <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
-        <div>
-          <p className="text-sm font-medium text-ink-soft">
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        {qualitySamples.length > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {m.media_quality({
+              dropped: qualityDropped,
+              total: qualityFrames,
+              screens: qualitySamples.length,
+            })}
+          </p>
+        ) : null}
+        <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+          <div>
+            <p className="text-sm font-medium text-ink-soft">
+              {m.media_resync()}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {m.media_resync_hint()}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || isImage || !config.assetId}
+            onClick={resync}
+          >
             {m.media_resync()}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {m.media_resync_hint()}
-          </p>
+          </Button>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={busy || isImage || !config.assetId}
-          onClick={resync}
-        >
-          {m.media_resync()}
-        </Button>
+        {notice ? (
+          <p className="text-xs text-muted-foreground">{notice}</p>
+        ) : null}
+        <MediaDiagnostics stats={stats} />
       </div>
-      {notice ? (
-        <p className="text-xs text-muted-foreground">{notice}</p>
-      ) : null}
-      <MediaDiagnostics stats={stats} />
     </div>
   );
 }

@@ -320,14 +320,15 @@ export function MediaManagerPanel({ active }: { active: boolean }) {
         <p className="text-xs text-muted-foreground">{notice}</p>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_320px]">
+      {/* 预览在左、素材列表在右；窄窗口回到「列表在前、预览在后」的堆叠顺序。 */}
+      <div className="grid gap-4 md:grid-cols-[320px_minmax(0,1fr)]">
         <div className="min-w-0">
           {assets === null ? (
             <p className="text-xs text-muted-foreground">
               {m.media_manager_loading()}
             </p>
           ) : assets.length === 0 ? (
-            <div className="rounded-xl border border-paper-deep/60 border-dashed bg-paper-warm/40 px-6 py-10 text-center">
+            <div className="rounded-xl border border-paper-deep/60 border-dashed bg-card px-6 py-10 text-center">
               <p className="text-sm text-ink-soft">{m.media_manager_empty()}</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {m.media_manager_empty_hint()}
@@ -349,7 +350,7 @@ export function MediaManagerPanel({ active }: { active: boolean }) {
                 <li
                   key={asset.id}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors",
+                    "flex items-center gap-3 rounded-lg border bg-card px-3 py-2 transition-colors",
                     selectedId === asset.id
                       ? "border-bamboo/50 bg-bamboo-mist/20"
                       : "border-paper-deep/50",
@@ -415,7 +416,9 @@ export function MediaManagerPanel({ active }: { active: boolean }) {
           )}
         </div>
 
-        <Card className="h-fit">
+        {/* 预览固定在左栏顶部：素材列表再长也只滚右栏，预览始终可见。
+            窄窗口堆叠成单列时不用 sticky，避免它盖住列表。 */}
+        <Card className="h-fit md:order-first md:sticky md:top-0 md:self-start">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">
               {m.media_manager_preview()}

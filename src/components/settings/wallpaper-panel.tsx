@@ -285,15 +285,15 @@ export function WallpaperPanel() {
   );
 
   return (
-    <Card className="w-full">
-      <CardHeader>
+    <Card className="flex max-h-full min-h-0 w-full flex-col">
+      <CardHeader className="shrink-0">
         <CardTitle className="flex items-center gap-2">
           <Monitor className="h-5 w-5 text-bamboo" />
           {m.wallpaper_title()}
         </CardTitle>
         <CardDescription>{m.wallpaper_description()}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto">
         <div className="flex items-center justify-between">
           <Label htmlFor={wallpaperSwitchId} className="text-ink-soft">
             {m.wallpaper_show()}

@@ -39,7 +39,7 @@ export function LibraryWindowFrame({
   children,
 }: LibraryWindowFrameProps) {
   return (
-    <div className="mx-auto flex h-full min-h-[560px] w-full max-w-[1180px] flex-col gap-4 p-5">
+    <div className="mx-auto flex h-full w-full max-w-[1180px] flex-col gap-4 p-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-semibold text-2xl text-ink">{title}</h1>

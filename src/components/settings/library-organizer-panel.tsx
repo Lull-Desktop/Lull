@@ -26,13 +26,7 @@ import {
   Trash2,
   Wand2,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoverPreview } from "@/components/library/cover-preview";
 import { Button } from "@/components/ui/button";
 import {
@@ -270,11 +264,7 @@ export function LibraryOrganizerPanel({
   }, [client, searchKeyword, version]);
 
   const loadMoreTracks = useCallback(async (): Promise<void> => {
-    if (
-      !client ||
-      loadingMoreRef.current ||
-      tracks.length >= trackTotal
-    ) {
+    if (!client || loadingMoreRef.current || tracks.length >= trackTotal) {
       return;
     }
     const generation = queryGenerationRef.current;
@@ -506,7 +496,8 @@ export function LibraryOrganizerPanel({
           <div>
             <CardTitle>曲库整理测试</CardTitle>
             <CardDescription>
-              通过 @lull/media-sdk 驱动 P4：元数据覆盖、标签、实体合并/拆分、智能歌单。
+              通过 @lull/media-sdk 驱动
+              P4：元数据覆盖、标签、实体合并/拆分、智能歌单。
             </CardDescription>
           </div>
           <Button
@@ -543,7 +534,7 @@ export function LibraryOrganizerPanel({
           <div
             ref={trackListRef}
             onScroll={onTrackListScroll}
-            className="grid max-h-64 gap-1 overflow-auto rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-2"
+            className="grid max-h-64 gap-1 overflow-auto rounded-lg border border-paper-deep/60 bg-card p-2"
           >
             {tracks.map((track) => (
               <button
@@ -559,7 +550,9 @@ export function LibraryOrganizerPanel({
                 onClick={() => {
                   setSelectedId(track.id);
                   setSplitTrackIds((current) =>
-                    current.includes(track.id) ? current : [...current, track.id],
+                    current.includes(track.id)
+                      ? current
+                      : [...current, track.id],
                   );
                 }}
               >
@@ -570,12 +563,16 @@ export function LibraryOrganizerPanel({
                   </span>
                 </span>
                 <span className="shrink-0 text-xs text-ink-faint">
-                  {track.tags?.length ? `#${track.tags.map((tag) => tag.name).join(" #")}` : ""}
+                  {track.tags?.length
+                    ? `#${track.tags.map((tag) => tag.name).join(" #")}`
+                    : ""}
                 </span>
               </button>
             ))}
             {tracks.length === 0 ? (
-              <p className="py-6 text-center text-xs text-ink-faint">没有曲目</p>
+              <p className="py-6 text-center text-xs text-ink-faint">
+                没有曲目
+              </p>
             ) : null}
             {tracks.length > 0 && tracks.length < trackTotal ? (
               <p
@@ -606,7 +603,11 @@ export function LibraryOrganizerPanel({
             {draft && selected ? (
               <>
                 <div className="flex items-start gap-3">
-                  <CoverPreview client={client} track={selected} className="w-20" />
+                  <CoverPreview
+                    client={client}
+                    track={selected}
+                    className="w-20"
+                  />
                   <p className="flex-1 text-[11px] leading-relaxed text-ink-faint">
                     封面来自内嵌标签或文件夹，读取通过 `library.getCoverUrl`；
                     当前 SDK 没有用户上传/替换封面的保存方法。
@@ -708,7 +709,9 @@ export function LibraryOrganizerPanel({
               <Tags className="h-4 w-4" aria-hidden="true" />
               标签管理
             </CardTitle>
-            <CardDescription>创建、重命名、删除；删除只移除关联。</CardDescription>
+            <CardDescription>
+              创建、重命名、删除；删除只移除关联。
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {tags.map((tag) => (
@@ -718,7 +721,9 @@ export function LibraryOrganizerPanel({
               >
                 <span className="min-w-0 truncate">
                   {tag.name}
-                  <span className="ml-2 text-ink-faint">{tag.trackCount} 首</span>
+                  <span className="ml-2 text-ink-faint">
+                    {tag.trackCount} 首
+                  </span>
                 </span>
                 <span className="flex shrink-0 gap-1">
                   <Button
@@ -743,7 +748,9 @@ export function LibraryOrganizerPanel({
               </div>
             ))}
             {tags.length === 0 ? (
-              <p className="py-6 text-center text-xs text-ink-faint">还没有标签</p>
+              <p className="py-6 text-center text-xs text-ink-faint">
+                还没有标签
+              </p>
             ) : null}
           </CardContent>
         </Card>
@@ -833,14 +840,22 @@ export function LibraryOrganizerPanel({
           <div className="space-y-2 rounded-lg border border-paper-deep/60 p-3">
             <p className="text-xs font-medium text-ink">专辑</p>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Select label="合并源" value={albumSource} onChange={setAlbumSource}>
+              <Select
+                label="合并源"
+                value={albumSource}
+                onChange={setAlbumSource}
+              >
                 {albums.map((album) => (
                   <option key={album.id} value={album.id}>
                     {album.title}
                   </option>
                 ))}
               </Select>
-              <Select label="合并到" value={albumTarget} onChange={setAlbumTarget}>
+              <Select
+                label="合并到"
+                value={albumTarget}
+                onChange={setAlbumTarget}
+              >
                 {albums.map((album) => (
                   <option key={album.id} value={album.id}>
                     {album.title}
@@ -933,7 +948,11 @@ export function LibraryOrganizerPanel({
           <CardContent className="space-y-3">
             <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
               <Field label="名称" value={smartName} onChange={setSmartName} />
-              <Field label="流派（可选）" value={smartGenre} onChange={setSmartGenre} />
+              <Field
+                label="流派（可选）"
+                value={smartGenre}
+                onChange={setSmartGenre}
+              />
               <label className="flex items-center gap-1.5 pt-5 text-[11px] text-ink-soft">
                 <input
                   type="checkbox"
@@ -1022,7 +1041,7 @@ export function LibraryOrganizerPanel({
             {log.map((entry) => (
               <div
                 key={entry.id}
-                className="rounded-md border border-paper-deep/50 bg-paper-warm/40 p-2"
+                className="rounded-md border border-paper-deep/50 bg-card p-2"
               >
                 <p className="text-[11px] text-ink-soft">
                   {new Date(entry.at).toLocaleTimeString()} · {entry.label}

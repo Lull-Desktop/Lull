@@ -1,10 +1,12 @@
 import type {
   AlbumSummary,
   ArtistSummary,
+  HistoryEntry,
   LullMediaClient,
   MusicFolderView,
   Page,
   PlayerState,
+  QueueState,
   TrackSummary,
 } from "@lull/media-sdk";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -73,7 +75,10 @@ function page<T>(items: T[]): Page<T> {
   return { items, total: items.length, page: 1, pageSize: 100, hasMore: false };
 }
 
-function createClient(state: PlayerState = idleState): LullMediaClient {
+function createClient(
+  state: PlayerState = idleState,
+  options: { queueState?: QueueState; historyEntries?: HistoryEntry[] } = {},
+): LullMediaClient {
   const client = {
     connect: vi.fn(async () => ({ player: state })),
     disconnect: vi.fn(async () => {}),
@@ -90,6 +95,7 @@ function createClient(state: PlayerState = idleState): LullMediaClient {
       deleteSmartPlaylist: vi.fn(),
       exportBackup: vi.fn(async () => null),
       importBackup: vi.fn(async () => null),
+      getTrack: vi.fn(async (id: string) => ({ ...track, id })),
     },
     folders: {
       list: vi.fn(async () => [folder]),
@@ -117,11 +123,17 @@ function createClient(state: PlayerState = idleState): LullMediaClient {
       setMode: vi.fn(async () => ({ ...state, mode: "repeat-one" as const })),
     },
     queue: {
-      get: vi.fn(async () => ({ trackIds: [], revision: 1 })),
+      get: vi.fn(
+        async () => options.queueState ?? { trackIds: [], revision: 1 },
+      ),
       playAt: vi.fn(async () => ({ ...state, track, status: "playing" })),
+      remove: vi.fn(async () => true),
     },
     favorites: { set: vi.fn(), list: vi.fn(async () => page([])) },
-    history: { list: vi.fn(async () => page([])), clear: vi.fn() },
+    history: {
+      list: vi.fn(async () => page(options.historyEntries ?? [])),
+      clear: vi.fn(),
+    },
   };
   return client as unknown as LullMediaClient;
 }
@@ -304,4 +316,52 @@ test("切换工具页签不会断开窗口的媒体订阅", async () => {
   await waitFor(() => {
     expect(client.disconnect).toHaveBeenCalledTimes(1);
   });
+});
+
+test("队列页签与收藏共用曲目列表，并保留移出操作", async () => {
+  const client = createClient(idleState, {
+    queueState: { trackIds: [track.id], currentIndex: 0, revision: 1 },
+  });
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "队列" }));
+
+  expect(await screen.findByText("雨")).toBeDefined();
+  // 与「我的收藏」一致：艺术家 · 专辑 · 时长 都在同一行。
+  expect(screen.getByText(/Lull · 夜/)).toBeDefined();
+  expect(screen.getByText("02:00")).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "移出队列" }));
+
+  await waitFor(() => {
+    expect(client.queue.remove).toHaveBeenCalledWith("trk_1");
+  });
+});
+
+test("最近播放列表与收藏样式一致，并标注最近一次播放时间", async () => {
+  const playedAt = new Date("2026-11-02T10:00:00Z").getTime();
+  const client = createClient(idleState, {
+    historyEntries: [
+      { id: "h_1", trackId: track.id, track, playedAt, completed: true },
+      {
+        id: "h_2",
+        trackId: track.id,
+        track,
+        playedAt: playedAt - 60_000,
+        completed: true,
+      },
+    ],
+  });
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "最近播放" }));
+
+  // 同一条曲目的多次播放只保留一行。
+  expect(await screen.findAllByText("雨")).toHaveLength(1);
+  expect(screen.getByText(/Lull · 夜/)).toBeDefined();
+  expect(
+    screen.getByText((content) =>
+      content.includes(new Date(playedAt).toLocaleString()),
+    ),
+  ).toBeDefined();
 });

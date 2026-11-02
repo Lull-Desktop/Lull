@@ -7,7 +7,7 @@ import { m } from "@/paraglide/messages";
 export function MediaDiagnostics({ stats }: { stats: MediaStats | null }) {
   if (!stats) return null;
   return (
-    <div className="space-y-2 rounded-md border border-border/50 p-3">
+    <div className="space-y-2 rounded-md border border-border/50 bg-card p-3">
       <p className="text-xs font-medium text-ink-soft">
         {m.media_diagnostics()}
       </p>

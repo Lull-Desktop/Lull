@@ -108,7 +108,7 @@ export function NoiseLibraryWindow() {
         </p>
       )}
 
-      <section className="min-h-0 flex-1">
+      <section className="min-h-0 flex-1 overflow-y-auto">
         {tab === "library" && <NoiseLibraryPanel />}
         {tab === "presets" && <NoisePresetPanel />}
         {tab === "test" && (
