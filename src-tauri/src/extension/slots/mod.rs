@@ -760,6 +760,21 @@ mod tests {
   }
 
   #[test]
+  fn mini_player_example_is_a_valid_music_provider() {
+    let dir =
+      std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/widgets/mini-player");
+    let manifest = crate::widget_package::manifest::PackageManifest::from_dir(&dir)
+      .expect("mini player manifest");
+    let slot = defs::slot_for_provides(&manifest.provides).expect("music-player provider");
+    assert_eq!(slot.id, "music-player");
+    assert!(dir.join(&manifest.entry).is_file(), "entry must exist");
+    assert!(
+      defs::missing_required(slot, &manifest.capabilities).is_empty(),
+      "example must declare every required capability"
+    );
+  }
+
+  #[test]
   fn eligibility_requires_enabled_and_capabilities() {
     let slot = defs::find("music-player").expect("slot");
     let full = ["widget.media", "media.player.read", "media.player.control"];

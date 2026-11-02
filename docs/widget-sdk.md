@@ -282,7 +282,7 @@ pnpm widget:pack <dir>        # 把构建好的目录打成 .lull-widget.zip
 
 ### 4. 示例工程
 
-四个示例覆盖原生 / React / Vue 与完整 Liquid 计时 UI，直接对照着改最快：
+五个示例覆盖原生 / React / Vue、完整 Liquid 计时 UI 与最小第三方播放器，直接对照着改最快：
 
 | 示例 | 技术栈 | 位置 |
 | --- | --- | --- |
@@ -290,6 +290,7 @@ pnpm widget:pack <dir>        # 把构建好的目录打成 .lull-widget.zip
 | `pomodoro-react` | React | `examples/widgets/pomodoro-react` |
 | `pomodoro-vue` | Vue 3 | `examples/widgets/pomodoro-vue` |
 | `liquid-pomodoro` | React + Widget SDK（原内置番茄钟迁移） | `examples/widgets/liquid-pomodoro` |
+| `mini-player` | 原生 TypeScript + Media SDK，声明 `music-player` Provider | `examples/widgets/mini-player` |
 
 ## 需要注意
 

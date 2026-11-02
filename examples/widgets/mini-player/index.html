@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mini Player</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="head">
+        <div>
+          <p class="eyebrow">THIRD-PARTY PLAYER</p>
+          <h1 class="title" id="track-title">还没有播放曲目</h1>
+          <p class="artist" id="track-artist">从曲库选一首开始</p>
+        </div>
+        <span class="badge" id="status">未连接</span>
+      </header>
+
+      <section class="progress-block" aria-label="播放进度">
+        <input
+          id="progress"
+          class="range"
+          type="range"
+          min="0"
+          max="1000"
+          value="0"
+          step="1"
+          aria-label="播放进度"
+        />
+        <div class="time-row">
+          <span id="elapsed">0:00</span>
+          <span id="duration">0:00</span>
+        </div>
+      </section>
+
+      <nav class="controls" aria-label="播放控制">
+        <button type="button" id="previous" class="icon-button" aria-label="上一首" title="上一首">
+          ◀︎
+        </button>
+        <button type="button" id="toggle" class="primary" aria-label="播放">播放</button>
+        <button type="button" id="next" class="icon-button" aria-label="下一首" title="下一首">
+          ▶︎
+        </button>
+      </nav>
+
+      <footer class="footer">
+        <label class="volume">
+          <span>音量</span>
+          <input
+            id="volume"
+            class="range"
+            type="range"
+            min="0"
+            max="100"
+            value="80"
+            step="1"
+            aria-label="音量"
+          />
+        </label>
+        <button type="button" id="mute" class="ghost" aria-label="静音">
+          静音
+        </button>
+        <span class="queue" id="queue"></span>
+      </footer>
+
+      <p class="error" id="error" role="alert"></p>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

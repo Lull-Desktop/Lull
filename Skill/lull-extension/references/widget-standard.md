@@ -98,6 +98,9 @@ host slot instead:
   does not occupy the slot.
 - v1 rejects more than one `provides` entry: `widget-<id>` can only host one window.
 
+Reference implementation: `examples/widgets/mini-player` (vanilla TypeScript, builds to
+`music-player` Provider, includes a replacement/mutual-exclusion test checklist).
+
 ## 3. Capability matrix
 
 | Capability | Kind | What you get | What you must do |

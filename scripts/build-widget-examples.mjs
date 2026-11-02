@@ -73,6 +73,8 @@ const SAMPLES = [
   { dir: "pomodoro-react", entry: "src/main.tsx", jsx: true },
   { dir: "pomodoro-vue", entry: "src/main.ts", jsx: false },
   { dir: "liquid-pomodoro", entry: "src/main.tsx", jsx: true },
+  // 最小第三方播放器 Provider，用于验证 Slot 替换与互斥。
+  { dir: "mini-player", entry: "src/main.ts", jsx: false },
 ];
 
 async function buildSample(sample) {
@@ -126,8 +128,10 @@ async function buildSample(sample) {
   return true;
 }
 
+const only = new Set(process.argv.slice(2));
 let built = 0;
 for (const sample of SAMPLES) {
+  if (only.size > 0 && !only.has(sample.dir)) continue;
   try {
     if (await buildSample(sample)) built += 1;
   } catch (error) {

@@ -110,6 +110,7 @@ const WIDGET_KNOWN_KEYS = new Set([
   "builtin",
   "hostApi",
   "entry",
+  "order",
   "icon",
   "lifecycle",
   "capabilities",

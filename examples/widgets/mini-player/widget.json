@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 2,
+  "type": "widget",
+  "id": "community-mini-player",
+  "name": "Mini Player (Example)",
+  "version": "1.0.0",
+  "description": "最小可替换播放器：播放 / 暂停 / 上一首 / 下一首 / 进度 / 音量 / 静音。",
+  "author": "Lull",
+  "license": "MIT",
+  "builtin": false,
+  "hostApi": 1,
+  "entry": "index.html",
+  "order": 80,
+  "provides": [
+    {
+      "slot": "music-player",
+      "version": 1
+    }
+  ],
+  "capabilities": [
+    "widget.ui",
+    "widget.media",
+    "media.player.read",
+    "media.player.control",
+    "media.player.volume.write",
+    "media.queue.read",
+    "media.library.read"
+  ],
+  "window": {
+    "width": 440,
+    "height": 340,
+    "minWidth": 400,
+    "minHeight": 300,
+    "resizable": false,
+    "transparent": false,
+    "chrome": "host"
+  }
+}

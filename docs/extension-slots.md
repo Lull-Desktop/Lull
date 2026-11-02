@@ -71,6 +71,10 @@
 | 新工具 | 新 Widget 包；属于已有 Slot 就声明 `provides` | 视声明 | 番茄钟（当前无 Slot） |
 | 新功能槽位 | 宿主发布 Slot 定义 + Host Service / 能力 | 宿主决定 | 未来「睡眠定时器」Slot |
 
+> 可安装的最小参考实现：[`examples/widgets/mini-player`](../examples/widgets/mini-player)。
+> 它只使用 `@lull/widget-sdk` + `@lull/media-sdk/widget`，声明 `music-player`，可用来验证
+> 替换、切回、关闭、结束、停用与卸载。构建/安装命令见该目录的 README。
+
 > Slot 互斥只约束声明了 `provides` 的扩展。一个声明了 `media.player.control` 但未声明
 > `provides` 的普通 Widget 按「遥控器 / 伴侣」处理，不占 Slot。宿主无法也不应该从能力
 > 反推作者的 UI 意图。

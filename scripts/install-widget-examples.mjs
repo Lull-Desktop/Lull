@@ -26,8 +26,10 @@ const targetRoot = join(appData, "app.lull.desktop", "widgets");
 mkdirSync(targetRoot, { recursive: true });
 
 const examplesDir = join(root, "examples", "widgets");
+const only = new Set(process.argv.slice(2));
 let installed = 0;
 for (const name of readdirSync(examplesDir)) {
+  if (only.size > 0 && !only.has(name)) continue;
   const distDir = join(examplesDir, name, "dist");
   const manifestPath = join(distDir, "widget.json");
   if (!existsSync(manifestPath)) continue;

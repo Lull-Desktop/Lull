@@ -122,6 +122,8 @@
 
 番茄钟示例不在安装包里，先在仓库执行 `pnpm widgets:samples:build && pnpm widgets:samples:install`，再回设置页启用「番茄钟（Liquid）」。
 
+想验证“第三方播放器替换官方播放器”，执行 `pnpm widgets:samples:build mini-player && pnpm widgets:samples:install mini-player`，然后在扩展中心启用 **Mini Player (Example)**，到「功能槽位 → 音乐播放器」切换实现。
+
 另外有几条规则：
 
 - 同 id 的场景会覆盖更新，壁纸按新版本重新加载，不用手动删旧包。
@@ -239,7 +241,7 @@ packages/widget-sdk/       # 第三方插件侧 SDK：TypeScript 源码 → dist
 packages/scene-sdk/        # 场景侧 SDK：参数/几何/同步/可见性桥
 extensions/official/       # 官方扩展源码（noise / player / bamboo 场景 + Vite 工程）
 extensions/dist/           # 官方扩展构建产物（不入库，Tauri bundle.resources）
-examples/widgets/          # 原生 / React / Vue / Liquid 番茄钟四个插件包示例
+examples/widgets/          # 原生 / React / Vue / Liquid 番茄钟 + 最小第三方播放器示例
 examples/scenes/           # 可安装内容包示例（静态 / 脚本场景）
 src-tauri/
   src/
@@ -369,7 +371,7 @@ pnpm scenes:sdk
 
 #### 自定义Widget插件
 
-静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV，支持自绘窗口顶栏和透明背景，提供原生 / React / Vue 示例，以及从内置迁移出来的完整 [`liquid-pomodoro`](examples/widgets/liquid-pomodoro) 示例。包格式、能力声明与 SDK 接入见 [Widget SDK](docs/widget-sdk.md)，示例在 [`examples/widgets`](examples/widgets)。
+静态包安装到用户目录，宿主壳 + iframe + Rust 状态 KV，支持自绘窗口顶栏和透明背景，提供原生 / React / Vue 示例，以及从内置迁移出来的完整 [`liquid-pomodoro`](examples/widgets/liquid-pomodoro) 示例。想看“第三方替换官方模块”，直接用 [`mini-player`](examples/widgets/mini-player)：声明 `music-player` Slot，安装后可在扩展中心与官方播放器互换。包格式、能力声明与 SDK 接入见 [Widget SDK](docs/widget-sdk.md)，示例在 [`examples/widgets`](examples/widgets)。
 
 > **安全边界**：静态场景不执行脚本；脚本场景跑在 opaque-origin 的 `allow-scripts` iframe 里，只能通过 Scene SDK 桥读取宿主下发的帧，拿不到宿主 DOM、任意 Tauri IPC、Rust 命令或 Win32 调用。插件窗口同理，只拿到自身状态命令和窗口操作。
 
@@ -401,7 +403,7 @@ pnpm scenes:sdk
 | `pnpm widgets:sdk` / `pnpm widgets:sdk:check`              | 构建插件侧 SDK / 只做类型检查                                   |
 | `pnpm scenes:sdk` / `pnpm scenes:sdk:check`                | 构建场景侧 SDK / 只做类型检查                                   |
 | `pnpm scenes:samples:{build,hash,check,pack}`              | 构建、重算摘要、校验、打包两个脚本场景示例                                |
-| `pnpm widgets:samples:build` / `pnpm widgets:samples:pack` | 构建三个示例插件包 / 打成 `artifacts/*.lull-widget.zip`         |
+| `pnpm widgets:samples:build` / `pnpm widgets:samples:pack` | 构建示例插件包（含 `mini-player`）/ 打成 `artifacts/*.lull-widget.zip` |
 | `pnpm widget:pack <dir>`                                   | 把任意构建后的 Widget 目录打成可安装 zip                           |
 | `pnpm extensions:build` / `extensions:dev <id>` / `extensions:watch <id>` | 构建官方扩展 / Vite dev server（HMR）/ 监听重建         |
 | `pnpm extensions:check`                                    | 官方扩展源码边界 + 产物摘要校验（CI）                            |
