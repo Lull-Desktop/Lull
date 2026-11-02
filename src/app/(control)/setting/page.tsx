@@ -9,6 +9,7 @@ import { listen } from "@tauri-apps/api/event";
 import { AppWindow, Languages, MoonStar, Puzzle, Sparkles } from "lucide-react";
 import {
   type CSSProperties,
+  type ReactNode,
   useCallback,
   useEffect,
   useId,
@@ -58,6 +59,7 @@ import {
 import { FLOW_THEMES } from "@/lib/flow-theme";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import { version as appVersion } from "../../../../package.json";
 import {
   BUILTIN_WIDGETS,
   widgetDisplayDescription,
@@ -107,6 +109,27 @@ type FlowSwatchStyle = CSSProperties & {
   "--dot-a": string;
   "--dot-b": string;
 };
+
+/** 合并卡片内的分区标题：图标 + 标题 + 说明。 */
+function SectionHeading({
+  icon,
+  title,
+  description,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <h2 className="flex items-center gap-2 text-base font-semibold leading-none tracking-tight">
+        {icon}
+        {title}
+      </h2>
+      <p className="text-xs text-muted-foreground">{description}</p>
+    </div>
+  );
+}
 
 export default function Settings() {
   const windowPrefsSwitchId = useId();
@@ -341,283 +364,274 @@ export default function Settings() {
 
       {tab === "preferences" && (
         <main className="space-y-6">
-          {/* ── Language（界面语言，偏好以 Rust 的 preferences.json 为准）── */}
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Languages className="h-5 w-5 text-bamboo" />
-                {m.settings_language_title()}
-              </CardTitle>
-              <CardDescription>
-                {m.settings_language_description()}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div
-                role="radiogroup"
-                aria-label={m.settings_language_title()}
-                className="flex flex-wrap gap-2"
+          {/* ── General（语言 / 主题流光 / 窗口 / 关于合并为一张卡片）── */}
+          <Card className="w-full" data-testid="settings-preferences-card">
+            <CardContent className="space-y-6 p-6">
+              {/* Language（界面语言，偏好以 Rust 的 preferences.json 为准） */}
+              <section
+                className="space-y-3"
+                data-testid="settings-language-section"
               >
-                {/* biome-ignore lint/a11y/useSemanticElements: language pills intentionally use ARIA radio semantics with custom styling */}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={languagePref === "system"}
-                  onClick={() => changeLanguage("system")}
-                  className={cn(
-                    "rounded-full border px-3 py-1.5 text-xs transition",
-                    languagePref === "system"
-                      ? "border-bamboo/60 bg-bamboo-mist text-bamboo shadow-sm"
-                      : "border-border/70 text-muted-foreground hover:border-bamboo/40 hover:text-ink-soft",
-                  )}
+                <SectionHeading
+                  icon={<Languages className="h-4 w-4 text-bamboo" />}
+                  title={m.settings_language_title()}
+                  description={m.settings_language_description()}
+                />
+                <div
+                  role="radiogroup"
+                  aria-label={m.settings_language_title()}
+                  className="flex flex-wrap gap-2"
                 >
-                  {m.settings_language_follow_system()}
-                </button>
-                {LOCALE_OPTIONS.map((option) => (
-                  // biome-ignore lint/a11y/useSemanticElements: language pills intentionally use ARIA radio semantics with custom styling
+                  {/* biome-ignore lint/a11y/useSemanticElements: language pills intentionally use ARIA radio semantics with custom styling */}
                   <button
-                    key={option}
                     type="button"
                     role="radio"
-                    aria-checked={languagePref === option}
-                    onClick={() => changeLanguage(option)}
+                    aria-checked={languagePref === "system"}
+                    onClick={() => changeLanguage("system")}
                     className={cn(
                       "rounded-full border px-3 py-1.5 text-xs transition",
-                      languagePref === option
+                      languagePref === "system"
                         ? "border-bamboo/60 bg-bamboo-mist text-bamboo shadow-sm"
                         : "border-border/70 text-muted-foreground hover:border-bamboo/40 hover:text-ink-soft",
                     )}
                   >
-                    {localeLabel(option)}
+                    {m.settings_language_follow_system()}
                   </button>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {m.settings_language_effective({ locale: localeLabel(locale) })}
-              </p>
-              {languageMsg && (
-                <p className="text-xs text-destructive">{languageMsg}</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* ── Flow Theme（从白噪音迁移过来的全局主题流光）── */}
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-bamboo" />
-                {m.settings_theme_title()}
-              </CardTitle>
-              <CardDescription>
-                {m.settings_theme_description()}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-2.5 border-0 p-0">
-                <legend className="sr-only">{m.settings_theme_title()}</legend>
-                {FLOW_THEMES.map((theme) => {
-                  const active = theme.id === flowThemeId;
-                  return (
+                  {LOCALE_OPTIONS.map((option) => (
+                    // biome-ignore lint/a11y/useSemanticElements: language pills intentionally use ARIA radio semantics with custom styling
                     <button
-                      key={theme.id}
+                      key={option}
                       type="button"
-                      aria-label={m.settings_theme_pick_aria({
-                        name: theme.label(),
-                      })}
-                      aria-pressed={active}
-                      onClick={() => setTheme(theme.id)}
+                      role="radio"
+                      aria-checked={languagePref === option}
+                      onClick={() => changeLanguage(option)}
                       className={cn(
-                        "flex items-center gap-2 rounded-full border px-2 py-1 text-xs transition",
-                        active
+                        "rounded-full border px-3 py-1.5 text-xs transition",
+                        languagePref === option
                           ? "border-bamboo/60 bg-bamboo-mist text-bamboo shadow-sm"
                           : "border-border/70 text-muted-foreground hover:border-bamboo/40 hover:text-ink-soft",
                       )}
                     >
-                      <span className="grid h-4 w-4 shrink-0 place-items-center">
-                        <span
-                          className="flow-theme-swatch h-4 w-4"
-                          style={
-                            {
-                              "--dot-a": theme.a,
-                              "--dot-b": theme.b,
-                            } as FlowSwatchStyle
-                          }
-                        />
-                      </span>
-                      {theme.label()}
+                      {localeLabel(option)}
                     </button>
-                  );
-                })}
-              </fieldset>
+                  ))}
+                </div>
+                {languageMsg && (
+                  <p className="text-xs text-destructive">{languageMsg}</p>
+                )}
+              </section>
 
-              <div
-                className="overflow-hidden rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-3"
-                style={{
-                  backgroundImage: `radial-gradient(ellipse 70% 100% at 100% 0%, ${flowTheme.b}24, transparent 70%), radial-gradient(ellipse 60% 100% at 0% 100%, ${flowTheme.a}1f, transparent 72%)`,
-                }}
+              {/* Flow Theme（从白噪音迁移过来的全局主题流光） */}
+              <section
+                className="space-y-4 border-t border-border/60 pt-6"
+                data-testid="settings-theme-section"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm text-ink-soft">
-                    {m.settings_theme_current_prefix()}
-                    <strong className="font-medium">{flowTheme.label()}</strong>
-                  </span>
-                  <span className="font-mono text-[10px] tracking-wide text-ink-faint">
-                    {flowTheme.a} · {flowTheme.b}
-                  </span>
-                </div>
-                <div
-                  className="mt-2.5 h-1.5 rounded-full"
-                  style={{
-                    backgroundImage: `linear-gradient(90deg, ${flowTheme.a}, ${flowTheme.b}, ${flowTheme.c})`,
-                  }}
+                <SectionHeading
+                  icon={<Sparkles className="h-4 w-4 text-bamboo" />}
+                  title={m.settings_theme_title()}
+                  description={m.settings_theme_description()}
                 />
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-bamboo px-2.5 py-1 text-[10px] text-cloud">
-                    {m.settings_theme_primary()}
-                  </span>
-                  <span className="rounded-full border border-bamboo/40 bg-bamboo-mist px-2.5 py-1 text-[10px] text-bamboo">
-                    {m.settings_theme_accent()}
-                  </span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">
-                    {m.settings_theme_applies_globally()}
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Window Behavior（全局窗口偏好）── */}
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <AppWindow className="h-5 w-5 text-bamboo" />
-                {m.settings_window_title()}
-              </CardTitle>
-              <CardDescription>
-                {m.settings_window_description()}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <Label
-                    htmlFor={windowPrefsSwitchId}
-                    className="text-ink-soft"
-                  >
-                    {m.settings_window_taskbar()}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    {m.settings_window_taskbar_hint()}
-                  </p>
-                </div>
-                <Switch
-                  id={windowPrefsSwitchId}
-                  checked={windowPrefs?.taskbarAndMinimize === true}
-                  disabled={windowPrefs === null}
-                  onCheckedChange={updateWindowPrefs}
-                />
-              </div>
-
-              <div className="space-y-3 border-t border-border/50 pt-3">
-                <p className="text-xs text-muted-foreground">
-                  {m.settings_window_tools()}
-                </p>
-                {toolWindows.map(({ kind, name, description }) => (
-                  <div key={kind} className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <span className="text-sm text-ink-soft">{name}</span>
-                      {description && (
-                        <p className="text-xs text-muted-foreground">
-                          {description}
-                        </p>
-                      )}
-                    </div>
-                    <Switch
-                      aria-label={m.settings_window_toggle_aria({ name })}
-                      checked={widgetStates?.[kind] === true}
-                      disabled={widgetStates === null}
-                      onCheckedChange={(on) => toggleWidget(kind, on)}
-                    />
-                  </div>
-                ))}
-                {officialTools.map((item) => (
-                  <div
-                    key={`official-${item.id}`}
-                    className="flex items-center justify-between"
-                  >
-                    <div className="space-y-0.5">
-                      <span className="text-sm text-ink-soft">
-                        {item.name}
-                        <span className="ml-1.5 text-[10px] text-ink-faint">
-                          {m.ext_origin_official()}
+                <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-2.5 border-0 p-0">
+                  <legend className="sr-only">
+                    {m.settings_theme_title()}
+                  </legend>
+                  {FLOW_THEMES.map((theme) => {
+                    const active = theme.id === flowThemeId;
+                    return (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        aria-label={m.settings_theme_pick_aria({
+                          name: theme.label(),
+                        })}
+                        aria-pressed={active}
+                        onClick={() => setTheme(theme.id)}
+                        className={cn(
+                          "flex items-center gap-2 rounded-full border px-2 py-1 text-xs transition",
+                          active
+                            ? "border-bamboo/60 bg-bamboo-mist text-bamboo shadow-sm"
+                            : "border-border/70 text-muted-foreground hover:border-bamboo/40 hover:text-ink-soft",
+                        )}
+                      >
+                        <span className="grid h-4 w-4 shrink-0 place-items-center">
+                          <span
+                            className="flow-theme-swatch h-4 w-4"
+                            style={
+                              {
+                                "--dot-a": theme.a,
+                                "--dot-b": theme.b,
+                              } as FlowSwatchStyle
+                            }
+                          />
                         </span>
-                      </span>
-                      {item.description && (
-                        <p className="text-xs text-muted-foreground">
-                          {item.description}
-                        </p>
-                      )}
-                    </div>
-                    <Switch
-                      aria-label={m.settings_window_toggle_aria({
-                        name: item.name,
-                      })}
-                      checked={Boolean(item.running && item.visible)}
-                      onCheckedChange={(on) => toggleOfficialTool(item, on)}
-                    />
+                        {theme.label()}
+                      </button>
+                    );
+                  })}
+                </fieldset>
+
+                <div
+                  className="overflow-hidden rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-3"
+                  style={{
+                    backgroundImage: `radial-gradient(ellipse 70% 100% at 100% 0%, ${flowTheme.b}24, transparent 70%), radial-gradient(ellipse 60% 100% at 0% 100%, ${flowTheme.a}1f, transparent 72%)`,
+                  }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm text-ink-soft">
+                      {m.settings_theme_current_prefix()}
+                      <strong className="font-medium">
+                        {flowTheme.label()}
+                      </strong>
+                    </span>
+                    <span className="font-mono text-[10px] tracking-wide text-ink-faint">
+                      {flowTheme.a} · {flowTheme.b}
+                    </span>
                   </div>
-                ))}
-              </div>
+                  <div
+                    className="mt-2.5 h-1.5 rounded-full"
+                    style={{
+                      backgroundImage: `linear-gradient(90deg, ${flowTheme.a}, ${flowTheme.b}, ${flowTheme.c})`,
+                    }}
+                  />
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-bamboo px-2.5 py-1 text-[10px] text-cloud">
+                      {m.settings_theme_primary()}
+                    </span>
+                    <span className="rounded-full border border-bamboo/40 bg-bamboo-mist px-2.5 py-1 text-[10px] text-bamboo">
+                      {m.settings_theme_accent()}
+                    </span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {m.settings_theme_applies_globally()}
+                    </span>
+                  </div>
+                </div>
+              </section>
 
-              {windowPrefsMsg && (
-                <p className="text-xs text-destructive">{windowPrefsMsg}</p>
-              )}
-              {widgetMsg && (
-                <p className="text-xs text-destructive">{widgetMsg}</p>
-              )}
-            </CardContent>
-          </Card>
+              {/* Window Behavior（全局窗口偏好） */}
+              <section
+                className="space-y-3 border-t border-border/60 pt-6"
+                data-testid="settings-window-section"
+              >
+                <SectionHeading
+                  icon={<AppWindow className="h-4 w-4 text-bamboo" />}
+                  title={m.settings_window_title()}
+                  description={m.settings_window_description()}
+                />
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label
+                      htmlFor={windowPrefsSwitchId}
+                      className="text-ink-soft"
+                    >
+                      {m.settings_window_taskbar()}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {m.settings_window_taskbar_hint()}
+                    </p>
+                  </div>
+                  <Switch
+                    id={windowPrefsSwitchId}
+                    checked={windowPrefs?.taskbarAndMinimize === true}
+                    disabled={windowPrefs === null}
+                    onCheckedChange={updateWindowPrefs}
+                  />
+                </div>
 
-          {/* ── Feature Slots（官方扩展的切换与开启关闭，位于窗口设置下方）── */}
-          <Card className="w-full" data-testid="settings-feature-slots">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Puzzle className="h-5 w-5 text-bamboo" />
-                {m.slot_section_title()}
-              </CardTitle>
-              <CardDescription>{m.slot_section_description()}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <SlotPanel
-                slots={slots}
-                busy={false}
-                onChanged={refreshSlotViews}
-                onMessage={handleSlotMessage}
-                showHeading={false}
-              />
-              {slotError && (
-                <p className="text-xs text-destructive">{slotError}</p>
-              )}
-            </CardContent>
-          </Card>
+                <div className="space-y-3 border-t border-border/50 pt-3">
+                  {toolWindows.map(({ kind, name, description }) => (
+                    <div
+                      key={kind}
+                      className="flex items-center justify-between"
+                    >
+                      <div className="space-y-0.5">
+                        <span className="text-sm text-ink-soft">{name}</span>
+                        {description && (
+                          <p className="text-xs text-muted-foreground">
+                            {description}
+                          </p>
+                        )}
+                      </div>
+                      <Switch
+                        aria-label={m.settings_window_toggle_aria({ name })}
+                        checked={widgetStates?.[kind] === true}
+                        disabled={widgetStates === null}
+                        onCheckedChange={(on) => toggleWidget(kind, on)}
+                      />
+                    </div>
+                  ))}
+                  {officialTools.map((item) => (
+                    <div
+                      key={`official-${item.id}`}
+                      className="flex items-center justify-between"
+                    >
+                      <div className="space-y-0.5">
+                        <span className="text-sm text-ink-soft">
+                          {item.name}
+                          <span className="ml-1.5 text-[10px] text-ink-faint">
+                            {m.ext_origin_official()}
+                          </span>
+                        </span>
+                        {item.description && (
+                          <p className="text-xs text-muted-foreground">
+                            {item.description}
+                          </p>
+                        )}
+                      </div>
+                      <Switch
+                        aria-label={m.settings_window_toggle_aria({
+                          name: item.name,
+                        })}
+                        checked={Boolean(item.running && item.visible)}
+                        onCheckedChange={(on) => toggleOfficialTool(item, on)}
+                      />
+                    </div>
+                  ))}
+                </div>
 
-          {/* ── About Lull（开源身份与扩展入口）── */}
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MoonStar className="h-5 w-5 text-bamboo" />
-                {m.settings_about_title()}
-              </CardTitle>
-              <CardDescription>
-                {m.settings_about_description()}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-muted-foreground">
-              <p>{m.settings_about_version({ version: "0.1.0" })}</p>
-              <p>{m.settings_about_extensions()}</p>
-              <p className="font-mono text-[11px] text-ink-faint">
-                logs: %TEMP%\lull · config: app_config_dir\display.json
-              </p>
+                {windowPrefsMsg && (
+                  <p className="text-xs text-destructive">{windowPrefsMsg}</p>
+                )}
+                {widgetMsg && (
+                  <p className="text-xs text-destructive">{widgetMsg}</p>
+                )}
+
+                <div
+                  className="space-y-3 border-t border-border/50 pt-3"
+                  data-testid="settings-feature-slots"
+                >
+                  <div className="space-y-1">
+                    <h3 className="flex items-center gap-2 text-sm font-medium text-ink-soft">
+                      <Puzzle className="h-4 w-4 text-bamboo" />
+                      组件管理
+                    </h3>
+                  </div>
+                  <SlotPanel
+                    slots={slots}
+                    busy={false}
+                    onChanged={refreshSlotViews}
+                    onMessage={handleSlotMessage}
+                    showHeading={true}
+                  />
+                  {slotError && (
+                    <p className="text-xs text-destructive">{slotError}</p>
+                  )}
+                </div>
+              </section>
+
+              {/* About Lull（开源身份与扩展入口） */}
+              <section
+                className="space-y-3 border-t border-border/60 pt-6"
+                data-testid="settings-about-section"
+              >
+                <SectionHeading
+                  icon={<MoonStar className="h-4 w-4 text-bamboo" />}
+                  title={m.settings_about_title()}
+                  description={m.settings_about_description()}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {m.settings_about_version({ version: appVersion })}
+                </p>
+              </section>
             </CardContent>
           </Card>
 

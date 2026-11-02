@@ -104,9 +104,7 @@ export function SlotPanel({
 
   const heading = showHeading ? (
     <div className="space-y-1">
-      <h3 className="text-sm font-medium text-ink-soft">
-        {m.slot_section_title()}
-      </h3>
+     
       <p className="text-xs text-muted-foreground">
         {m.slot_section_description()}
       </p>

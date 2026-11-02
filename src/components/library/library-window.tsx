@@ -62,13 +62,13 @@ type LibraryWindowProps = {
 };
 
 const TABS: { id: LibraryTab; label: () => string; icon: typeof Music }[] = [
-  { id: "tracks", label: m.library_tracks, icon: Music },
-  { id: "recent", label: m.library_recent_added, icon: Clock },
   { id: "folders", label: m.library_my_folders, icon: FolderOpen },
-  { id: "playlists", label: m.library_playlists, icon: ListMusic },
+  { id: "tracks", label: m.library_tracks, icon: Music },
   { id: "favorites", label: m.library_favorites, icon: Heart },
-  { id: "history", label: m.library_history, icon: History },
   { id: "queue", label: m.library_queue, icon: ListOrdered },
+  { id: "recent", label: m.library_recent_added, icon: Clock },
+  { id: "history", label: m.library_history, icon: History },
+  { id: "playlists", label: m.library_playlists, icon: ListMusic },
   { id: "smart", label: m.library_smart_playlists, icon: Sparkles },
 ];
 

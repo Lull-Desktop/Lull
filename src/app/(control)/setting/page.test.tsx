@@ -571,6 +571,31 @@ test("工具窗开关按当前显示状态渲染，并能打开窗口", async ()
   });
 });
 
+test("偏好页合并为一张卡片，功能槽位位于窗口分区内", () => {
+  mockInvoke({
+    wallpaper_get_visible: () => true,
+    wallpaper_monitors: () => MONITORS,
+    wallpaper_display_get: () => ({
+      mode: "mirror",
+      sync: true,
+      scene: "lull.bamboo",
+    }),
+    window_prefs_get: () => ({ taskbarAndMinimize: true }),
+    widget_states: () => [],
+    extensions_list: () => [],
+    extensions_slots: () => [],
+  });
+  render(<Page />);
+
+  const card = screen.getByTestId("settings-preferences-card");
+  for (const title of ["语言", "主题流光", "窗口", "关于 Lull"]) {
+    expect(within(card).getByRole("heading", { name: title })).toBeDefined();
+  }
+  // 功能槽位内容并入「窗口」分区，不再有独立卡片。
+  const windowSection = within(card).getByTestId("settings-window-section");
+  expect(within(windowSection).getByTestId("settings-feature-slots")).toBeDefined();
+});
+
 test("功能槽位面板迁到偏好页的窗口设置下方，并能打开当前实现", async () => {
   mockInvoke({
     wallpaper_get_visible: () => true,
@@ -593,11 +618,14 @@ test("功能槽位面板迁到偏好页的窗口设置下方，并能打开当�
   expect(within(panel).getByText("运行中")).toBeDefined();
   expect(within(panel).getByText("播放器 1.1.0")).toBeDefined();
 
-  // 功能槽位卡片排在「窗口」之后，保持偏好页的分组顺序。
-  const windowTitle = screen.getByText("窗口");
-  const slotsCard = screen.getByTestId("settings-feature-slots");
+  // 功能槽位内容位于「窗口」标题下方，与窗口设置同一分区。
+  const windowSection = screen.getByTestId("settings-window-section");
+  const slotsBlock = within(windowSection).getByTestId(
+    "settings-feature-slots",
+  );
+  expect(slotsBlock.contains(panel)).toBe(true);
   expect(
-    windowTitle.compareDocumentPosition(slotsCard) &
+    screen.getByText("窗口").compareDocumentPosition(slotsBlock) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
 
