@@ -10,6 +10,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { ThemeProvider } from "@/hooks/use-theme";
 import type { SlotInfo } from "@/lib/extensions";
 import { FLOW_THEME_STORAGE_KEY } from "@/lib/flow-theme";
 import { m } from "@/paraglide/messages";
@@ -224,9 +225,21 @@ function mockWallpaperWithDisplay(display: {
   });
 }
 
+/**
+ * 设置页在应用里始终挂在 WindowShell 的 ThemeProvider 下（黑白样式要用它），
+ * 单独渲染页面时补齐同一层上下文。
+ */
+function renderSettingsPage() {
+  return render(
+    <ThemeProvider>
+      <Page />
+    </ThemeProvider>,
+  );
+}
+
 /** 渲染设置页并切到「壁纸」页签（壁纸层设置不在默认的「偏好」页签里）。 */
 function renderWallpaperTab(): void {
-  render(<Page />);
+  renderSettingsPage();
   fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
 }
 
@@ -247,12 +260,12 @@ test("moving a ranged scene param slider persists via wallpaper_set_scene_params
 });
 
 test("Page renders in browser mode (no tauri)", () => {
-  render(<Page />);
+  renderSettingsPage();
   expect(screen.getByRole("main")).toBeDefined();
 });
 
 test("设置页签按 偏好 / 壁纸 / 音乐库 / 曲库整理 / 噪音素材库 / 噪音预设 / 媒体测试 / 白噪音测试 / 扩展 排列，壁纸层只在壁纸页签", () => {
-  render(<Page />);
+  renderSettingsPage();
 
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
     "偏好",
@@ -420,7 +433,7 @@ test("sync switch availability matrix", async () => {
     sync: false,
     scene: "lull.bamboo",
   });
-  const { unmount } = render(<Page />);
+  const { unmount } = renderSettingsPage();
   fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
   await waitFor(() => expect(screen.getByText("动画同步")).toBeDefined());
   expect(
@@ -526,7 +539,7 @@ test("窗口全局开关读取并保存 taskbarAndMinimize", async () => {
         .taskbarAndMinimize,
     }),
   });
-  render(<Page />);
+  renderSettingsPage();
 
   const toggle = (await screen.findByRole("switch", {
     name: "显示在任务栏并允许最小化",
@@ -558,7 +571,7 @@ test("工具窗开关按当前显示状态渲染，并能打开窗口", async ()
     widget_open: () => null,
     widget_close: () => null,
   });
-  render(<Page />);
+  renderSettingsPage();
 
   const library = (await screen.findByRole("switch", {
     name: "音乐库窗口",
@@ -585,7 +598,7 @@ test("偏好页合并为一张卡片，功能槽位位于窗口分区内", () =>
     extensions_list: () => [],
     extensions_slots: () => [],
   });
-  render(<Page />);
+  renderSettingsPage();
 
   const card = screen.getByTestId("settings-preferences-card");
   for (const title of ["语言", "主题流光", "窗口", "关于 Lull"]) {
@@ -611,7 +624,7 @@ test("功能槽位面板迁到偏好页的窗口设置下方，并能打开当�
     extensions_slots: () => [MUSIC_SLOT],
     extensions_slot_activate: () => MUSIC_SLOT,
   });
-  render(<Page />);
+  renderSettingsPage();
 
   const panel = await screen.findByTestId("slot-panel");
   expect(within(panel).getByText("音乐播放器")).toBeDefined();
@@ -643,7 +656,7 @@ test("扩展页不再重复渲染功能槽位面板", async () => {
     extensions_slots: () => [MUSIC_SLOT],
     extensions_dev_state: () => ({ devMode: false, packages: [] }),
   });
-  render(<Page />);
+  renderSettingsPage();
   expect(await screen.findByTestId("slot-panel")).toBeDefined();
 
   fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
@@ -669,7 +682,7 @@ test("扩展页的「壁纸设置」切到壁纸页签", async () => {
     ],
     extensions_dev_state: () => ({ devMode: false, packages: [] }),
   });
-  render(<Page />);
+  renderSettingsPage();
 
   fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
   fireEvent.click(await screen.findByRole("button", { name: "壁纸设置" }));
@@ -681,7 +694,7 @@ test("扩展页的「壁纸设置」切到壁纸页签", async () => {
 });
 
 test("主题流光卡片切换全局主题并立即写入存储", () => {
-  render(<Page />);
+  renderSettingsPage();
 
   const jade = screen.getByRole("button", { name: "主题流光：林光" });
   expect(jade.getAttribute("aria-pressed")).toBe("false");
@@ -700,8 +713,41 @@ test("主题流光卡片切换全局主题并立即写入存储", () => {
   expect(document.documentElement.dataset.flowTheme).toBe("aurora");
 });
 
+test("主题流光分区可切换黑白样式并写入 ui-theme", async () => {
+  renderSettingsPage();
+
+  const section = screen.getByTestId("settings-theme-section");
+  expect(
+    within(section).getByText(m.settings_theme_mode_title()),
+  ).toBeDefined();
+  const mode = within(section).getByTestId("settings-theme-mode");
+  const light = within(mode).getByRole("radio", { name: "浅色模式" });
+  const dark = within(mode).getByRole("radio", { name: "深色模式" });
+
+  expect(light.getAttribute("aria-checked")).toBe("true");
+  expect(dark.getAttribute("aria-checked")).toBe("false");
+
+  fireEvent.click(dark);
+
+  await waitFor(() => {
+    expect(dark.getAttribute("aria-checked")).toBe("true");
+  });
+  expect(light.getAttribute("aria-checked")).toBe("false");
+  expect(document.documentElement.classList.contains("dark")).toBe(true);
+  expect(document.documentElement.classList.contains("light")).toBe(false);
+  expect(window.localStorage.getItem("ui-theme")).toBe("dark");
+
+  fireEvent.click(light);
+
+  await waitFor(() => {
+    expect(light.getAttribute("aria-checked")).toBe("true");
+  });
+  expect(document.documentElement.classList.contains("light")).toBe(true);
+  expect(window.localStorage.getItem("ui-theme")).toBe("light");
+});
+
 test("其他窗口的存储事件会同步主题流光", async () => {
-  render(<Page />);
+  renderSettingsPage();
 
   window.localStorage.setItem(FLOW_THEME_STORAGE_KEY, "amber");
   window.dispatchEvent(

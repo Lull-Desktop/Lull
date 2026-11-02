@@ -7,6 +7,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import Page from "@/app/(control)/setting/page";
+import { ThemeProvider } from "@/hooks/use-theme";
 import { localizeError } from "./errors";
 import { normalizeLocale, resetLocaleForTest } from "./locale";
 
@@ -21,6 +22,15 @@ afterEach(() => {
   window.localStorage.clear();
   resetLocaleForTest();
 });
+
+/** 设置页在应用里挂在 WindowShell 的 ThemeProvider 下，单独渲染时补上同一层上下文。 */
+function renderSettingsPage() {
+  return render(
+    <ThemeProvider>
+      <Page />
+    </ThemeProvider>,
+  );
+}
 
 test("normalizeLocale 把地区与字形收敛到受支持语言", () => {
   expect(normalizeLocale("zh-CN")).toBe("zh-CN");
@@ -46,7 +56,7 @@ test("localizeError 兼容字符串、结构化错误与未知值", () => {
 });
 
 test("设置页切到 English 后页签与关于卡片跟着换语言", async () => {
-  render(<Page />);
+  renderSettingsPage();
 
   // 默认渲染基准语言（zh-CN）。
   expect(screen.getByRole("tab", { name: "偏好" })).toBeTruthy();
@@ -64,7 +74,7 @@ test("设置页切到 English 后页签与关于卡片跟着换语言", async ()
 });
 
 test("英文界面下设置页的「偏好」页签不残留中文文案", async () => {
-  render(<Page />);
+  renderSettingsPage();
   fireEvent.click(await screen.findByRole("radio", { name: "English" }));
   expect(await screen.findByRole("tab", { name: "Wallpaper" })).toBeTruthy();
 
@@ -75,7 +85,7 @@ test("英文界面下设置页的「偏好」页签不残留中文文案", async
 });
 
 test("英文界面下设置页的「偏好」页签不残留中文文案", async () => {
-  render(<Page />);
+  renderSettingsPage();
   fireEvent.click(await screen.findByRole("radio", { name: "English" }));
   expect(await screen.findByRole("tab", { name: "Wallpaper" })).toBeTruthy();
 

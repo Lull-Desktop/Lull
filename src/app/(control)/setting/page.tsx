@@ -23,6 +23,7 @@ import { MusicLibraryPanel } from "@/components/settings/music-library-panel";
 import { NoiseApiTestPanel } from "@/components/settings/noise-api-test-panel";
 import { NoiseLibraryPanel } from "@/components/settings/noise-library-panel";
 import { NoisePresetPanel } from "@/components/settings/noise-preset-panel";
+import { ThemeModeSwitch } from "@/components/settings/theme-mode-switch";
 import { WallpaperPanel } from "@/components/settings/wallpaper-panel";
 import {
   Card,
@@ -470,6 +471,11 @@ export default function Settings() {
                   })}
                 </fieldset>
 
+                {/* 黑白样式：同一分区里切换浅色纸面 / 深色墨面 */}
+                <div className="border-t border-border/50 pt-3">
+                  <ThemeModeSwitch />
+                </div>
+
                 <div
                   className="overflow-hidden rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-3"
                   style={{
@@ -602,7 +608,7 @@ export default function Settings() {
                   <div className="space-y-1">
                     <h3 className="flex items-center gap-2 text-sm font-medium text-ink-soft">
                       <Puzzle className="h-4 w-4 text-bamboo" />
-                      组件管理
+                      {m.settings_window_components()}
                     </h3>
                   </div>
                   <SlotPanel
