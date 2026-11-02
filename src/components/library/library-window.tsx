@@ -47,11 +47,13 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CoverPreview } from "@/components/library/cover-preview";
+import { folderRows } from "@/components/library/folder-tree";
 import { LibraryWindowFrame } from "@/components/library/library-window-frame";
 import { LibraryOrganizerPanel } from "@/components/settings/library-organizer-panel";
 import { MediaApiTestPanel } from "@/components/settings/media-api-test-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getMediaClient } from "@/hooks/use-media-client";
 import { useLocale } from "@/i18n/locale";
 import { cn } from "@/lib/utils";
@@ -190,8 +192,11 @@ export function LibraryWindow({
   const [filters, setFilters] = useState<TrackFilters>(EMPTY_TRACK_FILTERS);
   const [recursiveImport, setRecursiveImport] = useState(true);
   const [recentTracks, setRecentTracks] = useState<TrackSummary[]>([]);
+  const { confirm, ask, dialog: confirmDialog } = useConfirmDialog();
   const [folders, setFolders] = useState<MusicFolderView[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  /** 目录列表按路径展开成树：父目录在前，子目录按层级缩进。 */
+  const folderTree = useMemo(() => folderRows(folders), [folders]);
   const [folderTracks, setFolderTracks] = useState<TrackSummary[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -824,29 +829,42 @@ export function LibraryWindow({
   const renameFolder = useCallback(
     (folder: MusicFolderView): void => {
       if (!client) return;
-      const next = window.prompt(m.library_folder_rename(), folder.name);
-      if (!next || next.trim() === folder.name) return;
-      void run(`folder-rename:${folder.id}`, async () => {
-        await client.folders.rename(folder.id, next.trim());
+      void ask({
+        title: m.library_folder_rename(),
+        confirmLabel: m.library_folder_rename(),
+        input: {
+          label: m.library_folder_rename(),
+          defaultValue: folder.name,
+          ariaLabel: m.library_folder_rename(),
+        },
+      }).then((next) => {
+        const name = next?.trim();
+        if (!name || name === folder.name) return;
+        void run(`folder-rename:${folder.id}`, async () => {
+          await client.folders.rename(folder.id, name);
+        });
       });
     },
-    [client, run],
+    [ask, client, run],
   );
 
   const removeFolder = useCallback(
     (folder: MusicFolderView): void => {
       if (!client) return;
-      if (
-        !window.confirm(m.library_folder_remove_confirm({ name: folder.name }))
-      ) {
-        return;
-      }
-      void run(`folder-remove:${folder.id}`, async () => {
-        await client.folders.remove(folder.id);
-        setSelectedFolderId(null);
+      void confirm({
+        title: m.library_folder_remove(),
+        description: m.library_folder_remove_confirm({ name: folder.name }),
+        confirmLabel: m.library_folder_remove(),
+        danger: true,
+      }).then((ok) => {
+        if (!ok) return;
+        void run(`folder-remove:${folder.id}`, async () => {
+          await client.folders.remove(folder.id);
+          setSelectedFolderId(null);
+        });
       });
     },
-    [client, run],
+    [client, confirm, run],
   );
 
   const selectedFolder = useMemo(
@@ -1082,11 +1100,11 @@ export function LibraryWindow({
         )}
 
         {tab === "folders" && (
-          <div className="grid gap-4 md:grid-cols-[260px_minmax(0,1fr)]">
-            {/* 左侧目录卡固定在滚动区顶部：导入入口与备份操作始终可见。
-                卡片比可视区高时 sticky 会自然退化为「贴底停住」，不会挡住底部按钮。 */}
-            <Card className="sticky top-0 h-fit self-start">
-              <CardHeader className="pb-3">
+          <div className="grid gap-4 md:h-full md:grid-cols-[260px_minmax(0,1fr)]">
+            {/* 左侧目录卡撑满页签高度：目录列表在中间自己滚，
+                「含子目录」开关与备份操作固定在卡片首尾。 */}
+            <Card className="flex h-full min-h-0 flex-col">
+              <CardHeader className="shrink-0 pb-3">
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-base">
                     {m.library_my_folders()}
@@ -1102,8 +1120,8 @@ export function LibraryWindow({
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-1">
-                <label className="flex items-center gap-1.5 px-1 pb-2 text-xs text-ink-faint">
+              <CardContent className="flex min-h-0 flex-1 flex-col space-y-1">
+                <label className="flex shrink-0 items-center gap-1.5 px-1 pb-2 text-xs text-ink-faint">
                   <input
                     type="checkbox"
                     checked={recursiveImport}
@@ -1118,41 +1136,46 @@ export function LibraryWindow({
                     {m.library_folder_empty()}
                   </p>
                 ) : (
-                  folders.map((folder) => {
-                    const status = folderStatusLabel(folder.status);
-                    return (
-                      <button
-                        key={folder.id}
-                        type="button"
-                        onClick={() => setSelectedFolderId(folder.id)}
-                        className={cn(
-                          "w-full rounded-lg px-2 py-2 text-left transition-colors",
-                          selectedFolderId === folder.id
-                            ? "bg-bamboo-mist/60 text-ink"
-                            : "text-ink-soft hover:bg-paper-warm",
-                        )}
-                      >
-                        <span className="block truncate text-sm">
-                          {folder.name}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-ink-faint">
-                          {m.library_folder_tracks({
-                            count: folder.trackCount,
-                          })}
-                          {folder.recursive
-                            ? ` · ${m.library_folder_recursive()}`
-                            : ""}
-                        </span>
-                        {status ? (
-                          <span className="mt-0.5 block text-xs text-destructive">
-                            {status}
+                  <div className="min-h-0 flex-1 divide-y divide-paper-deep/50 overflow-y-auto rounded-md border border-paper-deep/60">
+                    {folderTree.map(({ folder, depth }) => {
+                      const status = folderStatusLabel(folder.status);
+                      return (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          onClick={() => setSelectedFolderId(folder.id)}
+                          className={cn(
+                            "flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm transition-colors",
+                            selectedFolderId === folder.id
+                              ? "bg-bamboo-mist/60 text-ink"
+                              : "text-ink-soft hover:bg-paper-warm",
+                          )}
+                        >
+                          <span
+                            className="min-w-0 flex-1 truncate"
+                            style={{ paddingLeft: depth * 12 }}
+                          >
+                            {folder.name}
                           </span>
-                        ) : null}
-                      </button>
-                    );
-                  })
+                          <span className="shrink-0 text-xs text-ink-faint tabular-nums">
+                            {folder.trackCount}
+                          </span>
+                          {folder.recursive ? (
+                            <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-ink-faint">
+                              {m.library_folder_recursive()}
+                            </span>
+                          ) : null}
+                          {status ? (
+                            <span className="shrink-0 text-xs text-destructive">
+                              {status}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
-                <div className="space-y-2 border-t border-paper-deep/60 pt-3">
+                <div className="shrink-0 space-y-2 border-t border-paper-deep/60 pt-3">
                   <div>
                     <p className="text-sm font-medium text-ink-soft">
                       {m.library_backup_title()}
@@ -1189,10 +1212,10 @@ export function LibraryWindow({
               </CardContent>
             </Card>
 
-            <div className="min-w-0 space-y-3">
+            <div className="flex min-h-0 min-w-0 flex-col gap-3">
               {selectedFolder ? (
                 <>
-                  <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-paper-deep/60 bg-card p-3">
+                  <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 rounded-xl border border-paper-deep/60 bg-card p-3">
                     <div className="min-w-0">
                       <h2 className="truncate text-base font-medium">
                         {selectedFolder.name}
@@ -1264,19 +1287,21 @@ export function LibraryWindow({
                       </Button>
                     </div>
                   </div>
-                  <TrackTable
-                    tracks={folderTracks}
-                    playlists={playlistOptions}
-                    busy={busy}
-                    playingTrackId={playingTrackId}
-                    onPlay={play}
-                    onQueue={addToQueue}
-                    onFavorite={toggleFavorite}
-                    onAddToPlaylist={addToPlaylist}
-                    onEdit={setEditingTrack}
-                    showFileName
-                    empty={m.library_empty()}
-                  />
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <TrackTable
+                      tracks={folderTracks}
+                      playlists={playlistOptions}
+                      busy={busy}
+                      playingTrackId={playingTrackId}
+                      onPlay={play}
+                      onQueue={addToQueue}
+                      onFavorite={toggleFavorite}
+                      onAddToPlaylist={addToPlaylist}
+                      onEdit={setEditingTrack}
+                      showFileName
+                      empty={m.library_empty()}
+                    />
+                  </div>
                 </>
               ) : (
                 <p className="py-16 text-center text-sm text-ink-faint">
@@ -1575,6 +1600,8 @@ export function LibraryWindow({
           />
         )}
       </section>
+
+      {confirmDialog}
 
       {editingTrack && client ? (
         <MetadataEditor

@@ -77,7 +77,11 @@ function page<T>(items: T[]): Page<T> {
 
 function createClient(
   state: PlayerState = idleState,
-  options: { queueState?: QueueState; historyEntries?: HistoryEntry[] } = {},
+  options: {
+    queueState?: QueueState;
+    historyEntries?: HistoryEntry[];
+    folderEntries?: MusicFolderView[];
+  } = {},
 ): LullMediaClient {
   const client = {
     connect: vi.fn(async () => ({ player: state })),
@@ -98,7 +102,7 @@ function createClient(
       getTrack: vi.fn(async (id: string) => ({ ...track, id })),
     },
     folders: {
-      list: vi.fn(async () => [folder]),
+      list: vi.fn(async () => options.folderEntries ?? [folder]),
       getTracks: vi.fn(async () =>
         page([{ ...track, relativePath: "rain.mp3" }]),
       ),
@@ -364,4 +368,26 @@ test("最近播放列表与收藏样式一致，并标注最近一次播放时�
       content.includes(new Date(playedAt).toLocaleString()),
     ),
   ).toBeDefined();
+});
+
+test("我的目录按路径层级缩进子目录", async () => {
+  const client = createClient(idleState, {
+    folderEntries: [
+      folder,
+      {
+        ...folder,
+        id: "src_2",
+        name: "Live",
+        rootPath: "C:////Music////Pop////Live",
+      },
+    ],
+  });
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "我的目录" }));
+
+  const child = await screen.findByText("Live");
+  const parent = screen.getAllByText("Pop")[0];
+  expect((parent as HTMLElement).style.paddingLeft).toBe("0px");
+  expect((child as HTMLElement).style.paddingLeft).toBe("12px");
 });

@@ -126,7 +126,6 @@ describe("NoiseLibraryPanel", () => {
   });
 
   test("creates, renames and deletes user taxonomy", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     await mount();
 
     fireEvent.change(screen.getByPlaceholderText("新分类名称"), {
@@ -152,6 +151,7 @@ describe("NoiseLibraryPanel", () => {
     );
 
     fireEvent.click(screen.getAllByLabelText("删除分类")[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "删除" }));
     await waitFor(() =>
       expect(mocks.deleteCategory).toHaveBeenCalledWith("cat_user"),
     );
@@ -172,8 +172,10 @@ describe("NoiseLibraryPanel", () => {
     );
 
     fireEvent.click(screen.getAllByLabelText("删除标签")[0]);
-    await waitFor(() => expect(mocks.deleteTag).toHaveBeenCalledWith("tag_user"));
-    confirm.mockRestore();
+    fireEvent.click(await screen.findByRole("button", { name: "删除" }));
+    await waitFor(() =>
+      expect(mocks.deleteTag).toHaveBeenCalledWith("tag_user"),
+    );
   });
 
   test("shows backend duplicate/cycle errors", async () => {

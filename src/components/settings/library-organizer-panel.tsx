@@ -36,6 +36,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getMediaClient } from "@/hooks/use-media-client";
 import { cn } from "@/lib/utils";
 
@@ -131,6 +132,7 @@ export function LibraryOrganizerPanel({
   /** 测试/嵌入时注入；不传则使用官方 Tauri 单例。 */
   client?: LullMediaClient;
 } = {}) {
+  const { confirm, ask, dialog: confirmDialog } = useConfirmDialog();
   const [client, setClient] = useState<LullMediaClient | null>(null);
   const [keyword, setKeyword] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
@@ -381,59 +383,96 @@ export function LibraryOrganizerPanel({
 
   const renameTag = (tag: TagView): void => {
     if (!client) return;
-    const name = window.prompt("新标签名", tag.name);
-    if (!name || name.trim() === tag.name) return;
-    void run("renameTag", () => client.library.renameTag(tag.id, name.trim()));
+    void ask({
+      title: "重命名标签",
+      confirmLabel: "保存",
+      input: {
+        label: "新标签名",
+        defaultValue: tag.name,
+        ariaLabel: "新标签名",
+      },
+    }).then((name) => {
+      const next = name?.trim();
+      if (!next || next === tag.name) return;
+      void run("renameTag", () => client.library.renameTag(tag.id, next));
+    });
   };
 
   const deleteTag = (tag: TagView): void => {
     if (!client) return;
-    if (!window.confirm(`删除标签「${tag.name}」？只会移除关联。`)) return;
-    void run("deleteTag", () => client.library.deleteTag(tag.id));
+    void confirm({
+      title: "删除标签",
+      description: `删除标签「${tag.name}」？只会移除关联。`,
+      confirmLabel: "删除",
+      danger: true,
+    }).then((ok) => {
+      if (!ok) return;
+      void run("deleteTag", () => client.library.deleteTag(tag.id));
+    });
   };
 
   const mergeArtist = (): void => {
     if (!client || !artistSource || !artistTarget) return;
-    if (!window.confirm("合并艺术家会迁移其全部曲目关系，确认继续？")) return;
-    void run("mergeArtists", () =>
-      client.library.mergeArtists(artistSource, artistTarget),
-    );
+    void confirm({
+      title: "合并艺术家",
+      description: "合并艺术家会迁移其全部曲目关系，确认继续？",
+      confirmLabel: "合并",
+    }).then((ok) => {
+      if (!ok) return;
+      void run("mergeArtists", () =>
+        client.library.mergeArtists(artistSource, artistTarget),
+      );
+    });
   };
 
   const splitArtist = (): void => {
     if (!client || !splitArtistId || !splitArtistName.trim()) return;
-    if (!window.confirm(`把选中的 ${splitTrackIds.length} 首拆到新艺术家？`)) {
-      return;
-    }
-    void run("splitArtist", () =>
-      client.library.splitArtist(
-        splitArtistId,
-        splitTrackIds,
-        splitArtistName.trim(),
-      ),
-    );
+    void confirm({
+      title: "拆分艺术家",
+      description: `把选中的 ${splitTrackIds.length} 首拆到新艺术家？`,
+      confirmLabel: "拆分",
+    }).then((ok) => {
+      if (!ok) return;
+      void run("splitArtist", () =>
+        client.library.splitArtist(
+          splitArtistId,
+          splitTrackIds,
+          splitArtistName.trim(),
+        ),
+      );
+    });
   };
 
   const mergeAlbum = (): void => {
     if (!client || !albumSource || !albumTarget) return;
-    if (!window.confirm("合并专辑会迁移其全部曲目关系，确认继续？")) return;
-    void run("mergeAlbums", () =>
-      client.library.mergeAlbums(albumSource, albumTarget),
-    );
+    void confirm({
+      title: "合并专辑",
+      description: "合并专辑会迁移其全部曲目关系，确认继续？",
+      confirmLabel: "合并",
+    }).then((ok) => {
+      if (!ok) return;
+      void run("mergeAlbums", () =>
+        client.library.mergeAlbums(albumSource, albumTarget),
+      );
+    });
   };
 
   const splitAlbum = (): void => {
     if (!client || !splitAlbumId || !splitAlbumTitle.trim()) return;
-    if (!window.confirm(`把选中的 ${splitTrackIds.length} 首拆到新专辑？`)) {
-      return;
-    }
-    void run("splitAlbum", () =>
-      client.library.splitAlbum(
-        splitAlbumId,
-        splitTrackIds,
-        splitAlbumTitle.trim(),
-      ),
-    );
+    void confirm({
+      title: "拆分专辑",
+      description: `把选中的 ${splitTrackIds.length} 首拆到新专辑？`,
+      confirmLabel: "拆分",
+    }).then((ok) => {
+      if (!ok) return;
+      void run("splitAlbum", () =>
+        client.library.splitAlbum(
+          splitAlbumId,
+          splitTrackIds,
+          splitAlbumTitle.trim(),
+        ),
+      );
+    });
   };
 
   const createSmart = (): void => {
@@ -1075,6 +1114,7 @@ export function LibraryOrganizerPanel({
         <ListMusic className="h-3.5 w-3.5" aria-hidden="true" />
         调试面板，不替代资料库正式界面。
       </div>
+      {confirmDialog}
     </div>
   );
 }

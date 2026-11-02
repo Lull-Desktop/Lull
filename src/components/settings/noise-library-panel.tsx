@@ -33,6 +33,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getMediaClient } from "@/hooks/use-media-client";
@@ -67,6 +68,7 @@ function categoryDepth(
 }
 
 export function NoiseLibraryPanel() {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [client, setClient] = useState<LullMediaClient | null>(null);
   const [assets, setAssets] = useState<NoiseAsset[]>([]);
   const [categories, setCategories] = useState<NoiseCategory[]>([]);
@@ -105,31 +107,34 @@ export function NoiseLibraryPanel() {
   useEffect(() => {
     if (!client) return;
     let alive = true;
-    const timer = window.setTimeout(() => {
-      void Promise.all([
-        client.noise.library.listAssets({
-          keyword: keyword.trim() || undefined,
-          categoryId: categoryId || undefined,
-          tagId: tagId || undefined,
-          favoriteOnly: favoriteOnly || undefined,
-          page,
-          pageSize,
-        }),
-        client.noise.library.getCategories(),
-        client.noise.library.getTags(),
-      ])
-        .then(([result, nextCategories, nextTags]) => {
-          if (!alive) return;
-          setAssets(result.items);
-          setTotal(result.total);
-          setCategories(nextCategories);
-          setTags(nextTags);
-          setError("");
-        })
-        .catch((reason: unknown) => {
-          if (alive) setError(errorText(reason));
-        });
-    }, keyword ? 220 : 0);
+    const timer = window.setTimeout(
+      () => {
+        void Promise.all([
+          client.noise.library.listAssets({
+            keyword: keyword.trim() || undefined,
+            categoryId: categoryId || undefined,
+            tagId: tagId || undefined,
+            favoriteOnly: favoriteOnly || undefined,
+            page,
+            pageSize,
+          }),
+          client.noise.library.getCategories(),
+          client.noise.library.getTags(),
+        ])
+          .then(([result, nextCategories, nextTags]) => {
+            if (!alive) return;
+            setAssets(result.items);
+            setTotal(result.total);
+            setCategories(nextCategories);
+            setTags(nextTags);
+            setError("");
+          })
+          .catch((reason: unknown) => {
+            if (alive) setError(errorText(reason));
+          });
+      },
+      keyword ? 220 : 0,
+    );
     return () => {
       alive = false;
       window.clearTimeout(timer);
@@ -144,10 +149,7 @@ export function NoiseLibraryPanel() {
     setAssetTags(selected.tags.map((tag) => tag.id));
   }, [selected]);
 
-  const selectedTags = useMemo(
-    () => new Set(assetTags),
-    [assetTags],
-  );
+  const selectedTags = useMemo(() => new Set(assetTags), [assetTags]);
 
   const run = useCallback(
     async (label: string, action: () => Promise<unknown>): Promise<void> => {
@@ -174,7 +176,11 @@ export function NoiseLibraryPanel() {
         `导入 ${result.imported.length}，重复 ${result.duplicates.length}，失败 ${result.failed.length}`,
       );
       if (result.failed.length > 0) {
-        setError(result.failed.map((item) => `${item.fileName}: ${item.reason}`).join("；"));
+        setError(
+          result.failed
+            .map((item) => `${item.fileName}: ${item.reason}`)
+            .join("；"),
+        );
       }
     });
   }, [client, run]);
@@ -230,15 +236,20 @@ export function NoiseLibraryPanel() {
 
   const removeSelected = useCallback((): void => {
     if (!client || !selected) return;
-    if (!window.confirm(`删除「${selected.name}」？引用它的 Preset 会标记为缺失。`)) {
-      return;
-    }
-    void run("remove", async () => {
-      await client.noise.library.removeAsset(selected.id);
-      setSelected(null);
-      setNotice("素材已删除");
+    void confirm({
+      title: "删除素材",
+      description: `删除「${selected.name}」？引用它的 Preset 会标记为缺失。`,
+      confirmLabel: "删除",
+      danger: true,
+    }).then((ok) => {
+      if (!ok) return;
+      void run("remove", async () => {
+        await client.noise.library.removeAsset(selected.id);
+        setSelected(null);
+        setNotice("素材已删除");
+      });
     });
-  }, [client, run, selected]);
+  }, [client, confirm, run, selected]);
 
   const createCategory = useCallback((): void => {
     if (!client || !newCategory.trim()) return;
@@ -270,17 +281,22 @@ export function NoiseLibraryPanel() {
   const deleteCategory = useCallback(
     (category: NoiseCategory): void => {
       if (!client) return;
-      if (!window.confirm(`删除分类「${category.name}」？其中素材会变为未分类。`)) {
-        return;
-      }
-      void run("category-delete", async () => {
-        await client.noise.library.deleteCategory(category.id);
-        setCategoryId((current) => (current === category.id ? "" : current));
-        setSelected(null);
-        setNotice("分类已删除");
+      void confirm({
+        title: "删除分类",
+        description: `删除分类「${category.name}」？其中素材会变为未分类。`,
+        confirmLabel: "删除",
+        danger: true,
+      }).then((ok) => {
+        if (!ok) return;
+        void run("category-delete", async () => {
+          await client.noise.library.deleteCategory(category.id);
+          setCategoryId((current) => (current === category.id ? "" : current));
+          setSelected(null);
+          setNotice("分类已删除");
+        });
       });
     },
-    [client, run],
+    [client, confirm, run],
   );
 
   const createTag = useCallback((): void => {
@@ -307,16 +323,23 @@ export function NoiseLibraryPanel() {
   const deleteTag = useCallback(
     (tag: NoiseTag): void => {
       if (!client) return;
-      if (!window.confirm(`删除标签「${tag.name}」？`)) return;
-      void run("tag-delete", async () => {
-        await client.noise.library.deleteTag(tag.id);
-        setTagId((current) => (current === tag.id ? "" : current));
-        setAssetTags((previous) => previous.filter((id) => id !== tag.id));
-        setSelected(null);
-        setNotice("标签已删除");
+      void confirm({
+        title: "删除标签",
+        description: `删除标签「${tag.name}」？`,
+        confirmLabel: "删除",
+        danger: true,
+      }).then((ok) => {
+        if (!ok) return;
+        void run("tag-delete", async () => {
+          await client.noise.library.deleteTag(tag.id);
+          setTagId((current) => (current === tag.id ? "" : current));
+          setAssetTags((previous) => previous.filter((id) => id !== tag.id));
+          setSelected(null);
+          setNotice("标签已删除");
+        });
       });
     },
-    [client, run],
+    [client, confirm, run],
   );
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -327,16 +350,26 @@ export function NoiseLibraryPanel() {
         <CardHeader>
           <CardTitle className="text-base">Noise 素材库</CardTitle>
           <CardDescription>
-            导入本地音频、按分类/标签/收藏筛选；导入只复制到 Lull 受管目录，不改原文件。
+            导入本地音频、按分类/标签/收藏筛选；导入只复制到 Lull
+            受管目录，不改原文件。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" onClick={importFiles} disabled={!client || busy !== ""}>
+            <Button
+              type="button"
+              onClick={importFiles}
+              disabled={!client || busy !== ""}
+            >
               <Upload className="mr-2 h-4 w-4" />
               导入文件
             </Button>
-            <Button type="button" variant="outline" onClick={importFolder} disabled={!client || busy !== ""}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={importFolder}
+              disabled={!client || busy !== ""}
+            >
               <FolderPlus className="mr-2 h-4 w-4" />
               导入文件夹
             </Button>
@@ -416,17 +449,17 @@ export function NoiseLibraryPanel() {
           {error && <p className="text-sm text-red-600">{error}</p>}
           {notice && <p className="text-sm text-emerald-700">{notice}</p>}
 
-          <div className="max-h-[420px] overflow-auto rounded-md border border-line">
+          <div className="max-h-[420px] divide-y divide-paper-deep/50 overflow-auto rounded-xl border border-paper-deep/60 bg-card">
             {assets.length === 0 ? (
-              <p className="p-8 text-center text-sm text-ink-faint">
+              <p className="py-16 text-center text-sm text-ink-faint">
                 {busy ? "加载中…" : "还没有素材，先导入音频。"}
               </p>
             ) : (
-              <div className="divide-y divide-line">
+              <>
                 {assets.map((asset) => (
                   <div
                     key={asset.id}
-                    className={`flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/40 ${
+                    className={`flex cursor-pointer flex-wrap items-center gap-3 px-3 py-2.5 text-sm hover:bg-muted/40 ${
                       selected?.id === asset.id ? "bg-muted/60" : ""
                     }`}
                     onClick={() => setSelected(asset)}
@@ -442,22 +475,30 @@ export function NoiseLibraryPanel() {
                     >
                       <Heart
                         className={`h-4 w-4 ${
-                          asset.favorite ? "fill-rose-500 text-rose-500" : "text-ink-faint"
+                          asset.favorite
+                            ? "fill-rose-500 text-rose-500"
+                            : "text-ink-faint"
                         }`}
                       />
                     </button>
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{asset.name}</p>
                       <p className="truncate text-xs text-ink-faint">
-                        {asset.format.toUpperCase()} · {formatDuration(asset.durationMs)} ·{" "}
+                        {asset.format.toUpperCase()} ·{" "}
+                        {formatDuration(asset.durationMs)} ·{" "}
                         {formatSize(asset.sizeBytes)}
                         {asset.category ? ` · ${asset.category.name}` : ""}
-                        {asset.status !== "available" ? ` · ${asset.status}` : ""}
+                        {asset.status !== "available"
+                          ? ` · ${asset.status}`
+                          : ""}
                       </p>
                     </div>
                     <div className="hidden gap-1 md:flex">
                       {asset.tags.slice(0, 3).map((tag) => (
-                        <span key={tag.id} className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                        <span
+                          key={tag.id}
+                          className="rounded-full bg-muted px-2 py-0.5 text-xs"
+                        >
                           {tag.name}
                         </span>
                       ))}
@@ -477,7 +518,7 @@ export function NoiseLibraryPanel() {
                     </Button>
                   </div>
                 ))}
-              </div>
+              </>
             )}
           </div>
 
@@ -554,20 +595,27 @@ export function NoiseLibraryPanel() {
             </div>
             <div className="max-h-64 divide-y divide-line overflow-auto rounded-md border border-line">
               {categories.map((category) => (
-                <div key={category.id} className="flex items-center gap-2 px-2 py-2 text-sm">
+                <div
+                  key={category.id}
+                  className="flex items-center gap-2 px-2 py-2 text-sm"
+                >
                   {editingCategory === category.id ? (
                     <>
                       <input
                         aria-label="编辑分类名称"
                         className="h-8 min-w-0 flex-1 rounded-md border border-line bg-paper px-2 text-sm"
                         value={categoryDraft}
-                        onChange={(event) => setCategoryDraft(event.target.value)}
+                        onChange={(event) =>
+                          setCategoryDraft(event.target.value)
+                        }
                       />
                       <select
                         aria-label="编辑分类父级"
                         className="h-8 rounded-md border border-line bg-paper px-1 text-xs"
                         value={categoryDraftParent}
-                        onChange={(event) => setCategoryDraftParent(event.target.value)}
+                        onChange={(event) =>
+                          setCategoryDraftParent(event.target.value)
+                        }
                       >
                         <option value="">根分类</option>
                         {categories
@@ -601,7 +649,9 @@ export function NoiseLibraryPanel() {
                         {"　".repeat(categoryDepth(categories, category.id))}
                         {category.name}
                       </span>
-                      <span className="text-xs text-ink-faint">{category.assetCount}</span>
+                      <span className="text-xs text-ink-faint">
+                        {category.assetCount}
+                      </span>
                       {category.sourceType === "user" ? (
                         <>
                           <button
@@ -658,7 +708,10 @@ export function NoiseLibraryPanel() {
             </div>
             <div className="max-h-64 divide-y divide-line overflow-auto rounded-md border border-line">
               {tags.map((tag) => (
-                <div key={tag.id} className="flex items-center gap-2 px-2 py-2 text-sm">
+                <div
+                  key={tag.id}
+                  className="flex items-center gap-2 px-2 py-2 text-sm"
+                >
                   {editingTag === tag.id ? (
                     <>
                       <input
@@ -685,8 +738,12 @@ export function NoiseLibraryPanel() {
                     </>
                   ) : (
                     <>
-                      <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                      <span className="text-xs text-ink-faint">{tag.assetCount ?? 0}</span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {tag.name}
+                      </span>
+                      <span className="text-xs text-ink-faint">
+                        {tag.assetCount ?? 0}
+                      </span>
                       {tag.sourceType === "user" ? (
                         <>
                           <button
@@ -798,8 +855,14 @@ export function NoiseLibraryPanel() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" disabled={busy !== "" || selected.mediaKind === "procedural"} onClick={saveSelected}>
-                {busy === "save" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Button
+                type="button"
+                disabled={busy !== "" || selected.mediaKind === "procedural"}
+                onClick={saveSelected}
+              >
+                {busy === "save" && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
                 保存
               </Button>
               <Button
@@ -825,6 +888,7 @@ export function NoiseLibraryPanel() {
           </CardContent>
         </Card>
       )}
+      {confirmDialog}
     </div>
   );
 }

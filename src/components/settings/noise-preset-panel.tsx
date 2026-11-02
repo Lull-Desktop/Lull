@@ -22,6 +22,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getMediaClient } from "@/hooks/use-media-client";
@@ -37,13 +38,16 @@ function sourceLabel(source: string): string {
 }
 
 export function NoisePresetPanel() {
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [client, setClient] = useState<LullMediaClient | null>(null);
   const [presets, setPresets] = useState<NoisePresetSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [selected, setSelected] = useState<NoisePresetDetail | null>(null);
-  const [loadResult, setLoadResult] = useState<NoisePresetLoadResult | null>(null);
+  const [loadResult, setLoadResult] = useState<NoisePresetLoadResult | null>(
+    null,
+  );
   const [saveName, setSaveName] = useState("我的 Noise 混音");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -131,10 +135,13 @@ export function NoisePresetPanel() {
   const updatePreset = useCallback((): void => {
     if (!client || !selected) return;
     void run("update", async () => {
-      const detail = await client.noise.presets.updatePreset(selected.preset.id, {
-        name: name.trim(),
-        description: description.trim() || null,
-      });
+      const detail = await client.noise.presets.updatePreset(
+        selected.preset.id,
+        {
+          name: name.trim(),
+          description: description.trim() || null,
+        },
+      );
       setSelected(detail);
       setNotice("Preset 信息已保存");
     });
@@ -149,7 +156,9 @@ export function NoisePresetPanel() {
         setSelected(detail);
         setLoadResult(result);
         if (result.missing.length > 0) {
-          setNotice(`已加载，${result.missing.length} 条轨道缺失，可在下方映射`);
+          setNotice(
+            `已加载，${result.missing.length} 条轨道缺失，可在下方映射`,
+          );
         } else {
           setNotice("Preset 已加载到 Session（未自动播放）");
         }
@@ -161,24 +170,34 @@ export function NoisePresetPanel() {
   const deletePreset = useCallback(
     (preset: NoisePresetSummary): void => {
       if (!client) return;
-      if (!window.confirm(`删除 Preset「${preset.name}」？`)) return;
-      void run("delete", async () => {
-        await client.noise.presets.deletePreset(preset.id);
-        if (selected?.preset.id === preset.id) {
-          setSelected(null);
-          setLoadResult(null);
-        }
-        setNotice("Preset 已删除");
+      void confirm({
+        title: "删除 Preset",
+        description: `删除 Preset「${preset.name}」？`,
+        confirmLabel: "删除",
+        danger: true,
+      }).then((ok) => {
+        if (!ok) return;
+        void run("delete", async () => {
+          await client.noise.presets.deletePreset(preset.id);
+          if (selected?.preset.id === preset.id) {
+            setSelected(null);
+            setLoadResult(null);
+          }
+          setNotice("Preset 已删除");
+        });
       });
     },
-    [client, run, selected],
+    [client, confirm, run, selected],
   );
 
   const toggleFavorite = useCallback(
     (preset: NoisePresetSummary): void => {
       if (!client) return;
       void run("favorite", async () => {
-        await client.noise.presets.setPresetFavorite(preset.id, !preset.favorite);
+        await client.noise.presets.setPresetFavorite(
+          preset.id,
+          !preset.favorite,
+        );
       });
     },
     [client, run],
@@ -242,7 +261,8 @@ export function NoisePresetPanel() {
         <CardHeader>
           <CardTitle className="text-base">Noise Preset</CardTitle>
           <CardDescription>
-            保存当前 Session 为 Preset，或加载已有 Preset。Preset 只保存配置快照，不含音频。
+            保存当前 Session 为 Preset，或加载已有 Preset。Preset
+            只保存配置快照，不含音频。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -253,7 +273,11 @@ export function NoisePresetPanel() {
               onChange={(event) => setSaveName(event.target.value)}
               placeholder="新 Preset 名称"
             />
-            <Button type="button" disabled={busy !== "" || !saveName.trim()} onClick={savePreset}>
+            <Button
+              type="button"
+              disabled={busy !== "" || !saveName.trim()}
+              onClick={savePreset}
+            >
               {busy === "save" ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -261,7 +285,12 @@ export function NoisePresetPanel() {
               )}
               保存当前混音
             </Button>
-            <Button type="button" variant="outline" disabled={busy !== ""} onClick={importPreset}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy !== ""}
+              onClick={importPreset}
+            >
               <Upload className="mr-2 h-4 w-4" />
               导入 Preset
             </Button>
@@ -283,7 +312,9 @@ export function NoisePresetPanel() {
 
           <div className="max-h-72 divide-y divide-line overflow-auto rounded-md border border-line">
             {presets.length === 0 ? (
-              <p className="p-6 text-center text-sm text-ink-faint">还没有 Preset。</p>
+              <p className="p-6 text-center text-sm text-ink-faint">
+                还没有 Preset。
+              </p>
             ) : (
               presets.map((preset) => (
                 <div
@@ -303,14 +334,17 @@ export function NoisePresetPanel() {
                   >
                     <Star
                       className={`h-4 w-4 ${
-                        preset.favorite ? "fill-amber-400 text-amber-500" : "text-ink-faint"
+                        preset.favorite
+                          ? "fill-amber-400 text-amber-500"
+                          : "text-ink-faint"
                       }`}
                     />
                   </button>
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{preset.name}</p>
                     <p className="truncate text-xs text-ink-faint">
-                      {sourceLabel(preset.sourceType)} · {preset.trackCount} 条轨道
+                      {sourceLabel(preset.sourceType)} · {preset.trackCount}{" "}
+                      条轨道
                       {preset.author ? ` · ${preset.author}` : ""}
                     </p>
                   </div>
@@ -389,10 +423,13 @@ export function NoisePresetPanel() {
       {selected && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Preset「{selected.preset.name}」</CardTitle>
+            <CardTitle className="text-base">
+              Preset「{selected.preset.name}」
+            </CardTitle>
             <CardDescription>
-              {sourceLabel(selected.preset.sourceType)} · schema v{selected.preset.schemaVersion} ·{" "}
-              {selected.preset.trackCount} 条轨道
+              {sourceLabel(selected.preset.sourceType)} · schema v
+              {selected.preset.schemaVersion} · {selected.preset.trackCount}{" "}
+              条轨道
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -421,7 +458,9 @@ export function NoisePresetPanel() {
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
-                disabled={busy !== "" || selected.preset.sourceType === "builtin"}
+                disabled={
+                  busy !== "" || selected.preset.sourceType === "builtin"
+                }
                 onClick={updatePreset}
               >
                 保存名称/描述
@@ -449,19 +488,26 @@ export function NoisePresetPanel() {
               <div className="divide-y divide-line rounded-md border border-line">
                 {selected.tracks.length === 0 ? (
                   <p className="p-4 text-sm text-ink-faint">
-                    {loadResult ? "加载结果见下方缺失映射。" : "暂无轨道详情，点击列表中的 Preset 载入。"}
+                    {loadResult
+                      ? "加载结果见下方缺失映射。"
+                      : "暂无轨道详情，点击列表中的 Preset 载入。"}
                   </p>
                 ) : (
                   selected.tracks.map((track) => (
-                    <div key={track.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                    <div
+                      key={track.id}
+                      className="flex items-center gap-2 px-3 py-2 text-sm"
+                    >
                       <span className="min-w-0 flex-1 truncate">
                         {track.expectedName}
-                        {track.assetName && track.assetName !== track.expectedName
+                        {track.assetName &&
+                        track.assetName !== track.expectedName
                           ? `（${track.assetName}）`
                           : ""}
                       </span>
                       <span className="text-xs text-ink-faint">
-                        {Math.round(track.volume * 100)}% · {track.enabled ? "启用" : "停用"}
+                        {Math.round(track.volume * 100)}% ·{" "}
+                        {track.enabled ? "启用" : "停用"}
                       </span>
                       <span
                         className={`rounded-full px-2 py-0.5 text-[10px] ${
@@ -482,10 +528,17 @@ export function NoisePresetPanel() {
               <div className="space-y-2">
                 <Label>缺失轨道映射</Label>
                 {loadResult.missing.map((missing) => (
-                  <div key={missing.presetTrackId} className="rounded-md border border-amber-300 p-2">
-                    <p className="text-sm font-medium">{missing.expectedName}</p>
+                  <div
+                    key={missing.presetTrackId}
+                    className="rounded-md border border-amber-300 p-2"
+                  >
+                    <p className="text-sm font-medium">
+                      {missing.expectedName}
+                    </p>
                     {missing.candidates.length === 0 ? (
-                      <p className="text-xs text-ink-faint">没有同名候选，请先导入对应素材。</p>
+                      <p className="text-xs text-ink-faint">
+                        没有同名候选，请先导入对应素材。
+                      </p>
                     ) : (
                       <div className="mt-1 flex flex-wrap gap-2">
                         {missing.candidates.map((candidate) => (
@@ -496,7 +549,11 @@ export function NoisePresetPanel() {
                             variant="outline"
                             disabled={busy !== ""}
                             onClick={() =>
-                              mapTrack(selected.preset.id, missing.presetTrackId, candidate.id)
+                              mapTrack(
+                                selected.preset.id,
+                                missing.presetTrackId,
+                                candidate.id,
+                              )
                             }
                           >
                             映射到 {candidate.name}
@@ -511,6 +568,7 @@ export function NoisePresetPanel() {
           </CardContent>
         </Card>
       )}
+      {confirmDialog}
     </div>
   );
 }
