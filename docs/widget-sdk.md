@@ -3,7 +3,7 @@
 > 面向第三方 Widget（工具窗口）插件作者：包结构 → 清单 → SDK 接入 → 能力边界。
 > 插件是**静态 Web 包**，装到用户目录后由宿主创建独立窗口，运行在 `sandbox="allow-scripts"` 的
 > 不透明源 iframe 里；所有宿主能力都通过 `@lull/widget-sdk` 走 postMessage 桥，由宿主校验后转发。
-> 内置工具（播放器 / 番茄钟 / 白噪音 / 设置）走另一套编译期契约，见[与内置工具的关系](#与内置工具的关系)。
+> 内置工具（资料库 / 设置）走另一套编译期契约；官方播放器/白噪音走标准 Widget 包；番茄钟已迁为 `examples/widgets/liquid-pomodoro` 普通扩展。见[与内置工具的关系](#与内置工具的关系)。
 
 ## 这是什么
 
@@ -251,15 +251,14 @@ pnpm widget:pack <dir>        # 把构建好的目录打成 .lull-widget.zip
 
 ### 4. 示例工程
 
-五个示例覆盖三套技术栈、媒体桥与 React hooks，直接对照着改最快：
+四个示例覆盖原生 / React / Vue 与完整 Liquid 计时 UI，直接对照着改最快：
 
 | 示例 | 技术栈 | 位置 |
 | --- | --- | --- |
 | `pomodoro-js` | 原生 TypeScript | `examples/widgets/pomodoro-js` |
 | `pomodoro-react` | React | `examples/widgets/pomodoro-react` |
 | `pomodoro-vue` | Vue 3 | `examples/widgets/pomodoro-vue` |
-| `noise-mixer` | 原生 TypeScript + `@lull/media-sdk/widget` | `examples/widgets/noise-mixer` |
-| `noise-hooks` | React + `@lull/media-sdk/react` | `examples/widgets/noise-hooks` |
+| `liquid-pomodoro` | React + Widget SDK（原内置番茄钟迁移） | `examples/widgets/liquid-pomodoro` |
 
 ## 需要注意
 

@@ -64,6 +64,10 @@ const NOT_ON_SITE = new Map([
     "Lull Noise Service 技术设计 RFC",
     "内部设计评审稿，阶段决策与实现细节仍在变动，暂不上站",
   ],
+  [
+    "Lull 第三方扩展体系",
+    "第三方扩展生态的内部设计 RFC，方案仍在评审，暂不上站",
+  ],
 ]);
 
 const mdNames = (dir) =>

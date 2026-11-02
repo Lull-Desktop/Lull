@@ -33,13 +33,14 @@ import {
   isWidgetAudioAvailable,
   onWidgetPrefsChanged,
   readWidgetStorage,
+  useWidgetFit,
+  useWidgetTheme,
   widgetHideWindow,
   widgetIsMinimizable,
   widgetMinimizeWindow,
   writeWidgetStorage,
-} from "@/sdk/widget";
-import { useWidgetFit, useWidgetTheme } from "@/sdk/widget/react";
-import styles from "./liquid-pomodoro.module.css";
+} from "./compat";
+import styles from "./styles";
 import {
   advancePhase,
   beadFillPercent,

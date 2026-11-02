@@ -72,8 +72,7 @@ const SAMPLES = [
   { dir: "pomodoro-js", entry: "src/main.ts", jsx: false },
   { dir: "pomodoro-react", entry: "src/main.tsx", jsx: true },
   { dir: "pomodoro-vue", entry: "src/main.ts", jsx: false },
-  { dir: "noise-mixer", entry: "src/main.ts", jsx: false },
-  { dir: "noise-hooks", entry: "src/main.tsx", jsx: true },
+  { dir: "liquid-pomodoro", entry: "src/main.tsx", jsx: true },
 ];
 
 async function buildSample(sample) {

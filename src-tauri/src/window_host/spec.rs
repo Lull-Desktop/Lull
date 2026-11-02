@@ -86,17 +86,16 @@ mod tests {
 
   #[test]
   fn find_matches_kind_and_label_management() {
-    assert_eq!(find("pomodoro").map(|spec| spec.label), Some("pomodoro"));
     assert_eq!(find("library").map(|spec| spec.label), Some("library"));
     assert!(find("nope").is_none());
     assert!(is_managed("settings"));
+    assert!(!is_managed("pomodoro"));
     assert!(!is_managed("noise"));
     assert!(!is_managed("main"));
   }
 
   #[test]
-  fn immersive_windows_are_fixed_size() {
-    assert!(!POMODORO.resizable);
+  fn builtin_windows_are_resizable() {
     assert!(SETTINGS.resizable);
     assert!(LIBRARY.resizable);
   }
@@ -109,8 +108,7 @@ mod tests {
   }
 
   #[test]
-  fn immersive_windows_are_transparent() {
-    assert!(POMODORO.transparent);
+  fn builtin_windows_are_opaque() {
     assert!(!SETTINGS.transparent);
     assert!(!LIBRARY.transparent);
   }
@@ -136,14 +134,11 @@ mod tests {
 
   #[test]
   fn tool_windows_declare_chrome_and_shell_keeps_window() {
-    for spec in [&POMODORO, &LIBRARY] {
-      assert!(
-        spec.capabilities.contains(&"widget.chrome"),
-        "{} 缺少 chrome 能力",
-        spec.kind
-      );
-      assert!(!spec.capabilities.contains(&"widget.window"));
-    }
+    assert!(
+      LIBRARY.capabilities.contains(&"widget.chrome"),
+      "library 缺少 chrome 能力"
+    );
+    assert!(!LIBRARY.capabilities.contains(&"widget.window"));
     assert!(SETTINGS.capabilities.contains(&"widget.window"));
   }
 

@@ -1,5 +1,29 @@
 /* LiquidPomodoro：透明浮窗里的玻璃计时舱。球体、液体、刻度与仪式动效全部由CSS / SVG 绘制。*/
 
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+html.lull-transparent-window,
+html.lull-transparent-window body {
+  background: transparent;
+}
+
+body {
+  overflow: hidden;
+  color: var(--ink, #22302a);
+  font-family: var(--font-body, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+}
+
 .root {
   --accent: #a7e8ff;
   --accent-strong: #66d2ff;

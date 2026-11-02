@@ -47,8 +47,9 @@
 ### 1.2 非目标
 
 - 在线市场、自动更新、版本回滚、远端撤销列表。
-- 把资料库（`library`）、番茄钟（`pomodoro`）、设置窗（`settings`）包化。资料库继续
-  作为宿主内置的数据管理界面存在。
+- 把资料库（`library`）、设置窗（`settings`）包化。资料库继续
+  作为宿主内置的数据管理界面存在；番茄钟不进入官方包，迁到
+  `examples/widgets/liquid-pomodoro` 作为普通扩展。
 - 给官方包开放 Tauri IPC、同源 localStorage、`window_set_frame` 或任何「官方专属能力」。
 - 跨平台（仍只支持 Windows x64）。
 
@@ -324,7 +325,8 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
   capability 文件）；
 - `src-tauri/src/media` 中只为 `noise` / `player` label 服务的官方矩阵分支。
 
-保留：`library`、`pomodoro`、`settings` 的内置窗口与 Media 面板；`media-engine`
+保留：`library`、`settings` 的内置窗口与 Media 面板；番茄钟已迁到
+`examples/widgets/liquid-pomodoro`，不再属于内置或官方包。`media-engine`
 隐藏音频引擎不变。数据方面，旧内置工具的 localStorage 偏好（启动静音、播放模式/
 音量）会一次性重置；播放器模式/音量与白噪音主音量以 Rust `player_state` /
 `noise_preferences` 为准，不丢数据。

@@ -1,5 +1,5 @@
 /**
- * 液态番茄钟页测试：默认时长、开始/暂停、外圈滑杆调时长与完成后的阶段轮转。
+ * 液态番茄钟示例测试：默认时长、开始/暂停、外圈滑杆调时长与完成后的阶段轮转。
  */
 import {
   act,
@@ -9,10 +9,28 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { FLOW_THEME_STORAGE_KEY } from "@/lib/flow-theme";
-import PomodoroPage from "./page";
+import { LiquidPomodoro } from "./liquid-pomodoro";
+
+const themeState = vi.hoisted(() => ({ id: "blueGold" }));
+
+vi.mock("./compat", () => ({
+  readWidgetStorage: (_id: string, key: string) =>
+    window.localStorage.getItem(`pomodoro:${key}`),
+  writeWidgetStorage: (_id: string, key: string, value: string) => {
+    window.localStorage.setItem(`pomodoro:${key}`, value);
+    return true;
+  },
+  isWidgetAudioAvailable: () => false,
+  useWidgetFit: () => {},
+  useWidgetTheme: () => ({ themeId: themeState.id }),
+  onWidgetPrefsChanged: () => () => {},
+  widgetHideWindow: async () => {},
+  widgetMinimizeWindow: async () => {},
+  widgetIsMinimizable: async () => true,
+}));
 
 beforeEach(() => {
+  themeState.id = "blueGold";
   window.localStorage.clear();
 });
 
@@ -24,7 +42,7 @@ afterEach(() => {
 
 test("默认显示 25:00，开始后按绝对时间倒计时", async () => {
   vi.useFakeTimers();
-  render(<PomodoroPage />);
+  render(<LiquidPomodoro />);
 
   expect(screen.getByRole("button", { name: /开始专注，25:00/ })).toBeDefined();
 
@@ -38,7 +56,7 @@ test("默认显示 25:00，开始后按绝对时间倒计时", async () => {
 });
 
 test("拖动外圈 / 滚轮调节专注时长，数字与滑杆同步", () => {
-  render(<PomodoroPage />);
+  render(<LiquidPomodoro />);
   const ring = screen.getByRole("slider", { name: "专注时长" });
   expect(ring.getAttribute("aria-valuenow")).toBe("25");
 
@@ -52,7 +70,7 @@ test("拖动外圈 / 滚轮调节专注时长，数字与滑杆同步", () => {
 });
 
 test("沿外圈拖动指针可以连续调整时长", () => {
-  render(<PomodoroPage />);
+  render(<LiquidPomodoro />);
   const ring = screen.getByRole("slider", { name: "专注时长" });
   const rect = {
     left: 0,
@@ -92,7 +110,7 @@ test("沿外圈拖动指针可以连续调整时长", () => {
 });
 
 test("右侧卡片可直接切换专注 / 休息", () => {
-  render(<PomodoroPage />);
+  render(<LiquidPomodoro />);
   const breakCard = screen.getByRole("button", { name: /^休息，05:00/ });
   fireEvent.click(breakCard);
   expect(breakCard.getAttribute("aria-pressed")).toBe("true");
@@ -101,7 +119,7 @@ test("右侧卡片可直接切换专注 / 休息", () => {
 });
 
 test("底部设置锚点打开计时设置，可调整休息时长与自动开始", () => {
-  render(<PomodoroPage />);
+  render(<LiquidPomodoro />);
   fireEvent.click(screen.getByRole("button", { name: "打开计时设置" }));
   expect(screen.getByRole("dialog", { name: "计时设置" })).toBeDefined();
 
@@ -119,7 +137,7 @@ test("专注结束后先播放四拍仪式，再切换到 05:00 短休并点亮�
   // 液面由 rAF 连续驱动；测试里不需要逐帧，避免快进 5 分钟时跑上万帧。
   vi.stubGlobal("requestAnimationFrame", () => 0);
   vi.stubGlobal("cancelAnimationFrame", () => {});
-  render(<PomodoroPage />);
+  render(<LiquidPomodoro />);
 
   const ring = screen.getByRole("slider", { name: "专注时长" });
   fireEvent.keyDown(ring, { key: "Home" });
@@ -148,12 +166,11 @@ test("专注结束后先播放四拍仪式，再切换到 05:00 短休并点亮�
   expect(screen.getByRole("button", { name: "开始休息" })).toBeDefined();
 });
 
-test("面板样式跟随全局主题流光", async () => {
-  window.localStorage.setItem(FLOW_THEME_STORAGE_KEY, "violet");
-  const { container } = render(<PomodoroPage />);
+test("面板样式跟随宿主主题 id", async () => {
+  themeState.id = "violet";
+  const { container } = render(<LiquidPomodoro />);
 
   await waitFor(() => {
     expect(container.querySelector('[data-theme="violet"]')).not.toBeNull();
   });
-  expect(document.documentElement.dataset.flowTheme).toBe("violet");
 });

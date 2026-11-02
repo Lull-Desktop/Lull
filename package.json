@@ -33,7 +33,7 @@
     "widgets:samples:build": "pnpm widgets:sdk && pnpm media:sdk && node scripts/build-widget-examples.mjs",
     "widgets:samples:install": "node scripts/install-widget-examples.mjs",
     "widget:pack": "node scripts/pack-widget.mjs",
-    "widgets:samples:pack": "node scripts/pack-widget.mjs examples/widgets/pomodoro-js/dist examples/widgets/pomodoro-react/dist examples/widgets/pomodoro-vue/dist examples/widgets/noise-mixer/dist examples/widgets/noise-hooks/dist --tampered",
+    "widgets:samples:pack": "node scripts/pack-widget.mjs examples/widgets/pomodoro-js/dist examples/widgets/pomodoro-react/dist examples/widgets/pomodoro-vue/dist examples/widgets/liquid-pomodoro/dist --tampered",
     "extensions:build": "node scripts/build-official-extensions.mjs",
     "extensions:dev": "node scripts/dev-official-extensions.mjs",
     "extensions:mount": "node scripts/mount-official-dev.mjs",

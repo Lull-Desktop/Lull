@@ -4,14 +4,11 @@ import { BUILTIN_WIDGETS, WINDOW_MANIFESTS, widgetById } from "./registry";
 
 describe("builtin widget registry", () => {
   test("工具清单按 order 从 manifest 派生，设置外壳单独归类", () => {
-    expect(BUILTIN_WIDGETS.map((widget) => widget.id)).toEqual([
-      "pomodoro",
-      "library",
-    ]);
+    expect(BUILTIN_WIDGETS.map((widget) => widget.id)).toEqual(["library"]);
     for (const widget of BUILTIN_WIDGETS) {
       expect(widget.role).toBe("tool");
     }
-    expect(WINDOW_MANIFESTS).toHaveLength(3);
+    expect(WINDOW_MANIFESTS).toHaveLength(2);
     expect(WINDOW_MANIFESTS[0]?.role).toBe("shell");
   });
 
@@ -33,22 +30,15 @@ describe("builtin widget registry", () => {
     }
   });
 
-  test("immersive tools stay transparent and fixed-size", () => {
-    for (const widget of BUILTIN_WIDGETS) {
-      if (widget.id === "library") {
-        expect(widget.window.transparent).toBe(false);
-        expect(widget.window.resizable).toBe(true);
-        continue;
-      }
-      expect(widget.window.transparent).toBe(true);
-      expect(widget.window.resizable).toBe(false);
-      expect(widget.window.minWidth).toBeLessThanOrEqual(widget.window.width);
-      expect(widget.window.minHeight).toBeLessThanOrEqual(widget.window.height);
-    }
+  test("library is the only built-in tool and stays resizable/opaque", () => {
+    const library = widgetById("library");
+    expect(library?.window.transparent).toBe(false);
+    expect(library?.window.resizable).toBe(true);
+    expect(widgetById("pomodoro")).toBeNull();
   });
 
   test("lookup by id is stable", () => {
-    expect(widgetById("pomodoro")?.window.label).toBe("pomodoro");
+    expect(widgetById("library")?.window.label).toBe("library");
     expect(widgetById("missing")).toBeNull();
   });
 });

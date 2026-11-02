@@ -420,7 +420,7 @@ test("窗口全局开关读取并保存 taskbarAndMinimize", async () => {
   });
 });
 
-test("工具窗开关按当前显示状态渲染，并能打开/关闭窗口", async () => {
+test("工具窗开关按当前显示状态渲染，并能打开窗口", async () => {
   mockInvoke({
     wallpaper_get_visible: () => true,
     wallpaper_monitors: () => MONITORS,
@@ -430,10 +430,7 @@ test("工具窗开关按当前显示状态渲染，并能打开/关闭窗口", a
       scene: "lull.bamboo",
     }),
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
-    widget_states: () => [
-      { kind: "pomodoro", visible: true },
-      { kind: "library", visible: false },
-    ],
+    widget_states: () => [{ kind: "library", visible: false }],
     widget_open: () => null,
     widget_close: () => null,
   });
@@ -447,16 +444,6 @@ test("工具窗开关按当前显示状态渲染，并能打开/关闭窗口", a
   fireEvent.click(library);
   await waitFor(() => {
     expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "library" });
-  });
-
-  const pomodoro = screen.getByRole("switch", {
-    name: "番茄钟窗口",
-  }) as HTMLButtonElement;
-  expect(pomodoro.getAttribute("aria-checked")).toBe("true");
-
-  fireEvent.click(pomodoro);
-  await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("widget_close", { kind: "pomodoro" });
   });
 });
 

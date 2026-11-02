@@ -91,7 +91,7 @@
 - 保留 id：`noise`、`player`；用户包命中保留 id 时报 `manifest.id-reserved`。
 - 升级：启动时 reconcile 授权与清单哈希，新增能力自动补授，用户此前的撤销保持撤销。
 - 完整性：构建期 `.lull-integrity.json`，运行时只读复核；不参与发布者签名策略。
-- 资料库、番茄钟、设置窗本轮不包化。
+- 资料库、设置窗不包化；番茄钟迁到 `examples/widgets/liquid-pomodoro`，按普通用户包管理。
 
 完整契约（包格式、构建、打包、升级、失败模式、验收）见
 [官方扩展](./official-extensions.md)。

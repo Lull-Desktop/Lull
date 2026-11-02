@@ -35,7 +35,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 
 - 单进程、多窗口；所有窗口关闭都只隐藏，托盘「退出」才结束进程。
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
-- 内置工具窗口 label 为 `settings` / `pomodoro` / `library`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）；播放器与白噪音已迁为官方 Widget 包，窗口 label 分别为 `widget-player`、`widget-noise`。
+- 内置工具窗口 label 为 `settings` / `library`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）；播放器与白噪音已迁为官方 Widget 包，窗口 label 分别为 `widget-player`、`widget-noise`；番茄钟已迁为 `examples/widgets/liquid-pomodoro` 普通扩展，窗口 label 为 `widget-pomodoro`。
 - 第三方/官方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
 - 壁纸窗口只有一条**只读** capability 基础（`window-wallpaper`：`content_packages` +
   事件订阅 + 视频会话命令）：
@@ -96,13 +96,14 @@ app/(wallpaper) ──► scenes/host ──► hooks/use-scene-catalog ──�
 app/(control) ──► components/settings ──► widgets/registry ──► widgets/manifests/*.json
        │                └──► components/settings/media-panel ──► core/media
        │
-app/(widgets) ──► components/{liquid-pomodoro,library}
+app/(widgets) ──► components/library
                          │
                          ├──► sdk/widget/react ──► sdk/widget ──► core/window + hooks
                          │        （theme / fit / state）   （能力 / 状态 / chrome / 音频闸门）
-                         └──► 纯模型（timer-model）
+                         └──► 纯模型
 
 官方工具 ──► extensions/official/{player,noise} ──► @lull/widget-sdk + @lull/media-sdk
+示例包   ──► examples/widgets/liquid-pomodoro ──► @lull/widget-sdk + 全局 CSS
 
 app/(widgets)/embed ──► components/widget-plugin-shell ──► iframe（sandbox）
                                  └──► postMessage 桥 ──► widget_state_*（Rust）
@@ -257,9 +258,9 @@ lib.rs
 {
   "schemaVersion": 1,
   "hostApi": 1,
-  "id": "pomodoro",
-  "capabilities": ["widget.ui", "widget.theme", "widget.state", "widget.audio", "widget.media", "widget.chrome"],
-  "window": { "label": "pomodoro", "width": 600, "minWidth": 560, "minHeight": 640 }
+  "id": "library",
+  "capabilities": ["widget.ui", "widget.theme", "widget.state", "widget.chrome"],
+  "window": { "label": "library", "width": 1080, "minWidth": 900, "minHeight": 600 }
 }
 ```
 
@@ -271,7 +272,6 @@ lib.rs
 - `build.rs` 用 `tauri_build::AppManifest::new().commands(APP_COMMANDS)` 为全部自定义命令生成 `allow-<command>` 权限；`lib.rs` 的 `generate_handler!` 与 `APP_COMMANDS` 必须完全一致（`pnpm widgets:check` 会比对）。
 - `scripts/gen-widgets.mjs` 为每个窗口生成一份 `src-tauri/capabilities/window-<label>.json`：
   - `settings`：`core` 窗口权限 + 全部自定义命令（宿主控制面）；
-  - `pomodoro`：`core` 窗口权限 + `allow-window-set-frame`（只能调整自己的窗口帧）；
   - `library`：`core` 窗口权限 + `allow-window-set-frame` + `allow-media-call/connect/disconnect`，可管理歌单/收藏/历史/队列，但不读来源根路径、不能扫描；
   - 官方 `widget-player` / `widget-noise` 通过 `window-widgets` 与 Widget 能力清单获得媒体权限，不拿引擎命令；
   - `media-engine`：仅 `core:event:allow-listen/unlisten` + `allow-media-engine-ready/event`，不能打开窗口、读资料库或调用 `media_call`；
@@ -417,7 +417,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
    `sandbox="allow-scripts"` 的 opaque-origin iframe，只能通过 `@lull/scene-sdk` 读取帧，
    没有写配置、建窗、原生或任意 IPC 入口；仍不是通用插件系统。
 5. **安装包与素材授权**：公开分发前需完成代码签名、字体/图标/声音素材授权复核。
-6. **内部代号**：`ether-bubbles`、`liquid-player`、`liquid-pomodoro` 仍是组件目录名，属于实现代号，不构成对外产品名。
+6. **内部代号**：`ether-bubbles`、`liquid-player` 是已迁移组件的实现代号；`liquid-pomodoro` 现在是 `examples/widgets/liquid-pomodoro` 的示例目录名。
 7. **内容包安装的边界**：v1 只接受单场景包、必须声明整包摘要、无第三方签名（未签名=未校验）、
    不联网。scene 支持同 id 本地覆盖安装（旧目录备份后替换，壁纸按版本重建 iframe）；
    没有自动更新、版本比较与回滚；安装目录由用户自行维护，卸载即删目录。
