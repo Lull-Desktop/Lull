@@ -111,7 +111,7 @@ mod tests {
 
   #[test]
   fn settings_has_a_bounded_height() {
-    assert_eq!(SETTINGS.height, 980.0);
+    assert_eq!(SETTINGS.height, 940.0);
     assert_eq!(SETTINGS.max_height, Some(1200.0));
     assert!(LIBRARY.max_height.is_none());
   }

@@ -325,9 +325,9 @@ export default function Settings() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 py-4">
+    <div className="mx-auto w-full max-w-4xl px-4 py-3">
       <div
-        className="sticky top-0 z-10 mb-3 grid grid-cols-3 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
+        className="sticky top-0 z-10 mb-2 grid grid-cols-3 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
         role="tablist"
         aria-label={m.settings_tabs_label()}
       >
@@ -350,7 +350,7 @@ export default function Settings() {
       </div>
 
       {widgetMsg && (
-        <p className="mb-3 text-xs text-destructive" role="alert">
+        <p className="mb-2 text-xs text-destructive" role="alert">
           {widgetMsg}
         </p>
       )}
@@ -359,10 +359,10 @@ export default function Settings() {
         <main className="space-y-6">
           {/* ── General（语言 / 主题流光 / 窗口合并为一张卡片）── */}
           <Card className="w-full" data-testid="settings-preferences-card">
-            <CardContent className="space-y-6 p-6">
+            <CardContent className="space-y-5 p-5">
               {/* Language（界面语言，偏好以 Rust 的 preferences.json 为准） */}
               <section
-                className="space-y-3"
+                className="space-y-2"
                 data-testid="settings-language-section"
               >
                 <SectionHeading
@@ -416,7 +416,7 @@ export default function Settings() {
 
               {/* Flow Theme（从白噪音迁移过来的全局主题流光） */}
               <section
-                className="space-y-4 border-t border-border/60 pt-6"
+                className="space-y-3 border-t border-border/60 pt-5"
                 data-testid="settings-theme-section"
               >
                 <SectionHeading
@@ -464,12 +464,12 @@ export default function Settings() {
                 </fieldset>
 
                 {/* 黑白样式：同一分区里切换浅色纸面 / 深色墨面 */}
-                <div className="border-t border-border/50 pt-3">
+                <div className="border-t border-border/50 pt-2">
                   <ThemeModeSwitch />
                 </div>
 
                 <div
-                  className="overflow-hidden rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-3"
+                  className="overflow-hidden rounded-lg border border-paper-deep/60 bg-paper-warm/40 p-2.5"
                   style={{
                     backgroundImage: `radial-gradient(ellipse 70% 100% at 100% 0%, ${flowTheme.b}24, transparent 70%), radial-gradient(ellipse 60% 100% at 0% 100%, ${flowTheme.a}1f, transparent 72%)`,
                   }}
@@ -507,7 +507,7 @@ export default function Settings() {
 
               {/* Window Behavior（全局窗口偏好） */}
               <section
-                className="space-y-3 border-t border-border/60 pt-6"
+                className="space-y-2 border-t border-border/60 pt-3"
                 data-testid="settings-window-section"
               >
                 <SectionHeading
@@ -516,7 +516,7 @@ export default function Settings() {
                   description={m.settings_window_description()}
                 />
                 <div className="flex items-center justify-between gap-4">
-                  <div className="space-y-1">
+                  <div className="space-y-0.5">
                     <Label
                       htmlFor={windowPrefsSwitchId}
                       className="text-ink-soft"
@@ -535,18 +535,24 @@ export default function Settings() {
                   />
                 </div>
 
-                <div className="space-y-3 border-t border-border/50 pt-3">
+                {/* 紧凑列表：库窗口名称与说明同一行，说明溢出时截断并保留 title。 */}
+                <div className="divide-y divide-border/40 border-t border-border/50">
                   {toolWindows.map(({ kind, name, description }) => (
                     <div
                       key={kind}
-                      className="flex items-center justify-between"
+                      className="flex items-center justify-between gap-3 py-1.5"
                     >
-                      <div className="space-y-0.5">
-                        <span className="text-sm text-ink-soft">{name}</span>
+                      <div className="flex min-w-0 items-baseline gap-2">
+                        <span className="shrink-0 text-sm text-ink-soft">
+                          {name}
+                        </span>
                         {description && (
-                          <p className="text-xs text-muted-foreground">
+                          <span
+                            className="truncate text-xs text-muted-foreground"
+                            title={description}
+                          >
                             {description}
-                          </p>
+                          </span>
                         )}
                       </div>
                       <Switch
@@ -560,19 +566,22 @@ export default function Settings() {
                   {officialTools.map((item) => (
                     <div
                       key={`official-${item.id}`}
-                      className="flex items-center justify-between"
+                      className="flex items-center justify-between gap-3 py-1.5"
                     >
-                      <div className="space-y-0.5">
-                        <span className="text-sm text-ink-soft">
+                      <div className="flex min-w-0 items-baseline gap-2">
+                        <span className="shrink-0 text-sm text-ink-soft">
                           {item.name}
                           <span className="ml-1.5 text-[10px] text-ink-faint">
                             {m.ext_origin_official()}
                           </span>
                         </span>
                         {item.description && (
-                          <p className="text-xs text-muted-foreground">
+                          <span
+                            className="truncate text-xs text-muted-foreground"
+                            title={item.description}
+                          >
                             {item.description}
-                          </p>
+                          </span>
                         )}
                       </div>
                       <Switch
@@ -591,7 +600,7 @@ export default function Settings() {
                 )}
 
                 <div
-                  className="space-y-3 border-t border-border/50 pt-3"
+                  className="space-y-2 border-t border-border/50 pt-2"
                   data-testid="settings-feature-slots"
                 >
                   <div className="space-y-1">

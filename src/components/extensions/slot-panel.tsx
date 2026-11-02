@@ -104,7 +104,6 @@ export function SlotPanel({
 
   const heading = showHeading ? (
     <div className="space-y-1">
-     
       <p className="text-xs text-muted-foreground">
         {m.slot_section_description()}
       </p>
@@ -159,17 +158,17 @@ export function SlotPanel({
   }
 
   return (
-    <section className="space-y-3" data-testid="slot-panel">
+    <section className="space-y-2" data-testid="slot-panel">
       {heading}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-2">
         {slots.map((slot) => {
           const provider = selectedProvider(slot);
           const active = slot.status === "active";
           return (
             <article
               key={slot.id}
-              className="space-y-2 rounded-xl border border-border/60 p-3"
+              className="space-y-1.5 rounded-xl border border-border/60 p-2.5"
               data-testid={`slot-${slot.id}`}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
