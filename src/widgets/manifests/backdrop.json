@@ -9,7 +9,7 @@
   "author": "Lull",
   "license": "GPL-3.0-or-later",
   "builtin": true,
-  "order": 45,
+  "order": 35,
   "capabilities": [
     "widget.ui",
     "widget.theme",

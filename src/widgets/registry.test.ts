@@ -5,8 +5,8 @@ import { BUILTIN_WIDGETS, WINDOW_MANIFESTS, widgetById } from "./registry";
 describe("builtin widget registry", () => {
   test("工具清单按 order 从 manifest 派生，设置外壳单独归类", () => {
     expect(BUILTIN_WIDGETS.map((widget) => widget.id)).toEqual([
-      "library",
       "backdrop",
+      "library",
       "noise-library",
     ]);
     for (const widget of BUILTIN_WIDGETS) {
@@ -35,7 +35,7 @@ describe("builtin widget registry", () => {
   });
 
   test("三个库窗口沿用音乐库的尺寸与窗口策略", () => {
-    for (const id of ["library", "backdrop", "noise-library"]) {
+    for (const id of ["backdrop", "library", "noise-library"]) {
       const widget = widgetById(id);
       expect(widget?.window.width).toBe(1080);
       expect(widget?.window.height).toBe(760);
