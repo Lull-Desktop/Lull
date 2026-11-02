@@ -20,7 +20,7 @@ export type LibraryWindowFrameTab = {
 type LibraryWindowFrameProps = {
   title: string;
   description: string;
-  /** 空数组时不渲染页签条（壁纸库只有一页）。 */
+  /** 空数组时不渲染页签条；只有传了才出现。 */
   tabs?: readonly LibraryWindowFrameTab[];
   activeTab?: string;
   onSelectTab?: (id: string) => void;

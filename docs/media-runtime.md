@@ -92,15 +92,20 @@ MediaSurface (src/scenes/media-surface.tsx)
 
 旧库没有 `kind` 时按 `path` 扩展名补算，不提升 `MEDIA_STORE_VERSION`，避免整库回退空库。
 
+`name` 是**显示名**：重命名只改这个字段，不动磁盘文件名、不动 `path`、不影响
+`available` 判定。`assets` 数组顺序就是登记顺序，壁纸库窗口的排序是前端视图排序，
+不写回索引。清理失效素材只移除登记，**不会删除任何文件**。
+
 ### 2.3 安全边界
 
 | 入口 | 规则 |
 | --- | --- |
-| `media_asset_pick` / `media_config_set` / `media_activate` | 只允许 `settings` 窗口 |
-| `media_open` / `media_attach` / `media_detach` / `media_degrade` | 壁纸窗口必须带顶层帧 token，且 `origin` 在白名单 |
+| `media_asset_pick` / `media_asset_pick_many` / `media_asset_remove` / `media_asset_rename` / `media_asset_prune` / `media_config_set` / `media_activate` | 只允许 `settings` 与 `backdrop`（壁纸库）窗口 |
+| `media_asset_url` / `media_config_get` | 只允许 `settings` 与 `backdrop`；`backdrop` 读配置不需要 token |
+| `media_open` / `media_attach` / `media_detach` / `media_degrade` | 壁纸窗口必须带顶层帧 token，且 `origin` 在白名单；`backdrop` 不在放行之列 |
 | 外部脚本 iframe | 运行在 opaque-origin sandbox；拿不到父页面 token；不新增媒体 ACL |
-| `media.json` 路径 | 只来自 Rust 文件对话框；JS 只传 assetId |
-| asset protocol | 动态 `allow_file`，只开放已登记文件；不是目录级暴露 |
+| `media.json` 路径 | 只来自 Rust 文件对话框；JS 只传 assetId、显示名与排序步长，没有路径参数 |
+| asset protocol | 动态 `allow_file`，只开放已登记文件；不是目录级暴露。预览会为每个已登记文件逐条放行，白名单随素材数量增长，移除登记不回收已授予的文件 |
 
 ## 3. 生命周期
 
@@ -365,6 +370,33 @@ media: native stream stats stream=... abi=1 state=2 textures=0 created=4 transie
 media: native stream stalled stream=... session=media-... label=wallpaper-0 reason=stopped state=2 presented=9022 dropped=1
 ```
 
+### 4.9 壁纸库窗口的素材管理
+
+**这是什么**：壁纸库窗口（`backdrop`）有两个页签——「壁纸层」放原有的显示模式、场景、
+每屏配置与媒体参数；「素材管理」只负责媒体素材的导入、预览与管理，不做裁剪、滤镜或
+导出，也不生成缩略图或派生文件。两个页签都常驻挂载，切换只是隐藏，切回不会重新拉取
+显示器与场景配置。
+
+**如何使用**：
+
+- 点「导入素材…」一次选多个文件，单条失败不影响整批，结果汇总为成功 / 重复 / 失败，
+  最多列出 3 个失败文件名（只给文件名，不给路径）；
+- 列表按「最近导入」或「名称」排序（只影响显示顺序，不写回索引）；
+- 选中素材后在右侧预览：图片直接显示，视频只在被选中后才挂播放器，列表里不放解码器；
+- 「设为壁纸」把素材写进 `display.media` 并把场景切到 `lull.video`；
+- 「重命名」只改显示名；「移除」从索引删除登记；
+- 源文件被移动或删除时该行标为「失效」，「清理失效素材」一次性移除所有失效登记。
+
+**注意与限制**：
+
+- 不复制文件：素材留在原位置，移动硬盘未挂载时文件会被判为失效；
+- 清理只删登记，不删文件；失效判定失败时不会误删磁盘文件，但登记需要重新导入；
+- 素材没有缩略图，视频列表项只显示类型图标；
+- 重命名不会重建播放会话，所以「壁纸层」的素材下拉可能仍显示旧名字，直到下一次
+  配置变化；这是为了避免重命名导致壁纸视频从头播放；
+- 预览会逐个素材放行 asset protocol 白名单，素材很多时首次进入页签会有可感知的
+  加载时间。
+
 ## 5. 验收
 
 ### 5.1 已通过
@@ -418,5 +450,7 @@ media: native stream stalled stream=... session=media-... label=wallpaper-0 reas
 - 原生组件崩溃无法被 Rust 完全捕获；提供 `LULL_MEDIA_DISABLE=1` /
   `LULL_MEDIA_FORCE_FALLBACK=1` 安全开关；
 - 素材只登记不复制，移动/删除后需重新选择；
+- 素材库没有缩略图，视频不在列表内解码；
+- 素材排序是前端视图排序（最近导入 / 名称），不写回 `media.json` 的数组顺序；
 - HTML 回退只登记浏览器可播放的容器（`mp4/m4v/webm/mov`）；`mkv/avi` 等要等原生
   路径在支持 TextureStream 的运行时上通过门禁。

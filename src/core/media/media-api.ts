@@ -9,6 +9,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   DEFAULT_MEDIA_CONFIG,
   type MediaAsset,
+  type MediaAssetImportResult,
   type MediaAttachResult,
   type MediaConfig,
   type MediaConfigView,
@@ -65,6 +66,45 @@ export async function pickMediaAsset(): Promise<MediaAsset | null> {
 export async function removeMediaAsset(id: string): Promise<void> {
   if (!isMediaDesktop()) return;
   await invoke("media_asset_remove", { id });
+}
+
+/**
+ * 单个素材的预览 URL。
+ *
+ * 预览属于背景行为：文件缺失、窗口无权限或非桌面环境一律降级为 null，
+ * 由调用方显示占位，不弹出错误。
+ */
+export async function getMediaAssetUrl(id: string): Promise<string | null> {
+  if (!isMediaDesktop()) return null;
+  try {
+    const url = await invoke<string | null>("media_asset_url", { id });
+    return typeof url === "string" && url.length > 0 ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 多选导入。取消选择返回空结果（`added` 为空），非桌面环境返回 null。
+ *
+ * 与预览不同，这是用户的显式动作：失败要让调用方拿到原因再提示。
+ */
+export async function importMediaAssets(): Promise<MediaAssetImportResult | null> {
+  if (!isMediaDesktop()) return null;
+  return invoke<MediaAssetImportResult>("media_asset_pick_many");
+}
+
+export async function renameMediaAsset(
+  id: string,
+  name: string,
+): Promise<MediaAsset> {
+  return invoke<MediaAsset>("media_asset_rename", { id, name });
+}
+
+/** 清理源文件已丢失的登记，返回移除数量。 */
+export async function pruneMediaAssets(): Promise<number> {
+  if (!isMediaDesktop()) return 0;
+  return invoke<number>("media_asset_prune");
 }
 
 export async function setMediaConfig(

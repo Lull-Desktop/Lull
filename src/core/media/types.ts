@@ -62,6 +62,19 @@ export type MediaAsset = {
   available: boolean;
 };
 
+/** 批量导入里单条失败的信息：只有文件名与原因，不包含绝对路径。 */
+export type MediaAssetImportFailure = {
+  name: string;
+  reason: string;
+};
+
+/** 批量导入结果：成功登记、重复跳过、失败明细。 */
+export type MediaAssetImportResult = {
+  added: MediaAsset[];
+  skipped: number;
+  failed: MediaAssetImportFailure[];
+};
+
 export type MediaCapabilities = {
   nativeTextureStream: boolean;
   hardwareDecode: boolean;

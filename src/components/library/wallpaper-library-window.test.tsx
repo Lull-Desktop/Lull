@@ -2,7 +2,13 @@
  * 壁纸库窗口交互测试：显示器排序、开关、显示模式、场景与事件刷新。
  */
 import { invoke } from "@tauri-apps/api/core";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { m } from "@/paraglide/messages";
 import type { SceneCatalogEntry } from "@/sdk/scene";
@@ -10,11 +16,23 @@ import { WallpaperLibraryWindow } from "./wallpaper-library-window";
 
 afterEach(() => {
   window.localStorage.clear();
+  mediaApi.listMediaAssets.mockClear();
 });
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.reject(new Error("not in tauri"))),
 }));
+
+// 只替换素材列表查询，其余媒体封装保持真实实现（浏览器下自然降级为空）。
+const mediaApi = vi.hoisted(() => ({
+  listMediaAssets: vi.fn(async () => [] as unknown[]),
+}));
+
+vi.mock("@/core/media/media-api", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/core/media/media-api")>();
+  return { ...actual, listMediaAssets: mediaApi.listMediaAssets };
+});
 
 // 壁纸面板的场景目录由这里固定为「官方竹影 + 内置媒体」；目录合并本身由
 // use-scene-catalog 的单元测试覆盖，这里只关心控件契约。
@@ -194,12 +212,61 @@ function renderWallpaperLibrary() {
   return render(<WallpaperLibraryWindow />);
 }
 
-test("壁纸库窗口沿用音乐库的标题布局", async () => {
+test("壁纸库窗口沿用音乐库的标题布局与双页签", async () => {
   mockWallpaper(MONITORS, true);
   renderWallpaperLibrary();
 
   expect(screen.getByRole("heading", { name: "壁纸库" })).toBeDefined();
-  expect(await screen.findByText("壁纸层")).toBeDefined();
+  expect(screen.getByRole("button", { name: "壁纸层" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "素材管理" })).toBeDefined();
+  // 「壁纸层」既是页签按钮也是卡片标题，按容器界定后者。
+  expect(
+    within(screen.getByTestId("wallpaper-layer-pane")).getByText("壁纸层"),
+  ).toBeDefined();
+});
+
+test("素材页签首次进入才读取素材，来回切换不重复请求", async () => {
+  mockWallpaper(MONITORS, true);
+  renderWallpaperLibrary();
+
+  expect(mediaApi.listMediaAssets).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: "素材管理" }));
+  await waitFor(() =>
+    expect(mediaApi.listMediaAssets).toHaveBeenCalledTimes(1),
+  );
+  // 壁纸层被 aria-hidden，角色查询查不到里面的控件。
+  expect(screen.queryByRole("switch", { name: "显示壁纸" })).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "壁纸层" }));
+  fireEvent.click(screen.getByRole("button", { name: "素材管理" }));
+  await waitFor(() =>
+    expect(mediaApi.listMediaAssets).toHaveBeenCalledTimes(1),
+  );
+});
+
+test("切页签不会重新拉取壁纸配置", async () => {
+  const monitors = vi.fn(() => MONITORS);
+  mockInvoke({
+    wallpaper_get_visible: () => true,
+    wallpaper_monitors: monitors,
+    wallpaper_display_get: () => ({
+      mode: "mirror",
+      sync: true,
+      scene: "lull.bamboo",
+    }),
+    wallpaper_set_monitor_visible: () => undefined,
+    wallpaper_set_visible: () => true,
+    wallpaper_set_display: () => undefined,
+    wallpaper_set_monitor_scene: () => undefined,
+    wallpaper_set_scene_params: () => undefined,
+  });
+  renderWallpaperLibrary();
+
+  await waitFor(() => expect(monitors).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: "素材管理" }));
+  fireEvent.click(screen.getByRole("button", { name: "壁纸层" }));
+  expect(monitors).toHaveBeenCalledTimes(1);
 });
 
 test("moving a ranged scene param slider persists via wallpaper_set_scene_params", async () => {

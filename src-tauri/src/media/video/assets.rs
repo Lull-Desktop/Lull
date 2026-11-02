@@ -65,6 +65,26 @@ pub struct MediaAssetView {
   pub available: bool,
 }
 
+/// 批量导入里单条失败的信息：只回文件名与原因，**不含**绝对路径。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaAssetImportFailure {
+  pub name: String,
+  pub reason: String,
+}
+
+/// 批量导入结果：成功登记、重复跳过、失败明细。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaAssetImportResult {
+  pub added: Vec<MediaAssetView>,
+  pub skipped: usize,
+  pub failed: Vec<MediaAssetImportFailure>,
+}
+
+/// 显示名长度上限（按字符计，中文不按字节误判）。
+pub const MAX_ASSET_NAME_CHARS: usize = 120;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MediaStoreData {
@@ -177,7 +197,8 @@ pub fn find(app: &tauri::AppHandle, id: &str) -> Option<MediaAssetFile> {
     .find(|asset| asset.id == id)
 }
 
-pub fn add_from_path(app: &tauri::AppHandle, path: &Path) -> Result<MediaAssetView, String> {
+/// 单文件 → 待登记条目。纯 I/O，不读写 `media.json`，便于批量导入时逐条容错。
+fn file_meta(path: &Path) -> Result<MediaAssetFile, String> {
   let path = path
     .canonicalize()
     .map_err(|error| format!("路径不可用: {error}"))?;
@@ -207,23 +228,118 @@ pub fn add_from_path(app: &tauri::AppHandle, path: &Path) -> Result<MediaAssetVi
     .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
     .unwrap_or_default();
   let id = id_for_path(&path_text);
-
-  let mut data = load_data(app);
-  if let Some(existing) = data.assets.iter().find(|asset| asset.id == id) {
-    return Ok(view(existing));
-  }
-  let asset = MediaAssetFile {
+  Ok(MediaAssetFile {
     id,
     path: path_text,
     name,
     kind: kind.to_string(),
     size_bytes,
     added_at,
-  };
+  })
+}
+
+pub fn add_from_path(app: &tauri::AppHandle, path: &Path) -> Result<MediaAssetView, String> {
+  let asset = file_meta(path)?;
+  let mut data = load_data(app);
+  if let Some(existing) = data.assets.iter().find(|item| item.id == asset.id) {
+    return Ok(view(existing));
+  }
   data.assets.push(asset.clone());
   save_data(app, &data)?;
   allow_asset(app, &asset.path);
   Ok(view(&asset))
+}
+
+/// 批量登记。单条失败不影响整批；只有确实新增了条目才写盘一次。
+pub fn add_many(
+  app: &tauri::AppHandle,
+  paths: &[PathBuf],
+) -> Result<MediaAssetImportResult, String> {
+  let mut data = load_data(app);
+  let mut result = MediaAssetImportResult::default();
+  let mut added_files: Vec<MediaAssetFile> = Vec::new();
+  for path in paths {
+    match file_meta(path) {
+      Err(reason) => result.failed.push(MediaAssetImportFailure {
+        name: path
+          .file_name()
+          .and_then(|name| name.to_str())
+          .unwrap_or("未知文件")
+          .to_string(),
+        reason,
+      }),
+      Ok(asset) if data.assets.iter().any(|item| item.id == asset.id) => {
+        result.skipped += 1;
+      }
+      Ok(asset) => {
+        result.added.push(view(&asset));
+        data.assets.push(asset.clone());
+        added_files.push(asset);
+      }
+    }
+  }
+  if added_files.is_empty() {
+    return Ok(result);
+  }
+  // 写盘失败时 media.json 未被改动（tmp + rename），此时也还没放开 asset 白名单。
+  save_data(app, &data)?;
+  for asset in &added_files {
+    allow_asset(app, &asset.path);
+  }
+  Ok(result)
+}
+
+/// 文件已不存在的素材 id；纯函数，便于单测。
+fn missing_ids(assets: &[MediaAssetFile], exists: impl Fn(&str) -> bool) -> Vec<String> {
+  assets
+    .iter()
+    .filter(|asset| !exists(&asset.path))
+    .map(|asset| asset.id.clone())
+    .collect()
+}
+
+/// 移除所有源文件已丢失的登记。只删索引，不动磁盘文件；没有可清理项时不写盘。
+pub fn prune_missing(app: &tauri::AppHandle) -> Result<Vec<String>, String> {
+  let mut data = load_data(app);
+  let missing = missing_ids(&data.assets, |path| Path::new(path).is_file());
+  if missing.is_empty() {
+    return Ok(missing);
+  }
+  data.assets.retain(|asset| !missing.contains(&asset.id));
+  save_data(app, &data)?;
+  Ok(missing)
+}
+
+/// 显示名归一化：去首尾空白、拒绝空名/控制字符/超长。
+pub fn normalize_name(raw: &str) -> Result<String, String> {
+  let trimmed = raw.trim();
+  if trimmed.is_empty() {
+    return Err("素材名称不能为空".to_string());
+  }
+  if trimmed.chars().any(char::is_control) {
+    return Err("素材名称不能包含控制字符".to_string());
+  }
+  if trimmed.chars().count() > MAX_ASSET_NAME_CHARS {
+    return Err(format!("素材名称不能超过 {MAX_ASSET_NAME_CHARS} 个字符"));
+  }
+  Ok(trimmed.to_string())
+}
+
+/// 重命名显示名：不动 `path`、不改扩展名、不影响可用性判定。同名不写盘。
+pub fn rename(app: &tauri::AppHandle, id: &str, name: &str) -> Result<MediaAssetView, String> {
+  let name = normalize_name(name)?;
+  let mut data = load_data(app);
+  let position = data
+    .assets
+    .iter()
+    .position(|asset| asset.id == id)
+    .ok_or_else(|| "素材不存在".to_string())?;
+  if data.assets[position].name == name {
+    return Ok(view(&data.assets[position]));
+  }
+  data.assets[position].name = name;
+  save_data(app, &data)?;
+  Ok(view(&data.assets[position]))
 }
 
 pub fn remove(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
@@ -302,5 +418,50 @@ mod tests {
       added_at: 0,
     };
     assert_eq!(kind_of(&asset), "image");
+  }
+
+  #[test]
+  fn normalize_asset_name_trims_and_rejects() {
+    assert_eq!(normalize_name("  夜景  ").as_deref(), Ok("夜景"));
+    assert!(normalize_name("").is_err());
+    assert!(normalize_name("   ").is_err());
+    assert!(normalize_name("a\u{7}").is_err());
+    assert!(normalize_name(&"a".repeat(MAX_ASSET_NAME_CHARS + 1)).is_err());
+    // 按字符计长度：120 个汉字仍然是合法名称。
+    let long = "夜".repeat(MAX_ASSET_NAME_CHARS);
+    assert_eq!(normalize_name(&long).as_deref(), Ok(long.as_str()));
+  }
+
+  #[test]
+  fn missing_ids_reports_only_missing_files() {
+    let assets = vec![
+      MediaAssetFile {
+        id: "m_1".into(),
+        path: r"C:\a.mp4".into(),
+        name: "a.mp4".into(),
+        kind: "video".into(),
+        size_bytes: 1,
+        added_at: 0,
+      },
+      MediaAssetFile {
+        id: "m_2".into(),
+        path: r"C:\b.png".into(),
+        name: "b.png".into(),
+        kind: "image".into(),
+        size_bytes: 1,
+        added_at: 0,
+      },
+    ];
+    let missing = missing_ids(&assets, |path| path.ends_with("a.mp4"));
+    assert_eq!(missing, vec!["m_2".to_string()]);
+    assert!(missing_ids(&assets, |_| true).is_empty());
+  }
+
+  #[test]
+  fn import_result_default_is_empty() {
+    let result = MediaAssetImportResult::default();
+    assert!(result.added.is_empty());
+    assert_eq!(result.skipped, 0);
+    assert!(result.failed.is_empty());
   }
 }

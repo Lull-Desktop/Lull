@@ -95,6 +95,18 @@ pub fn authorize(label: &str, token: Option<&str>) -> Result<(), String> {
   }
 }
 
+/// 只读配置的控制面：设置窗与壁纸库窗（`backdrop`）免 token。
+///
+/// `backdrop` 本来就能写配置（`media_config_set` / `media_activate`），给它读权限
+/// 不扩大能力。会话类命令（open/attach/detach/degrade）仍走 [`authorize`]，
+/// 库窗口不会意外创建或挂载 Surface。
+pub fn authorize_control(label: &str, token: Option<&str>) -> Result<(), String> {
+  if matches!(label, "settings" | "backdrop") {
+    return Ok(());
+  }
+  authorize(label, token)
+}
+
 /// 当前壁纸窗口对应的显示器设备名。
 #[must_use]
 pub fn device_for_label(label: &str) -> Option<String> {
@@ -114,5 +126,17 @@ mod tests {
     assert!(authorize("settings", None).is_ok());
     remove_window("wallpaper-test-token");
     assert!(authorize("wallpaper-test-token", Some(&token)).is_err());
+  }
+
+  #[test]
+  fn backdrop_is_trusted_for_config_reads_only() {
+    // 壁纸库窗口与设置窗同属受信控制面，读配置不需要 token。
+    assert!(authorize_control("backdrop", None).is_ok());
+    assert!(authorize_control("backdrop", Some("bogus")).is_ok());
+    assert!(authorize_control("settings", None).is_ok());
+    assert!(authorize_control("library", None).is_err());
+    assert!(authorize_control("widget-x", None).is_err());
+    // 会话类命令不放宽：库窗口仍不能 open/attach。
+    assert!(authorize("backdrop", None).is_err());
   }
 }

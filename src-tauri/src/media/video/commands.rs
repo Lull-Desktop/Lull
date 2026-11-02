@@ -102,7 +102,108 @@ pub async fn media_asset_pick(
   let Some(path) = picked else {
     return Ok(None);
   };
-  assets::add_from_path(&app, &path).map(Some)
+  let asset = assets::add_from_path(&app, &path)?;
+  events::emit_changed(&app, Vec::new());
+  Ok(Some(asset))
+}
+
+/// 多选导入：逐个登记，单条失败不中断整批。取消选择返回空结果。
+#[tauri::command]
+pub async fn media_asset_pick_many(
+  app: AppHandle,
+  webview: WebviewWindow,
+) -> Result<assets::MediaAssetImportResult, String> {
+  ensure_media_host(webview.label())?;
+  let picked = tauri::async_runtime::spawn_blocking(|| {
+    rfd::FileDialog::new()
+      .add_filter("图片", assets::IMAGE_EXTENSIONS)
+      .add_filter("视频", assets::VIDEO_EXTENSIONS)
+      .pick_files()
+  })
+  .await
+  .map_err(|error| error.to_string())?;
+  let Some(paths) = picked else {
+    return Ok(assets::MediaAssetImportResult::default());
+  };
+  let result = assets::add_many(&app, &paths)?;
+  if !result.added.is_empty() {
+    events::emit_changed(&app, Vec::new());
+  }
+  Ok(result)
+}
+
+/// 重命名显示名；只改索引，不动磁盘文件，也不需要重建播放会话。
+#[tauri::command]
+pub fn media_asset_rename(
+  app: AppHandle,
+  webview: WebviewWindow,
+  id: String,
+  name: String,
+) -> Result<MediaAssetView, String> {
+  ensure_media_host(webview.label())?;
+  let asset = assets::rename(&app, &id, &name)?;
+  events::emit_changed(&app, Vec::new());
+  Ok(asset)
+}
+
+/// 清理源文件已丢失的登记，返回移除数量。
+///
+/// 只有当前激活素材被清掉时才停播并重建壁纸；其它情况只更新素材库。
+#[tauri::command]
+pub fn media_asset_prune(app: AppHandle, webview: WebviewWindow) -> Result<usize, String> {
+  ensure_media_host(webview.label())?;
+  let removed = assets::prune_missing(&app)?;
+  if removed.is_empty() {
+    return Ok(0);
+  }
+  let mut active_cleared = false;
+  let mut save_error: Option<String> = None;
+  {
+    let mut guard = runtime::config()?;
+    let old = guard.data.display.media.clone();
+    let hits_active = old
+      .asset_id
+      .as_deref()
+      .is_some_and(|id| removed.iter().any(|item| item.as_str() == id));
+    if hits_active {
+      guard.data.display.media.asset_id = None;
+      match guard.data.save(&guard.path) {
+        Ok(()) => active_cleared = true,
+        Err(error) => {
+          guard.data.display.media = old;
+          save_error = Some(error.to_string());
+        }
+      }
+    }
+  }
+  if active_cleared {
+    engine().stop_all();
+    runtime::reapply(&app)?;
+    events::emit_config_changed(&app);
+  }
+  events::emit_changed(&app, Vec::new());
+  if let Some(error) = save_error {
+    return Err(format!("素材已清理，但壁纸配置保存失败: {error}"));
+  }
+  Ok(removed.len())
+}
+
+/// 单个素材的预览 URL：文件缺失或未登记时返回 `None`（不报错、不泄露路径）。
+#[tauri::command]
+pub fn media_asset_url(
+  app: AppHandle,
+  webview: WebviewWindow,
+  id: String,
+) -> Result<Option<String>, String> {
+  ensure_media_host(webview.label())?;
+  let Some(asset) = assets::find(&app, &id) else {
+    return Ok(None);
+  };
+  if !std::path::Path::new(&asset.path).is_file() {
+    return Ok(None);
+  }
+  assets::allow_asset(&app, &asset.path);
+  assets::asset_url(&webview, &asset.path).map(Some)
 }
 
 #[tauri::command]
@@ -127,6 +228,7 @@ pub async fn media_asset_remove(
   engine().stop_all();
   runtime::reapply(&app)?;
   events::emit_config_changed(&app);
+  events::emit_changed(&app, Vec::new());
   Ok(())
 }
 
@@ -136,7 +238,8 @@ pub fn media_config_get(
   webview: WebviewWindow,
   token: Option<String>,
 ) -> Result<MediaConfigView, String> {
-  authorize(webview.label(), token.as_deref())?;
+  // 壁纸库窗口（backdrop）与设置窗同属受信控制面，读配置不需要壁纸 token。
+  lifecycle::authorize_control(webview.label(), token.as_deref())?;
   let display = current_display()?;
   let asset = display
     .media
