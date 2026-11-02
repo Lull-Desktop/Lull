@@ -1,6 +1,6 @@
 {
   "name": "@lull/scene-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lull 壁纸场景侧 SDK（TypeScript）：通过 postMessage 桥读取宿主下发的参数、几何与同步相位。",
   "keywords": [
     "lull",
