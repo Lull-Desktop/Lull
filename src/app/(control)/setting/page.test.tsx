@@ -246,7 +246,38 @@ test("扩展页不再重复渲染功能槽位面板", async () => {
   fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
 
   expect(await screen.findByText(/已安装 0 个/)).toBeDefined();
-  expect(screen.queryByTestId("slot-panel")).toBeNull();
+  // 偏好面板保留为高度基准但已隐藏；可见的扩展面板里不能出现功能槽位。
+  const extensionsPane = screen.getByTestId("settings-extensions-pane");
+  expect(within(extensionsPane).queryByTestId("slot-panel")).toBeNull();
+});
+
+test("扩展页合并为单卡片，并保留偏好卡片作为高度基准", async () => {
+  mockInvoke({
+    extensions_list: () => [],
+    extensions_slots: () => [],
+    extensions_dev_state: () => ({ devMode: false, packages: [] }),
+    content_trust_policy_get: () => ({ requireSignature: false }),
+  });
+  renderSettingsPage();
+
+  fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
+
+  const card = await screen.findByTestId("settings-extensions-card");
+  expect(card.className).toContain("h-full");
+  expect(within(card).getByTestId("settings-trust-policy")).toBeDefined();
+  expect(
+    within(card).getByRole("switch", { name: "仅允许已验签的扩展" }),
+  ).toBeDefined();
+
+  // 偏好卡片继续挂载并参与布局，但隐藏且不可交互。
+  const preferencesPane = screen.getByTestId("settings-preferences-pane");
+  expect(preferencesPane.getAttribute("aria-hidden")).toBe("true");
+  expect(
+    within(preferencesPane).getByTestId("settings-preferences-card"),
+  ).toBeDefined();
+
+  const extensionsPane = screen.getByTestId("settings-extensions-pane");
+  expect(extensionsPane.contains(card)).toBe(true);
 });
 
 test("扩展页的「壁纸设置」打开壁纸库窗口", async () => {

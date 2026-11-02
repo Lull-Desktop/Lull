@@ -159,6 +159,64 @@ test("lists both kinds with counts and filter chips", async () => {
   expect(screen.getByText("雾岚")).toBeDefined();
 });
 
+test("扩展条目用紧凑两行合并说明、作者与许可", async () => {
+  mockCommands();
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  const name = await screen.findByText("番茄钟");
+  const card = name.closest("article");
+  expect(card).not.toBeNull();
+  if (!card) return;
+
+  expect(card.className).toContain("py-2");
+  const summary = within(card).getByText("专注计时 · 作者 Lull · MIT");
+  expect(summary.getAttribute("title")).toBe("专注计时 · 作者 Lull · MIT");
+  expect(summary.className).toContain("truncate");
+});
+
+test("签名策略并入扩展卡片并可切换", async () => {
+  mockCommands({
+    content_trust_policy_get: () => ({ requireSignature: false }),
+    content_trust_policy_set: (args) => ({
+      requireSignature: (args as { requireSignature: boolean })
+        .requireSignature,
+    }),
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  const card = await screen.findByTestId("settings-extensions-card");
+  expect(within(card).getByTestId("settings-trust-policy")).toBeDefined();
+  const toggle = within(card).getByRole("switch", {
+    name: "仅允许已验签的扩展",
+  });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("content_trust_policy_set", {
+      requireSignature: true,
+    });
+  });
+  await waitFor(() => {
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+  });
+});
+
+test("列表在卡片内部滚动，开发模式固定在滚动区之外", async () => {
+  mockCommands();
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  const card = await screen.findByTestId("settings-extensions-card");
+  const list = within(card).getByTestId("extensions-list-scroll");
+  const devMode = within(card).getByTestId("extensions-dev-mode");
+
+  expect(list.className).toContain("overflow-y-auto");
+  expect(list.contains(devMode)).toBe(false);
+  expect(
+    list.compareDocumentPosition(devMode) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
 test("enable asks for permission confirmation before invoking", async () => {
   mockCommands();
   render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
@@ -260,6 +318,19 @@ test("scene action hands off to wallpaper settings", async () => {
 
   fireEvent.click(await screen.findByRole("button", { name: "壁纸设置" }));
   expect(onOpenWallpaperSettings).toHaveBeenCalledTimes(1);
+});
+
+test("详情抽屉的能力授权列表为紧凑单行", async () => {
+  mockCommands();
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "详情：番茄钟" }));
+  const list = await screen.findByTestId("extension-capability-list");
+  const row = within(list).getByText("widget.state").closest("li");
+  expect(row).not.toBeNull();
+  expect(row?.className).toContain("py-1.5");
+  // 单行结构：能力名称、级别与 capability id 同行，不再上下堆叠。
+  expect(row?.querySelector("p")).toBeNull();
 });
 
 test("provider 未选中时使用 Slot 命令而不是直接打开", async () => {

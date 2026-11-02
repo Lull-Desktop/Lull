@@ -37,7 +37,13 @@ import { Switch } from "@/components/ui/switch";
 import { isDesktopWindow } from "@/core/window/controls";
 import { useExtensionSlots } from "@/hooks/use-extension-slots";
 import { useExtensions } from "@/hooks/use-extensions";
+import { localizeError } from "@/i18n/errors";
 import { useLocale } from "@/i18n/locale";
+import {
+  getTrustPolicy,
+  setTrustPolicy,
+  type TrustPolicy,
+} from "@/lib/content-trust";
 import {
   applySlotProvider,
   closeExtension,
@@ -143,6 +149,8 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   const [dragging, setDragging] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
   const [devMode, setDevMode] = useState<boolean | null>(null);
+  const [trustPolicy, setTrustPolicyState] = useState<TrustPolicy | null>(null);
+  const [trustMsg, setTrustMsg] = useState("");
 
   const visibleItems = useMemo(() => {
     const list = items ?? [];
@@ -173,7 +181,36 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       .catch(() => setDevMode(false));
   }, []);
 
-  // 严格模式切换后，签名决策会变；列表与已打开的预览都要刷新。
+  // 签名策略与扩展列表同卡片：读取失败时回退到宽松默认值，不阻塞列表加载。
+  useEffect(() => {
+    let alive = true;
+    getTrustPolicy()
+      .then((policy) => {
+        if (alive) setTrustPolicyState(policy);
+      })
+      .catch(() => {
+        if (alive) setTrustPolicyState({ requireSignature: false });
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const updateTrustPolicy = useCallback((on: boolean): void => {
+    setTrustMsg("");
+    // 先乐观更新开关，失败时用后端值回滚。
+    setTrustPolicyState({ requireSignature: on });
+    setTrustPolicy(on)
+      .then((policy) => {
+        setTrustPolicyState(policy);
+      })
+      .catch((error: unknown) => {
+        setTrustMsg(localizeError(error));
+        setTrustPolicyState({ requireSignature: !on });
+      });
+  }, []);
+
+  // 严格模式切换后，签名决策会变；列表、策略与已打开的预览都要刷新。
   useEffect(() => {
     if (!isDesktopWindow()) return;
     let stop: (() => void) | null = null;
@@ -182,6 +219,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       setPreview(null);
       setEnableTarget(null);
       void refresh();
+      void getTrustPolicy()
+        .then((policy) => setTrustPolicyState(policy))
+        .catch(() => {});
     })
       .then((unlisten) => {
         if (disposed) unlisten();
@@ -453,16 +493,45 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   }, [filter]);
 
   return (
-    <Card className="w-full">
-      <CardHeader>
+    <Card
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden"
+      data-testid="settings-extensions-card"
+    >
+      <CardHeader className="shrink-0 p-5 pb-3">
         <CardTitle className="flex items-center gap-2">
           <Package className="h-5 w-5 text-bamboo" />
           {m.ext_title()}
         </CardTitle>
         <CardDescription>{m.ext_description()}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-3 p-5 pt-0">
+        {/* 签名策略：原先的独立卡片并入扩展卡片，与列表同一滚动高度基准。 */}
+        <section
+          className="shrink-0 rounded-xl border border-border/60 p-3"
+          data-testid="settings-trust-policy"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-sm text-ink-soft">
+                {m.ext_signature_strict()}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {m.ext_signature_strict_hint()}
+              </p>
+            </div>
+            <Switch
+              aria-label={m.ext_signature_strict()}
+              checked={trustPolicy?.requireSignature === true}
+              disabled={trustPolicy === null}
+              onCheckedChange={updateTrustPolicy}
+            />
+          </div>
+          {trustMsg && (
+            <p className="mt-2 text-xs text-destructive">{trustMsg}</p>
+          )}
+        </section>
+
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
             {items === null
               ? m.ext_loading()
@@ -506,7 +575,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
           </div>
         </div>
 
-        <fieldset className="m-0 flex items-center gap-2 border-0 p-0">
+        <fieldset className="m-0 flex shrink-0 items-center gap-2 border-0 p-0">
           <legend className="sr-only">{m.ext_type_legend()}</legend>
           {(
             [
@@ -533,7 +602,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
 
         <div
           data-testid="extensions-drop-zone"
-          className={`rounded-lg border border-dashed p-4 text-xs transition-colors ${
+          className={`shrink-0 rounded-lg border border-dashed p-4 text-xs transition-colors ${
             dragging
               ? "border-bamboo bg-bamboo/10 text-ink-soft"
               : "border-border/70 text-muted-foreground"
@@ -542,304 +611,329 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
           {dragging ? m.ext_drop_active() : m.ext_drop_hint()}
         </div>
 
-        {(issues.length > 0 || slotIssues.length > 0) && (
-          <ul className="space-y-1">
-            {[...issues, ...slotIssues].map((issue) => (
-              <li key={issue} className="text-xs text-destructive">
-                {issue}
-              </li>
-            ))}
-          </ul>
-        )}
+        <div
+          className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1"
+          data-testid="extensions-list-scroll"
+        >
+          {(issues.length > 0 || slotIssues.length > 0) && (
+            <ul className="space-y-1">
+              {[...issues, ...slotIssues].map((issue) => (
+                <li key={issue} className="text-xs text-destructive">
+                  {issue}
+                </li>
+              ))}
+            </ul>
+          )}
 
-        {items?.length === 0 && (
-          <p className="rounded-lg border border-dashed border-border/70 p-4 text-xs text-muted-foreground">
-            {m.ext_empty()}
-          </p>
-        )}
+          {items?.length === 0 && (
+            <p className="rounded-lg border border-dashed border-border/70 p-4 text-xs text-muted-foreground">
+              {m.ext_empty()}
+            </p>
+          )}
 
-        <div className="space-y-3">
-          {visibleItems.map((item) => {
-            const providerSlot = slotForItem(item, slots);
-            const providerSelected = providerSlot?.selected === item.id;
-            const providerEligible =
-              providerSlot?.providers.find(
-                (provider) => provider.id === item.id,
-              )?.eligible ?? false;
-            return (
-              <article
-                key={`${item.kind}-${item.id}`}
-                className="rounded-xl border border-border/60 p-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="truncate text-sm text-ink-soft">
-                        {item.name}
-                      </span>
-                      <span className="text-[10px] text-ink-faint">
-                        {item.version} · {item.id}
-                      </span>
-                      <Badge variant="outline">{kindLabel(item.kind)}</Badge>
-                      {providerSlot && (
-                        <Badge variant="outline">{providerSlot.name}</Badge>
-                      )}
-                      {providerSelected && (
-                        <Badge variant="secondary">{m.slot_current()}</Badge>
-                      )}
-                      <Badge variant={statusVariant(item)}>
-                        {statusLabel(item.status)}
-                      </Badge>
-                      {item.origin !== "bundled" && (
-                        <Badge
-                          variant={signatureVariant(
-                            (item.signature ?? UNSIGNED_SIGNATURE).status,
+          <div className="space-y-2">
+            {visibleItems.map((item) => {
+              const providerSlot = slotForItem(item, slots);
+              const providerSelected = providerSlot?.selected === item.id;
+              const providerEligible =
+                providerSlot?.providers.find(
+                  (provider) => provider.id === item.id,
+                )?.eligible ?? false;
+              // 说明、作者与许可合并成一行，列表更紧凑；完整内容仍放在 title 里。
+              const summary = [
+                item.description,
+                item.author ? m.ext_author({ name: item.author }) : "",
+                item.license,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <article
+                  key={`${item.kind}-${item.id}`}
+                  className="rounded-xl border border-border/60 px-3 py-2"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <span className="truncate text-sm text-ink-soft">
+                          {item.name}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-ink-faint">
+                          {item.version} · {item.id}
+                        </span>
+                      </div>
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Badge variant="outline">
+                            {kindLabel(item.kind)}
+                          </Badge>
+                          {providerSlot && (
+                            <Badge variant="outline">{providerSlot.name}</Badge>
                           )}
-                        >
-                          {signatureLabel(
-                            (item.signature ?? UNSIGNED_SIGNATURE).status,
+                          {providerSelected && (
+                            <Badge variant="secondary">
+                              {m.slot_current()}
+                            </Badge>
                           )}
-                        </Badge>
-                      )}
-                      {item.dev && (
-                        <Badge variant="outline">{m.ext_dev_badge()}</Badge>
-                      )}
-                      {item.origin === "bundled" && (
-                        <Badge variant="secondary">
-                          {m.ext_origin_official()}
-                        </Badge>
-                      )}
-                      {item.kind === "widget" && item.enabled && (
-                        <Badge variant="secondary">
-                          {item.running
-                            ? item.visible
-                              ? m.ext_state_running()
-                              : m.ext_state_background()
-                            : m.ext_state_enabled()}
-                        </Badge>
+                          <Badge variant={statusVariant(item)}>
+                            {statusLabel(item.status)}
+                          </Badge>
+                          {item.origin !== "bundled" && (
+                            <Badge
+                              variant={signatureVariant(
+                                (item.signature ?? UNSIGNED_SIGNATURE).status,
+                              )}
+                            >
+                              {signatureLabel(
+                                (item.signature ?? UNSIGNED_SIGNATURE).status,
+                              )}
+                            </Badge>
+                          )}
+                          {item.dev && (
+                            <Badge variant="outline">{m.ext_dev_badge()}</Badge>
+                          )}
+                          {item.origin === "bundled" && (
+                            <Badge variant="secondary">
+                              {m.ext_origin_official()}
+                            </Badge>
+                          )}
+                          {item.kind === "widget" && item.enabled && (
+                            <Badge variant="secondary">
+                              {item.running
+                                ? item.visible
+                                  ? m.ext_state_running()
+                                  : m.ext_state_background()
+                                : m.ext_state_enabled()}
+                            </Badge>
+                          )}
+                        </div>
+                        {summary && (
+                          <p
+                            className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                            title={summary}
+                          >
+                            {summary}
+                          </p>
+                        )}
+                      </div>
+                      {item.error && (
+                        <p className="text-[11px] text-destructive">
+                          {item.error.code}：{item.error.message}
+                        </p>
                       )}
                     </div>
-                    {item.description && (
-                      <p className="text-xs text-muted-foreground">
-                        {item.description}
-                      </p>
-                    )}
-                    {item.error && (
-                      <p className="text-[11px] text-destructive">
-                        {item.error.code}：{item.error.message}
-                      </p>
-                    )}
-                    {(item.author || item.license) && (
-                      <p className="text-[11px] text-ink-faint">
-                        {item.author ? m.ext_author({ name: item.author }) : ""}
-                        {item.author && item.license ? " · " : ""}
-                        {item.license ?? ""}
-                      </p>
-                    )}
-                  </div>
 
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                    {item.kind === "widget" &&
-                      (item.enabled ? (
-                        <>
-                          {providerSlot && !providerSelected ? (
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                      {item.kind === "widget" &&
+                        (item.enabled ? (
+                          <>
+                            {providerSlot && !providerSelected ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={busy || !providerEligible}
+                                aria-label={m.ext_aria_action({
+                                  action: m.slot_action_use(),
+                                  name: item.name,
+                                })}
+                                onClick={() =>
+                                  runAction(
+                                    () =>
+                                      applySlotProvider(
+                                        providerSlot.id,
+                                        item.id,
+                                      ),
+                                    m.slot_status_active(),
+                                  )
+                                }
+                              >
+                                {m.slot_action_use()}
+                              </Button>
+                            ) : (
+                              <>
+                                {item.running && item.visible ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={busy}
+                                    aria-label={m.ext_aria_action({
+                                      action: m.ext_action_close(),
+                                      name: item.name,
+                                    })}
+                                    onClick={() =>
+                                      runAction(
+                                        () => closeExtension(item.id),
+                                        m.ext_toast_closed({ name: item.name }),
+                                      )
+                                    }
+                                  >
+                                    {m.ext_action_close()}
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={
+                                      busy ||
+                                      !item.enabled ||
+                                      (providerSlot !== undefined &&
+                                        !providerEligible)
+                                    }
+                                    aria-label={m.ext_aria_action({
+                                      action: m.ext_action_open(),
+                                      name: item.name,
+                                    })}
+                                    onClick={() =>
+                                      runAction(
+                                        () => openExtension("widget", item.id),
+                                        m.ext_toast_opened({ name: item.name }),
+                                      )
+                                    }
+                                  >
+                                    {m.ext_action_open()}
+                                  </Button>
+                                )}
+                                {item.running && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={busy}
+                                    aria-label={m.ext_aria_action({
+                                      action: m.ext_action_stop(),
+                                      name: item.name,
+                                    })}
+                                    onClick={() =>
+                                      runAction(
+                                        () => stopExtension(item.id),
+                                        m.ext_toast_stopped({
+                                          name: item.name,
+                                        }),
+                                      )
+                                    }
+                                  >
+                                    <Square className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </>
+                            )}
                             <Button
                               type="button"
                               size="sm"
-                              disabled={busy || !providerEligible}
+                              variant="outline"
+                              disabled={busy}
                               aria-label={m.ext_aria_action({
-                                action: m.slot_action_use(),
+                                action: m.ext_action_disable(),
                                 name: item.name,
                               })}
                               onClick={() =>
                                 runAction(
-                                  () =>
-                                    applySlotProvider(providerSlot.id, item.id),
-                                  m.slot_status_active(),
+                                  () => setExtensionEnabled(item.id, false),
+                                  m.ext_toast_disabled({ name: item.name }),
                                 )
                               }
                             >
-                              {m.slot_action_use()}
+                              {m.ext_action_disable()}
                             </Button>
-                          ) : (
-                            <>
-                              {item.running && item.visible ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={busy}
-                                  aria-label={m.ext_aria_action({
-                                    action: m.ext_action_close(),
-                                    name: item.name,
-                                  })}
-                                  onClick={() =>
-                                    runAction(
-                                      () => closeExtension(item.id),
-                                      m.ext_toast_closed({ name: item.name }),
-                                    )
-                                  }
-                                >
-                                  {m.ext_action_close()}
-                                </Button>
-                              ) : (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  disabled={
-                                    busy ||
-                                    !item.enabled ||
-                                    (providerSlot !== undefined &&
-                                      !providerEligible)
-                                  }
-                                  aria-label={m.ext_aria_action({
-                                    action: m.ext_action_open(),
-                                    name: item.name,
-                                  })}
-                                  onClick={() =>
-                                    runAction(
-                                      () => openExtension("widget", item.id),
-                                      m.ext_toast_opened({ name: item.name }),
-                                    )
-                                  }
-                                >
-                                  {m.ext_action_open()}
-                                </Button>
-                              )}
-                              {item.running && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  disabled={busy}
-                                  aria-label={m.ext_aria_action({
-                                    action: m.ext_action_stop(),
-                                    name: item.name,
-                                  })}
-                                  onClick={() =>
-                                    runAction(
-                                      () => stopExtension(item.id),
-                                      m.ext_toast_stopped({ name: item.name }),
-                                    )
-                                  }
-                                >
-                                  <Square className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                            </>
-                          )}
+                          </>
+                        ) : (
                           <Button
                             type="button"
                             size="sm"
-                            variant="outline"
-                            disabled={busy}
+                            disabled={busy || !canEnable(item)}
                             aria-label={m.ext_aria_action({
-                              action: m.ext_action_disable(),
+                              action: m.ext_action_enable(),
                               name: item.name,
                             })}
-                            onClick={() =>
-                              runAction(
-                                () => setExtensionEnabled(item.id, false),
-                                m.ext_toast_disabled({ name: item.name }),
-                              )
-                            }
+                            onClick={() => {
+                              setMessage("");
+                              setEnableTarget(item);
+                            }}
                           >
-                            {m.ext_action_disable()}
+                            <ShieldCheck className="h-3.5 w-3.5" />
+                            {m.ext_action_enable()}
                           </Button>
-                        </>
-                      ) : (
+                        ))}
+
+                      {item.kind === "scene" && (
                         <Button
                           type="button"
                           size="sm"
-                          disabled={busy || !canEnable(item)}
+                          variant="outline"
+                          onClick={onOpenWallpaperSettings}
+                        >
+                          {m.ext_action_wallpaper_settings()}
+                        </Button>
+                      )}
+
+                      {item.dev && item.kind === "widget" && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busy || !item.enabled}
                           aria-label={m.ext_aria_action({
-                            action: m.ext_action_enable(),
+                            action: m.ext_action_reload(),
                             name: item.name,
                           })}
-                          onClick={() => {
-                            setMessage("");
-                            setEnableTarget(item);
-                          }}
+                          onClick={() =>
+                            runAction(
+                              () => reloadDevPackage(item.id),
+                              m.ext_toast_reloaded({ name: item.name }),
+                            )
+                          }
                         >
-                          <ShieldCheck className="h-3.5 w-3.5" />
-                          {m.ext_action_enable()}
+                          {m.ext_action_reload()}
                         </Button>
-                      ))}
+                      )}
 
-                    {item.kind === "scene" && (
                       <Button
                         type="button"
                         size="sm"
-                        variant="outline"
-                        onClick={onOpenWallpaperSettings}
-                      >
-                        {m.ext_action_wallpaper_settings()}
-                      </Button>
-                    )}
-
-                    {item.dev && item.kind === "widget" && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || !item.enabled}
+                        variant="ghost"
                         aria-label={m.ext_aria_action({
-                          action: m.ext_action_reload(),
+                          action: m.ext_action_details(),
                           name: item.name,
                         })}
-                        onClick={() =>
-                          runAction(
-                            () => reloadDevPackage(item.id),
-                            m.ext_toast_reloaded({ name: item.name }),
-                          )
-                        }
+                        onClick={() => setDetail(item)}
                       >
-                        {m.ext_action_reload()}
+                        {m.ext_action_details()}
                       </Button>
-                    )}
-
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={m.ext_aria_action({
-                        action: m.ext_action_details(),
-                        name: item.name,
-                      })}
-                      onClick={() => setDetail(item)}
-                    >
-                      {m.ext_action_details()}
-                    </Button>
-                    {item.origin !== "bundled" && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={
-                          pendingRemove === itemKey(item)
-                            ? "destructive"
-                            : "ghost"
-                        }
-                        disabled={busy}
-                        aria-label={m.ext_aria_action({
-                          action: item.dev
-                            ? m.ext_action_remove()
-                            : m.ext_action_uninstall(),
-                          name: item.name,
-                        })}
-                        onClick={() => removeItem(item)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        {removeLabel(item, pendingRemove === itemKey(item))}
-                      </Button>
-                    )}
+                      {item.origin !== "bundled" && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={
+                            pendingRemove === itemKey(item)
+                              ? "destructive"
+                              : "ghost"
+                          }
+                          disabled={busy}
+                          aria-label={m.ext_aria_action({
+                            action: item.dev
+                              ? m.ext_action_remove()
+                              : m.ext_action_uninstall(),
+                            name: item.name,
+                          })}
+                          onClick={() => removeItem(item)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {removeLabel(item, pendingRemove === itemKey(item))}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </article>
-            );
-          })}
+                </article>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="space-y-2 rounded-xl border border-dashed border-border/70 p-3">
+        <div
+          className="shrink-0 space-y-2 rounded-xl border border-dashed border-border/70 p-3"
+          data-testid="extensions-dev-mode"
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
               <p className="text-sm text-ink-soft">{m.ext_dev_mode()}</p>
@@ -875,7 +969,9 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         </div>
 
         {message && (
-          <p className="text-xs text-muted-foreground break-all">{message}</p>
+          <p className="shrink-0 text-xs text-muted-foreground break-all">
+            {message}
+          </p>
         )}
       </CardContent>
 

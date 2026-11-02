@@ -190,9 +190,12 @@ export function ExtensionDetailSheet({
                 <p className="text-[11px] text-muted-foreground">
                   {m.ext_capabilities_note_short()}
                 </p>
-                <ul className="space-y-2">
+                <ul
+                  className="divide-y divide-border/40 overflow-hidden rounded-lg border border-border/60"
+                  data-testid="extension-capability-list"
+                >
                   {(item.capabilities ?? []).length === 0 && (
-                    <li className="text-xs text-muted-foreground">
+                    <li className="px-2.5 py-2 text-xs text-muted-foreground">
                       {m.ext_no_capabilities_declared()}
                     </li>
                   )}
@@ -206,18 +209,18 @@ export function ExtensionDetailSheet({
                     return (
                       <li
                         key={capability}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-border/60 p-2.5"
+                        className="flex items-center justify-between gap-3 px-2.5 py-1.5"
                       >
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-1.5 text-xs text-ink-soft">
+                        <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                          <span className="shrink-0 text-xs text-ink-soft">
                             {capabilityLabel(capability)}
-                            <span className="rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
-                              {capabilityLevel(capability)}
-                            </span>
-                          </p>
-                          <p className="truncate font-mono text-[10px] text-ink-faint">
+                          </span>
+                          <span className="shrink-0 rounded bg-muted px-1 text-[10px] leading-4 text-muted-foreground">
+                            {capabilityLevel(capability)}
+                          </span>
+                          <span className="truncate font-mono text-[10px] text-ink-faint">
                             {capability}
-                          </p>
+                          </span>
                         </div>
                         {item.kind === "widget" ? (
                           <Switch
