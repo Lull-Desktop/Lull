@@ -30,6 +30,7 @@ import {
   FolderOpen,
   Heart,
   History,
+  Import,
   ListMusic,
   ListOrdered,
   Music,
@@ -1328,15 +1329,17 @@ export function LibraryWindow({
         )}
 
         {tab === "playlists" && (
-          <div className="grid gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
-            <Card className="h-fit">
-              <CardHeader className="pb-3">
+          <div className="grid gap-4 md:h-full md:grid-cols-[260px_minmax(0,1fr)]">
+            {/* 左侧歌单卡撑满页签高度：歌单列表在中间自己滚，
+                新建输入与 M3U 导入固定在卡片首尾，与「我的目录」卡同构。 */}
+            <Card className="flex h-full min-h-0 flex-col">
+              <CardHeader className="shrink-0 pb-3">
                 <CardTitle className="text-base">
                   {m.library_playlists()}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex gap-2">
+              <CardContent className="flex min-h-0 flex-1 flex-col space-y-3">
+                <div className="flex shrink-0 gap-2">
                   <input
                     value={newName}
                     onChange={(event) => setNewName(event.target.value)}
@@ -1356,49 +1359,55 @@ export function LibraryWindow({
                     <Plus className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </div>
+                {playlists.length === 0 ? (
+                  <p className="px-1 py-3 text-sm text-ink-faint">
+                    {m.library_playlist_empty()}
+                  </p>
+                ) : (
+                  <div className="min-h-0 flex-1 divide-y divide-paper-deep/50 overflow-y-auto rounded-md border border-paper-deep/60">
+                    {playlists.map((playlist) => (
+                      <button
+                        key={playlist.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(playlist.id);
+                          setSelected(null);
+                        }}
+                        className={cn(
+                          "flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm transition-colors",
+                          selectedId === playlist.id
+                            ? "bg-bamboo-mist/60 text-ink"
+                            : "text-ink-soft hover:bg-paper-warm",
+                        )}
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {playlist.name}
+                        </span>
+                        <span className="shrink-0 text-xs text-ink-faint tabular-nums">
+                          {playlist.trackCount}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="w-full"
+                  className="w-full shrink-0"
                   onClick={importM3u}
                   disabled={busy !== null}
                 >
-                  <Upload className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  <Import className="mr-1.5 h-4 w-4" aria-hidden="true" />
                   {m.library_m3u_import()}
                 </Button>
-                <div className="space-y-1">
-                  {playlists.map((playlist) => (
-                    <button
-                      key={playlist.id}
-                      type="button"
-                      className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-paper-warm",
-                        selectedId === playlist.id &&
-                          "bg-paper-warm font-medium",
-                      )}
-                      onClick={() => {
-                        setSelectedId(playlist.id);
-                        setSelected(null);
-                      }}
-                    >
-                      <span className="truncate">{playlist.name}</span>
-                      <span className="ml-2 text-xs text-ink-faint">
-                        {playlist.trackCount}
-                      </span>
-                    </button>
-                  ))}
-                  {playlists.length === 0 && (
-                    <p className="px-2 py-3 text-xs text-ink-faint">
-                      {m.library_playlist_empty()}
-                    </p>
-                  )}
-                </div>
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="flex-row items-center justify-between gap-3 pb-3">
+            {/* 右侧详情卡撑满页签高度：标题固定置顶，曲目列表自己滚，
+                左右两侧滚动互不影响。 */}
+            <Card className="flex h-full min-h-0 flex-col">
+              <CardHeader className="shrink-0 flex-row items-center justify-between gap-3 pb-3">
                 {selected ? (
                   <CardTitle className="min-w-0 flex-1">
                     <input
@@ -1442,18 +1451,20 @@ export function LibraryWindow({
                   </div>
                 )}
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex min-h-0 flex-1 flex-col">
                 {selected ? (
-                  <PlaylistTracks
-                    detail={selected}
-                    busy={busy}
-                    playingTrackId={playingTrackId}
-                    onPlay={play}
-                    onQueue={addToQueue}
-                    onFavorite={toggleFavorite}
-                    onRemove={removeFromPlaylist}
-                    onMove={moveTrack}
-                  />
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <PlaylistTracks
+                      detail={selected}
+                      busy={busy}
+                      playingTrackId={playingTrackId}
+                      onPlay={play}
+                      onQueue={addToQueue}
+                      onFavorite={toggleFavorite}
+                      onRemove={removeFromPlaylist}
+                      onMove={moveTrack}
+                    />
+                  </div>
                 ) : (
                   <p className="py-10 text-center text-sm text-ink-faint">
                     {m.library_playlist_empty()}
