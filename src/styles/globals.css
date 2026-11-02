@@ -166,8 +166,10 @@
     --muted-foreground: 48 4% 52%;
     --accent: 140 24% 15%;
     --accent-foreground: 143 38% 49%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
+    /* 深色纸面需要更亮的红：30.6% 的红在 #222120 上做错误文字对比度不足。
+       同一 token 也用于危险按钮/Badge，因此前景改成深色，保证浅红底上可读。 */
+    --destructive: 0 72% 68%;
+    --destructive-foreground: 0 0% 10%;
     --border: 34 6% 22%;
     --input: 34 6% 22%;
     --ring: 143 38% 49%;

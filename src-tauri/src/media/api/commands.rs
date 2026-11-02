@@ -83,11 +83,18 @@ fn host_only(namespace: &str, method: &str, label: &str) -> Result<(), MediaErro
       "当前窗口没有音乐目录权限",
     ));
   }
-  if namespace == "library" && label != "settings" {
-    // 播放器/白噪音只需要曲目读取；来源列表含 rootPath，扫描/增删只属于 host。
+  if namespace == "library" && !matches!(label, "settings" | "library") {
+    // 播放器/白噪音只需要曲目读取；设置窗与资料库窗都是 host，
+    // 可读写智能歌单、标签、元数据与备份（资料库窗是这些功能的正式入口）。
     if !matches!(
       method,
-      "listTracks" | "getTrack" | "getCoverUrl" | "listArtists" | "listAlbums" | "listDirectory"
+      "listTracks"
+        | "getTrack"
+        | "getCoverUrl"
+        | "listArtists"
+        | "listAlbums"
+        | "listGenres"
+        | "listDirectory"
     ) {
       return Err(MediaError::new(
         "capability.denied",
@@ -374,10 +381,29 @@ mod tests {
       "getCoverUrl",
       "listArtists",
       "listAlbums",
+      "listGenres",
+      "listDirectory",
     ] {
       assert!(host_only("library", method, "player").is_ok());
     }
     for method in ["listSources", "addSource", "removeSource", "startScan"] {
+      assert!(host_only("library", method, "player").is_err());
+    }
+    // 资料库窗是完整 host：智能歌单、标签、元数据与备份都要放行。
+    for method in [
+      "listSmartPlaylists",
+      "runSmartPlaylist",
+      "createSmartPlaylist",
+      "deleteSmartPlaylist",
+      "listTags",
+      "createTag",
+      "updateTrackMetadata",
+      "setTrackTags",
+      "exportBackup",
+      "importBackup",
+    ] {
+      assert!(host_only("library", method, "library").is_ok());
+      assert!(host_only("library", method, "settings").is_ok());
       assert!(host_only("library", method, "player").is_err());
     }
     assert!(host_only("library", "listSources", "settings").is_ok());

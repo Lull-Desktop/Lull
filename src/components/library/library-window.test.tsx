@@ -1,7 +1,10 @@
 import type {
+  AlbumSummary,
+  ArtistSummary,
   LullMediaClient,
   MusicFolderView,
   Page,
+  PlayerState,
   TrackSummary,
 } from "@lull/media-sdk";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -31,21 +34,61 @@ const folder: MusicFolderView = {
   updatedAt: 1,
 };
 
+const artist: ArtistSummary = {
+  id: "art_1",
+  name: "Lull",
+  kind: "person",
+  trackCount: 1,
+  needsReview: false,
+};
+
+const album: AlbumSummary = {
+  id: "alb_1",
+  title: "夜",
+  year: 2024,
+  kind: "album",
+  trackCount: 1,
+  hasCover: false,
+};
+
+const idleState: PlayerState = {
+  status: "idle",
+  positionMs: 0,
+  volume: 1,
+  muted: false,
+  mode: "sequence",
+  revision: 1,
+};
+
+const playingState: PlayerState = {
+  ...idleState,
+  track,
+  status: "playing",
+  positionMs: 1000,
+  durationMs: 120_000,
+  revision: 2,
+};
+
 function page<T>(items: T[]): Page<T> {
   return { items, total: items.length, page: 1, pageSize: 100, hasMore: false };
 }
 
-function createClient(): LullMediaClient {
+function createClient(state: PlayerState = idleState): LullMediaClient {
   const client = {
-    connect: vi.fn(async () => ({})),
+    connect: vi.fn(async () => ({ player: state })),
     disconnect: vi.fn(async () => {}),
     events: { on: () => () => {} },
     library: {
       listTracks: vi.fn(async () => page([track])),
+      listArtists: vi.fn(async () => [artist]),
+      listAlbums: vi.fn(async () => [album]),
+      listGenres: vi.fn(async () => ["电子"]),
       listSmartPlaylists: vi.fn(async () => []),
       runSmartPlaylist: vi.fn(async () => page([])),
       createSmartPlaylist: vi.fn(),
       deleteSmartPlaylist: vi.fn(),
+      exportBackup: vi.fn(async () => null),
+      importBackup: vi.fn(async () => null),
     },
     folders: {
       list: vi.fn(async () => [folder]),
@@ -65,8 +108,17 @@ function createClient(): LullMediaClient {
     playlists: {
       list: vi.fn(async () => []),
     },
-    player: { play: vi.fn(async () => ({})) },
-    queue: { get: vi.fn(async () => ({ trackIds: [], revision: 1 })) },
+    player: {
+      getState: vi.fn(async () => state),
+      play: vi.fn(async () => ({ ...state, track, status: "playing" })),
+      resume: vi.fn(async () => ({ ...state, status: "playing" })),
+      stop: vi.fn(async () => idleState),
+      setMode: vi.fn(async () => ({ ...state, mode: "repeat-one" as const })),
+    },
+    queue: {
+      get: vi.fn(async () => ({ trackIds: [], revision: 1 })),
+      playAt: vi.fn(async () => ({ ...state, track, status: "playing" })),
+    },
     favorites: { set: vi.fn(), list: vi.fn() },
     history: { list: vi.fn(), clear: vi.fn() },
   };
@@ -103,5 +155,110 @@ test("最近添加页签按 addedAt 倒序请求", async () => {
       sortOrder: "desc",
       pageSize: 100,
     });
+  });
+});
+
+test("全部歌曲的筛选索引与关键字一起进入 TrackQuery", async () => {
+  const client = createClient();
+  render(<LibraryWindow client={client} />);
+
+  await waitFor(() => {
+    expect(client.library.listTracks).toHaveBeenCalledWith({
+      keyword: undefined,
+      artistId: undefined,
+      albumId: undefined,
+      genre: undefined,
+      format: undefined,
+      year: undefined,
+      pageSize: 100,
+    });
+  });
+
+  await screen.findByRole("option", { name: "Lull" });
+  fireEvent.change(screen.getByLabelText("艺术家"), {
+    target: { value: "art_1" },
+  });
+
+  await waitFor(() => {
+    expect(client.library.listTracks).toHaveBeenLastCalledWith({
+      keyword: undefined,
+      artistId: "art_1",
+      albumId: undefined,
+      genre: undefined,
+      format: undefined,
+      year: undefined,
+      pageSize: 100,
+    });
+  });
+
+  fireEvent.change(screen.getByPlaceholderText("搜索曲目、艺术家、专辑"), {
+    target: { value: "雨" },
+  });
+
+  await waitFor(() => {
+    expect(client.library.listTracks).toHaveBeenLastCalledWith({
+      keyword: "雨",
+      artistId: "art_1",
+      albumId: undefined,
+      genre: undefined,
+      format: undefined,
+      year: undefined,
+      pageSize: 100,
+    });
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
+
+  await waitFor(() => {
+    expect(client.library.listTracks).toHaveBeenLastCalledWith({
+      keyword: "雨",
+      artistId: undefined,
+      albumId: undefined,
+      genre: undefined,
+      format: undefined,
+      year: undefined,
+      pageSize: 100,
+    });
+  });
+});
+
+test("从资料库播放会先切到单曲循环", async () => {
+  const client = createClient();
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "播放" }));
+
+  await waitFor(() => {
+    expect(client.player.setMode).toHaveBeenCalledWith("repeat-one");
+  });
+  await waitFor(() => {
+    expect(client.player.play).toHaveBeenCalledWith("trk_1");
+  });
+});
+
+test("正在播放的曲目把播放按钮切成停止，点停止后回到播放", async () => {
+  const client = createClient(playingState);
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "停止" }));
+
+  await waitFor(() => {
+    expect(client.player.stop).toHaveBeenCalledTimes(1);
+  });
+  await screen.findByRole("button", { name: "播放" });
+  expect(client.player.play).not.toHaveBeenCalled();
+});
+
+test("我的目录保留备份与恢复入口", async () => {
+  const client = createClient();
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "我的目录" }));
+
+  await screen.findByText("备份与恢复");
+  fireEvent.click(screen.getByRole("button", { name: "导出" }));
+
+  await waitFor(() => {
+    expect(client.library.exportBackup).toHaveBeenCalledTimes(1);
   });
 });

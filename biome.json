@@ -77,8 +77,8 @@
   "overrides": [
     {
       "includes": [
-        "src/components/settings/music-library-panel.tsx",
-        "src/components/settings/music-library-panel.test.tsx",
+        "src/components/library/library-window.tsx",
+        "src/components/library/library-window.test.tsx",
         "src/hooks/use-media-client.ts"
       ],
       "linter": {

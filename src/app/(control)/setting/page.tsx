@@ -1,5 +1,5 @@
 /**
- * 设置窗口页面：偏好（主题 / 窗口 / 关于）、壁纸、音乐库、媒体测试与扩展页签。
+ * 设置窗口页面：偏好（主题 / 窗口 / 关于）、壁纸、曲库整理、噪音与扩展页签。
  * 壁纸层的显示与场景配置在 WallpaperPanel，本页只保留全局偏好卡片。
  */
 "use client";
@@ -19,7 +19,6 @@ import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
 import { SlotPanel } from "@/components/extensions/slot-panel";
 import { LibraryOrganizerPanel } from "@/components/settings/library-organizer-panel";
 import { MediaApiTestPanel } from "@/components/settings/media-api-test-panel";
-import { MusicLibraryPanel } from "@/components/settings/music-library-panel";
 import { NoiseApiTestPanel } from "@/components/settings/noise-api-test-panel";
 import { NoiseLibraryPanel } from "@/components/settings/noise-library-panel";
 import { NoisePresetPanel } from "@/components/settings/noise-preset-panel";
@@ -60,12 +59,12 @@ import {
 import { FLOW_THEMES } from "@/lib/flow-theme";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import { version as appVersion } from "../../../../package.json";
 import {
   BUILTIN_WIDGETS,
   widgetDisplayDescription,
   widgetDisplayName,
 } from "@/widgets/registry";
+import { version as appVersion } from "../../../../package.json";
 
 /** 与 Rust 侧 `window_prefs::WindowPrefs` 对应。 */
 type WindowPrefs = {
@@ -82,7 +81,6 @@ type WidgetState = {
 const SETTINGS_TABS = [
   "preferences",
   "wallpaper",
-  "library",
   "library-organizer",
   "noise-library",
   "noise-presets",
@@ -96,7 +94,6 @@ type SettingsTab = (typeof SETTINGS_TABS)[number];
 const TAB_LABELS: Record<SettingsTab, () => string> = {
   preferences: m.settings_tab_preferences,
   wallpaper: m.settings_tab_wallpaper,
-  library: m.settings_tab_library,
   "library-organizer": m.settings_tab_library_organizer,
   "noise-library": m.settings_tab_noise_library,
   "noise-presets": m.settings_tab_noise_presets,
@@ -135,7 +132,8 @@ function SectionHeading({
 export default function Settings() {
   const windowPrefsSwitchId = useId();
   const trustPolicySwitchId = useId();
-  const locale = useLocale();
+  // 订阅语言：页签与卡片文案在语言切换后要重渲染。
+  useLocale();
   const localeReady = useLocaleReady();
   const { themeId: flowThemeId, theme: flowTheme, setTheme } = useFlowTheme();
   const [windowPrefs, setWindowPrefs] = useState<WindowPrefs | null>(null);
@@ -341,7 +339,7 @@ export default function Settings() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-4">
       <div
-        className="sticky top-0 z-10 mb-3 grid grid-cols-5 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
+        className="sticky top-0 z-10 mb-3 grid grid-cols-4 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
         role="tablist"
         aria-label={m.settings_tabs_label()}
       >
@@ -807,11 +805,6 @@ export default function Settings() {
       {tab === "wallpaper" && (
         <main className="space-y-6">
           <WallpaperPanel />
-        </main>
-      )}
-      {tab === "library" && (
-        <main className="space-y-6">
-          <MusicLibraryPanel />
         </main>
       )}
       {tab === "library-organizer" && (

@@ -264,13 +264,12 @@ test("Page renders in browser mode (no tauri)", () => {
   expect(screen.getByRole("main")).toBeDefined();
 });
 
-test("设置页签按 偏好 / 壁纸 / 音乐库 / 曲库整理 / 噪音素材库 / 噪音预设 / 媒体测试 / 白噪音测试 / 扩展 排列，壁纸层只在壁纸页签", () => {
+test("设置页签按 偏好 / 壁纸 / 曲库整理 / 噪音素材库 / 噪音预设 / 媒体测试 / 白噪音测试 / 扩展 排列，壁纸层只在壁纸页签", () => {
   renderSettingsPage();
 
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
     "偏好",
     "壁纸",
-    "音乐库",
     "曲库整理",
     "噪音素材库",
     "噪音预设",
@@ -606,7 +605,9 @@ test("偏好页合并为一张卡片，功能槽位位于窗口分区内", () =>
   }
   // 功能槽位内容并入「窗口」分区，不再有独立卡片。
   const windowSection = within(card).getByTestId("settings-window-section");
-  expect(within(windowSection).getByTestId("settings-feature-slots")).toBeDefined();
+  expect(
+    within(windowSection).getByTestId("settings-feature-slots"),
+  ).toBeDefined();
 });
 
 test("功能槽位面板迁到偏好页的窗口设置下方，并能打开当前实现", async () => {

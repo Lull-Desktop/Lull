@@ -1,8 +1,13 @@
 /**
  * 控制窗口主题上下文：提供明暗主题读取、切换与持久化，并处理水合安全的初始化。
+ *
+ * 明暗是跨窗口偏好：切换后除了本窗口，还要通过 Tauri 事件（并用 localStorage
+ * 的 storage 事件兜底浏览器多标签）通知已经打开的其他窗口——例如在设置窗切到
+ * 深色时，一直开着的曲库窗口也要一起变。
  */
 "use client";
 
+import { emit, listen } from "@tauri-apps/api/event";
 import {
   createContext,
   useCallback,
@@ -12,8 +17,15 @@ import {
   useRef,
   useState,
 } from "react";
+import { isDesktopWindow } from "@/core/window/controls";
 
 export type Theme = "dark" | "light";
+
+/** localStorage 键：各窗口共享同一份存储，新窗口据此恢复上次的黑白样式。 */
+export const THEME_STORAGE_KEY = "ui-theme";
+
+/** 跨窗口广播事件；与 flow-theme-changed 同风格，由前端 emit / listen。 */
+export const THEME_CHANGED_EVENT = "ui-theme-changed";
 
 export function isTheme(value: unknown): value is Theme {
   return value === "dark" || value === "light";
@@ -27,6 +39,17 @@ function readStoredTheme(storageKey: string, fallback: Theme): Theme {
   } catch {
     return fallback;
   }
+}
+
+/**
+ * 广播给已打开的其他窗口。emit 只在 Tauri 内可用；浏览器预览 / 单测里退回
+ * localStorage 的 storage 事件，不会产生 IPC rejection。
+ */
+function broadcastTheme(theme: Theme): void {
+  if (!isDesktopWindow()) return;
+  void emit(THEME_CHANGED_EVENT, { theme }).catch((err: unknown) => {
+    console.error("[theme] 广播黑白样式失败", err);
+  });
 }
 
 type ThemeProviderProps = {
@@ -49,7 +72,7 @@ const TRANSITION_MS = 350;
 export function ThemeProvider({
   children,
   defaultTheme = "light",
-  storageKey = "ui-theme",
+  storageKey = THEME_STORAGE_KEY,
   ...props
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(defaultTheme);
@@ -66,6 +89,8 @@ export function ThemeProvider({
     const root = window.document.documentElement;
     root.classList.add("theme-transition");
     setThemeState(newTheme);
+    // 立即广播，不等 React 提交：另一个窗口的切换与当前窗口同步发生。
+    broadcastTheme(newTheme);
     if (transitionTimer.current !== null) {
       window.clearTimeout(transitionTimer.current);
     }
@@ -86,6 +111,43 @@ export function ThemeProvider({
       // 存储被禁用时不影响当前会话的主题。
     }
   }, [theme, storageKey, hydrated]);
+
+  // 跟随其他窗口的切换：Tauri 事件负责已打开的窗口，storage 事件兜底浏览器多标签。
+  // 这里只更新状态，不再广播，避免两个窗口互相触发形成回环。
+  useEffect(() => {
+    const applyExternalTheme = (next: Theme): void => {
+      setThemeState((current) => (current === next ? current : next));
+    };
+
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key !== storageKey || !isTheme(event.newValue)) return;
+      applyExternalTheme(event.newValue);
+    };
+    window.addEventListener("storage", onStorage);
+
+    let disposed = false;
+    let stopTauriListener: (() => void) | null = null;
+    if (isDesktopWindow()) {
+      void listen<{ theme?: unknown }>(THEME_CHANGED_EVENT, (event) => {
+        const next = event.payload?.theme;
+        if (isTheme(next)) applyExternalTheme(next);
+      })
+        .then((stop) => {
+          if (disposed) stop();
+          else stopTauriListener = stop;
+        })
+        .catch((err: unknown) => {
+          console.error("[theme] 订阅黑白样式失败", err);
+        });
+    }
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("storage", onStorage);
+      stopTauriListener?.();
+      stopTauriListener = null;
+    };
+  }, [storageKey]);
 
   // 卸载时清掉未触发的过渡计时器，避免把 theme-transition 永久留在 <html> 上。
   useEffect(
