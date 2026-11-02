@@ -75,6 +75,10 @@ describe("握手", () => {
     const client = await pending;
     expect(client.id).toBe("community-demo");
     expect(client.hostApi).toBe(1);
+    // ready 可能在宿主注册监听前丢失；收到 init 后要补发一次。
+    expect(
+      transport.sent.filter((message) => message.type === "ready"),
+    ).toHaveLength(2);
   });
 
   test("宿主不回应时按 init-timeout 失败", async () => {

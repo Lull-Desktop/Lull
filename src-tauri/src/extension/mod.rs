@@ -6,6 +6,7 @@
 pub mod dev;
 pub mod error;
 pub mod install;
+pub mod slots;
 
 pub use error::ExtensionError;
 
@@ -62,6 +63,9 @@ pub struct ExtensionInfo {
   pub visible: Option<bool>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub capabilities: Option<Vec<String>>,
+  /// 该 Widget 声明的功能槽位；普通 Widget 为空。
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub provides: Vec<widget_package::manifest::ProviderDecl>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub granted: Option<Vec<String>>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,6 +94,8 @@ pub struct ExtensionPreview {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub license: Option<String>,
   pub capabilities: Vec<String>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub provides: Vec<widget_package::manifest::ProviderDecl>,
   pub network: Vec<String>,
   pub file_count: usize,
   pub bytes: u64,
@@ -207,6 +213,7 @@ fn scene_info(package: content_package::store::ContentPackageInfo) -> ExtensionI
     running: None,
     visible: None,
     capabilities: Some(capabilities_field(&package.manifest)),
+    provides: Vec::new(),
     granted: None,
     network: None,
     window: None,
@@ -259,6 +266,7 @@ fn widget_info(app: &AppHandle, package: widget_package::store::PackageInfo) -> 
     running: Some(package.running),
     visible: Some(visible),
     capabilities: Some(package.requested),
+    provides: package.provides,
     granted: Some(package.granted),
     network: Some(package.network),
     window: Some(WindowInfo {
@@ -289,9 +297,31 @@ fn detect_kind(bundle: &Path) -> Result<Kind, ExtensionError> {
   }
 }
 
+fn precheck_provider_shape(bundle: &Path) -> Result<(), ExtensionError> {
+  let path = bundle.join("widget.json");
+  let Ok(text) = std::fs::read_to_string(&path) else {
+    return Ok(());
+  };
+  let Ok(value) = serde_json::from_str::<Value>(&text) else {
+    return Ok(());
+  };
+  if value
+    .get("provides")
+    .and_then(Value::as_array)
+    .is_some_and(|items| items.len() > 1)
+  {
+    return Err(ExtensionError::new(
+      "manifest.provides-multiple",
+      "v1 一个扩展最多声明一个功能槽位（provides 只能有一条）",
+    ));
+  }
+  Ok(())
+}
+
 fn claim_for_bundle(kind: Kind, bundle: &Path) -> Result<PackageClaim, ExtensionError> {
   match kind {
     Kind::Widget => {
+      precheck_provider_shape(bundle)?;
       let manifest = widget_package::manifest::PackageManifest::from_dir(bundle)
         .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
       let digest = widget_package::digest::compute(bundle, &manifest.id, &manifest.version)
@@ -329,6 +359,49 @@ fn preview_from_staged(
   preview_from_staged_with_policy(staged, source, &policy)
 }
 
+/// 已知 Slot 的 Provider 安装前必须满足必需能力；未知 Slot 只提示。
+fn validate_provider_install(
+  manifest: &widget_package::manifest::PackageManifest,
+) -> Result<(), ExtensionError> {
+  let Some(slot) = slots::defs::slot_for_provides(&manifest.provides) else {
+    return Ok(());
+  };
+  let missing = slots::defs::missing_required(slot, &manifest.capabilities);
+  if missing.is_empty() {
+    return Ok(());
+  }
+  Err(ExtensionError::new(
+    "manifest.provider-capability-missing",
+    format!("{} 槽位缺少必需能力：{}", slot.id, missing.join(", ")),
+  ))
+}
+
+fn provider_warnings(manifest: &widget_package::manifest::PackageManifest) -> Vec<String> {
+  let mut warnings = Vec::new();
+  let unknown = slots::defs::unknown_declared_slots(&manifest.provides);
+  if !unknown.is_empty() {
+    warnings.push(format!(
+      "当前 Lull 不支持功能槽位 {}；该扩展会按普通 Widget 安装。",
+      unknown.join(", ")
+    ));
+  }
+  if let Some(slot) = slots::defs::slot_for_provides(&manifest.provides) {
+    if let Some(provider) = manifest.provides.first() {
+      if !slots::defs::supports_version(provider.version) {
+        warnings.push(format!(
+          "该扩展声明的 {} 槽位版本 {} 高于当前宿主支持的版本；需要更新 Lull 才能选择它。",
+          slot.id, provider.version
+        ));
+      }
+    }
+    let missing = slots::defs::missing_recommended(slot, &manifest.capabilities);
+    if !missing.is_empty() {
+      warnings.push(format!("缺少推荐能力：{}", missing.join(", ")));
+    }
+  }
+  warnings
+}
+
 fn preview_from_staged_with_policy(
   staged: &install::Staged,
   source: &Path,
@@ -345,6 +418,7 @@ fn preview_from_staged_with_policy(
   }
   let (signature, _) = content_trust::verify_source(source, bundle, &claim, policy);
   let mut warnings: Vec<String> = Vec::new();
+  let mut provides = Vec::new();
 
   let (id, name, version, description, author, license, capabilities, network) = match kind {
     Kind::Widget => {
@@ -372,6 +446,9 @@ fn preview_from_staged_with_policy(
           return Err(ExtensionError::new("integrity.mismatch", error));
         }
       }
+      validate_provider_install(&manifest)?;
+      warnings.extend(provider_warnings(&manifest));
+      provides = manifest.provides.clone();
       (
         manifest.id,
         manifest.name,
@@ -413,6 +490,7 @@ fn preview_from_staged_with_policy(
     author,
     license,
     capabilities,
+    provides,
     network,
     file_count,
     bytes,
@@ -442,6 +520,47 @@ pub fn extensions_list(app: AppHandle) -> Vec<ExtensionInfo> {
       .then_with(|| left.id.cmp(&right.id))
   });
   items
+}
+
+/// 功能槽位列表：选择、运行状态、候选 Provider。
+#[tauri::command]
+#[must_use]
+pub fn extensions_slots(app: AppHandle) -> Vec<slots::SlotInfo> {
+  slots::list(&app)
+}
+
+/// 选择并运行某个 Provider；内部完成停旧、开新、等待 ready 与失败回滚。
+#[tauri::command]
+pub async fn extensions_slot_use(
+  app: AppHandle,
+  slot: String,
+  id: String,
+) -> Result<slots::SlotInfo, ExtensionError> {
+  let view = slots::use_provider(&app, &slot, &id).await?;
+  crate::tray::refresh(&app);
+  Ok(view)
+}
+
+/// 启动/显示当前 Selected；不清空选择。
+#[tauri::command]
+pub async fn extensions_slot_activate(
+  app: AppHandle,
+  slot: String,
+) -> Result<slots::SlotInfo, ExtensionError> {
+  let view = slots::activate(&app, &slot).await?;
+  crate::tray::refresh(&app);
+  Ok(view)
+}
+
+/// 停止当前 active，保留 Selected。
+#[tauri::command]
+pub fn extensions_slot_deactivate(
+  app: AppHandle,
+  slot: String,
+) -> Result<slots::SlotInfo, ExtensionError> {
+  let view = slots::deactivate(&app, &slot)?;
+  crate::tray::refresh(&app);
+  Ok(view)
 }
 
 /// 无副作用校验，供安装确认框使用。
@@ -529,6 +648,9 @@ pub fn extensions_install(
 
   let info = match kind {
     Kind::Widget => {
+      let manifest = widget_package::manifest::PackageManifest::from_dir(staged.bundle())
+        .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
+      validate_provider_install(&manifest)?;
       let root = widget_package::store::root(&app).map_err(io_error)?;
       let package = widget_package::store::install_from_staged(&root, &staged)?;
       widget_info(&app, package)
@@ -556,6 +678,7 @@ pub fn extensions_remove(app: AppHandle, kind: String, id: String) -> Result<(),
       }
       widget_package::store::remove(&app, &id)
         .map_err(|error| ExtensionError::new("extension.remove-failed", error))?;
+      slots::on_extension_removed(&app, &id);
     }
     Kind::Scene => {
       if content_package::store::is_official(&app, &id) {
@@ -586,6 +709,7 @@ pub fn extensions_set_enabled(
 ) -> Result<ExtensionInfo, ExtensionError> {
   widget_package::store::set_enabled(&app, &id, enabled)
     .map_err(|error| ExtensionError::new("extension.update-failed", error))?;
+  slots::on_extension_changed(&app);
   emit_changed(&app);
   find_widget(&app, &id)
 }
@@ -620,15 +744,33 @@ pub async fn extensions_open(
   id: String,
 ) -> Result<(), ExtensionError> {
   match kind_from_str(&kind)? {
-    Kind::Widget => widget_package::open(app, id)
-      .await
-      .map_err(|error| ExtensionError::new("extension.open-failed", error)),
+    Kind::Widget => {
+      if let Some(slot) = slots::provider_slot_for_id(&app, &id) {
+        if slots::selected_provider(&app, slot.id).as_deref() != Some(id.as_str()) {
+          return Err(ExtensionError::new(
+            "slot.not-selected",
+            format!("{} 还不是 {} 的当前实现，请先在扩展中心使用它", id, slot.id),
+          ));
+        }
+        slots::activate(&app, slot.id).await?;
+        return Ok(());
+      }
+      widget_package::open(app, id)
+        .await
+        .map_err(|error| ExtensionError::new("extension.open-failed", error))
+    }
     Kind::Scene => Ok(()),
   }
 }
 
 #[tauri::command]
 pub fn extensions_close(app: AppHandle, id: String) -> Result<(), ExtensionError> {
+  // Provider 的“关闭窗口”固定为隐藏：关闭不能让出 Slot，也不能触发另一个实现。
+  if slots::provider_slot_for_id(&app, &id).is_some() {
+    let result = widget_package::close(&app, &id);
+    slots::emit_changed(&app);
+    return result.map_err(|error| ExtensionError::new("extension.update-failed", error));
+  }
   let manifest = widget_package::store::find(&app, &id)
     .map_err(|error| ExtensionError::new("extension.not-found", error))?;
   let result = if manifest.lifecycle == "suspend" {
@@ -674,6 +816,8 @@ pub fn extensions_dev_set_enabled(
 ) -> Result<dev::DevState, ExtensionError> {
   let state = dev::set_enabled(&app, enabled)
     .map_err(|error| ExtensionError::new("dev.update-failed", error))?;
+  slots::on_extension_changed(&app);
+  slots::emit_changed(&app);
   emit_changed(&app);
   Ok(state)
 }
@@ -705,6 +849,7 @@ pub fn extensions_dev_remove(app: AppHandle, id: String) -> Result<(), Extension
   }
   widget_package::store::remove(&app, &id)
     .map_err(|error| ExtensionError::new("extension.remove-failed", error))?;
+  slots::on_extension_removed(&app, &id);
   emit_changed(&app);
   Ok(())
 }
@@ -717,6 +862,25 @@ pub async fn extensions_dev_reload(app: AppHandle, id: String) -> Result<(), Ext
       format!("没有挂载 id={id} 的开发包"),
     ));
   }
+  // Provider 的重载必须走 Slot 激活路径，否则会绕过互斥和 Selected 状态。
+  if let Some(slot) = slots::provider_slot_for_id(&app, &id) {
+    if slots::selected_provider(&app, slot.id).as_deref() != Some(id.as_str()) {
+      return Err(ExtensionError::new(
+        "slot.not-selected",
+        "该 Provider 不是当前实现，请先在扩展中心使用它",
+      ));
+    }
+    let _ = widget_package::stop(&app, &id);
+    let wait_app = app.clone();
+    let wait_id = id.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+      widget_package::runtime::wait_closed(&wait_app, &wait_id, std::time::Duration::from_secs(2))
+    })
+    .await;
+    slots::activate(&app, slot.id).await?;
+    return Ok(());
+  }
+
   let label = format!("widget-{id}");
   // `window.reload()` 会复用创建时注入的旧 entryUrl；销毁后重建才能从
   // 最新 dev 配置读取 Vite 地址（也用于首次从静态包切到 dev server）。
@@ -789,6 +953,48 @@ mod tests {
       }"#,
     )?;
     std::fs::write(dir.join("index.html"), b"<html></html>")
+  }
+
+  #[test]
+  fn provider_install_requires_slot_capabilities() {
+    let Some(root) = temp_dir("provider-caps") else {
+      return;
+    };
+    let dir = root.join("community-player");
+    if std::fs::create_dir_all(&dir).is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let _ = std::fs::write(
+      dir.join("widget.json"),
+      r#"{
+        "schemaVersion": 2,
+        "type": "widget",
+        "id": "community-player",
+        "name": "Community Player",
+        "version": "1.0.0",
+        "license": "MIT",
+        "builtin": false,
+        "hostApi": 1,
+        "entry": "index.html",
+        "provides": [{ "slot": "music-player", "version": 1 }],
+        "capabilities": ["widget.media"],
+        "window": { "width": 560, "height": 640, "chrome": "host" }
+      }"#,
+    );
+    let _ = std::fs::write(dir.join("index.html"), b"<html></html>");
+    let manifest = widget_package::manifest::PackageManifest::from_dir(&dir);
+    let Ok(manifest) = manifest else {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    };
+    assert_eq!(
+      validate_provider_install(&manifest)
+        .err()
+        .map(|error| error.code),
+      Some("manifest.provider-capability-missing".to_string())
+    );
+    let _ = std::fs::remove_dir_all(&root);
   }
 
   #[test]

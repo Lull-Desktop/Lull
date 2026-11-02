@@ -179,7 +179,11 @@ function handshake(
       window.clearTimeout(timer);
       stop?.();
       try {
-        resolve(createLullWidgetClient(message, { transport }));
+        const client = createLullWidgetClient(message, { transport });
+        // ready 可能先于宿主监听器发出而丢失；收到 init 后再补一次，
+        // 让 Slot 的启动事务能可靠拿到“SDK 已就绪”信号。
+        transport.post(readyMessage());
+        resolve(client);
       } catch (error) {
         reject(error);
       }

@@ -135,15 +135,17 @@ lib.rs
  ├─ resource.rs（safe_join + MIME，插件与内容包共用）
  ├─ package_hash.rs（两类包共用的文件遍历 + 摘要拼装）
  ├─ extension
- │    ├─ mod.rs（门面：列表 / 预览 / 安装 / 卸载 / 启停 / 权限）
+ │    ├─ mod.rs（门面：列表 / 预览 / 安装 / 卸载 / 启停 / 权限 / Slot 命令）
  │    ├─ install.rs（共享 staging / zip / 预算 / 原子落地）
  │    ├─ dev.rs（开发模式配置 / 本地目录挂载）
- │    └─ error.rs（稳定错误码）
+ │    ├─ error.rs（稳定错误码）
+ │    └─ slots（功能槽位：defs 静态定义 / selection `.slots.json` / mod 选择与运行事务）
  ├─ widget_package
  │    ├─ mod.rs（插件窗口 / 命令 / 上下文）
- │    ├─ manifest.rs（widget.json v2 校验）
+ │    ├─ manifest.rs（widget.json v2 校验 + provides）
  │    ├─ digest.rs（旁路 .lull-integrity.json + 整包摘要）
  │    ├─ store.rs（包发现 / 授权记录 / 状态 KV / 安装卸载）
+ │    ├─ runtime.rs（宿主壳页 ready 握手 / 窗口关闭等待）
  │    └─ protocol.rs（lullwidget:// 资源协议 + 逐插件 CSP）
  ├─ build.rs（校验 widgets/manifests，生成 $OUT_DIR/widget_specs.rs）
  ├─ window_frame.rs（原子 SetWindowPos）
@@ -192,6 +194,10 @@ lib.rs
 | `widget_states` | — | `{kind,visible,version,capabilities}[]` | `window_host` |
 | `widget_close` | `kind` | `()` | `window_host` |
 | `extensions_list` | — | `ExtensionInfo[]` | `extension` |
+| `extensions_slots` | — | `SlotInfo[]` | `extension::slots` |
+| `extensions_slot_use` | `slot,id` | `SlotInfo` | `extension::slots` |
+| `extensions_slot_activate` | `slot` | `SlotInfo` | `extension::slots` |
+| `extensions_slot_deactivate` | `slot` | `SlotInfo` | `extension::slots` |
 | `extensions_inspect` | `path` | `ExtensionPreview` | `extension` |
 | `extensions_pick` | — | `{path,preview} \| null` | `extension`（系统文件对话框） |
 | `extensions_install` | `path,sourceDigest?` | `ExtensionInfo` | `extension` |
@@ -208,6 +214,7 @@ lib.rs
 | `extensions_dev_remove` | `id` | `()` | `extension::dev` |
 | `extensions_dev_reload` | `id` | `()` | `extension::dev` |
 | `widget_package_notify` | — | `()` | `widget_package`（仅插件窗口） |
+| `widget_package_ready` | — | `()` | `widget_package::runtime`（仅插件窗口；Slot 切换等待此信号） |
 | `widget_state_get` | `key` | `Value \| null` | `widget_package` |
 | `widget_state_set` | `key,value` | `()` | `widget_package` |
 | `widget_state_remove` | `key` | `()` | `widget_package` |
@@ -248,6 +255,7 @@ lib.rs
 | `flow-theme-changed` | 前端（跨窗口） | 设置 / 播放器 / 番茄钟 / 白噪音 |
 | `content-changed` | Rust（内容包安装 / 卸载） | 设置页与壁纸窗的场景目录 |
 | `extensions-changed` | Rust（安装 / 卸载 / 启用 / 改权限） | 扩展中心、托盘；兼容期同时发 `content-changed` |
+| `slots-changed` | Rust（选择 / 激活 / 停用 / 窗口销毁 / 失败回滚） | 扩展中心、设置页工具列表 |
 | `media-changed` / `media-config-changed` | Rust（会话/配置） | 设置页、壁纸媒体面板 |
 | `media-master-visible` | Rust（全局壁纸显隐） | 壁纸 MediaSurface 暂停/恢复 HTML video |
 | `media-degraded` | Rust（原生路径失败） | 壁纸 MediaSurface 切换 HTML 回退 |
@@ -282,7 +290,7 @@ lib.rs
   - 壁纸窗口 `wallpaper-*`：`core:event` 的 listen/unlisten + `allow-content-packages`（解析场景 id 用）
     + `allow-media-capabilities/config-get/open/attach/detach/degrade`；媒体命令还必须带 Rust
     在建窗时注入顶层帧的 `__LULL_MEDIA_TOKEN__`，没有窗口、壁纸、插件或内容包安装命令；
-  - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten（主题跟随）+ `allow-widget-state-*` + `allow-widget-package-notify` + `allow-widget-set-transparent`，**没有 `core:default`**、**没有 event.emit**，不能调用包管理、壁纸或偏好命令。
+  - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten（主题跟随）+ `allow-widget-state-*` + `allow-widget-package-notify` + `allow-widget-package-ready` + `allow-widget-set-transparent`，**没有 `core:default`**、**没有 event.emit**，不能调用包管理、壁纸或偏好命令。
 - 构建期 `tauri-build` 会校验 capability 引用的权限是否存在；权限名或命令改名漏同步会直接编译失败。
 - `media-engine` 是隐藏的受信 WebView，不是 Widget；它只拿到引擎命令事件与上报命令，不能反向读曲库或控制窗口。
 - 所有 WebView 共用 `src-tauri/src/webview.rs` 的 Chromium 参数（自动播放、后台节流、occluded/backgrounding），否则隐藏引擎会被暂停；所有窗口必须复用同一份参数，避免 WebView2 environment options 不一致。
@@ -352,6 +360,7 @@ form-action 'none'
 %APPDATA%\app.lull.desktop\widgets\<id>\widget.json     # 插件包
 %APPDATA%\app.lull.desktop\widgets\<id>\...             # 静态资源
 %APPDATA%\app.lull.desktop\widgets\.grants.json         # 启用 / 授权记录
+%APPDATA%\app.lull.desktop\widgets\.slots.json          # 功能槽位当前选择（Selected）
 %APPDATA%\app.lull.desktop\widgets\.state\<id>.json     # 插件状态 KV
 ```
 

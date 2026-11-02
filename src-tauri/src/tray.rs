@@ -58,19 +58,44 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     )?);
   }
 
-  // 官方扩展与内置工具同级；第三方扩展仍收在「扩展」子菜单。
+  // 功能槽位与内置工具同级：每个 Slot 只出现一次，避免 10 个播放器塞满托盘。
+  let slots = crate::extension::slots::list(app);
+  for slot in slots {
+    let has_selected = slot.selected.as_ref().is_some_and(|id| {
+      slot
+        .providers
+        .iter()
+        .any(|provider| &provider.id == id && provider.eligible)
+    });
+    if !has_selected {
+      continue;
+    }
+    tool_items.push(MenuItem::with_id(
+      app,
+      format!("slot-{}", slot.id),
+      &slot.name,
+      true,
+      None::<&str>,
+    )?);
+  }
+
+  // 官方非 Provider 兼容项 + 第三方普通 Widget 仍收在「扩展」子菜单。
   let packages = crate::widget_package::store::list(app);
-  let mut official = packages
+  let mut official_plain = packages
     .iter()
-    .filter(|package| package.enabled && package.origin == "bundled")
+    .filter(|package| {
+      package.enabled
+        && package.origin == "bundled"
+        && crate::extension::slots::defs::slot_for_provides(&package.provides).is_none()
+    })
     .collect::<Vec<_>>();
-  official.sort_by(|left, right| {
+  official_plain.sort_by(|left, right| {
     left
       .order
       .total_cmp(&right.order)
       .then_with(|| left.id.cmp(&right.id))
   });
-  for package in official {
+  for package in official_plain {
     tool_items.push(MenuItem::with_id(
       app,
       format!("open-ext-{}", package.id),
@@ -82,7 +107,11 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
   let enabled = packages
     .into_iter()
-    .filter(|package| package.enabled && package.origin != "bundled")
+    .filter(|package| {
+      package.enabled
+        && package.origin != "bundled"
+        && crate::extension::slots::defs::slot_for_provides(&package.provides).is_none()
+    })
     .collect::<Vec<_>>();
   let submenu = if enabled.is_empty() {
     None
@@ -123,6 +152,14 @@ pub fn init(app: &tauri::App) -> tauri::Result<()> {
       "toggle-settings" => toggle_settings(app),
       "quit" => app.exit(0),
       id => {
+        if let Some(slot_id) = id.strip_prefix("slot-") {
+          let app = app.clone();
+          let slot_id = slot_id.to_string();
+          tauri::async_runtime::spawn(async move {
+            let _ = crate::extension::extensions_slot_activate(app, slot_id).await;
+          });
+          return;
+        }
         if let Some(plugin_id) = id.strip_prefix("open-ext-") {
           let app = app.clone();
           let plugin_id = plugin_id.to_string();

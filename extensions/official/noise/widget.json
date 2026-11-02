@@ -3,7 +3,7 @@
   "type": "widget",
   "id": "noise",
   "name": "白噪音",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "雨、风、海浪、篝火与远雷，可自由混音的五层声景。",
   "author": "Lull",
   "license": "GPL-3.0-or-later",
@@ -11,6 +11,12 @@
   "hostApi": 1,
   "entry": "index.html",
   "order": 30,
+  "provides": [
+    {
+      "slot": "noise-controller",
+      "version": 1
+    }
+  ],
   "capabilities": [
     "widget.ui",
     "widget.theme",

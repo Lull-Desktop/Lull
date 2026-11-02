@@ -124,6 +124,7 @@ window label = widget-<id>
 | `entry` | 包内相对 `.html`；禁止 `..`、反斜杠、百分号编码与绝对路径 |
 | `icon` | 可选，包内 `.png` / `.jpg` / `.jpeg` / `.webp` |
 | `lifecycle` | `background`（默认，关闭只隐藏）或 `suspend`（关闭即销毁窗口） |
+| `provides` | 可选；v1 最多一条 `{ slot, version: 1 }`，声明为功能槽位 Provider |
 | `capabilities` | 只能申请上表的 23 个 |
 | `window.width/height` | 320×240 – 1600×1200；`minWidth/minHeight` 不得大于初始值 |
 | `window.resizable` | 首期固定 `false`，窗口尺寸由宿主决定 |
@@ -131,6 +132,36 @@ window label = widget-<id>
 | `window.chrome` | `host`（默认，宿主绘制顶栏）或 `custom`（插件自绘）；`custom` 必须同时申请 `widget.chrome` |
 | `window.fit` | `none`（默认）或 `content`（允许按内容高度调整窗口）；`content` 必须同时申请 `widget.chrome` |
 | `network` | 允许的 `https://` 源；非空时必须同时申请 `widget.network` |
+
+#### 功能槽位 Provider
+
+声明 `provides` 的 Widget 会参与宿主的功能槽位互斥：
+
+```json
+"provides": [{ "slot": "music-player", "version": 1 }],
+"capabilities": [
+  "widget.ui",
+  "widget.media",
+  "media.player.read",
+  "media.player.control",
+  "media.player.volume.write",
+  "media.queue.read",
+  "media.library.read"
+]
+```
+
+- v1 只支持 `music-player`、`noise-controller`；未知 Slot 安装时警告，不注册为 Provider。
+- `music-player` 需要 `widget.media`、`media.player.read`、`media.player.control`；
+  `noise-controller` 需要 `widget.media`、`media.noise.session.read`、
+  `media.noise.session.control`。
+- 同一 Slot 同一时间只运行一个 Provider；选择、切换、关闭、卸载由宿主管理，插件不能
+  自己切换 Slot 或停止其他扩展。
+- Provider 必须通过 `connectLullWidget()` 握手；SDK 收到宿主 `init` 后会补发一次 `ready`，
+  Slot 只认 SDK ready，不把 iframe load 当作可用。
+- 声明媒体能力但**不**声明 `provides` 的 Widget 是伴侣/遥控器，可与当前 Provider 同时
+  运行，不占 Slot。
+- v1 一个扩展最多声明一个 Provider（固定 `widget-<id>` 只能承载一个窗口）。
+- 完整契约见 [扩展槽位与 Provider](./extension-slots.md)。
 
 ### 2. 接入 SDK
 

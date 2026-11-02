@@ -1,0 +1,135 @@
+import { invoke } from "@tauri-apps/api/core";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import type { SlotInfo } from "@/lib/extensions";
+import { SlotPanel } from "./slot-panel";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+const activeSlot: SlotInfo = {
+  id: "music-player",
+  name: "音乐播放器",
+  description: "选择音乐播放界面",
+  category: "audio",
+  status: "active",
+  selected: "player",
+  active: "player",
+  visible: true,
+  defaultProvider: "player",
+  providers: [
+    {
+      id: "player",
+      name: "播放器",
+      version: "1.1.0",
+      origin: "bundled",
+      enabled: true,
+      eligible: true,
+      selected: true,
+      active: true,
+    },
+    {
+      id: "music-vinyl",
+      name: "Vinyl Player",
+      version: "1.0.0",
+      origin: "user",
+      enabled: true,
+      eligible: true,
+      selected: false,
+      active: false,
+    },
+    {
+      id: "music-broken",
+      name: "Broken Player",
+      version: "1.0.0",
+      origin: "user",
+      enabled: false,
+      eligible: false,
+      selected: false,
+      active: false,
+      reasonCode: "disabled",
+      reason: "扩展未启用",
+    },
+  ],
+};
+
+const emptySlot: SlotInfo = {
+  ...activeSlot,
+  status: "empty",
+  selected: undefined,
+  active: undefined,
+  visible: undefined,
+  providers: [],
+};
+
+function renderPanel(slot: SlotInfo) {
+  const onChanged = vi.fn(async () => {});
+  const onMessage = vi.fn();
+  render(
+    <SlotPanel
+      slots={[slot]}
+      busy={false}
+      onChanged={onChanged}
+      onMessage={onMessage}
+    />,
+  );
+  return { onChanged, onMessage };
+}
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+test("shows the current provider and slot status", () => {
+  renderPanel(activeSlot);
+  expect(screen.getByText("音乐播放器")).toBeDefined();
+  expect(screen.getByText("运行中")).toBeDefined();
+  expect(screen.getByText("播放器 1.1.0")).toBeDefined();
+});
+
+test("switch sheet invokes slot use and refreshes", async () => {
+  vi.mocked(invoke).mockResolvedValue({ ...activeSlot, selected: "music-vinyl" });
+  const { onChanged } = renderPanel(activeSlot);
+
+  fireEvent.click(screen.getByRole("button", { name: "切换实现" }));
+  expect(
+    await screen.findByText("选择「音乐播放器」的实现"),
+  ).toBeDefined();
+  expect(screen.getByText("Broken Player")).toBeDefined();
+  expect(screen.getByText("扩展未启用")).toBeDefined();
+
+  const useButtons = screen.getAllByRole("button", {
+    name: "使用并打开",
+  });
+  // 第一个可用项是官方 player；第二个是 music-vinyl。禁用的 broken 不能选。
+  fireEvent.click(useButtons[1]);
+
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_slot_use", {
+      slot: "music-player",
+      id: "music-vinyl",
+    });
+  });
+  await waitFor(() => expect(onChanged).toHaveBeenCalled());
+});
+
+test("deactivate keeps the window but stops the slot runtime", async () => {
+  vi.mocked(invoke).mockResolvedValue({ ...activeSlot, status: "stopped" });
+  const { onChanged } = renderPanel(activeSlot);
+
+  fireEvent.click(screen.getByRole("button", { name: "结束运行" }));
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_slot_deactivate", {
+      slot: "music-player",
+    });
+  });
+  await waitFor(() => expect(onChanged).toHaveBeenCalled());
+});
+
+test("empty slot explains that an implementation must be chosen", () => {
+  renderPanel(emptySlot);
+  expect(screen.getByText("未选择实现")).toBeDefined();
+  expect(
+    screen.getAllByText("该槽位还没有选择实现，可在扩展中心启用并选择一个扩展。")
+      .length,
+  ).toBeGreaterThan(0);
+});

@@ -6,6 +6,10 @@
 - **widget**：`widget.json` + `index.html` + `src/`，运行时是带能力的工具窗口；
 - **scene**：`catalog.json` + `index.html` + `src/`，运行时是壁纸场景 iframe。
 
+`player` / `noise` 在清单里声明 `provides`，分别是 `music-player` / `noise-controller`
+槽位的默认 Provider；第三方同类扩展可替换它们。规则见
+[扩展槽位与 Provider](../docs/extension-slots.md)。
+
 ```text
 extensions/official/
   noise/         # P3：白噪音（React + 媒体 SDK）

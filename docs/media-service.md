@@ -56,6 +56,17 @@ Media Service（Rust）
 
 命令：`media_call({ request })`；`settings` 可访问全部；官方 `widget-player` / `widget-noise` 按 Widget 能力清单访问播放/队列/噪声与资料库读取，第三方 `widget-*` 走 bridge token。`media_connect` 注册订阅并返回快照，事件走 `media:event`。
 
+### 3.1 Provider 切换
+
+- 音乐播放器、白噪音 UI 是可替换的 Provider；同一 Slot 只运行一个窗口。
+- 播放/白噪音状态由 Media Service 持有，不随 Provider 窗口销毁而丢失。
+- `extensions_slot_use` 切换 Provider 时：旧窗口销毁会由 `media::on_window_destroyed`
+  清理订阅；新 Provider 通过 `media_connect` 拿快照并重新订阅 `media:event`。
+- 因此切换播放器 UI 不打断播放，切换白噪音 UI 不停止 Session；Provider 不得自行创建
+  第二套音频服务。
+- 能力校验不变：Widget 仍需要 `widget.media`、对应读能力与 bridge token；Slot 只负责
+  选择与互斥，不额外授予能力。
+
 ```ts
 {
   protocol: 1,
@@ -180,7 +191,7 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 - P6 已支持同名 `.lrc` / `.txt` / `.srt` sidecar 歌词（按 lrc → txt → srt 优先级，内容原样保存）；组织数据备份为 JSON，只含 Track ID 引用、歌单、喜欢、历史、标签与智能歌单，不含音频/路径/资产，导入缺失 Track 自动跳过。在线元数据、文件监听与缩略图仍未开始。
 - 封面读取链路：`TrackSummary.hasCover` 表示是否有主封面；`library.getCoverUrl(trackId)` 返回经 asset protocol 授权的 URL；资产存 `music_assets`，关系存 `music_track_assets(role='cover')`，来源由扫描器写入 `embedded/folder`。当前没有用户上传/替换/删除封面的保存 API，`updateTrackMetadata` 也不覆盖封面；资料库元数据弹窗与设置页曲库整理面板只做只读预览。
 - 设备切换依赖 `devicechange` 重载引擎页 + Rust 全量 resync；多设备选择、独占模式、SMTC 尚未接入。
-- Widget 已获得 8 个 `media.noise.*` capability 的受限访问；bridge token 与 redacted snapshot 见 [Widget SDK](widget-sdk.md)，不再对第三方开放 player/queue/system。
+- Widget 已获得 8 个 `media.noise.*` 与 9 个 `media.player` / `media.queue` / `media.library` capability 的受限访问；bridge token 与 redacted snapshot 见 [Widget SDK](widget-sdk.md)。`system.snapshot`、文件夹根路径与 Asset/Preset 文件导入导出仍只属于宿主窗口。Slot Provider 的选择与切换不改变这些能力校验。
 - 扫描错误最多保留 100 条，写入 `music_scan_runs.errors_json`。
 
 ## 7. 阶段

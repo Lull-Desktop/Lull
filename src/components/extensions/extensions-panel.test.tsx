@@ -7,7 +7,11 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import type { ExtensionInfo, ExtensionPreview } from "@/lib/extensions";
+import type {
+  ExtensionInfo,
+  ExtensionPreview,
+  SlotInfo,
+} from "@/lib/extensions";
 import { ExtensionsPanel } from "./extensions-panel";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -124,6 +128,7 @@ function mockCommands(
 ): void {
   const handlers: Record<string, (args?: unknown) => unknown> = {
     extensions_list: () => [widget, scene],
+    extensions_slots: () => [],
     extensions_set_enabled: (args) => ({
       ...widget,
       enabled: (args as { enabled: boolean }).enabled,
@@ -255,6 +260,74 @@ test("scene action hands off to wallpaper settings", async () => {
 
   fireEvent.click(await screen.findByRole("button", { name: "壁纸设置" }));
   expect(onOpenWallpaperSettings).toHaveBeenCalledTimes(1);
+});
+
+test("provider 未选中时使用 Slot 命令而不是直接打开", async () => {
+  const provider: ExtensionInfo = {
+    ...widget,
+    id: "music-vinyl",
+    name: "Vinyl Player",
+    enabled: true,
+    provides: [{ slot: "music-player", version: 1 }],
+    capabilities: ["widget.media", "media.player.read", "media.player.control"],
+    granted: ["widget.media", "media.player.read", "media.player.control"],
+  };
+  const slot: SlotInfo = {
+    id: "music-player",
+    name: "音乐播放器",
+    description: "选择音乐播放界面",
+    category: "audio",
+    status: "active",
+    selected: "player",
+    active: "player",
+    visible: true,
+    defaultProvider: "player",
+    providers: [
+      {
+        id: "player",
+        name: "播放器",
+        version: "1.1.0",
+        origin: "bundled",
+        enabled: true,
+        eligible: true,
+        selected: true,
+        active: true,
+      },
+      {
+        id: "music-vinyl",
+        name: "Vinyl Player",
+        version: "1.0.0",
+        origin: "user",
+        enabled: true,
+        eligible: true,
+        selected: false,
+        active: false,
+      },
+    ],
+  };
+  mockCommands({
+    extensions_list: () => [provider],
+    extensions_slots: () => [slot],
+    extensions_slot_use: () => ({ ...slot, selected: provider.id }),
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  const card = (await screen.findByText("Vinyl Player")).closest("article");
+  expect(card).not.toBeNull();
+  if (!card) return;
+  fireEvent.click(
+    within(card).getByRole("button", { name: "使用：Vinyl Player" }),
+  );
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_slot_use", {
+      slot: "music-player",
+      id: "music-vinyl",
+    });
+  });
+  expect(invoke).not.toHaveBeenCalledWith("extensions_open", {
+    kind: "widget",
+    id: "music-vinyl",
+  });
 });
 
 test("官方场景显示官方徽章，不显示未验签与卸载", async () => {

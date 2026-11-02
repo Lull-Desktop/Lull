@@ -42,21 +42,23 @@ export function useExtensions(): ExtensionsState {
 
   useEffect(() => {
     if (!isDesktopWindow()) return;
-    let stop: (() => void) | null = null;
+    const stops: Array<() => void> = [];
     let disposed = false;
-    void listen("extensions-changed", () => {
-      void refresh();
-    })
-      .then((unlisten) => {
-        if (disposed) unlisten();
-        else stop = unlisten;
+    for (const event of ["extensions-changed", "slots-changed"]) {
+      void listen(event, () => {
+        void refresh();
       })
-      .catch(() => {
-        // 事件通道不可用不影响首屏；用户仍可手动刷新。
-      });
+        .then((unlisten) => {
+          if (disposed) unlisten();
+          else stops.push(unlisten);
+        })
+        .catch(() => {
+          // 事件通道不可用不影响首屏；用户仍可手动刷新。
+        });
+    }
     return () => {
       disposed = true;
-      stop?.();
+      for (const stop of stops) stop();
     };
   }, [refresh]);
 

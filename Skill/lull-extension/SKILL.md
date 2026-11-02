@@ -24,6 +24,11 @@ reuse one for the other.** Classic symptoms of picking wrong: building a tool as
 window buttons, cannot persist preferences) or a wallpaper as a widget (covers a tool window,
 duplicated per monitor).
 
+A **widget** can additionally declare `provides` to compete for a host feature slot
+(`music-player`, `noise-controller`). Only one provider per slot runs at a time; the host owns
+selection, switching and rollback. See `references/widget-standard.md` §2.1 and
+`docs/extension-slots.md`.
+
 ## When to use / when not to
 
 Use it: creating or modifying a Lull extension, needing SDK build artefacts, debugging an

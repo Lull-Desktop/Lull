@@ -45,6 +45,8 @@ type PluginContext = {
   entryUrl: string;
   requested: string[];
   granted: string[];
+  /** 声明了功能槽位的 Provider 必须等 SDK ready，不能只等 iframe load。 */
+  provider?: boolean;
   locale?: string;
   minimizable: boolean;
   window: PluginWindow;
@@ -225,12 +227,14 @@ export function WidgetPluginShell() {
         type: "media.event",
         event: event.payload,
       });
-    }).then((unlisten) => {
-      if (disposed) unlisten();
-      else stop = unlisten;
-    }).catch(() => {
-      // 浏览器预览/单测没有 Tauri 事件系统；媒体事件不可用。
-    });
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      })
+      .catch(() => {
+        // 浏览器预览/单测没有 Tauri 事件系统；媒体事件不可用。
+      });
     return () => {
       disposed = true;
       stop?.();
@@ -267,19 +271,28 @@ export function WidgetPluginShell() {
     void window.setFocus().catch(() => {});
   }, []);
 
+  // Slot 切换事务在 Rust 侧等待这个信号；普通打开时它只是 no-op。
+  const reportReady = useCallback(() => {
+    void invoke("widget_package_ready").catch(() => {});
+  }, []);
+
   const closePluginWindow = useCallback(async () => {
     await hideWindowSilently();
     await invoke("widget_package_notify").catch(() => {});
   }, []);
 
   const handleFrameLoad = useCallback(() => {
+    // 普通 Widget 可以把 iframe load 当作可用；Provider 必须等 SDK ready，
+    // 否则坏包/未响应的 dev server 会被 Slot 误判为 active。
+    setError(null);
+    sendInit();
+    if (context?.provider === true) return;
     // 插件可能在上面的监听器注册前就 postMessage("ready")；
     // 这里补一次 init，并把窗口显示出来，避免握手消息丢失时永远隐藏。
     setReady(true);
-    setError(null);
-    sendInit();
+    reportReady();
     if (!fitContent) revealWindow();
-  }, [fitContent, revealWindow, sendInit]);
+  }, [context?.provider, fitContent, reportReady, revealWindow, sendInit]);
 
   // fit=content 的包等第一次成功贴高再显示；插件没发 resize 时兜底。
   useEffect(() => {
@@ -386,14 +399,11 @@ export function WidgetPluginShell() {
           if (!context?.granted.includes("widget.chrome")) {
             throw new Error("未获得 widget.chrome 权限");
           }
-          const currentSide =
-            params.currentSide === "right" ? "right" : "left";
+          const currentSide = params.currentSide === "right" ? "right" : "left";
           const nextSide = params.nextSide === "right" ? "right" : "left";
           const width = typeof params.width === "number" ? params.width : 0;
           const playerAnchor =
-            typeof params.playerAnchor === "number"
-              ? params.playerAnchor
-              : 0;
+            typeof params.playerAnchor === "number" ? params.playerAnchor : 0;
           return invoke<Viewport & { applied: boolean }>(
             "widget_align_player",
             { currentSide, nextSide, width, playerAnchor },
@@ -414,9 +424,10 @@ export function WidgetPluginShell() {
             params.anchor === "left" || params.anchor === "right"
               ? params.anchor
               : undefined;
-          const result = await invoke<
-            Viewport & { applied: boolean }
-          >("widget_apply_resize", { width, height, anchor });
+          const result = await invoke<Viewport & { applied: boolean }>(
+            "widget_apply_resize",
+            { width, height, anchor },
+          );
           if (result.applied && fitContent) revealWindow();
           return result;
         }
@@ -454,6 +465,7 @@ export function WidgetPluginShell() {
         setReady(true);
         setError(null);
         sendInit();
+        reportReady();
         if (!fitContent) revealWindow();
         return;
       }
@@ -492,7 +504,15 @@ export function WidgetPluginShell() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [context, fitContent, handleRequest, revealWindow, send, sendInit]);
+  }, [
+    context,
+    fitContent,
+    handleRequest,
+    reportReady,
+    revealWindow,
+    send,
+    sendInit,
+  ]);
 
   useEffect(() => {
     if (!context || !readyRef.current) return;

@@ -44,6 +44,10 @@ pub fn run() {
       window_host::widget_states,
       window_host::widget_close,
       extension::extensions_list,
+      extension::extensions_slots,
+      extension::extensions_slot_use,
+      extension::extensions_slot_activate,
+      extension::extensions_slot_deactivate,
       extension::extensions_inspect,
       extension::extensions_pick,
       extension::extensions_install,
@@ -66,6 +70,7 @@ pub fn run() {
       i18n::i18n_boot,
       i18n::i18n_set_locale,
       widget_package::widget_package_notify,
+      widget_package::runtime::widget_package_ready,
       widget_package::widget_state_get,
       widget_package::widget_state_set,
       widget_package::widget_state_remove,
@@ -112,6 +117,8 @@ pub fn run() {
       i18n::init(app.handle());
       // 官方扩展随安装包分发：启动时默认启用、升级补授新增能力、保留用户撤销。
       widget_package::official::reconcile(app.handle());
+      // 功能槽位只恢复用户选择，不自动开窗/播放。
+      extension::slots::init(app.handle());
       media::init(app.handle().clone());
       tray::init(app)?;
       if wallpaper::enabled() {
@@ -151,6 +158,7 @@ pub fn run() {
       tauri::WindowEvent::Destroyed => {
         media::on_window_destroyed(window.app_handle(), window.label());
         widget_package::on_window_destroyed(window.label());
+        extension::slots::on_window_destroyed(window.app_handle(), window.label());
       }
       _ => {}
     })

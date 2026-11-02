@@ -100,6 +100,15 @@ impl WindowSpec {
   }
 }
 
+/// 扩展声明的功能槽位；v1 一个扩展最多声明一条。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderDecl {
+  pub slot: String,
+  /// Slot 契约版本；v1 只支持 1。
+  pub version: u32,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageManifest {
@@ -125,6 +134,9 @@ pub struct PackageManifest {
   pub order: Option<f64>,
   #[serde(default)]
   pub capabilities: Vec<String>,
+  /// 可选：声明该扩展提供的功能槽位。缺省即普通 Widget。
+  #[serde(default)]
+  pub provides: Vec<ProviderDecl>,
   pub window: WindowSpec,
   #[serde(default)]
   pub network: Vec<String>,
@@ -269,6 +281,17 @@ impl PackageManifest {
         return Err(format!("能力重复：{capability}"));
       }
     }
+    if self.provides.len() > 1 {
+      return Err("v1 一个扩展最多声明一个功能槽位（provides 只能有一条）".to_string());
+    }
+    if let Some(provider) = self.provides.first() {
+      if !valid_id(&provider.slot) {
+        return Err(format!("provides.slot 非法：{}", provider.slot));
+      }
+      if provider.version == 0 {
+        return Err("provides.version 必须是正整数".to_string());
+      }
+    }
     if self.capabilities.iter().any(|cap| cap == "widget.network") != !self.network.is_empty() {
       return Err("widget.network 能力与 network 白名单必须同时出现".to_string());
     }
@@ -380,6 +403,7 @@ mod tests {
       entry: "index.html".to_string(),
       order: None,
       capabilities: vec!["widget.state".to_string(), "widget.theme".to_string()],
+      provides: Vec::new(),
       window: WindowSpec {
         width: 560.0,
         height: 640.0,
@@ -447,6 +471,48 @@ mod tests {
     assert!(manifest.validate(Some("community-pomodoro")).is_err());
     manifest.capabilities.push("widget.chrome".to_string());
     assert!(manifest.validate(Some("community-pomodoro")).is_ok());
+  }
+
+  #[test]
+  fn accepts_single_provider_declaration() {
+    let mut manifest = base();
+    manifest.provides.push(ProviderDecl {
+      slot: "music-player".to_string(),
+      version: 1,
+    });
+    assert!(manifest.validate(Some("community-pomodoro")).is_ok());
+  }
+
+  #[test]
+  fn rejects_multiple_providers_and_bad_slots() {
+    let mut manifest = base();
+    manifest.provides = vec![
+      ProviderDecl {
+        slot: "music-player".to_string(),
+        version: 1,
+      },
+      ProviderDecl {
+        slot: "noise-controller".to_string(),
+        version: 1,
+      },
+    ];
+    assert!(manifest.validate(None).is_err());
+
+    for slot in ["Music", "a", "../music", ""] {
+      let mut manifest = base();
+      manifest.provides = vec![ProviderDecl {
+        slot: slot.to_string(),
+        version: 1,
+      }];
+      assert!(manifest.validate(None).is_err(), "{slot}");
+    }
+
+    let mut manifest = base();
+    manifest.provides = vec![ProviderDecl {
+      slot: "music-player".to_string(),
+      version: 0,
+    }];
+    assert!(manifest.validate(None).is_err());
   }
 
   #[test]

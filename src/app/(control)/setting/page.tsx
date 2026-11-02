@@ -31,8 +31,9 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { useFlowTheme } from "@/hooks/use-flow-theme";
+import { useExtensionSlots } from "@/hooks/use-extension-slots";
 import { useExtensions } from "@/hooks/use-extensions";
+import { useFlowTheme } from "@/hooks/use-flow-theme";
 import { localizeError } from "@/i18n/errors";
 import {
   LOCALE_OPTIONS,
@@ -49,9 +50,12 @@ import {
   type TrustPolicy,
 } from "@/lib/content-trust";
 import {
+  activateSlot,
   closeExtension,
-  openExtension,
+  deactivateSlot,
   type ExtensionInfo,
+  openExtension,
+  type SlotInfo,
 } from "@/lib/extensions";
 import { FLOW_THEMES } from "@/lib/flow-theme";
 import { cn } from "@/lib/utils";
@@ -129,9 +133,14 @@ export default function Settings() {
     description: widgetDisplayDescription(widget),
   }));
   const { items: extensions, refresh: refreshExtensions } = useExtensions();
+  const { slots, refresh: refreshSlots } = useExtensionSlots();
+  // 官方包已迁为 Slot Provider；这里只保留“官方非 Provider”兼容项。
   const officialTools = (extensions ?? []).filter(
     (item) =>
-      item.origin === "bundled" && item.kind === "widget" && item.enabled,
+      item.origin === "bundled" &&
+      item.kind === "widget" &&
+      item.enabled &&
+      (item.provides?.length ?? 0) === 0,
   );
   /** null = 还没读到偏好（首帧），此时不高亮任何一项，避免选错又跳回去。 */
   const [languagePref, setLanguagePref] = useState<LocalePreference | null>(
@@ -265,6 +274,24 @@ export default function Settings() {
       );
     },
     [refreshWidgets],
+  );
+
+  const toggleSlot = useCallback(
+    (slot: SlotInfo, on: boolean): void => {
+      setWidgetMsg("");
+      const action = on ? activateSlot(slot.id) : deactivateSlot(slot.id);
+      void action
+        .then(() => Promise.all([refreshExtensions(), refreshSlots()]))
+        .catch((error: unknown) => {
+          setWidgetMsg(
+            m.settings_action_failed({
+              reason: localizeError(error),
+            }),
+          );
+          void Promise.all([refreshExtensions(), refreshSlots()]);
+        });
+    },
+    [refreshExtensions, refreshSlots],
   );
 
   const toggleOfficialTool = useCallback(
@@ -519,6 +546,59 @@ export default function Settings() {
                     />
                   </div>
                 ))}
+                {slots === null && (
+                  <p className="text-xs text-muted-foreground">
+                    {m.ext_loading()}
+                  </p>
+                )}
+                {slots?.map((slot) => {
+                  const provider = slot.providers.find(
+                    (candidate) => candidate.id === slot.selected,
+                  );
+                  const canToggle = provider?.eligible === true;
+                  return (
+                    <div
+                      key={`slot-${slot.id}`}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        <span className="text-sm text-ink-soft">
+                          {slot.name}
+                          <span className="ml-1.5 text-[10px] text-ink-faint">
+                            {m.slot_current()}
+                          </span>
+                        </span>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {provider
+                            ? `${provider.name} ${provider.version}`
+                            : m.slot_tools_empty()}
+                        </p>
+                        {slot.error && (
+                          <p className="text-[11px] text-destructive">
+                            {slot.error.message}
+                          </p>
+                        )}
+                      </div>
+                      {canToggle ? (
+                        <Switch
+                          aria-label={m.settings_window_toggle_aria({
+                            name: slot.name,
+                          })}
+                          checked={slot.status === "active"}
+                          onCheckedChange={(on) => toggleSlot(slot, on)}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="shrink-0 text-xs text-bamboo hover:underline"
+                          onClick={() => setTab("extensions")}
+                        >
+                          {m.slot_tools_manage()}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
                 {officialTools.map((item) => (
                   <div
                     key={`official-${item.id}`}

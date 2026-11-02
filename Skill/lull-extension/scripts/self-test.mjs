@@ -143,6 +143,39 @@ check("validator catches typical mistakes", () => {
   return codes.join(", ");
 });
 
+check("validator understands feature slots", () => {
+  const target = join(work, "selftest-provider");
+  createWidget({ target, id: "selftest-provider", name: "Provider example" });
+  const manifestPath = join(target, "widget.json");
+  const manifest = readJson(manifestPath);
+  vendorSdk(vendorDirFor(target, "widget", "index.html"), sdkOut, "widget");
+  manifest.provides = [{ slot: "music-player", version: 1 }];
+  manifest.capabilities = [
+    ...manifest.capabilities,
+    "widget.media",
+    "media.player.read",
+    "media.player.control",
+  ];
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  const good = validatePackage(target);
+  assert(
+    good.ok,
+    `provider should pass: ${good.errors.map((item) => item.code).join(",")}`,
+  );
+
+  manifest.capabilities = manifest.capabilities.filter(
+    (capability) => capability !== "media.player.control",
+  );
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  const bad = validatePackage(target);
+  assert(!bad.ok, "missing required provider capability should fail");
+  assert(
+    bad.errors.some((item) => item.code === "W-PROVIDES-CAPS"),
+    `missing W-PROVIDES-CAPS: ${bad.errors.map((item) => item.code).join(",")}`,
+  );
+  return "provides accepted; missing required capability rejected";
+});
+
 for (const item of results) {
   const tag = item.ok ? "[ok]  " : "[fail]";
   console.log(`${tag} ${item.name}${item.detail !== undefined ? ` - ${item.detail}` : ""}`);

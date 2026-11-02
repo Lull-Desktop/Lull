@@ -539,6 +539,59 @@ test("工具窗开关按当前显示状态渲染，并能打开窗口", async ()
   });
 });
 
+test("偏好页用功能槽位行控制当前实现", async () => {
+  mockInvoke({
+    wallpaper_get_visible: () => true,
+    wallpaper_monitors: () => MONITORS,
+    wallpaper_display_get: () => ({
+      mode: "mirror",
+      sync: true,
+      scene: "lull.bamboo",
+    }),
+    window_prefs_get: () => ({ taskbarAndMinimize: true }),
+    widget_states: () => [],
+    extensions_slots: () => [
+      {
+        id: "music-player",
+        name: "音乐播放器",
+        description: "选择音乐播放界面",
+        category: "audio",
+        status: "active",
+        selected: "player",
+        active: "player",
+        visible: true,
+        defaultProvider: "player",
+        providers: [
+          {
+            id: "player",
+            name: "播放器",
+            version: "1.1.0",
+            origin: "bundled",
+            enabled: true,
+            eligible: true,
+            selected: true,
+            active: true,
+          },
+        ],
+      },
+    ],
+    extensions_slot_deactivate: () => ({}),
+  });
+  render(<Page />);
+
+  const slotToggle = (await screen.findByRole("switch", {
+    name: "音乐播放器窗口",
+  })) as HTMLButtonElement;
+  expect(slotToggle.getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(slotToggle);
+
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_slot_deactivate", {
+      slot: "music-player",
+    });
+  });
+});
+
 test("扩展页的「壁纸设置」切到壁纸页签", async () => {
   mockInvoke({
     extensions_list: () => [

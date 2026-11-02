@@ -84,7 +84,8 @@
 
 播放器、白噪音这类工具已迁移为**随应用分发的标准 Widget 包**：放在安装目录的
 `extensions/` 下，由宿主按来源（`bundled`）识别，首次启动默认启用，扩展中心显示
-「官方 · 随应用分发」，可停用 / 重新启用、**不可卸载**。它们仍运行在
+「官方 · 随应用分发」，可停用 / 重新启用、**不可卸载**。它们同时是
+`music-player` / `noise-controller` 功能槽位的默认 Provider，可被第三方同类扩展替换。它们仍运行在
 `sandbox="allow-scripts"` 的不透明源 iframe 里，能力模型与第三方扩展相同；唯一差别是
 分发方式与授权策略（默认授权、随 App 升级、构建期摘要锁）。
 
@@ -287,6 +288,22 @@ Scene 没有“启用/运行”概念，只有：
 
 ---
 
+### 5.3 功能槽位（Provider）
+
+播放器、白噪音这类同类功能由宿主的 **Slot** 管理。扩展在 `widget.json` 里用
+`provides` 声明候选实现；扩展中心增加「功能槽位」区域：
+
+- 每个 Slot 显示当前 Selected、运行状态、错误与「切换实现」。
+- 候选 Provider 显示官方 / 开发徽章、启用状态、资格与缺失能力。
+- 未选中的 Provider 卡片只提供「使用」，不提供直接「打开」，避免绕过互斥。
+- `使用` 会执行事务：校验 → 停旧 → 开新 → 等宿主壳页 ready → 提交选择；
+  失败回滚旧实现。
+- 关闭窗口只隐藏，不清空 Slot；结束运行 / 停用销毁窗口但保留 Selected；
+  卸载当前 Provider 才回退/清空选择。
+- 应用重启恢复 Selected，但不自动开窗、不自动播放。
+
+完整契约、命令与 DTO 见 [扩展槽位与 Provider](./extension-slots.md)。
+
 ## 6. 包格式
 
 ### 6.1 Scene：保持现状
@@ -317,6 +334,7 @@ my-widget/
   - `icon?`：包内相对路径，`.png` / `.webp` / `.jpg`，≤ 256 KiB；v1 不收 SVG
     （避免内联脚本与外部引用，宿主侧只当 `<img>` 用）；
   - `lifecycle?`：`"background"`（默认，关闭只隐藏）或 `"suspend"`（关闭即销毁）；
+  - `provides?`：功能槽位声明；v1 最多一条 `{ slot, version: 1 }`，未知 Slot 只警告；
   - 未来再加 `screenshots?`、`homepage?` 时同样不升 `schemaVersion`；
   - 破坏性变更才升 3，并拒绝旧宿主。
 - `entry` 仍允许包根（`index.html`），不强制 `app/` 子目录。
@@ -528,6 +546,7 @@ type ExtensionInfo = {
   running?: boolean;
   visible?: boolean;
   capabilities?: string[];   // 清单声明
+  provides?: { slot: string; version: number }[]; // 功能槽位声明
   granted?: string[];        // 实际授予
   window?: {
     width: number;
@@ -550,6 +569,7 @@ export type ExtensionPreview = {
   author?: string;
   license?: string;
   capabilities?: string[];   // widget 才有的能力声明
+  provides?: { slot: string; version: number }[];
   network?: string[];
   fileCount: number;
   bytes: number;
@@ -569,9 +589,13 @@ export type ExtensionPreview = {
 | `extensions_pick` | — | `{ path, preview } \| null` | 系统对话框选 `.zip` 并校验，不落盘 |
 | `extensions_install` | `path, sourceDigest?` | `ExtensionInfo` | 嗅探 kind，走共享管线；源指纹不符则拒绝 |
 | `extensions_remove` | `kind, id` | `()` | 卸载，见 7.3 |
-| `extensions_open` | `kind, id` | `()` | widget 建窗/唤醒；scene 不建窗，由前端切到壁纸设置 |
-| `extensions_close` | `id` | `()` | 按 `lifecycle` 隐藏或销毁窗口 |
-| `extensions_stop` | `id` | `()` | 强制销毁窗口 |
+| `extensions_slots` | — | `SlotInfo[]` | 功能槽位、选择、运行状态与候选 Provider |
+| `extensions_slot_use` | `slot, id` | `SlotInfo` | 选择并运行；停旧 → 开新 → ready → 提交，失败回滚 |
+| `extensions_slot_activate` | `slot` | `SlotInfo` | 启动/显示当前 Selected |
+| `extensions_slot_deactivate` | `slot` | `SlotInfo` | 停止当前 active，保留 Selected |
+| `extensions_open` | `kind, id` | `()` | widget 建窗/唤醒；Provider 未选中返回 `slot.not-selected`；scene 不建窗 |
+| `extensions_close` | `id` | `()` | 按 `lifecycle` 隐藏或销毁窗口；Provider 固定隐藏，不清空 Slot |
+| `extensions_stop` | `id` | `()` | 强制销毁窗口；Provider 保留 Selected |
 | `extensions_set_enabled` | `id, enabled` | `ExtensionInfo` | 启用前 UI 已确认权限 |
 | `extensions_set_capability` | `id, capability, granted` | `ExtensionInfo` | 运行中拒绝 |
 | `extensions_open_dir` | `kind` | `string` | 打开安装目录 |
@@ -621,6 +645,18 @@ export type ExtensionPreview = {
 | `extension.not-enabled` | 未启用就打开 |
 | `extension.running` | 运行中改权限 |
 | `extension.in-use` | scene 正被壁纸引用，不能卸载 |
+| `slot.unknown` | 宿主不支持该功能槽位 |
+| `slot.not-selected` | 直接打开未选中的 Provider，或未选择时 activate |
+| `slot.provider-not-found` | Provider 不存在 |
+| `slot.provider-invalid` | 扩展没有声明该 Slot |
+| `slot.provider-disabled` | Provider 未启用 |
+| `slot.provider-unavailable` | 包损坏 / 不兼容 / 资格不足 |
+| `slot.capabilities-missing` | 缺少 Slot 必需能力或已被撤销 |
+| `slot.busy` | 同一 Slot 正在切换 |
+| `slot.start-failed` | 窗口创建或 ready 失败 |
+| `slot.rollback-failed` | 新实现失败且旧实现无法恢复 |
+| `manifest.provides-multiple` | `provides` 多于 1 条 |
+| `manifest.provider-capability-missing` | 已知 Slot 缺少必需能力 |
 | `extension.unsupported-kind` | `kind` 不是 scene / widget |
 | `extension.open-failed` | 创建/唤醒窗口失败 |
 | `extension.update-failed` | 启用/停用/权限/关闭失败 |
@@ -832,6 +868,8 @@ Scene 不建窗。中心里的“查看壁纸设置”切到「壁纸」页签�
 - [ ] 开发模式：添加目录、打开、改文件、重载生效；关闭开发模式后窗口消失。
 - [ ] 托盘「扩展」子菜单随启用状态增删。
 - [ ] 旧版已安装包不卸载也能继续用。
+- [ ] 功能槽位：同 Slot 只运行一个实现；切换失败回滚；关闭窗口不让出 Slot。
+- [ ] 卸载当前 Provider 清理 Runtime 并回退/清空 Selected；重启不自动播放。
 - [ ] `pnpm check`、`cargo test` 全绿；新增命令同时进了 `lib.rs` 与 `build.rs`。
 
 ---

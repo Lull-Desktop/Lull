@@ -14,6 +14,7 @@ pub(crate) mod digest;
 pub mod manifest;
 pub(crate) mod official;
 mod protocol;
+pub(crate) mod runtime;
 pub(crate) mod store;
 
 pub use protocol::handle as handle_protocol;
@@ -24,8 +25,14 @@ use manifest::{PackageManifest, WindowSpec, HOST_API};
 pub const LABEL_PREFIX: &str = window_host::DYNAMIC_WINDOW_PREFIX;
 pub const PROTOCOL_VERSION: u32 = 1;
 
-fn label_for(id: &str) -> String {
+pub(crate) fn label_for(id: &str) -> String {
   format!("{LABEL_PREFIX}{id}")
+}
+
+/// 供扩展管理/Slot 模块构造窗口 label。
+#[must_use]
+pub(crate) fn label_for_id(id: &str) -> String {
+  label_for(id)
 }
 
 pub fn is_plugin_label(label: &str) -> bool {
@@ -64,6 +71,7 @@ pub fn on_window_destroyed(label: &str) {
   if let Ok(mut tokens) = bridge_tokens().lock() {
     tokens.remove(label);
   }
+  runtime::cancel(label);
 }
 
 fn package_id_from_window(window: &Window) -> Result<String, String> {
@@ -117,6 +125,8 @@ struct PluginContext {
   entry_url: String,
   requested: Vec<String>,
   granted: Vec<String>,
+  /// 是否声明了功能槽位；宿主壳页据此等待 SDK ready，而不是 iframe load。
+  provider: bool,
   locale: String,
   minimizable: bool,
   window: WindowContext,
@@ -134,6 +144,7 @@ fn plugin_context_json(app: &AppHandle, runtime: &PackageManifest, bridge_token:
     entry_url: store::effective_entry_url(app, &runtime.id, &runtime.entry),
     requested: runtime.capabilities.clone(),
     granted: store::granted(app, &runtime.id),
+    provider: !runtime.provides.is_empty(),
     locale: crate::i18n::current(),
     minimizable: window_host::prefs::load(app).taskbar_and_minimize,
     window: WindowContext::from(&runtime.window),
@@ -469,12 +480,20 @@ pub fn widget_package_notify(window: Window) -> Result<(), String> {
 ///
 /// 必须是 async 命令：同步命令跑在主线程，运行中创建 WebView2 会卡死消息泵。
 pub async fn open(app: AppHandle, id: String) -> Result<(), String> {
-  tauri::async_runtime::spawn_blocking(move || open_window(&app, &id))
+  tauri::async_runtime::spawn_blocking(move || open_window(&app, &id, true))
     .await
     .map_err(|error| error.to_string())?
 }
 
-fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
+/// Slot 专用：不在 4 秒后兜底显示，必须等宿主壳页 `widget_package_ready`。
+/// 这样坏包/未响应的 Provider 不会先闪出一个空白窗口，再由 Slot 事务回滚。
+pub(crate) async fn open_for_slot(app: AppHandle, id: String) -> Result<(), String> {
+  tauri::async_runtime::spawn_blocking(move || open_window(&app, &id, false))
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn open_window(app: &AppHandle, id: &str, reveal_fallback: bool) -> Result<(), String> {
   let manifest = store::ensure_intact(app, id)?;
   if !store::is_enabled(app, id) {
     return Err("插件未启用，请先在设置中授权".to_string());
@@ -526,17 +545,19 @@ fn open_window(app: &AppHandle, id: &str) -> Result<(), String> {
   } else {
     tauri::window::Color(246, 243, 236, 255)
   }));
-  let fallback = window.clone();
-  std::thread::spawn(move || {
-    for _ in 0..20 {
-      std::thread::sleep(std::time::Duration::from_millis(200));
-      if fallback.is_visible().unwrap_or(true) {
-        return;
+  if reveal_fallback {
+    let fallback = window.clone();
+    std::thread::spawn(move || {
+      for _ in 0..20 {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        if fallback.is_visible().unwrap_or(true) {
+          return;
+        }
       }
-    }
-    let _ = fallback.show();
-    window_host::notify_changed(fallback.app_handle());
-  });
+      let _ = fallback.show();
+      window_host::notify_changed(fallback.app_handle());
+    });
+  }
   notify(app);
   Ok(())
 }
@@ -742,6 +763,7 @@ mod tests {
       entry: "index.html".to_string(),
       order: None,
       capabilities: vec!["widget.state".to_string()],
+      provides: Vec::new(),
       window: WindowSpec::default(),
       network: Vec::new(),
       icon: None,
@@ -757,6 +779,7 @@ mod tests {
       entry_url: store::entry_url(&manifest.id, &manifest.entry),
       requested: manifest.capabilities.clone(),
       granted: vec!["widget.state".to_string()],
+      provider: false,
       locale: "zh-CN".to_string(),
       minimizable: true,
       window: WindowContext::from(&manifest.window),
@@ -766,6 +789,7 @@ mod tests {
     assert_eq!(json["id"], "community-pomodoro");
     assert_eq!(json["bridgeToken"], "token");
     assert_eq!(json["protocol"], 1);
+    assert_eq!(json["provider"], false);
     assert_eq!(json["locale"], "zh-CN");
     assert!(json["entryUrl"]
       .as_str()

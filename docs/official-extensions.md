@@ -14,8 +14,10 @@
 > 便携版冒烟验证 `extensions/{noise,player}` 与 `index.json` 均已入 zip、无
 > `.lull-dev.json`；release 流程新增 `extensions:check`；官方包补缺资源根、篡改、
 > 升级保留授权等测试。P6（2026-11）完成：竹影从内嵌 React 场景迁移为官方 **scene**
-> 包；宿主只保留媒体壁纸，极光/暮色移除。剩余验收项是真机打开 / 停用 / 升级 / 篡改，
-> 以及封面 `asset:` 与 HMR 的 WebView2 验证。
+> 包；宿主只保留媒体壁纸，极光/暮色移除。P7（2026-11）：官方 `player` / `noise` 声明
+> `provides`，成为 `music-player` / `noise-controller` 槽位的默认 Provider；第三方同类
+> 扩展可选择并替换官方实现。剩余验收项是真机打开 / 停用 / 升级 / 篡改，以及封面
+> `asset:` 与 HMR 的 WebView2 验证。
 >
 > 关联文档：[Widget SDK](./widget-sdk.md)（包格式、能力词汇、桥协议）、
 > [Scene SDK](./scene-sdk.md)（内容包、脚本场景、参数/同步）、
@@ -83,12 +85,13 @@
 ### 3.1 清单
 
 沿用 [Widget SDK](./widget-sdk.md) 的 `widget.json`（`schemaVersion: 2`），不新增必需
-字段；仅增加两个可选字段，因此**不升 `schemaVersion`**：
+字段；仅增加三个可选字段（`order` / `window.fit` / `provides`），因此**不升 `schemaVersion`**：
 
 | 字段 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `order` | number | 100 | 托盘与扩展中心的排序；官方工具建议 `player: 10`、`noise: 30` |
 | `window.fit` | `"none" \| "content"` | `"none"` | 是否允许按内容高度调整窗口（白噪音用 `content`） |
+| `provides` | array | `[]` | 功能槽位声明；官方 `player` → `music-player`，`noise` → `noise-controller` |
 
 其余规则不变：`id` 与目录同名、`license` 必填、`hostApi: 1`、`entry` 为包内相对
 `.html`、窗口尺寸 320×240 – 1600×1200、单包 ≤ 5 MB（硬上限沿用安装管线的 64 MB）。
@@ -136,6 +139,25 @@ extensions/dist/lull.bamboo/
 - 运行时要求 bundled 包的摘要**存在且匹配**：Widget 缺锁或摘要不符、Scene 缺 integrity
   或摘要不符都拒绝加载，不自动补锁。
 
+### 3.4 Provider 声明（P7）
+
+官方 `player` / `noise` 的清单增加：
+
+```json
+"provides": [{ "slot": "music-player", "version": 1 }]
+```
+
+```json
+"provides": [{ "slot": "noise-controller", "version": 1 }]
+```
+
+- 它们是这两个 Slot 的**默认 Provider**，仍保留 id、只读、不可卸载。
+- 官方包升级不会改变 id，因此用户选择、授权、状态 KV 保留。
+- 扩展中心可把官方实现切到第三方实现，也可切回；切换只影响 UI 窗口，播放/白噪音
+  状态仍由 Media Service 持有。
+- 一个扩展 v1 最多声明一个 Slot；官方包也遵守同一规则。
+- 具体选择/运行规则见 [扩展槽位与 Provider](./extension-slots.md)。
+
 ## 4. 构建与随包分发
 
 ### 4.1 目录
@@ -179,7 +201,7 @@ extensions/
    `@tauri-apps/api` / `__TAURI_INTERNALS__` / `localStorage` / `eval`、体积预算；
 6. Widget 用 `scripts/lib/widget-digest.mjs` 写 `.lull-integrity.json`；
    Scene 用 `scripts/content-digest.mjs` 计算 entry 目录摘要并写回产物 `catalog.json`；
-7. 产出 `extensions/dist/index.json`（`kind / id / version / digest / order`），供诊断与 CI
+7. 产出 `extensions/dist/index.json`（`kind / id / version / digest / order / provides`），供诊断与 CI
    断言；`--check` 模式只校验、不改文件，并包含 stale 目录检查。
 
 构建工具从 esbuild 改为 Vite：官方扩展需要 React Fast Refresh、开发服务器与

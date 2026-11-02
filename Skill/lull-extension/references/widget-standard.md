@@ -66,6 +66,7 @@ Relative paths only, single-entry HTML, hash routing, no site-root assumptions.
 | `entry` | yes | package-relative `.html`, <= 128 chars, no `..` / `\` / `%` / absolute path | `W-ENTRY-SAFE` / `W-ENTRY-MISSING` |
 | `icon` | no | package-relative `.png/.jpg/.jpeg/.webp`, no path segment starting with `.` | `W-ICON` |
 | `lifecycle` | no | `background` (close hides, default) or `suspend` (close destroys) | `W-LIFECYCLE` |
+| `provides` | no | v1 at most one `{ slot, version: 1 }`; known slots are `music-player` / `noise-controller`; Slot exclusivity is host-owned | `W-PROVIDES-*` |
 | `capabilities` | yes | non-empty, no duplicates, only those in §3 | `W-CAPS-*` |
 | `window.width/height` | yes | 320x240 - 1600x1200 | `W-WINDOW-SIZE` |
 | `window.minWidth/minHeight` | no | must not exceed the initial size | `W-WINDOW-MIN` |
@@ -77,6 +78,25 @@ Relative paths only, single-entry HTML, hash routing, no site-root assumptions.
 
 `window.chrome: "custom"` <=> `widget.chrome` must be requested; a non-empty `network`
 <=> `widget.network` must be requested.
+
+## 2.1 Feature slots (`provides`)
+
+A normal widget omits `provides`. To replace the official player or noise UI, declare the
+host slot instead:
+
+```json
+"provides": [{ "slot": "music-player", "version": 1 }]
+```
+
+- `music-player` requires `widget.media`, `media.player.read`, `media.player.control`.
+- `noise-controller` requires `widget.media`, `media.noise.session.read`,
+  `media.noise.session.control`.
+- Recommended capabilities are listed in `docs/extension-slots.md`; missing them only warns.
+- The host owns exclusivity. Do **not** add `activation`; if present it is ignored.
+- A provider cannot switch slots, stop another extension, or modify `.slots.json`.
+- A widget that declares media capabilities but no `provides` is a companion / remote and
+  does not occupy the slot.
+- v1 rejects more than one `provides` entry: `widget-<id>` can only host one window.
 
 ## 3. Capability matrix
 

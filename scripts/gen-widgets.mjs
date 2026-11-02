@@ -358,6 +358,7 @@ const pluginShellCapability = {
     "allow-widget-state-set",
     "allow-widget-state-remove",
     "allow-widget-package-notify",
+    "allow-widget-package-ready",
     "allow-widget-set-transparent",
     "allow-widget-apply-resize",
     "allow-widget-align-player",

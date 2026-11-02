@@ -266,6 +266,11 @@ Tauri 的 `devCsp` 是否实际注入。任一不成立就回退 Tier 1（watch 
 优点是能验证真实状态，缺点是开发数据会写进正式状态；需要隔离时给开发包换一个新 id
 （清单 id 与目录同名），代价是状态从空开始。
 
+**Slot Provider 的 dev 规则**：开发包若声明 `provides`，`重载` 必须走 Slot 激活路径：
+只有当前 Selected 的 Provider 能重载/打开；未选中会返回 `slot.not-selected`。关闭开发
+模式会销毁开发窗口；同名 shadow 会恢复官方实现，第三方 dev 选择保留但显示不可用。
+不要把 `activation` 写进清单——互斥策略归 Slot。
+
 ## 4. 仓库与工具链
 
 ### 4.1 目录与共享层

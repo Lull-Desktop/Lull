@@ -21,6 +21,12 @@ export type ExtensionWindowInfo = {
   chrome: "host" | "custom";
 };
 
+/** 扩展声明的功能槽位；普通 Widget 没有该字段。 */
+export type ProviderDecl = {
+  slot: string;
+  version: number;
+};
+
 export type ExtensionFailure = {
   code: string;
   message: string;
@@ -68,6 +74,7 @@ export type ExtensionInfo = {
   running?: boolean;
   visible?: boolean;
   capabilities?: string[];
+  provides?: ProviderDecl[];
   granted?: string[];
   network?: string[];
   window?: ExtensionWindowInfo;
@@ -85,6 +92,7 @@ export type ExtensionPreview = {
   author?: string;
   license?: string;
   capabilities: string[];
+  provides?: ProviderDecl[];
   network: string[];
   fileCount: number;
   bytes: number;
@@ -97,6 +105,47 @@ export type ExtensionPreview = {
 export type PickedExtension = {
   path: string;
   preview: ExtensionPreview;
+};
+
+export type SlotStatus =
+  | "empty"
+  | "stopped"
+  | "starting"
+  | "active"
+  | "switching"
+  | "unavailable"
+  | "failed";
+
+export type SlotProviderInfo = {
+  id: string;
+  name: string;
+  version: string;
+  origin: "bundled" | "user" | "dev";
+  enabled: boolean;
+  eligible: boolean;
+  selected: boolean;
+  active: boolean;
+  reasonCode?:
+    | "disabled"
+    | "incompatible"
+    | "missing-capabilities"
+    | "package-invalid"
+    | "not-ready";
+  reason?: string;
+};
+
+export type SlotInfo = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  status: SlotStatus;
+  selected?: string;
+  active?: string;
+  visible?: boolean;
+  error?: ExtensionFailure;
+  defaultProvider?: string;
+  providers: SlotProviderInfo[];
 };
 
 export type DevPackage = {
@@ -137,6 +186,26 @@ export function toExtensionFailure(error: unknown): ExtensionFailure {
 export async function listExtensions(): Promise<ExtensionInfo[]> {
   const items = await invoke<ExtensionInfo[]>("extensions_list");
   return Array.isArray(items) ? items : [];
+}
+
+export async function listExtensionSlots(): Promise<SlotInfo[]> {
+  const items = await invoke<SlotInfo[]>("extensions_slots");
+  return Array.isArray(items) ? items : [];
+}
+
+export async function applySlotProvider(
+  slot: string,
+  id: string,
+): Promise<SlotInfo> {
+  return invoke<SlotInfo>("extensions_slot_use", { slot, id });
+}
+
+export async function activateSlot(slot: string): Promise<SlotInfo> {
+  return invoke<SlotInfo>("extensions_slot_activate", { slot });
+}
+
+export async function deactivateSlot(slot: string): Promise<SlotInfo> {
+  return invoke<SlotInfo>("extensions_slot_deactivate", { slot });
 }
 
 export async function inspectExtension(

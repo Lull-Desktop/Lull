@@ -324,6 +324,7 @@ async function buildWidgetInto(ext, outDir) {
     id: ext.id,
     version: ext.version,
     order: ext.order,
+    provides: ext.manifest.provides ?? [],
     digest,
   };
 }
@@ -415,6 +416,7 @@ function checkWidget(ext) {
     id: ext.id,
     version: ext.version,
     order: ext.order,
+    provides: ext.manifest.provides ?? [],
     digest,
   };
 }

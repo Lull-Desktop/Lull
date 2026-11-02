@@ -54,6 +54,32 @@ export const WIDGET_CAPABILITIES = [
 /** Cannot be requested by plugins (host-only). */
 export const WIDGET_FORBIDDEN_CAPABILITIES = ["widget.window", "widget.native"];
 
+/** Host slots available in v1; keep in sync with src-tauri/src/extension/slots/defs.rs. */
+export const WIDGET_SLOTS = {
+  "music-player": {
+    required: ["widget.media", "media.player.read", "media.player.control"],
+    recommended: [
+      "media.player.volume.write",
+      "media.queue.read",
+      "media.queue.write",
+      "media.library.read",
+      "media.library.directory.read",
+      "media.library.favorites.write",
+    ],
+  },
+  "noise-controller": {
+    required: ["widget.media", "media.noise.session.read", "media.noise.session.control"],
+    recommended: [
+      "media.noise.tracks.read",
+      "media.noise.tracks.write",
+      "media.noise.volume.write",
+      "media.noise.presets.read",
+      "media.noise.presets.write",
+      "media.noise.library.read",
+    ],
+  },
+};
+
 export const SCENE_CAPABILITIES = [
   "wallpaper.viewport",
   "wallpaper.canvas",
@@ -87,6 +113,7 @@ const WIDGET_KNOWN_KEYS = new Set([
   "icon",
   "lifecycle",
   "capabilities",
+  "provides",
   "window",
   "network",
 ]);
@@ -354,6 +381,84 @@ function validateWidget(root, report, add, files) {
     }
     if (caps.includes("widget.audio")) {
       add("info", "W-AUDIO", "widget.audio requested: must run silently when not granted, do not call new AudioContext directly");
+    }
+  }
+
+  // provides: optional Slot declaration (v1: at most one)
+  const provides = manifest.provides;
+  if (provides !== undefined) {
+    if (!Array.isArray(provides)) {
+      add("error", "W-PROVIDES-SHAPE", "provides must be an array");
+    } else if (provides.length > 1) {
+      add(
+        "error",
+        "W-PROVIDES-MULTIPLE",
+        "v1 supports at most one provides entry per widget (one window per extension)",
+      );
+    } else {
+      const declaredCaps = Array.isArray(manifest.capabilities) ? manifest.capabilities : [];
+      for (const [index, provider] of provides.entries()) {
+        if (!isRecord(provider)) {
+          add("error", "W-PROVIDES-ENTRY", `provides[${index}] must be an object`);
+          continue;
+        }
+        if (typeof provider.slot !== "string" || !WIDGET_ID.test(provider.slot)) {
+          add(
+            "error",
+            "W-PROVIDES-SLOT",
+            `provides[${index}].slot must match ^[a-z][a-z0-9-]{1,31}$`,
+          );
+          continue;
+        }
+        if (!Number.isInteger(provider.version) || provider.version < 1) {
+          add(
+            "error",
+            "W-PROVIDES-VERSION",
+            `provides[${index}].version must be a positive integer`,
+          );
+        }
+        if (provider.activation !== undefined) {
+          add(
+            "info",
+            "W-PROVIDES-ACTIVATION",
+            "provides[].activation is ignored: exclusivity is a property of the host Slot, not the provider",
+          );
+        }
+        const slot = WIDGET_SLOTS[provider.slot];
+        if (!slot) {
+          add(
+            "warn",
+            "W-PROVIDES-UNKNOWN-SLOT",
+            `Slot "${provider.slot}" is not known to this validator; the host may ignore the package until it is updated`,
+          );
+          continue;
+        }
+        if (provider.version !== 1) {
+          add(
+            "warn",
+            "W-PROVIDES-SLOT-VERSION",
+            `Slot contract version ${provider.version} is above the v1 host contract; the host will mark the provider as incompatible`,
+          );
+        }
+        const missing = slot.required.filter((capability) => !declaredCaps.includes(capability));
+        if (missing.length > 0) {
+          add(
+            "error",
+            "W-PROVIDES-CAPS",
+            `Slot "${provider.slot}" requires ${missing.join(", ")}; add them to capabilities`,
+          );
+        }
+        const recommended = slot.recommended.filter(
+          (capability) => !declaredCaps.includes(capability),
+        );
+        if (recommended.length > 0) {
+          add(
+            "info",
+            "W-PROVIDES-RECOMMENDED",
+            `Slot "${provider.slot}" usually needs ${recommended.join(", ")}`,
+          );
+        }
+      }
     }
   }
 

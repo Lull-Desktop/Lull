@@ -169,6 +169,7 @@ mod tests {
       entry: "index.html".to_string(),
       order: None,
       capabilities: vec!["widget.network".to_string()],
+      provides: Vec::new(),
       window: Default::default(),
       network: vec!["https://api.example.com".to_string()],
       icon: None,

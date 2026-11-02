@@ -3,7 +3,7 @@
   "type": "widget",
   "id": "player",
   "name": "播放器",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "液态黑胶播放器与本地音乐。",
   "author": "Lull",
   "license": "GPL-3.0-or-later",
@@ -11,6 +11,12 @@
   "hostApi": 1,
   "entry": "index.html",
   "order": 10,
+  "provides": [
+    {
+      "slot": "music-player",
+      "version": 1
+    }
+  ],
   "capabilities": [
     "widget.ui",
     "widget.theme",
