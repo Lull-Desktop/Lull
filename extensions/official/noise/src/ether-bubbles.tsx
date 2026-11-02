@@ -63,6 +63,7 @@ import {
   type SoundDefinition,
   type SoundId,
 } from "./sound-model";
+import { TipHost, tip } from "./tooltip";
 
 const SOUND_ICONS: Record<SoundId, ComponentType<{ className?: string }>> = {
   rain: DropletGlyph,
@@ -1008,15 +1009,15 @@ export function EtherBubbles() {
                 type="button"
                 className={styles.dockButton}
                 aria-label={dockSideLabel}
-                title={dockSideLabel}
                 onClick={() => switchDock(nextDockSide)}
+                {...tip(dockSideLabel)}
               >
                 <ChevronsLeftRight aria-hidden="true" />
               </button>
               <div
                 className={styles.dockDragHandle}
                 data-tauri-drag-region="deep"
-                title="拖动窗口"
+                {...tip("拖动窗口")}
               >
                 <span className={styles.dockGrip} aria-hidden="true">
                   <i />
@@ -1033,8 +1034,8 @@ export function EtherBubbles() {
                     type="button"
                     className={styles.dockButton}
                     aria-label="最小化"
-                    title="最小化"
                     onClick={() => void widgetMinimizeWindow()}
+                    {...tip("最小化")}
                   >
                     <Minus />
                   </button>
@@ -1043,8 +1044,8 @@ export function EtherBubbles() {
                   type="button"
                   className={styles.dockButton}
                   aria-label="关闭窗口"
-                  title="关闭（隐藏到托盘）"
                   onClick={() => void widgetHideWindow()}
+                  {...tip("关闭（隐藏到托盘）")}
                 >
                   <X />
                 </button>
@@ -1134,6 +1135,7 @@ export function EtherBubbles() {
                       aria-label={`${track.name}，${track.enabled ? "关闭" : "开启"}`}
                       aria-pressed={track.enabled}
                       onClick={() => toggleLocalTrack(track)}
+                      {...tip(track.enabled ? "静音这条轨道" : "开启这条轨道")}
                     >
                       {track.enabled ? "●" : "○"}
                     </button>
@@ -1146,6 +1148,7 @@ export function EtherBubbles() {
                       className={styles.localRemove}
                       aria-label={`移除 ${track.name}`}
                       onClick={() => removeLocalTrack(track)}
+                      {...tip("移除本地轨道")}
                     >
                       <X />
                     </button>
@@ -1160,8 +1163,8 @@ export function EtherBubbles() {
                 className={styles.gearButton}
                 aria-label="泡泡设置"
                 aria-expanded={settingsOpen}
-                title="声场设置"
                 onClick={() => setSettingsOpen((open) => !open)}
+                {...tip(settingsOpen ? "收起声场设置" : "声场设置")}
               >
                 <Settings2 />
               </button>
@@ -1197,6 +1200,7 @@ export function EtherBubbles() {
                   type="button"
                   aria-label="关闭设置"
                   onClick={() => setSettingsOpen(false)}
+                  {...tip("关闭设置")}
                 >
                   <X />
                 </button>
@@ -1206,7 +1210,7 @@ export function EtherBubbles() {
                 <span className={styles.settingLabel}>主题流光</span>
                 <span
                   className={styles.themeBadge}
-                  title="在设置窗口的「主题流光」中统一调整"
+                  {...tip("在设置窗口的「主题流光」中统一调整")}
                 >
                   {currentTheme.label()} · {m.common_global()}
                 </span>
@@ -1318,6 +1322,9 @@ export function EtherBubbles() {
                         aria-label={`${track.name}，${track.enabled ? "关闭" : "开启"}`}
                         aria-pressed={track.enabled}
                         onClick={() => toggleLocalTrack(track)}
+                        {...tip(
+                          track.enabled ? "静音这条轨道" : "开启这条轨道",
+                        )}
                       >
                         {track.enabled ? "●" : "○"}
                       </button>
@@ -1337,6 +1344,7 @@ export function EtherBubbles() {
                         className={styles.localRemove}
                         aria-label={`移除 ${track.name}`}
                         onClick={() => removeLocalTrack(track)}
+                        {...tip("移除本地轨道")}
                       >
                         <X />
                       </button>
@@ -1362,6 +1370,8 @@ export function EtherBubbles() {
           </section>
         </>
       ) : null}
+
+      <TipHost />
     </div>
   );
 }

@@ -1864,3 +1864,54 @@
   width: 54px;
   accent-color: var(--ether-accent, #5e9c86);
 }
+
+/* ── 悬停标签 ───────────────────────────────────────────────── */
+
+/* 由 <TipHost /> 固定定位渲染：默认浮在元素正上方居中，
+   顶部放不下时才翻到下方（data-below），永远避开指针。
+   z-index 要压过设置浮层（50），标签才能落在面板里的控件上。 */
+.tip {
+  position: fixed;
+  z-index: 60;
+  max-width: min(240px, calc(100vw - 24px));
+  padding: 5px 10px;
+  overflow: hidden;
+  border: 1px solid
+    color-mix(in srgb, var(--flow-b) 26%, rgba(200, 246, 226, 0.18));
+  border-radius: 999px;
+  color: #eef9f5;
+  background:
+    radial-gradient(
+      circle at 30% 14%,
+      rgba(255, 255, 255, 0.12),
+      transparent 58%
+    ),
+    rgba(5, 16, 12, 0.86);
+  box-shadow:
+    0 6px 14px rgba(0, 7, 4, 0.44),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(-100%);
+  backdrop-filter: blur(14px) saturate(130%);
+  animation: tipIn 0.14s var(--ease-ether) both;
+}
+
+.tip[data-below="true"] {
+  transform: translateX(-50%);
+}
+
+@keyframes tipIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
