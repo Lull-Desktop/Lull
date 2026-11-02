@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>竹影 · Lull</title>
+    <link rel="stylesheet" href="./src/scene.css" />
+  </head>
+  <body>
+    <div id="scene" class="scene" data-layout="viewport" data-reduced-motion="false">
+      <!-- 夜色底：深青绿到近乎黑，保证长时间亮屏不刺眼。 -->
+      <div class="night"></div>
+
+      <!-- 月晕 -->
+      <div id="moon" class="moon"></div>
+
+      <!-- 星点 -->
+      <div class="stars" aria-hidden="true">
+        <span style="left: 8%; top: 14%; opacity: 0.52"></span>
+        <span style="left: 16%; top: 8%; opacity: 0.66"></span>
+        <span style="left: 24%; top: 22%; opacity: 0.4"></span>
+        <span style="left: 33%; top: 11%; opacity: 0.58"></span>
+        <span style="left: 41%; top: 18%; opacity: 0.46"></span>
+        <span style="left: 52%; top: 7%; opacity: 0.7"></span>
+        <span style="left: 61%; top: 16%; opacity: 0.5"></span>
+        <span style="left: 69%; top: 10%; opacity: 0.62"></span>
+        <span style="left: 77%; top: 21%; opacity: 0.44"></span>
+        <span style="left: 86%; top: 13%; opacity: 0.56"></span>
+        <span style="left: 93%; top: 24%; opacity: 0.38"></span>
+        <span style="left: 29%; top: 31%; opacity: 0.48"></span>
+        <span style="left: 57%; top: 28%; opacity: 0.54"></span>
+      </div>
+
+      <!-- 远山：两层剪影制造纵深 -->
+      <svg
+        class="mountains"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <path
+          d="M0 78 L12 66 L22 72 L36 52 L48 62 L62 44 L76 60 L88 54 L100 70 L100 100 L0 100 Z"
+          fill="rgba(9, 24, 24, 0.78)"
+        ></path>
+        <path
+          d="M0 88 L14 78 L28 84 L42 72 L58 82 L72 68 L86 80 L100 74 L100 100 L0 100 Z"
+          fill="rgba(5, 15, 16, 0.92)"
+        ></path>
+      </svg>
+
+      <!-- 薄雾：整屏雾幔 + 三层带状雾；不透明度与高度由 Scene SDK 帧驱动。 -->
+      <div id="mist-veil" class="mist-veil"></div>
+      <div id="mist-band-0" class="mist-band band-0"></div>
+      <div id="mist-band-1" class="mist-band band-1"></div>
+      <div id="mist-band-2" class="mist-band band-2"></div>
+
+      <!-- 竹竿与竹叶 -->
+      <div class="stalks" aria-hidden="true">
+        <div
+          id="stalk-0"
+          class="stalk"
+          data-static-delay="-2s"
+          style="
+            left: 4%;
+            width: 10px;
+            height: 86%;
+            opacity: 0.7;
+            background-image: linear-gradient(90deg, #6f8f6a00, #6f8f6a 32%, #b7c9a8 50%, #6f8f6a 68%, #6f8f6a00);
+          "
+        >
+          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
+          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
+          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
+          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
+        </div>
+        <div
+          id="stalk-1"
+          class="stalk"
+          data-static-delay="-5s"
+          style="
+            left: 11%;
+            width: 5px;
+            height: 62%;
+            opacity: 0.45;
+            background-image: linear-gradient(90deg, #58775b00, #58775b 32%, #b7c9a8 50%, #58775b 68%, #58775b00);
+          "
+        >
+          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
+          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
+          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
+          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
+        </div>
+        <div
+          id="stalk-2"
+          class="stalk"
+          data-static-delay="-1s"
+          style="
+            left: 17%;
+            width: 3px;
+            height: 48%;
+            opacity: 0.35;
+            background-image: linear-gradient(90deg, #4e6a5100, #4e6a51 32%, #b7c9a8 50%, #4e6a51 68%, #4e6a5100);
+          "
+        >
+          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
+          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
+          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
+          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
+        </div>
+        <div
+          id="stalk-3"
+          class="stalk"
+          data-static-delay="-6s"
+          style="
+            left: 84%;
+            width: 8px;
+            height: 78%;
+            opacity: 0.6;
+            background-image: linear-gradient(90deg, #647f6000, #647f60 32%, #b7c9a8 50%, #647f60 68%, #647f6000);
+          "
+        >
+          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
+          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
+          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
+          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
+        </div>
+        <div
+          id="stalk-4"
+          class="stalk"
+          data-static-delay="-3s"
+          style="
+            left: 91%;
+            width: 4px;
+            height: 56%;
+            opacity: 0.4;
+            background-image: linear-gradient(90deg, #526d5400, #526d54 32%, #b7c9a8 50%, #526d54 68%, #526d5400);
+          "
+        >
+          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
+          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
+          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
+          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
+        </div>
+        <div
+          id="stalk-5"
+          class="stalk"
+          data-static-delay="-8s"
+          style="
+            left: 96%;
+            width: 2.5px;
+            height: 42%;
+            opacity: 0.3;
+            background-image: linear-gradient(90deg, #46604900, #466049 32%, #b7c9a8 50%, #466049 68%, #46604900);
+          "
+        >
+          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
+          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
+          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
+          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
+        </div>
+      </div>
+
+      <!-- 时间与文案 -->
+      <div id="copy" class="copy">
+        <div class="wordmark">LULL</div>
+        <div id="clock" class="clock">--:--:--</div>
+        <div class="subtitle">云栖之处，安然入眠</div>
+        <div class="tagline">竹影 · 山风 · 远处磬声</div>
+      </div>
+
+      <!-- 跨屏接缝之外的角落标记，便于真机确认窗口/画布对应关系 -->
+      <div id="canvas-label" class="canvas-label" hidden></div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

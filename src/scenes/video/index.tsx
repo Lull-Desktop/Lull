@@ -12,7 +12,7 @@ import type { SceneProps } from "@/sdk/scene";
 
 export function VideoScene({ sync }: SceneProps) {
   return (
-    <div className="absolute inset-0">
+    <div data-testid="scene-video" className="absolute inset-0">
       <MediaSurface syncEnabled={sync.enabled} />
     </div>
   );

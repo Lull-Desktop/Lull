@@ -123,7 +123,7 @@ MediaSurface (src/scenes/media-surface.tsx)
 > **场景解析必须与 `monitor_url` 同源**：判断“这块屏还在不在视频场景”要用
 > `WallpaperConfig::effective_scene`——只有 independent 模式消费每屏覆盖，
 > mirror / span 一律用全局场景。2026-10-31 修复的“关一屏、另一屏黑屏”就是
-> 这里用了 `resolved_scene`：mirror 下 DISPLAY1 残留了 `lull.aurora` 覆盖，
+> 这里用了 `resolved_scene`：mirror 下 DISPLAY1 残留了 `lull.bamboo` 覆盖，
 > 关掉 DISPLAY2 后它被判成非视频屏，正在放视频的共享 Session 被整条回收；
 > 另一屏随后由 5 秒 rVFC 看门狗重新 attach（新解码器），表现为不可预测的黑屏。
 

@@ -4,22 +4,14 @@ import CtaBanner from "../components/site/CtaBanner";
 import FeatureCards from "../components/site/FeatureCards";
 import HomeHero from "../components/site/HomeHero";
 import HomePrivacy from "../components/site/HomePrivacy";
-import SceneGallery from "../components/site/SceneGallery";
 import { container, section } from "../components/ui/layout";
 import { page, repoUrl } from "../lib/site";
 import { release } from "../lib/release";
 
-const scenes = [
-  { file: "scene-bamboo.jpg", name: "竹影", note: "默认 · 雾绿", alt: "竹影场景：深绿夜幕下的竹竿与薄雾" },
-  { file: "scene-dusk.jpg", name: "暮色", note: "暖橙", alt: "暮色场景：紫橙渐变的黄昏与山影" },
-  { file: "scene-aurora.jpg", name: "极光", note: "冷蓝", alt: "极光场景：夜空中的冷蓝光带" },
-  { file: "scene-mist.jpg", name: "雾岚", note: "社区示例", alt: "社区示例场景：雾中山岚" },
-];
-
 const features = [
   {
     title: "动态壁纸",
-    body: "竹影、暮色、极光三个官方场景。每台显示器一个壁纸窗口，支持复制 / 独立 / 跨屏三种模式与跨屏同步动画。",
+    body: "竹影作为官方壁纸随安装包分发；媒体壁纸可播放本地图片 / 视频。每台显示器一个壁纸窗口，支持复制 / 独立 / 跨屏三种模式与跨屏同步动画。",
     tag: "Core · Win32 桌面层",
     icon: "layers" as const,
   },
@@ -59,8 +51,6 @@ const features = [
 <BaseLayout>
   {/* 首屏：SplitText 逐字升起标题，唯一用 client:load 的岛 */}
   <HomeHero version={release.version} client:load />
-
-  <SceneGallery scenes={scenes} client:visible />
 
   <section class={section}>
     <div class={container}>

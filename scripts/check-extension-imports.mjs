@@ -6,7 +6,8 @@
  * - 禁止 `@/`、`../src`、`@tauri-apps/api`、`__TAURI_INTERNALS__`；
  * - 禁止 localStorage / sessionStorage / eval / new Function；
  * - 禁止源码里写死 localhost / 127.0.0.1（开发地址只允许出现在 `.lull-dev.json`）；
- * - 每个扩展必须有 widget.json、index.html，且 id 与目录名一致、builtin=false。
+ * - widget 必须有 widget.json、index.html，且 id 与目录名一致、builtin=false；
+ * - scene 必须有 catalog.json（单条 scene）与 index.html（Vite 入口）。
  *
  * 用法：node scripts/check-extension-imports.mjs
  */
@@ -130,27 +131,52 @@ if (ids.length === 0) warn("extensions/official 下没有扩展");
 
 checkCapabilityParity();
 
+const SCENE_ID = /^[a-z0-9][a-z0-9._-]{2,63}$/;
+
 for (const id of ids) {
   const dir = join(officialRoot, id);
-  const manifestPath = join(dir, "widget.json");
-  if (!existsSync(manifestPath)) {
-    warn(`${id}：缺少 widget.json`);
-    continue;
-  }
+  const widgetPath = join(dir, "widget.json");
+  const catalogPath = join(dir, "catalog.json");
   if (!existsSync(join(dir, "index.html"))) {
     warn(`${id}：缺少 index.html（Vite 入口）`);
   }
-  let manifest;
-  try {
-    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  } catch (error) {
-    warn(`${id}：widget.json 不是合法 JSON（${error}）`);
+  if (existsSync(widgetPath)) {
+    let manifest;
+    try {
+      manifest = JSON.parse(readFileSync(widgetPath, "utf8"));
+    } catch (error) {
+      warn(`${id}：widget.json 不是合法 JSON（${error}）`);
+      continue;
+    }
+    if (manifest.id !== id) warn(`${id}：widget.json 的 id=${manifest.id} 与目录名不一致`);
+    if (manifest.builtin !== false) warn(`${id}：官方扩展示例也必须 builtin=false`);
+    if (typeof manifest.license !== "string" || !manifest.license.trim()) {
+      warn(`${id}：必须声明 license`);
+    }
+  } else if (existsSync(catalogPath)) {
+    let catalog;
+    try {
+      catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
+    } catch (error) {
+      warn(`${id}：catalog.json 不是合法 JSON（${error}）`);
+      continue;
+    }
+    const scene = Array.isArray(catalog.scenes) ? catalog.scenes[0] : null;
+    if (!scene || typeof scene !== "object") {
+      warn(`${id}：catalog.json 缺少 scenes[0]`);
+    } else {
+      if (catalog.schemaVersion !== 1) warn(`${id}：catalog.json 的 schemaVersion 必须是 1`);
+      if (!SCENE_ID.test(scene.id ?? "")) warn(`${id}：scene.id 非法（${scene.id}）`);
+      if (typeof scene.license !== "string" || !scene.license.trim()) {
+        warn(`${id}：scene 必须声明 license`);
+      }
+      if (typeof scene.entry !== "string" || !scene.entry.endsWith(".html")) {
+        warn(`${id}：scene.entry 必须是 .html 相对路径`);
+      }
+    }
+  } else {
+    warn(`${id}：缺少 widget.json 或 catalog.json`);
     continue;
-  }
-  if (manifest.id !== id) warn(`${id}：widget.json 的 id=${manifest.id} 与目录名不一致`);
-  if (manifest.builtin !== false) warn(`${id}：官方扩展示例也必须 builtin=false`);
-  if (typeof manifest.license !== "string" || !manifest.license.trim()) {
-    warn(`${id}：必须声明 license`);
   }
   if (statSync(dir).isDirectory()) walk(dir);
 }

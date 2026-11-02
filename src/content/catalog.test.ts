@@ -168,7 +168,7 @@ describe("content catalog loader", () => {
     expect(result.issues.map((issue) => issue.code)).toContain("duplicate-id");
   });
 
-  test("the shipped catalog verifies against the committed key", async () => {
+  test("the shipped catalog verifies against the committed key and bundles no scene", async () => {
     // 锁死"仓库里的 catalog.json / catalog.sig.json / 公钥"三者一致：
     // 改了目录却忘了重新签名、或换了密钥没重签，这里立刻失败。
     const read = (relative: string): string =>
@@ -182,8 +182,6 @@ describe("content catalog loader", () => {
     const result = await loadContentSceneEntries(fetcher);
     expect(result.signature).toBe("valid");
     expect(result.issues).toEqual([]);
-    expect(result.entries.map((entry) => entry.manifest.id)).toContain(
-      "community.mist",
-    );
+    expect(result.entries).toEqual([]);
   });
 });

@@ -13,10 +13,12 @@
 > 播放器包、`window.alignPlayer`、封面兜底与设置/托盘入口已接入。P5 自动化完成：
 > 便携版冒烟验证 `extensions/{noise,player}` 与 `index.json` 均已入 zip、无
 > `.lull-dev.json`；release 流程新增 `extensions:check`；官方包补缺资源根、篡改、
-> 升级保留授权等测试。剩余验收项是真机打开 / 停用 / 升级 / 篡改，以及封面
-> `asset:` 与 HMR 的 WebView2 验证。
+> 升级保留授权等测试。P6（2026-11）完成：竹影从内嵌 React 场景迁移为官方 **scene**
+> 包；宿主只保留媒体壁纸，极光/暮色移除。剩余验收项是真机打开 / 停用 / 升级 / 篡改，
+> 以及封面 `asset:` 与 HMR 的 WebView2 验证。
 >
 > 关联文档：[Widget SDK](./widget-sdk.md)（包格式、能力词汇、桥协议）、
+> [Scene SDK](./scene-sdk.md)（内容包、脚本场景、参数/同步）、
 > [扩展中心](./extension-center.md)（安装 / 启用 / 授权 / 卸载语义）、
 > [Media Service](./media-service.md)（媒体桥与权限矩阵）、
 > [扩展开发模式](./extension-dev-mode.md)（React SDK 用法、Vite dev server、HMR）、
@@ -32,17 +34,20 @@
 
 ### 1.1 目标
 
-- 安装包（MSI / NSIS / 便携版 zip）自带 `noise` 与 `player` 两个标准 Widget 包，
-  首次启动默认启用，托盘与扩展中心可直接打开。
-- 扩展中心把它们显示为「官方 · 随应用分发」：可停用 / 重新启用、查看详情与能力，
-  **不可卸载**；用户安装包不能占用这两个 id。
+- 安装包（MSI / NSIS / 便携版 zip）自带 `noise`、`player` 两个标准 Widget 包，
+  以及 `lull.bamboo` 一个官方场景包。
+- 扩展中心把它们显示为「官方 · 随应用分发」：工具可停用 / 重新启用、查看详情与能力，
+  场景可查看详情与去壁纸设置；两者都**不可卸载**，用户安装包不能占用这些 id。
 - 行为与迁移前一致：
   - 白噪音：五层声景、本地轨、Preset、睡眠定时、主音量 / 静音、窗口贴合内容高度、
     关窗即隐藏、多窗口状态同步。
   - 播放器：本地曲目、封面、530↔880 曲库抽屉与左右停靠、进度 / 音量 /
     播放模式、UI 音效、关窗继续播放。
-- 官方包随 App 升级：授权与用户状态保留，新增能力自动补授，用户此前的撤销保持撤销。
-- 完整性由构建期摘要锁保证，运行时只读复核；缺锁 / 摘要不符拒绝加载并可诊断。
+  - 竹影：深夜竹林、薄雾参数、时钟、跨屏画布定位与同步相位；默认场景仍是
+    `lull.bamboo`，由官方扩展提供，不再编译进宿主。
+- 官方包随 App 升级：Widget 的授权与用户状态保留，新增能力自动补授，用户此前的撤销保持撤销；
+  scene 只按版本重建壁纸 iframe。
+- 完整性由构建期摘要保证，运行时只读复核；缺锁 / 摘要不符拒绝加载并可诊断。
 
 ### 1.2 非目标
 
@@ -57,18 +62,21 @@
 
 | 维度 | 官方 bundled | 第三方 user |
 | --- | --- | --- |
-| 位置 | 安装目录 `extensions/`（只读） | `%APPDATA%\app.lull.desktop\widgets\` |
+| 位置 | 安装目录 `extensions/`（只读） | Widget：`%APPDATA%\...\widgets\`；Scene：`%APPDATA%\...\content\` |
 | 识别方式 | 资源路径 + 保留 id（不由清单声明） | 用户目录扫描 |
-| 授权 | 首次启动自动启用并授予声明能力；新版本新增能力自动补授 | 用户手动启用并逐项授权 |
-| 完整性 | 构建期 `.lull-integrity.json`，运行时必须存在且匹配 | 安装时 TOFU 补锁，运行时复核 |
+| 授权 | Widget 首次启动自动启用并授予声明能力；新版本新增能力自动补授 | 用户手动启用并逐项授权 |
+| 完整性 | Widget：`.lull-integrity.json`；Scene：`catalog.json` 的 `integrity`；运行时必须存在且匹配 | 安装时 TOFU 补锁 / 摘要复核 |
 | 发布者签名 | 不参与社区签名策略；扩展中心不展示签名警告 | 现有策略不变 |
-| 卸载 | 只能停用 / 恢复默认，文件只读 | 可卸载 |
-| 升级 | 随 App 发布（扩展版本独立），启动时协调授权与清单哈希 | 手动覆盖安装 |
+| 卸载 | Widget 只能停用 / 恢复默认；Scene 不可卸载；文件只读 | 可卸载 |
+| 升级 | 随 App 发布（扩展版本独立）；Widget 启动时协调授权与清单哈希 | 手动覆盖安装 |
 | 能力 | **与第三方完全相同**，没有官方专属能力 | 同左 |
 
 `origin` 由宿主按解析到的目录判定（`user` / `dev` / `bundled`），**不读取清单里的
-`builtin` 字段**。官方包的 `widget.json` 仍写 `builtin: false`，避免把信任写进一个
-可被编辑的文件。
+`builtin` 字段**。官方 Widget 的 `widget.json` 仍写 `builtin: false`；场景清单没有
+`builtin` 字段，来源同样只看宿主解析到的目录。
+
+**官方 scene 没有启用/停用状态**：它不创建窗口、不申请能力，也不进入 Widget 授权账本。
+壁纸窗通过 `content_packages` 只读命令拿到 `origin: "bundled"` 的目录条目。
 
 ## 3. 包格式
 
@@ -85,23 +93,48 @@
 其余规则不变：`id` 与目录同名、`license` 必填、`hostApi: 1`、`entry` 为包内相对
 `.html`、窗口尺寸 320×240 – 1600×1200、单包 ≤ 5 MB（硬上限沿用安装管线的 64 MB）。
 
+官方 scene 沿用 [Scene SDK](./scene-sdk.md) 的内容包格式，不升 `schemaVersion`：
+
+```text
+extensions/official/bamboo/
+  catalog.json                 # schemaVersion 1，scenes 恰好一条
+  index.html                   # Vite 构建入口（源码）
+  src/                         # 场景 DOM / CSS / Scene SDK 连接
+```
+
+源码目录名可以与场景 id 不同（`bamboo` → 产物 id `lull.bamboo`）；构建后：
+
+```text
+extensions/dist/lull.bamboo/
+  catalog.json                 # 构建期写入 scenes[0].integrity
+  scenes/bamboo/index.html
+  scenes/bamboo/assets/*
+```
+
+`catalog.json` 的 `entry` 指向产物里的入口（`scenes/bamboo/index.html`），整包摘要只覆盖
+该入口目录；不生成 `.lull-integrity.json`，场景的摘要锚点就是 `catalog.json` 本身。
+
 ### 3.2 保留 id
 
-`noise`、`player` 是保留 id（`src-tauri/src/widget_package/official.rs` 的常量表，
-后续随官方包扩展）。规则：
+`noise`、`player` 是 Widget 保留 id（`src-tauri/src/widget_package/official.rs`）；
+`lull.bamboo` 是 scene 保留 id（`src-tauri/src/content_package/store.rs`）。规则：
 
 - 用户从文件安装时命中保留 id → 拒绝，错误码 `manifest.id-reserved`；
-- 开发模式可以临时挂载同名目录做本机调试（列表标「开发」），关闭开发模式后恢复官方包；
-- App 升级时如果发现历史用户包占用了保留 id，不删除文件：官方包优先加载，用户包标为
-  `invalid` 并给出「与官方扩展 id 冲突」的诊断。
+- 开发模式可以临时挂载同名 Widget 目录做本机调试（列表标「开发」），关闭开发模式后恢复官方包；
+  scene 暂不支持 Tier 2 开发服务器，使用 `extensions:build` / `extensions:watch`；
+- App 升级时如果发现历史用户包占用了保留 id，不删除文件：官方包优先加载，用户包被跳过并记录日志。
 
 ### 3.3 版本与摘要
 
-- 官方包版本是独立语义化版本（首版 `1.0.0`），内容变化就 bump；不要求与 App 版本同号。
-- 构建期生成 `.lull-integrity.json`：算法与 `src-tauri/src/widget_package/digest.rs`
+- 官方包版本是独立语义化版本，内容变化就 bump；不要求与 App 版本同号。
+- Widget 构建期生成 `.lull-integrity.json`：算法与 `src-tauri/src/widget_package/digest.rs`
   一致（`lull-widget-package\0 + id\0 + version\0 + Σ(path\0 size\0 bytes\0)`，排除
-  点号路径），`source: "declared"`。官方包不生成、也不校验 `.lull-signature.json`。
-- 运行时要求 bundled 包的摘要锁**存在且匹配**：缺锁或摘要不符都拒绝加载，不自动补锁。
+  点号路径），`source: "declared"`。官方 Widget 不生成、也不校验 `.lull-signature.json`。
+- Scene 构建期把整包摘要写进 `catalog.json` 的 `scenes[0].integrity`：算法与
+  `src-tauri/src/content_package/digest.rs` 一致（`lull-content-package\0 + id\0 + version\0 +
+  Σ(relPath\0 size\0 bytes\0)`，只覆盖 entry 所在目录）。
+- 运行时要求 bundled 包的摘要**存在且匹配**：Widget 缺锁或摘要不符、Scene 缺 integrity
+  或摘要不符都拒绝加载，不自动补锁。
 
 ## 4. 构建与随包分发
 
@@ -119,31 +152,35 @@ extensions/
       widget.json
       index.html
       src/
+    bamboo/                   # P6 已迁移：场景包源码（Vite 产物 id=lull.bamboo）
+      catalog.json
+      index.html
+      src/
   dist/                       # 构建产物（gitignore；.gitkeep 保留目录供 resources 指向）
   README.md                   # 维护者说明：如何新增 / 构建 / 调试官方扩展
 ```
 
-构建后的 `extensions/dist/<id>/` 就是可直接安装的标准包（去掉 `.lull-integrity.json`
-后就是可分发的 `.lull-widget.zip` 内容），与第三方包没有格式差异。
+构建后的 `extensions/dist/<id>/` 就是可直接安装的标准包；Widget 去掉
+`.lull-integrity.json`、Scene 去掉 `catalog.json` 后就是可分发的 zip 内容，与第三方包
+没有格式差异。
 
 ### 4.2 构建脚本
 
-新增 `scripts/build-official-extensions.mjs`：
+`scripts/build-official-extensions.mjs`：
 
-1. 读取每个 `extensions/official/<id>/widget.json`；
-2. Vite 构建（`vite build`）：`base: "./"`、`target: es2022`、React 插件、
-   CSS Modules 原生支持；`@lull/widget-sdk` / `@lull/media-sdk` alias 到
-   `packages/*/dist`（构建前先跑 `pnpm widgets:sdk && pnpm media:sdk`）；
-   `index.html` 作为入口，产物直接落到 `extensions/dist/<id>/`；
-3. 包内 `messages.js` 由 Vite 的 `virtual:lull-messages` 插件从
-   `i18n/messages/{zh-CN,en-US}.json` 生成；`assets/` 按相对路径输出；
-4. 校验：`Skill/lull-extension/lib/validate.mjs`（strict；能力白名单需先按 §13 补齐）
-   + 无远程 URL、无 `@tauri-apps/api` / `__TAURI_INTERNALS__` / `localStorage` / `eval`、
-   体积预算、CSS `var(--x)` 令牌覆盖；
-5. 用共享的 `scripts/lib/widget-digest.mjs`（从 `scripts/pack-widget.mjs` 抽出）计算
-   摘要并写 `.lull-integrity.json`；
-6. 产出 `extensions/dist/index.json`（`id / version / digest / order`），供诊断与 CI
-   断言；`--check` 模式只校验、不改文件。
+1. 扫描 `extensions/official/<dir>/`：有 `widget.json` 按 Widget，有 `catalog.json` 按 Scene；
+2. Widget：Vite 构建 `index.html` 到 `extensions/dist/<id>/`，复制 `widget.json` / `assets/`；
+   Scene：Vite 构建到 `extensions/dist/<id>/<entry 目录>/`，复制 `catalog.json` 到产物根目录；
+3. Vite 配置：`base: "./"`、`target: es2022`、React 插件、CSS Modules 原生支持；
+   `@lull/widget-sdk` / `@lull/scene-sdk` / `@lull/media-sdk` alias 到
+   `packages/*/dist`（构建前由 `ensureSdkDist` 按需编译）；
+4. Widget 的 `messages.js` 由 `virtual:lull-messages` 插件生成；Scene 不强制使用消息表；
+5. 校验：`Skill/lull-extension/lib/validate.mjs`（strict）+ 无远程 URL、无
+   `@tauri-apps/api` / `__TAURI_INTERNALS__` / `localStorage` / `eval`、体积预算；
+6. Widget 用 `scripts/lib/widget-digest.mjs` 写 `.lull-integrity.json`；
+   Scene 用 `scripts/content-digest.mjs` 计算 entry 目录摘要并写回产物 `catalog.json`；
+7. 产出 `extensions/dist/index.json`（`kind / id / version / digest / order`），供诊断与 CI
+   断言；`--check` 模式只校验、不改文件，并包含 stale 目录检查。
 
 构建工具从 esbuild 改为 Vite：官方扩展需要 React Fast Refresh、开发服务器与
 CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mode.md)。esbuild 继续
@@ -172,7 +209,7 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 - **Tier 1**：`pnpm extensions:watch <id>` 持续构建，宿主「重载」按钮刷新；P1 可用。
 - **Tier 2**：`pnpm extensions:dev <id>` 起 Vite dev server（5273 / 5274），包内
   `.lull-dev.json` 声明地址；宿主仅在 debug 构建、仅 loopback 时直接 iframe 加载它，
-  React Fast Refresh 生效；生产 CSP 不放宽。
+  React Fast Refresh 生效；生产 CSP 不放宽。**Scene 暂不支持**，用 Tier 0 / 1。
 
 现有 `scripts/preview-liquid-player.mjs` 依赖内置 `/player` 路由；迁移后改为对
 「构建产物 / mock 模式」截图，或在迁移阶段暂时保留为手动工具、不阻塞发布。
@@ -181,7 +218,7 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 
 ### 5.1 资源根
 
-`widget_package::official::root(app)` 解析顺序：
+`widget_package::official::root(app)` 解析顺序（Scene 与 Widget 共用）：
 
 1. `LULL_EXTENSIONS_DIR`（测试 / 本机调试覆盖）；
 2. `app.path().resource_dir()/extensions`（安装版；便携版与 exe 同级，需实测确认）；
@@ -190,10 +227,12 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 
 ### 5.2 解析顺序
 
-`store::resolve_dir`：开发包（dev 模式挂载）→ 官方 bundled → 用户安装包。
+Widget：`store::resolve_dir`：开发包（dev 模式挂载）→ 官方 bundled → 用户安装包。
+Scene：`content_package::store::package_dir`：官方 `extensions/dist/<id>/catalog.json` 优先，
+再回落 `%APPDATA%/content/<id>`；`lullcontent://` 资源协议按同一顺序服务。
 
 - 官方 id 在用户目录出现时不会覆盖官方包（官方优先）；升级冲突按 §3.2 处理。
-- 用户包 / 第三方包继续按现有逻辑从 `%APPDATA%/widgets` 解析。
+- Scene 没有开发模式挂载；`extensions:watch` 后重新选择/重载壁纸。
 
 ### 5.3 首次启动与升级协调（`official::reconcile`）
 
@@ -217,16 +256,19 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 - `.grants.json` 的记录增加 `source: "bundled" | "user"`；旧记录缺省按 user 处理。
 - 停用官方媒体工具时销毁窗口并停止其拥有的媒体会话（`noise` 停 Session，`player`
   暂停播放），避免「没有 UI 但还在响」；重新启用后重新建窗。
+- **Scene 不进入这一步**：它没有授权记录、启用状态或窗口；`official::reconcile` 只处理
+  Widget。官方场景的可用性只取决于资源目录、清单与整包摘要。
 
 ## 6. 完整性、签名与升级
 
-- 缺 `.lull-integrity.json` 或摘要不符 → 不加载、不建窗，扩展中心显示
+- Widget 缺 `.lull-integrity.json` 或摘要不符 → 不加载、不建窗；Scene 缺
+  `catalog.json` 的 `integrity` 或摘要不符 → 不进入壁纸目录。扩展中心显示
   `tampered` / `invalid` 与原因；修复方式只有重装应用。
 - 官方包不参与 `src-tauri/trust/publisher-keys.json` 的发布者签名策略；扩展中心在
-  `origin=bundled` 时不展示签名行。
+  `origin=bundled` 时不展示签名徽章 / 签名行。
 - 安装目录通常位于 `Program Files`，**任何路径都不得对官方包写文件**（包括 TOFU 补锁、
   摘要刷新、状态 KV）；状态 KV 仍写 `%APPDATA%`。
-- 升级不提供单独回滚；回滚 App 版本时会按旧资源重新 reconcile。
+- 升级不提供单独回滚；回滚 App 版本时会按旧资源重新加载官方场景。
 
 ## 7. 能力模型与媒体桥（P2）
 
@@ -315,7 +357,10 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 | P1 | 官方来源、默认授权、构建/资源/便携版骨架（曾用 echo 包验证，验证后移除） |
 | P2 | 播放器 / 队列 / 曲库能力，`widget_apply_resize` + `fit`，locale / tokens，示例包验证 |
 | P3 | 白噪音迁移：移动 UI、包构建、托盘 / 设置 / 扩展中心整合，删除内置 noise |
-| P4 | 播放器迁移：移动 UI、播放器会话 hook、封面、抽屉宽度/锚点，删除内置 player || P5 | 发布加固：便携版、CI、升级 / 篡改 / 缺资源测试、文档与 Skill 同步 |
+| P4 | 播放器迁移：移动 UI、播放器会话 hook、封面、抽屉宽度/锚点，删除内置 player |
+| P5 | 发布加固：便携版、CI、升级 / 篡改 / 缺资源测试、文档与 Skill 同步 |
+| P6 | 竹影迁移为官方 scene 包；删除内置 bamboo / aurora / dusk，宿主只保留媒体壁纸 |
+
 迁移后删除（git 历史保留）：
 
 - `src/app/(widgets)/noise/`、`src/app/(widgets)/player/`（均已完成）及对应测试；
@@ -323,24 +368,29 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 - `src/hooks/use-player-session.ts`（已完成）；
 - `src/widgets/manifests/noise.json`、`player.json`（均已完成，及 `gen-widgets` 生成的
   capability 文件）；
-- `src-tauri/src/media` 中只为 `noise` / `player` label 服务的官方矩阵分支。
+- `src-tauri/src/media` 中只为 `noise` / `player` label 服务的官方矩阵分支；
+- `src/scenes/bamboo/`、`src/scenes/aurora/`、`src/scenes/dusk/`、`src/scenes/shared/`
+  及 `src/styles/globals.css` 中只服务这些场景的动效。
 
-保留：`library`、`settings` 的内置窗口与 Media 面板；番茄钟已迁到
-`examples/widgets/liquid-pomodoro`，不再属于内置或官方包。`media-engine`
-隐藏音频引擎不变。数据方面，旧内置工具的 localStorage 偏好（启动静音、播放模式/
-音量）会一次性重置；播放器模式/音量与白噪音主音量以 Rust `player_state` /
-`noise_preferences` 为准，不丢数据。
+保留：`library`、`settings` 的内置窗口与 Media 面板；`lull.video` 仍是唯一内置壁纸；
+竹影作为官方 scene 扩展默认场景。番茄钟已迁到 `examples/widgets/liquid-pomodoro`，
+不再属于内置或官方包。`media-engine` 隐藏音频引擎不变。数据方面，旧内置工具的
+localStorage 偏好（启动静音、播放模式/音量）会一次性重置；播放器模式/音量与白噪音
+主音量以 Rust `player_state` / `noise_preferences` 为准，不丢数据。旧配置里的
+`lull.aurora` / `lull.dusk` 不重写，渲染层回退到默认竹影或媒体场景。
 
 ## 11. 失败模式与诊断
 
 | 场景 | 处理 |
 | --- | --- |
-| 资源目录缺失 / 被杀软隔离 | 官方包不出现；扩展中心诊断「官方扩展缺失，请重装应用」；不建窗、不 panic |
-| 摘要锁缺失 / 摘要不符 | 拒绝加载，卡片 `tampered` / `invalid` + 原因；不写盘、不自动修复 |
+| 资源目录缺失 / 被杀软隔离 | 官方包不出现；壁纸回退 `lull.video`；不建窗、不 panic |
+| 摘要锁缺失 / 摘要不符 | Widget 拒绝加载，Scene 不进入目录；卡片 `tampered` / `invalid` + 原因；不写盘、不自动修复 |
+| Scene 缺 `catalog.json` 的 `integrity` | 官方包标记 invalid；壁纸回退；不自动补 |
 | Program Files 只读 | 官方包全程只读；禁止 TOFU 补锁、摘要刷新与状态写入 |
-| 升级后清单 / 能力变化 | reconcile 更新哈希、补授新增能力、保留撤销；用户停用状态不丢 |
-| 用户历史包占用保留 id | 官方优先；用户包标 `invalid` 并提示卸载，不静默删除 |
+| 升级后清单 / 能力变化 | Widget reconcile 更新哈希、补授新增能力、保留撤销；Scene 按版本重建 iframe |
+| 用户历史包占用保留 id | 官方优先；用户包被跳过，不静默删除；从文件安装返回 `id-reserved` |
 | 停用官方媒体工具 | 销毁窗口并停止噪声 Session / 暂停播放，避免无 UI 出声 |
+| 场景脚本 / CSP 失败 | 场景桥超时日志；启动幕 3s 兜底；不阻塞托盘与设置 |
 | 封面 `asset:` 被拦 | 切 `lullwidget://<id>/__artwork/<trackId>`，同一处理器内校验授权 |
 | 字体服务不可用 | 回退系统字体栈；token fallback 保证布局不塌 |
 | 宽度 / 高度请求越界 | 夹取到清单范围与工作区；返回 `applied: false` 并记录原因 |
@@ -348,10 +398,11 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 
 ## 12. 验收
 
-- [ ] MSI / NSIS / 便携版安装后，`noise` 与 `player` 默认可用，托盘与扩展中心入口正确。
-- [ ] 扩展中心显示「官方」徽章，可停用 / 重新启用，不能卸载；停用后无残留播放。
+- [ ] MSI / NSIS / 便携版安装后，`noise`、`player`、`lull.bamboo` 默认可用，托盘与扩展中心入口正确。
+- [ ] 扩展中心显示「官方」徽章；Widget 可停用 / 重新启用，Scene 可去壁纸设置；两者不能卸载。
+- [ ] 默认壁纸是官方竹影；薄雾参数、时钟、跨屏同步正常；缺包时回退媒体壁纸。
 - [ ] 白噪音与播放器的功能逐项对齐（见 §1.1），封面、抽屉宽度、贴高正常。
-- [ ] App 升级后官方包更新、用户停用状态与状态 KV 保留、清单不再触发 `needs-review`。
+- [ ] App 升级后官方包更新、Widget 停用状态与状态 KV 保留、清单不再触发 `needs-review`。
 - [ ] 篡改 / 删除官方包文件后拒绝加载并给出诊断；重装后恢复。
 - [ ] zh-CN ↔ en-US 切换后，两个工具窗、扩展中心与托盘名称同步。
 - [x] `pnpm typecheck`、`pnpm test`、`pnpm widgets:check`、`pnpm extensions:check`、
@@ -365,20 +416,23 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 
 已随方案批准：
 
-1. 官方包**不可卸载**，只能停用 / 恢复默认。
+1. 官方包**不可卸载**：Widget 只能停用 / 恢复默认，Scene 只读。
 2. 播放器保留「添加音乐文件夹」：新增 `media.library.sources.write`（仅打开系统
    文件夹选择器并触发扫描）。若 P4 验收认为风险偏高，降级为「请到设置 → 音乐库
    添加来源」，并删除该能力。
 3. 字体优先走宿主共享字体服务；不可行时接受系统字体回退。
 4. 官方包不在官网单独分发 zip：保留 id 使安装到其它实例会被拒绝；构建产物仅供
    审计与开发验证。
+5. 竹影场景包保留 `lull.bamboo` id 与 `mist` 参数，默认场景不变；极光 / 暮色不迁移。
+6. `public/content/` 仍保留随包内容目录与签名机制，但默认 `scenes: []`，不再内置示例壁纸；
+   可安装示例位于 `examples/scenes/`。
 
 P0 契约修订（2026-11，随开发模式设计补充）：
 
 1. 官方扩展统一用 **Vite** 构建（dev server 与生产 build 同一套配置），esbuild 只保留
    给 `examples/widgets/*`。
 2. 开发模式分 Tier 0–3；Tier 2 的 dev server 只在 debug 构建、仅 loopback 可用，
-   细节见 [扩展开发模式](./extension-dev-mode.md)。
+   细节见 [扩展开发模式](./extension-dev-mode.md)。Scene 暂不支持 Tier 2。
 3. `official::reconcile` 跳过当前以开发模式挂载的同 id 包（见 §5.3）。
 4. SDK 侧新增共享媒体连接 Hub（`media_connect` 按 label 唯一，多个 React hook 不能
    各自 connect），归属与阶段见 [扩展开发模式](./extension-dev-mode.md) §9。
@@ -391,13 +445,17 @@ P0 契约修订（2026-11，随开发模式设计补充）：
 - `media.library.sources.write` 是否在 P4 保留（见上）。
 - ~~`Skill/lull-extension` 校验器只列 7 个 widget 能力~~：已补齐到 23 项
   （含 8 个 `media.noise.*`、8 个 Player/Queue/Library 能力），`self-test` 通过。
+- 官方竹影场景包的真机 iframe / CSP / 同步相位验收（P6）。
 
 ## 14. 参考
 
 - 包格式与能力：[`docs/widget-sdk.md`](./widget-sdk.md)、
   [`packages/widget-sdk/README.md`](../packages/widget-sdk/README.md)
+- 场景包与脚本桥：[`docs/scene-sdk.md`](./scene-sdk.md)、
+  [`packages/scene-sdk/README.md`](../packages/scene-sdk/README.md)
 - 扩展中心状态机与安装管线：[`docs/extension-center.md`](./extension-center.md)
 - 媒体权限矩阵：[`docs/media-service.md`](./media-service.md)
 - 摘要算法：[`src-tauri/src/widget_package/digest.rs`](../src-tauri/src/widget_package/digest.rs)、
+  [`src-tauri/src/content_package/digest.rs`](../src-tauri/src/content_package/digest.rs)、
   [`scripts/pack-widget.mjs`](../scripts/pack-widget.mjs)
 - 扩展标准：[`Skill/lull-extension/references/extension-standard.md`](../Skill/lull-extension/references/extension-standard.md)

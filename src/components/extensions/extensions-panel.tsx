@@ -558,15 +558,17 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                     <Badge variant={statusVariant(item)}>
                       {statusLabel(item.status)}
                     </Badge>
-                    <Badge
-                      variant={signatureVariant(
-                        (item.signature ?? UNSIGNED_SIGNATURE).status,
-                      )}
-                    >
-                      {signatureLabel(
-                        (item.signature ?? UNSIGNED_SIGNATURE).status,
-                      )}
-                    </Badge>
+                    {item.origin !== "bundled" && (
+                      <Badge
+                        variant={signatureVariant(
+                          (item.signature ?? UNSIGNED_SIGNATURE).status,
+                        )}
+                      >
+                        {signatureLabel(
+                          (item.signature ?? UNSIGNED_SIGNATURE).status,
+                        )}
+                      </Badge>
+                    )}
                     {item.dev && (
                       <Badge variant="outline">{m.ext_dev_badge()}</Badge>
                     )}

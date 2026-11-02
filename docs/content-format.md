@@ -13,14 +13,24 @@
 
 ```text
 public/content/
-  catalog.json          # 内容索引
-  scenes/
-    mist/
-      index.html
-      assets/…
+  catalog.json          # 内容索引（默认 scenes: []）
+  catalog.sig.json      # 目录签名
+  keys/                 # 随包公钥
 ```
 
-`catalog.json` 是运行时唯一发现入口；没有登记的目录不会被加载。
+`catalog.json` 是运行时唯一发现入口；没有登记的目录不会被加载。默认安装包不内置示例壁纸，
+可安装示例位于 `examples/scenes/`。
+
+官方随包壁纸（竹影）是**官方 scene 扩展**，不放在这里：
+
+```text
+extensions/official/bamboo/        # 源码（catalog.json + Vite 入口）
+extensions/dist/lull.bamboo/       # 构建产物，安装目录 extensions/lull.bamboo/
+```
+
+它与用户内容包格式相同，由 `pnpm extensions:build` 写入 `integrity`，运行时与
+`public/content/`、`%APPDATA%/content/` 一起通过 `content_packages` 合并；区别只在
+来源（`origin: "bundled"`）与只读分发。详见 [官方扩展](./official-extensions.md)。
 
 ## 2. 目录文件
 
@@ -31,21 +41,21 @@ public/content/
     {
       "schemaVersion": 1,
       "type": "scene",
-      "id": "community.mist",
-      "name": "雾岚",
+      "id": "demo.fireflies",
+      "name": "流萤（测试包）",
       "version": "1.0.0",
-      "description": "薄雾与远山。",
-      "author": "Lull Community",
+      "description": "深林夜幕里的流萤。用于验证内容包安装：纯静态 HTML/CSS，无脚本、无外部资源。",
+      "author": "Lull Demo",
       "license": "CC-BY-4.0",
       "capabilities": ["wallpaper.viewport", "wallpaper.canvas"],
-      "entry": "scenes/mist/index.html",
-      "theme": { "background": "#0a1416", "accent": "#9fc7c2" },
+      "entry": "scenes/demo-fireflies/index.html",
+      "theme": { "background": "#04120f", "accent": "#f2c98a" },
       "performance": { "tier": "low", "targetFps": 30 },
       "compatibility": { "hostApi": 1, "platforms": ["windows"] },
       "integrity": {
         "algorithm": "sha256",
         "scope": "package",
-        "digest": "f6b86e63434d810099e293bfa74c556542a02fbe96fc7ce97390e0938a608ecb"
+        "digest": "eb5191cae4175bf40e582e86352cdd5844ce1c9c7114a5eca5fc6cca88a59647"
       }
     }
   ]
@@ -116,7 +126,7 @@ type ContentManifest = {
 
 宿主读取目录时：
 
-- 目录缺失 / 损坏 / schemaVersion 不支持 → 只保留内置场景，不崩溃；
+- 目录缺失 / 损坏 / schemaVersion 不支持 → 只保留内置媒体场景，不崩溃；
 - 单条 manifest 非法 → **只跳过该条**，其余场景照常加载，设置页列出问题；
 - 重复 id → 保留第一条，后续条目跳过并提示；`pnpm content:check` 仍把重复 id 视为发布错误；
 - 缺 `integrity` → 仍然加载，但标记为不可校验（官方目录要求必须填写）。
@@ -128,6 +138,8 @@ type ContentManifest = {
 - 随包附 `LICENSE` 或 `THIRD_PARTY_NOTICES.md`；
 - 不允许把无授权素材打包进官方内容目录；
 - 官方内置场景属于应用代码，以 GPL-3.0-or-later 发布；官方内容目录与示例以 CC BY 4.0 发布。
+- 官方竹影场景包位于 `extensions/official/bamboo/**`，仍属应用代码（GPL-3.0-or-later），
+  不作为可自由再许可的内容示例。
 
 ## 6. 校验
 
@@ -254,8 +266,7 @@ scene 支持同 id **覆盖安装**（本地手动更新：旧目录备份后替
 
 ## 9. 示例
 
-- [`public/content/catalog.json`](../public/content/catalog.json)
-- [`public/content/scenes/mist/index.html`](../public/content/scenes/mist/index.html)
+- [`public/content/catalog.json`](../public/content/catalog.json) —— 默认空目录与签名机制
 - [`examples/scenes/demo-fireflies`](../examples/scenes/demo-fireflies) —— 可安装的测试包源码（纯 CSS 壁纸），
   打包后即 `artifacts/demo.fireflies-1.0.0.zip`，用来验证「拖入安装 → 场景出现在下拉里」这条链路
 - [`examples/scenes/param-demo`](../examples/scenes/param-demo) —— 声明 `wallpaper.params` +

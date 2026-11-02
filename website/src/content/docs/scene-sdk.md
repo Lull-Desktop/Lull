@@ -18,11 +18,9 @@ source: docs/scene-sdk.md
 
 ```text
 public/content/
-  catalog.json          # 内容索引
-  scenes/
-    mist/
-      index.html
-      assets/…
+  catalog.json          # 内容索引（默认 scenes: []）
+  catalog.sig.json      # 目录签名
+  keys/                 # 随包公钥
 ```
 
 > 没有登记在 `catalog.json` 里的目录不会被加载。
@@ -38,12 +36,12 @@ public/content/
     {
       "schemaVersion": 1,
       "type": "scene",
-      "id": "community.mist",
-      "name": "雾岚",
+      "id": "demo.fireflies",
+      "name": "流萤（测试包）",
       "version": "1.0.0",
       "license": "CC-BY-4.0",
       "capabilities": ["wallpaper.viewport", "wallpaper.canvas"],
-      "entry": "scenes/mist/index.html",
+      "entry": "scenes/demo-fireflies/index.html",
       "performance": { "tier": "low", "targetFps": 30 },
       "compatibility": { "hostApi": 1, "platforms": ["windows"] },
       "integrity": { "algorithm": "sha256", "scope": "package", "digest": "…" }
@@ -122,7 +120,7 @@ scene.onFrame((frame) => {
 | `dependencies` | 预留，首版不解析 |
 | `id` | 一经发布不改名，改名视为新内容 |
 
-宿主读取目录时的容错：目录缺失 / 损坏 → 只保留内置场景；单条清单非法 → 只跳过该条；
+宿主读取目录时的容错：目录缺失 / 损坏 → 只保留内置媒体场景；单条清单非法 → 只跳过该条；
 重复 id → 保留第一条；缺 `integrity` → 仍加载，但标记为不可校验。
 
 ## 开发工具

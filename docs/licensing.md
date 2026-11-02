@@ -41,7 +41,8 @@
 - 官方示例可作为模板被修改；
 - 第三方内容仍可自选许可，只需在 manifest 声明。
 
-内置场景实现（`src/scenes/**`）是应用代码，仍为 GPL；不要把它当作 CC BY 内容。
+内置媒体场景（`src/scenes/video`）与官方竹影场景包（`extensions/official/bamboo/**`）
+是应用代码，仍为 GPL；不要把它们当作 CC BY 内容。
 
 ## 5. GPL 合规要点
 

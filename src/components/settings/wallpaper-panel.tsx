@@ -6,7 +6,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Monitor } from "lucide-react";
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { SceneParamFields } from "@/components/scene-params";
 import { MediaPanel } from "@/components/settings/media-panel";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { DEFAULT_SCENE_ID } from "@/core/wallpaper/params";
 import { useSceneCatalog } from "@/hooks/use-scene-catalog";
 import { localizeError } from "@/i18n/errors";
 import { useLocale } from "@/i18n/locale";
@@ -50,6 +58,7 @@ type MonitorView = {
 
 function sceneSourceLabel(source: SceneCatalogEntry["source"]): string {
   if (source === "builtin") return m.wallpaper_source_builtin();
+  if (source === "official") return m.wallpaper_source_official();
   if (source === "content") return m.wallpaper_source_content();
   return m.wallpaper_source_user();
 }
@@ -84,6 +93,7 @@ export function WallpaperPanel() {
   const syncSwitchId = useId();
   const {
     entries: sceneEntries,
+    loading: sceneCatalogLoading,
     error: sceneCatalogError,
     issues: sceneCatalogIssues,
   } = useSceneCatalog();
@@ -230,8 +240,48 @@ export function WallpaperPanel() {
     [commitSceneParams, display],
   );
 
-  const activeScene = sceneEntries.find(
-    (entry) => entry.manifest.id === display?.scene,
+  // 默认场景固定排在下拉第一位：新配置和目录加载完成前都优先展示竹影。
+  const sceneOptions = useMemo(() => {
+    const list = [...sceneEntries];
+    const defaultIndex = list.findIndex(
+      (entry) => entry.manifest.id === DEFAULT_SCENE_ID,
+    );
+    if (defaultIndex > 0) {
+      const [preferred] = list.splice(defaultIndex, 1);
+      if (preferred) list.unshift(preferred);
+    }
+    return list;
+  }, [sceneEntries]);
+
+  const defaultSceneId = sceneOptions[0]?.manifest.id ?? DEFAULT_SCENE_ID;
+  const selectedSceneId =
+    display && sceneOptions.some((entry) => entry.manifest.id === display.scene)
+      ? display.scene
+      : defaultSceneId;
+
+  // 旧配置可能指向已删除的场景（lull.aurora / lull.dusk / 旧内容包）。
+  // 目录加载完成后回退到默认竹影并写回宿主，保证下一次启动也稳定。
+  const normalizedSceneRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (sceneCatalogLoading || !display || sceneOptions.length === 0) return;
+    if (sceneOptions.some((entry) => entry.manifest.id === display.scene)) {
+      return;
+    }
+    // 官方竹影暂时缺失（未构建 / 被隔离）时保留原配置，等扩展恢复后自动重新出现。
+    if (display.scene === DEFAULT_SCENE_ID) return;
+    if (normalizedSceneRef.current === display.scene) return;
+    normalizedSceneRef.current = display.scene;
+    updateDisplay({ scene: defaultSceneId });
+  }, [
+    sceneCatalogLoading,
+    display,
+    sceneOptions,
+    defaultSceneId,
+    updateDisplay,
+  ]);
+
+  const activeScene = sceneOptions.find(
+    (entry) => entry.manifest.id === selectedSceneId,
   );
 
   return (
@@ -307,7 +357,7 @@ export function WallpaperPanel() {
                 {m.wallpaper_scene_global()}
               </Label>
               <Select
-                value={display.scene}
+                value={selectedSceneId}
                 onValueChange={(v) => updateDisplay({ scene: v })}
               >
                 <SelectTrigger
@@ -318,7 +368,7 @@ export function WallpaperPanel() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {sceneEntries.map(({ manifest }) => (
+                  {sceneOptions.map(({ manifest }) => (
                     <SelectItem key={manifest.id} value={manifest.id}>
                       {manifest.name}
                     </SelectItem>
@@ -347,11 +397,11 @@ export function WallpaperPanel() {
                   </p>
                   <SceneParamFields
                     definitions={activeScene.manifest.params}
-                    values={display.sceneParams?.[display.scene] ?? {}}
+                    values={display.sceneParams?.[selectedSceneId] ?? {}}
                     onChange={(key, value) =>
-                      updateSceneParam(display.scene, key, value)
+                      updateSceneParam(selectedSceneId, key, value)
                     }
-                    onReset={() => commitSceneParams(display.scene, {})}
+                    onReset={() => commitSceneParams(selectedSceneId, {})}
                   />
                 </div>
               )}
@@ -433,7 +483,7 @@ export function WallpaperPanel() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {sceneEntries.map(({ manifest }) => (
+                          {sceneOptions.map(({ manifest }) => (
                             <SelectItem key={manifest.id} value={manifest.id}>
                               {manifest.name}
                             </SelectItem>

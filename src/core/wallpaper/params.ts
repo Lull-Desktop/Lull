@@ -17,8 +17,8 @@ export type WallpaperParams = {
 };
 
 /**
- * 默认场景 id。内置场景注册表据此保持默认值一致；
- * 场景失配时 SceneHost 也会回退到这个 id。
+ * 默认场景 id。竹影是随包官方场景扩展（`extensions/dist/lull.bamboo`），
+ * 不编进宿主；场景缺失时 SceneHost 回退到目录里第一个可用场景。
  */
 export const DEFAULT_SCENE_ID = "lull.bamboo";
 

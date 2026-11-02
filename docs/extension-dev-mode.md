@@ -168,6 +168,10 @@ useMediaEvent("library.changed", () => {});
 | **Tier 2** 开发服务器 | `pnpm extensions:dev <id>` | `devCsp` + dev URL | React Fast Refresh | 日常开发（推荐） |
 | **Tier 3** 单命令编排 | `pnpm dev:ext <id>` | 无（复用 Tier 2） | 有 | 新同学一条命令起环境 |
 
+> 以上开发模式目前针对 **widget**。官方壁纸场景（`lull.bamboo`）是内容包，用
+> `pnpm extensions:watch bamboo` 重建产物后重新选择/重载壁纸即可；scene 的 Tier 2
+> dev server 尚未实现，不要把 `.lull-dev.json` 挂到场景目录上。
+
 ### 3.1 Tier 0 / 1：先保证不依赖 dev server
 
 - Tier 0：Vite 构建到 `extensions/dist/<id>/`，设置 → 扩展 → 开发模式 → 添加目录。

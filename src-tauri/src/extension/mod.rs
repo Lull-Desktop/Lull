@@ -201,7 +201,7 @@ fn scene_info(package: content_package::store::ContentPackageInfo) -> ExtensionI
     verified: if package.verified { "declared" } else { "none" }.to_string(),
     signature: package.signature,
     dev: false,
-    origin: "user".to_string(),
+    origin: package.origin,
     error,
     enabled: None,
     running: None,
@@ -337,6 +337,12 @@ fn preview_from_staged_with_policy(
   let kind = detect_kind(staged.bundle())?;
   let bundle = staged.bundle();
   let claim = claim_for_bundle(kind, bundle)?;
+  if kind == Kind::Scene && content_package::store::is_reserved(&claim.id) {
+    return Err(ExtensionError::new(
+      "manifest.id-reserved",
+      format!("{} 是官方保留 id，不能作为用户内容包安装", claim.id),
+    ));
+  }
   let (signature, _) = content_trust::verify_source(source, bundle, &claim, policy);
   let mut warnings: Vec<String> = Vec::new();
 
@@ -497,6 +503,12 @@ pub fn extensions_install(
 
   let kind = detect_kind(staged.bundle())?;
   let claim = claim_for_bundle(kind, staged.bundle())?;
+  if kind == Kind::Scene && content_package::store::is_reserved(&claim.id) {
+    return Err(ExtensionError::new(
+      "manifest.id-reserved",
+      format!("{} 是官方保留 id，不能作为用户内容包安装", claim.id),
+    ));
+  }
   let policy = content_trust::policy::load(&app);
   let (signature, persist) =
     content_trust::verify_source(Path::new(&path), staged.bundle(), &claim, &policy);
@@ -546,6 +558,12 @@ pub fn extensions_remove(app: AppHandle, kind: String, id: String) -> Result<(),
         .map_err(|error| ExtensionError::new("extension.remove-failed", error))?;
     }
     Kind::Scene => {
+      if content_package::store::is_official(&app, &id) {
+        return Err(ExtensionError::new(
+          "extension.official-readonly",
+          "官方壁纸随应用分发，不能卸载",
+        ));
+      }
       if crate::wallpaper::runtime::scene_in_use(&id) {
         return Err(ExtensionError::new(
           "extension.in-use",

@@ -11,7 +11,7 @@ source: docs/architecture.md
 | 层 | 位置 | 职责 |
 | --- | --- | --- |
 | **Core** | `src-tauri/src/{wallpaper,window_host,config}` + `src/core` | 桌面宿主、显示器拓扑、窗口生命周期、配置、IPC、原生桥 |
-| **Extensions** | `src/sdk/*` + `src/scenes` + `src/widgets` + `packages/*-sdk` | 场景清单与目录协议、脚本场景桥、工具窗口能力分层 |
+| **Extensions** | `src/sdk/*` + `src/scenes` + `src/widgets` + `extensions/official` + `packages/*-sdk` | 场景清单与目录协议、脚本场景桥、官方随包壁纸、工具窗口能力分层 |
 | **Community** | `content/schema` + `public/content` + 校验脚本 + `content_package` | 内容包格式、包摘要、目录签名、本地安装器 |
 | **Services** | 计划中 | 内容索引、同步、发布服务；不影响本地核心运行 |
 

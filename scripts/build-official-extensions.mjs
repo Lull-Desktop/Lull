@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 /**
- * 构建官方扩展：`extensions/official/<id>/` → `extensions/dist/<id>/` 标准 widget 包。
+ * 构建官方扩展：`extensions/official/<dir>/` → `extensions/dist/<id>/`。
+ *
+ * 支持两种包：
+ *   widget：widget.json + index.html → 标准 widget 包 + `.lull-integrity.json`
+ *   scene ：catalog.json + index.html（Vite 入口）→ 内容包（catalog.json 内写 integrity）
  *
  * 产物：
- *   extensions/dist/<id>/widget.json|index.html|assets/...
- *   extensions/dist/<id>/.lull-integrity.json   # 构建期摘要锁，source=declared
- *   extensions/dist/index.json                  # 供诊断与 CI 断言
+ *   extensions/dist/<id>/ …（widget 在包根；scene 在 catalog.json 指定的入口目录）
+ *   extensions/dist/index.json  # 供诊断与 CI 断言（含 kind）
  *
  * 用法：
- *   node scripts/build-official-extensions.mjs [id ...] [--check]
+ *   node scripts/build-official-extensions.mjs [dir|id ...] [--check]
  *
  * `--check` 不重建，只校验产物与源码/摘要一致，供 CI 使用。
  */
@@ -25,6 +28,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
+import { computePackageDigest } from "./content-digest.mjs";
 import { createExtensionConfig } from "./lib/extension-vite.config.mjs";
 import { ensureSdkDist } from "./lib/sdk-dist.mjs";
 import {
@@ -43,9 +47,11 @@ const validator = join(
   "bin",
   "lull-ext.mjs",
 );
-const ID = /^[a-z][a-z0-9-]{1,31}$/;
+const WIDGET_ID = /^[a-z][a-z0-9-]{1,31}$/;
+const SCENE_ID = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const TEXT_FILE = /\.(html|js|mjs|css|json|map)$/i;
+const SCENE_ORDER = 20;
 
 const args = process.argv.slice(2);
 const checkOnly = args.includes("--check");
@@ -64,36 +70,36 @@ function appVersion() {
   return conf.version;
 }
 
-function extensionIds() {
-  if (!existsSync(officialRoot)) return [];
-  const ids = readdirSync(officialRoot, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isDirectory() &&
-        !entry.name.startsWith("_") &&
-        !entry.name.startsWith("."),
-    )
-    .map((entry) => entry.name)
-    .filter((id) => existsSync(join(officialRoot, id, "widget.json")));
-  if (requested.length > 0) {
-    for (const id of requested) {
-      if (!ids.includes(id)) fail(`未知官方扩展：${id}`);
-    }
-    return ids.filter((id) => requested.includes(id));
-  }
-  return ids;
-}
-
-function readManifest(dir) {
-  const path = join(dir, "widget.json");
-  if (!existsSync(path)) fail(`缺少 widget.json：${dir}`);
-  let manifest;
+function readJson(path) {
   try {
-    manifest = JSON.parse(readFileSync(path, "utf8"));
+    return JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
     fail(`${path} 不是合法 JSON：${error}`);
   }
-  if (!ID.test(manifest.id ?? "")) fail(`${path} 的 id 非法`);
+}
+
+function safeSceneEntry(entry) {
+  if (typeof entry !== "string") return false;
+  if (entry.startsWith("/") || entry.includes("\\")) return false;
+  if (entry.includes("%") || entry.includes("\0")) return false;
+  if (!entry.endsWith(".html")) return false;
+  const segments = entry.split("/");
+  if (segments.length < 2 || segments.length > 6) return false;
+  return segments.every(
+    (segment) => segment !== "" && segment !== "." && segment !== "..",
+  );
+}
+
+function sceneDirFor(entry) {
+  return entry.split("/").slice(0, -1).join("/");
+}
+
+/** 读取 widget 源清单。 */
+function readWidgetManifest(dir) {
+  const path = join(dir, "widget.json");
+  if (!existsSync(path)) fail(`缺少 widget.json：${dir}`);
+  const manifest = readJson(path);
+  if (!WIDGET_ID.test(manifest.id ?? "")) fail(`${path} 的 id 非法`);
   if (!VERSION.test(manifest.version ?? "")) fail(`${path} 的 version 非法`);
   if (manifest.builtin !== false) fail(`${path} 必须是 builtin=false`);
   if (typeof manifest.license !== "string" || !manifest.license.trim()) {
@@ -103,6 +109,100 @@ function readManifest(dir) {
     fail(`${path} 的 entry 必须是包内 .html`);
   }
   return manifest;
+}
+
+/** 读取 scene 源清单；integrity 不要求在源码里（构建时写入产物）。 */
+function readSceneSource(dir) {
+  const path = join(dir, "catalog.json");
+  if (!existsSync(path)) fail(`缺少 catalog.json：${dir}`);
+  const catalog = readJson(path);
+  if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) {
+    fail(`${path} 必须是 JSON 对象`);
+  }
+  if (catalog.schemaVersion !== 1) fail(`${path} 的 schemaVersion 必须是 1`);
+  if (!Array.isArray(catalog.scenes) || catalog.scenes.length !== 1) {
+    fail(`${path} 的 scenes 必须恰好一条（v1 内容包限制）`);
+  }
+  const scene = catalog.scenes[0];
+  if (!scene || typeof scene !== "object" || Array.isArray(scene)) {
+    fail(`${path} 的 scenes[0] 必须是对象`);
+  }
+  if (!SCENE_ID.test(scene.id ?? "")) fail(`${path} 的 id 非法`);
+  if (!VERSION.test(scene.version ?? "")) fail(`${path} 的 version 非法`);
+  if (typeof scene.license !== "string" || !scene.license.trim()) {
+    fail(`${path} 必须声明 license`);
+  }
+  if (!safeSceneEntry(scene.entry)) {
+    fail(`${path} 的 entry 必须是安全相对路径下的 .html（例如 scenes/bamboo/index.html）`);
+  }
+  if (!existsSync(join(dir, "index.html"))) {
+    fail(`${dir} 缺少 index.html（场景的 Vite 入口）`);
+  }
+  return { catalog, scene };
+}
+
+/** 扫描官方扩展源码目录，返回 dir / kind / 产物 id 等描述。 */
+function officialExtensions() {
+  if (!existsSync(officialRoot)) return [];
+  const found = [];
+  for (const entry of readdirSync(officialRoot, { withFileTypes: true })) {
+    if (
+      !entry.isDirectory() ||
+      entry.name.startsWith("_") ||
+      entry.name.startsWith(".")
+    ) {
+      continue;
+    }
+    const sourceDir = join(officialRoot, entry.name);
+    if (existsSync(join(sourceDir, "widget.json"))) {
+      const manifest = readWidgetManifest(sourceDir);
+      found.push({
+        dir: entry.name,
+        kind: "widget",
+        id: manifest.id,
+        version: manifest.version,
+        order: manifest.order ?? 100,
+        sourceDir,
+        manifest,
+      });
+      continue;
+    }
+    if (existsSync(join(sourceDir, "catalog.json"))) {
+      const { catalog, scene } = readSceneSource(sourceDir);
+      found.push({
+        dir: entry.name,
+        kind: "scene",
+        id: scene.id,
+        version: scene.version,
+        order: SCENE_ORDER,
+        sourceDir,
+        catalog,
+        scene,
+      });
+      continue;
+    }
+    fail(
+      `${entry.name} 缺少 widget.json 或 catalog.json，无法判断扩展类型`,
+    );
+  }
+  return found;
+}
+
+function selectExtensions() {
+  const all = officialExtensions();
+  if (requested.length === 0) {
+    if (all.length === 0) {
+      fail("extensions/official 下没有可构建的扩展");
+    }
+    return all;
+  }
+  const matched = all.filter((ext) =>
+    requested.some((arg) => arg === ext.dir || arg === ext.id),
+  );
+  const matchedKeys = new Set(matched.flatMap((ext) => [ext.dir, ext.id]));
+  const missing = requested.filter((id) => !matchedKeys.has(id));
+  if (missing.length > 0) fail(`未知官方扩展：${missing.join(", ")}`);
+  return matched;
 }
 
 function runValidator(dir, id) {
@@ -176,84 +276,198 @@ function readIntegrity(dir) {
   } catch (error) {
     fail(`${dir} 的 ${WIDGET_INTEGRITY_FILE} 不是合法 JSON：${error}`);
   }
-  return null;
 }
 
-async function buildOne(id) {
-  const sourceDir = join(officialRoot, id);
-  const outDir = join(distRoot, id);
-  const manifest = readManifest(sourceDir);
-  if (manifest.id !== id) {
-    fail(`目录名与清单 id 不一致：${id} / ${manifest.id}`);
-  }
-  if (!existsSync(join(sourceDir, manifest.entry))) {
-    fail(`${id} 的 entry 不存在：${manifest.entry}`);
-  }
-
+function buildWidget(ext) {
+  const outDir = join(distRoot, ext.id);
+  readManifestEntry(ext);
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
+  return buildWidgetInto(ext, outDir);
+}
+
+function readManifestEntry(ext) {
+  if (!existsSync(join(ext.sourceDir, ext.manifest.entry))) {
+    fail(`${ext.id} 的 entry 不存在：${ext.manifest.entry}`);
+  }
+}
+
+async function buildWidgetInto(ext, outDir) {
   await build(
     createExtensionConfig({
       repoRoot,
-      extensionDir: sourceDir,
+      extensionDir: ext.sourceDir,
       outDir,
     }),
   );
-  if (!existsSync(join(outDir, manifest.entry))) {
-    fail(`${id} 构建后缺少 entry：${manifest.entry}`);
-  }
-
   // 清单不进 Vite 的入口图，手动复制；assets/ 额外复制（public/ 由 Vite 处理）。
-  cpSync(join(sourceDir, "widget.json"), join(outDir, "widget.json"));
-  if (existsSync(join(sourceDir, "assets"))) {
-    cpSync(join(sourceDir, "assets"), join(outDir, "assets"), {
+  cpSync(join(ext.sourceDir, "widget.json"), join(outDir, "widget.json"));
+  if (existsSync(join(ext.sourceDir, "assets"))) {
+    cpSync(join(ext.sourceDir, "assets"), join(outDir, "assets"), {
       recursive: true,
     });
   }
 
-  runValidator(outDir, id);
-  scanBuiltPackage(outDir, id);
+  runValidator(outDir, ext.id);
+  scanBuiltPackage(outDir, ext.id);
   const { digest } = writeWidgetIntegrity(
     outDir,
-    manifest.id,
-    manifest.version,
+    ext.id,
+    ext.version,
     "declared",
   );
   console.log(
-    `[extensions] ${id}@${manifest.version} → extensions/dist/${id} (${digest.slice(0, 12)}…)`,
+    `[extensions] widget ${ext.id}@${ext.version} → extensions/dist/${ext.id} (${digest.slice(0, 12)}…)`,
   );
-  return { id, version: manifest.version, order: manifest.order ?? 100, digest };
+  return {
+    kind: "widget",
+    id: ext.id,
+    version: ext.version,
+    order: ext.order,
+    digest,
+  };
 }
 
-function checkOne(id) {
-  const sourceDir = join(officialRoot, id);
-  const outDir = join(distRoot, id);
-  const manifest = readManifest(sourceDir);
-  if (manifest.id !== id) fail(`目录名与清单 id 不一致：${id} / ${manifest.id}`);
-  if (!existsSync(join(outDir, manifest.entry))) {
-    fail(`${id} 尚未构建：先执行 pnpm extensions:build`);
+function buildScene(ext) {
+  const outRoot = join(distRoot, ext.id);
+  const entryDir = sceneDirFor(ext.scene.entry);
+  rmSync(outRoot, { recursive: true, force: true });
+  mkdirSync(join(outRoot, ...entryDir.split("/")), { recursive: true });
+  return buildSceneInto(ext, outRoot, entryDir);
+}
+
+async function buildSceneInto(ext, outRoot, entryDir) {
+  const sceneOutDir = join(outRoot, ...entryDir.split("/"));
+  await build(
+    createExtensionConfig({
+      repoRoot,
+      extensionDir: ext.sourceDir,
+      outDir: sceneOutDir,
+    }),
+  );
+  const entryPath = join(outRoot, ...ext.scene.entry.split("/"));
+  if (!existsSync(entryPath)) {
+    fail(`${ext.id} 构建后缺少 entry：${ext.scene.entry}`);
   }
-  const builtManifest = readManifest(outDir);
-  if (JSON.stringify(builtManifest) !== JSON.stringify(manifest)) {
-    fail(`${id} 的产物清单与源码不一致：重新执行 pnpm extensions:build`);
+
+  const catalogPath = join(ext.sourceDir, "catalog.json");
+  const catalog = readJson(catalogPath);
+  cpSync(catalogPath, join(outRoot, "catalog.json"));
+  const digest = computePackageDigest({
+    id: ext.id,
+    version: ext.version,
+    dir: sceneOutDir,
+  });
+  const scene = catalog.scenes?.[0];
+  if (!scene) fail(`${ext.id} 的 catalog.json 缺少 scenes[0]`);
+  scene.integrity = { algorithm: "sha256", scope: "package", digest };
+  writeFileSync(
+    join(outRoot, "catalog.json"),
+    `${JSON.stringify(catalog, null, 2)}\n`,
+    "utf8",
+  );
+
+  runValidator(outRoot, ext.id);
+  scanBuiltPackage(outRoot, ext.id);
+  console.log(
+    `[extensions] scene ${ext.id}@${ext.version} → extensions/dist/${ext.id} (${digest.slice(0, 12)}…)`,
+  );
+  return {
+    kind: "scene",
+    id: ext.id,
+    version: ext.version,
+    order: ext.order,
+    digest,
+  };
+}
+
+async function buildOne(ext) {
+  return ext.kind === "widget" ? buildWidget(ext) : buildScene(ext);
+}
+
+function checkWidget(ext) {
+  const outDir = join(distRoot, ext.id);
+  if (!existsSync(join(outDir, ext.manifest.entry))) {
+    fail(`${ext.id} 尚未构建：先执行 pnpm extensions:build`);
+  }
+  const builtManifest = readWidgetManifest(outDir);
+  if (JSON.stringify(builtManifest) !== JSON.stringify(ext.manifest)) {
+    fail(`${ext.id} 的产物清单与源码不一致：重新执行 pnpm extensions:build`);
   }
   const record = readIntegrity(outDir);
-  if (!record) fail(`${id} 缺少 ${WIDGET_INTEGRITY_FILE}`);
+  if (!record) fail(`${ext.id} 缺少 ${WIDGET_INTEGRITY_FILE}`);
   if (
     record.schemaVersion !== 1 ||
     record.algorithm !== "sha256" ||
     record.scope !== "package" ||
     record.source !== "declared"
   ) {
-    fail(`${id} 的摘要锁字段不符合约定`);
+    fail(`${ext.id} 的摘要锁字段不符合约定`);
   }
-  const digest = computeWidgetDigest(outDir, manifest.id, manifest.version);
+  const digest = computeWidgetDigest(outDir, ext.id, ext.version);
   if (record.digest !== digest) {
-    fail(`${id} 的摘要不匹配：产物被改动过，重新构建`);
+    fail(`${ext.id} 的摘要不匹配：产物被改动过，重新构建`);
   }
-  runValidator(outDir, id);
-  scanBuiltPackage(outDir, id);
-  return { id, version: manifest.version, order: manifest.order ?? 100, digest };
+  runValidator(outDir, ext.id);
+  scanBuiltPackage(outDir, ext.id);
+  return {
+    kind: "widget",
+    id: ext.id,
+    version: ext.version,
+    order: ext.order,
+    digest,
+  };
+}
+
+function stripIntegrity(scene) {
+  const copy = { ...scene };
+  delete copy.integrity;
+  return copy;
+}
+
+function checkScene(ext) {
+  const outRoot = join(distRoot, ext.id);
+  const catalogPath = join(outRoot, "catalog.json");
+  if (!existsSync(catalogPath)) {
+    fail(`${ext.id} 尚未构建：先执行 pnpm extensions:build`);
+  }
+  const builtCatalog = readJson(catalogPath);
+  const builtScene = builtCatalog.scenes?.[0];
+  if (!builtScene || typeof builtScene !== "object") {
+    fail(`${ext.id} 的产物 catalog.json 缺少 scenes[0]`);
+  }
+  if (
+    JSON.stringify(stripIntegrity(builtScene)) !==
+    JSON.stringify(stripIntegrity(ext.scene))
+  ) {
+    fail(`${ext.id} 的产物清单与源码不一致：重新执行 pnpm extensions:build`);
+  }
+  const entryPath = join(outRoot, ...ext.scene.entry.split("/"));
+  if (!existsSync(entryPath)) {
+    fail(`${ext.id} 尚未构建：缺少 entry ${ext.scene.entry}`);
+  }
+  const entryDir = join(outRoot, ...sceneDirFor(ext.scene.entry).split("/"));
+  const digest = computePackageDigest({
+    id: ext.id,
+    version: ext.version,
+    dir: entryDir,
+  });
+  if (builtScene.integrity?.digest !== digest) {
+    fail(`${ext.id} 的 integrity 不匹配：产物被改动过，重新构建`);
+  }
+  runValidator(outRoot, ext.id);
+  scanBuiltPackage(outRoot, ext.id);
+  return {
+    kind: "scene",
+    id: ext.id,
+    version: ext.version,
+    order: ext.order,
+    digest,
+  };
+}
+
+function checkOne(ext) {
+  return ext.kind === "widget" ? checkWidget(ext) : checkScene(ext);
 }
 
 function writeIndex(entries) {
@@ -275,7 +489,7 @@ function writeIndex(entries) {
 function mergeExistingIndex(entries) {
   const indexPath = join(distRoot, "index.json");
   if (!existsSync(indexPath)) return entries;
-  const existing = JSON.parse(readFileSync(indexPath, "utf8"));
+  const existing = readJson(indexPath);
   const byId = new Map(
     (existing.extensions ?? [])
       .filter((entry) => existsSync(join(distRoot, entry.id)))
@@ -285,21 +499,21 @@ function mergeExistingIndex(entries) {
   return [...byId.values()];
 }
 
-const ids = extensionIds();
-if (ids.length === 0) fail("extensions/official 下没有可构建的扩展");
+const extensions = selectExtensions();
 mkdirSync(distRoot, { recursive: true });
 
 if (checkOnly) {
-  const entries = ids.map(checkOne);
+  const entries = extensions.map(checkOne);
   const indexPath = join(distRoot, "index.json");
   if (!existsSync(indexPath)) fail("缺少 extensions/dist/index.json");
-  const index = JSON.parse(readFileSync(indexPath, "utf8"));
+  const index = readJson(indexPath);
   for (const entry of entries) {
     const found = index.extensions?.find((item) => item.id === entry.id);
     if (
       !found ||
       found.digest !== entry.digest ||
-      found.version !== entry.version
+      found.version !== entry.version ||
+      found.kind !== entry.kind
     ) {
       fail(`extensions/dist/index.json 与 ${entry.id} 不一致`);
     }
@@ -338,7 +552,7 @@ if (checkOnly) {
     fail(String(error));
   }
   const entries = [];
-  for (const id of ids) entries.push(await buildOne(id));
+  for (const ext of extensions) entries.push(await buildOne(ext));
   writeIndex(requested.length > 0 ? mergeExistingIndex(entries) : entries);
   console.log(`[extensions] 构建完成：${entries.length} 个官方扩展`);
 }

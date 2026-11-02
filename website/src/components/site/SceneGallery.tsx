@@ -11,7 +11,7 @@ export interface Scene {
 }
 
 /**
- * 场景画廊：四张 16:9 截图，滚动进入时逐个淡入（React Bits `FadeContent` 的 stagger）。
+ * 场景画廊：16:9 截图，滚动进入时逐个淡入（React Bits `FadeContent` 的 stagger）。
  * 悬停放大仍然是纯 CSS（`group-hover`），不需要 JS。
  */
 export default function SceneGallery({ scenes }: { scenes: Scene[] }) {
@@ -23,7 +23,7 @@ export default function SceneGallery({ scenes }: { scenes: Scene[] }) {
           stagger={0.08}
           duration={0.8}
           data-fade-content
-          className="grid grid-cols-4 gap-3.5 max-[860px]:grid-cols-2"
+          className="grid grid-cols-2 gap-3.5 max-[860px]:grid-cols-1"
         >
           {scenes.map((scene) => (
             <a

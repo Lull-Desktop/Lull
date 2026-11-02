@@ -1,6 +1,7 @@
 # Lull 内容目录
 
-这里放**随安装包分发**的官方内容与示例。运行时的实际文件位于 `public/content/`，构建时原样复制到 `dist/content/`。
+这里放**随安装包分发**的官方内容。运行时的实际文件位于 `public/content/`，构建时原样复制到 `dist/content/`。
+默认内容目录只保留签名机制，`scenes` 为空；可安装的示例在 `examples/scenes/`。
 
 ## 目录
 
@@ -10,11 +11,13 @@ content/
     scene.schema.json       # Scene Manifest JSON Schema
     catalog.schema.json     # 目录文件 JSON Schema
 public/content/
-  catalog.json              # 运行时发现入口
-  scenes/mist/index.html    # 外部静态场景示例
+  catalog.json              # 运行时发现入口（默认 scenes: []）
+  catalog.sig.json          # 目录签名
+  keys/                     # 随包公钥
+examples/scenes/            # 可安装的外部场景示例（不随包进入运行时目录）
 ```
 
-## 新增外部场景
+## 新增随包场景
 
 1. 在 `public/content/scenes/<name>/` 放一个自包含的 `index.html`；
 2. 在 `public/content/catalog.json` 的 `scenes` 数组登记 manifest；
@@ -37,7 +40,7 @@ pnpm test
 - `id` 全局唯一，建议 `作者.场景`；
 - 必须声明 `version` 与 `license`；
 - `entry` 只能指向内容根目录内的 `.html`，禁止 `..` / 绝对路径；
-- 只允许 HTML / CSS；iframe 空 `sandbox`，JavaScript 不执行；
+- 静态包只允许 HTML / CSS（空 `sandbox`）；脚本包必须声明 `wallpaper.script`，由 Scene SDK 桥读取帧；
 - 不加载远程脚本、字体或音频；
 - 不访问 Tauri API / `window.parent` / 宿主存储；
 - 素材授权自行确认，并随包附许可证。
@@ -45,7 +48,8 @@ pnpm test
 ## 许可
 
 - 官方内容目录、Schema 与示例：**CC BY 4.0**（见 [CONTENT-LICENSE.md](../CONTENT-LICENSE.md)）；
-- 内置场景实现（`src/scenes/**`）属于应用代码：**GPL-3.0-or-later**；
+- 内置媒体壁纸实现（`src/scenes/video`）与官方竹影场景包（`extensions/official/bamboo/**`）
+  属于应用代码：**GPL-3.0-or-later**；
 - 第三方内容包：作者自选许可，但必须在 manifest 中声明，并自行确认素材授权；
 - 不要在内容包中使用与 GPL 应用分发冲突的非商业/禁止演绎条款。
 

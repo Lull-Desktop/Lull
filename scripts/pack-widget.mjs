@@ -25,9 +25,9 @@ import { writeZip } from "./zip-writer.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CONTENT_SCHEME = "lull-content-package\0";
-/** 与 Rust `content_package::digest` 的官方 mist 摘要一致，用作 Node 侧自检。 */
-const MIST_DIGEST =
-  "f6b86e63434d810099e293bfa74c556542a02fbe96fc7ce97390e0938a608ecb";
+/** 与 Rust `content_package::digest` 的场景示例摘要一致，用作 Node 侧自检。 */
+const CONTENT_EXAMPLE_DIGEST =
+  "3a81b290fd8fdf35c7f74d80de838b5154d4c1b97a66b0c0fde6e4754a221d31";
 const ID = /^[a-z][a-z0-9-]{1,31}$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
@@ -36,19 +36,26 @@ function fail(message) {
   process.exit(1);
 }
 
-/** 用官方 scene 包的已知摘要校验 Node 侧算法，防止与 Rust 实现漂移。 */
+/** 用仓库内的脚本场景示例校验 Node 侧算法，防止与 Rust 实现漂移。 */
 function verifyDigestAlgorithm() {
-  const mist = join(root, "public", "content", "scenes", "mist");
-  if (!existsSync(join(mist, "index.html"))) return;
-  const digest = computeDigest(
-    collectFiles(mist),
-    CONTENT_SCHEME,
-    "community.mist",
-    "1.0.0",
+  const example = join(
+    root,
+    "examples",
+    "scenes",
+    "param-demo",
+    "scenes",
+    "param-demo",
   );
-  if (digest !== MIST_DIGEST) {
+  if (!existsSync(join(example, "index.html"))) return;
+  const digest = computeDigest(
+    collectFiles(example),
+    CONTENT_SCHEME,
+    "demo.param-scene",
+    "1.1.0",
+  );
+  if (digest !== CONTENT_EXAMPLE_DIGEST) {
     fail(
-      `摘要算法自检失败：Node 算出 ${digest}，Rust 已知值 ${MIST_DIGEST}。` +
+      `摘要算法自检失败：Node 算出 ${digest}，Rust 已知值 ${CONTENT_EXAMPLE_DIGEST}。` +
         " 请先修复算法，否则生成的 zip 会被安装器拒绝。",
     );
   }

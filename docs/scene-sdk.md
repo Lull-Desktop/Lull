@@ -1,22 +1,23 @@
 # Scene SDK
 
 > 目标：让创作者**不修改 Lull 核心代码**就能开发、测试并分发壁纸场景。
-> 首版范围：内置 React 场景 + 外部内容包（静态 HTML/CSS 或声明 `wallpaper.script`
-> 的沙箱脚本场景）。脚本场景通过 `@lull/scene-sdk` 的 postMessage 桥读取参数、
-> 画布几何与同步相位。
+> 首版范围：内置媒体壁纸 + 随包官方场景（竹影）+ 外部内容包（静态 HTML/CSS 或声明
+> `wallpaper.script` 的沙箱脚本场景）。脚本场景通过 `@lull/scene-sdk` 的 postMessage 桥
+> 读取参数、画布几何与同步相位。
 
 ## 1. 场景分类
 
 | 类型 | 注册方式 | 运行位置 | 首版 |
 | --- | --- | --- | --- |
-| 内置场景（built-in） | `src/scenes/registry.ts` | Next.js 客户端组件 | ✅ |
-| 内置视频场景 | `src/scenes/video` + `lull.video` | 宿主 MediaSurface（HTML `<video>` 回退，后续接原生纹理） | ✅ |
+| 内置媒体场景 | `src/scenes/registry.ts`（`lull.video`） | 宿主 MediaSurface（HTML `<video>` 回退，后续接原生纹理） | ✅ |
+| 官方随包场景 | `extensions/official/bamboo` → `extensions/dist/lull.bamboo` | `sandbox="allow-scripts"` iframe + Scene SDK 桥 | ✅ |
 | 外部静态场景 | `catalog.json`（随包或用户内容目录） | `sandbox=""` iframe（仅 HTML/CSS） | ✅ |
 | 外部脚本场景 | `catalog.json` + `wallpaper.script` | `sandbox="allow-scripts"` iframe + Scene SDK 桥 | ✅ |
 | 任意代码插件（可访问宿主 DOM/原生） | 未定义 | — | ❌ |
 
-外部场景不进入 `src/`，不参与 Rust 编译。壁纸窗口本身只拿到一条只读 capability
-（列出已安装内容包），用于把 `scene` id 解析成入口 URL；静态场景 iframe 仍是
+宿主内嵌只保留媒体壁纸：竹影已迁为官方场景包，极光 / 暮色已移除。
+外部场景与官方场景都不进入 `src/`、不参与 Rust 编译。壁纸窗口本身只拿到一条只读
+capability（列出已安装内容包），用于把 `scene` id 解析成入口 URL；静态场景 iframe 仍是
 `sandbox=""`，脚本场景 iframe 不带 `allow-same-origin`，这条权限不对外部内容开放。
 WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只允许只读
 `content_packages` 与事件订阅，不构成受支持的场景 API（见 §4.5）。
@@ -27,20 +28,20 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
 {
   "schemaVersion": 1,
   "type": "scene",
-  "id": "community.mist",
-  "name": "雾岚",
+  "id": "demo.fireflies",
+  "name": "流萤（测试包）",
   "version": "1.0.0",
-  "description": "薄雾与远山。",
-  "author": "Lull Community",
+  "description": "深林夜幕里的流萤。用于验证内容包安装：纯静态 HTML/CSS，无脚本、无外部资源。",
+  "author": "Lull Demo",
   "license": "CC-BY-4.0",
   "capabilities": [
     "wallpaper.viewport",
     "wallpaper.canvas"
   ],
-  "entry": "scenes/mist/index.html",
+  "entry": "scenes/demo-fireflies/index.html",
   "theme": {
-    "background": "#0a1416",
-    "accent": "#9fc7c2"
+    "background": "#04120f",
+    "accent": "#f2c98a"
   },
   "performance": {
     "tier": "low",
@@ -53,7 +54,7 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
   "integrity": {
     "algorithm": "sha256",
     "scope": "package",
-    "digest": "f6b86e63434d810099e293bfa74c556542a02fbe96fc7ce97390e0938a608ecb"
+    "digest": "eb5191cae4175bf40e582e86352cdd5844ce1c9c7114a5eca5fc6cca88a59647"
   }
 }
 ```
@@ -67,7 +68,7 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
 | `version` | ✅ | 语义化版本 |
 | `license` | ✅ | SPDX 标识或许可证名；内容包必填 |
 | `capabilities` | ✅ | 非空、去重；见下表 |
-| `entry` | 外部场景必填 | 相对 `public/content/` 的 `.html` 路径；禁止 `..` / 绝对路径 / 反斜杠 |
+| `entry` | 外部场景必填 | 相对内容包根目录的 `.html` 路径；禁止 `..` / 绝对路径 / 反斜杠 |
 | `description` | — | 设置页场景说明 |
 | `author` | — | 创作者署名 |
 | `theme.background` | — | 首帧防闪背景色（`#RRGGBB`） |
@@ -92,7 +93,7 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
 `compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。
 当前宿主 API 版本是 `SCENE_HOST_API = 1`。
 
-## 3. 内置场景接口
+## 3. 内置媒体场景接口
 
 ```ts
 type SceneFrame = {
@@ -124,38 +125,15 @@ export type SceneComponent = (props: SceneProps) => ReactNode;
 
 参考实现：
 
-- [`src/scenes/bamboo`](../src/scenes/bamboo/index.tsx)
-- [`src/scenes/aurora`](../src/scenes/aurora/index.tsx)
-- [`src/scenes/dusk`](../src/scenes/dusk/index.tsx)
+- 内置媒体场景：[`src/scenes/video`](../src/scenes/video/index.tsx)
+- 官方脚本场景：[`extensions/official/bamboo`](../extensions/official/bamboo/src/main.ts)
+- 外部脚本示例：[`examples/scenes/param-demo`](../examples/scenes/param-demo)、
+  [`examples/scenes/three-scene`](../examples/scenes/three-scene)
 
-新增内置场景：
-
-```ts
-// src/scenes/registry.ts
-const MY_MANIFEST = parseSceneManifest({
-  schemaVersion: 1,
-  type: "scene",
-  id: "lull.my-scene",
-  name: "我的场景",
-  version: "1.0.0",
-  license: "GPL-3.0-or-later",
-  capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
-  params: [
-    {
-      key: "density",
-      type: "number",
-      label: "密度",
-      default: 0.5,
-      min: 0,
-      max: 1,
-    },
-  ],
-  performance: { tier: "medium", targetFps: 60 },
-  compatibility: { hostApi: 1, platforms: ["windows"] },
-});
-```
-
-然后在 `BUILTIN_SCENES` 追加 `{ source: "builtin", manifest: MY_MANIFEST, component: MyScene }`。设置页与宿主会自动读取。
+**不再新增宿主内置场景**：需要随包分发的壁纸应做成 `extensions/official/<id>` 官方场景包
+（`catalog.json` + `index.html` + `src/`），由 `pnpm extensions:build` 构建到
+`extensions/dist/<scene-id>`；第三方场景继续放 `public/content/` 或安装内容包。内置
+`src/scenes/registry.ts` 只保留需要宿主内部 MediaSurface 的媒体场景。
 
 ## 4. 外部静态场景
 
@@ -163,11 +141,9 @@ const MY_MANIFEST = parseSceneManifest({
 
 ```text
 public/content/
-  catalog.json
-  scenes/
-    mist/
-      index.html
-      assets/…      # 可选，必须使用相对路径
+  catalog.json          # 内容索引（默认 scenes: []）
+  catalog.sig.json      # 目录签名
+  keys/                 # 随包公钥
 ```
 
 `catalog.json`：
@@ -179,12 +155,12 @@ public/content/
     {
       "schemaVersion": 1,
       "type": "scene",
-      "id": "community.mist",
-      "name": "雾岚",
+      "id": "demo.fireflies",
+      "name": "流萤（测试包）",
       "version": "1.0.0",
       "license": "CC-BY-4.0",
       "capabilities": ["wallpaper.viewport", "wallpaper.canvas"],
-      "entry": "scenes/mist/index.html"
+      "entry": "scenes/demo-fireflies/index.html"
     }
   ]
 }
@@ -201,7 +177,7 @@ public/content/
 - 需要感知屏幕几何时，用 `100%` / `100vw` / `100vh` 等纯 CSS 布局。
 
 静态包不能声明 `params` 或 `wallpaper.sync`（校验器会拒绝），因为没有任何通道能把值送进去。
-示例见 [`public/content/scenes/mist/index.html`](../public/content/scenes/mist/index.html)。
+示例见 [`examples/scenes/demo-fireflies`](../examples/scenes/demo-fireflies)。
 
 ### 4.3 脚本场景与 `@lull/scene-sdk`
 
@@ -293,12 +269,14 @@ scene.onFrame((frame) => {
 
 ## 5. 场景目录与设置页
 
-`src/hooks/use-scene-catalog.ts` 合并：
+`src/hooks/use-scene-catalog.ts` 合并（同 id 按优先级保留）：
 
-1. 内置场景（同步可用）；
-2. `public/content/catalog.json` 中的外部场景（异步加载并验签，失败只降级为空列表）。
+1. 内置场景（媒体壁纸，同步可用）；
+2. 官方随包场景（`extensions/dist/<id>`，Rust `content_packages` 返回 `origin=bundled`）；
+3. `public/content/catalog.json` 中登记（如有）的随包内容场景（异步加载并验签，失败只降级为空列表）；
+4. 用户安装的内容包（`%APPDATA%/content/<id>`）。
 
-设置页显示场景名、版本、许可证与来源（内置 / 随包内容包 / 已安装内容包），
+设置页显示场景名、版本、许可证与来源（内置 / 官方 / 随包内容包 / 已安装内容包），
 只对声明了 `wallpaper.params` 的场景渲染参数编辑器；参数按场景 id 持久化到配置，
 修改后热更新壁纸窗，再由 Scene SDK 桥或内置组件的 `SceneProps` 消费。
 `number` 参数同时声明 `min` 与 `max` 时使用滑条（`step` 控制步进，未声明时按范围推断），
@@ -308,9 +286,9 @@ scene.onFrame((frame) => {
 合并规则：
 
 - 不兼容当前 hostApi / 平台的场景会被过滤；
-- 同 id 时内置场景优先，外部包不能覆盖官方 id；
+- 同 id 时优先级为 内置 > 官方随包 > 随包内容 > 用户安装；官方场景不能被内容目录或用户包遮挡；
 - **单个内容包非法只跳过该条**，其余外部场景照常加载，问题列在设置页；
-- 目录加载失败不会影响壁纸运行。
+- 目录加载失败不会影响壁纸运行；官方场景缺失时回退到内置媒体场景。
 
 ## 6. 校验
 
@@ -320,6 +298,8 @@ pnpm content:pack    # 打成可安装 zip（正斜杠 + UTF-8）
 pnpm content:sign    # 给 catalog.json 原始字节签名
 pnpm content:check   # 清单 + 摘要 + 签名一次性校验
 pnpm scenes:sdk      # 构建 @lull/scene-sdk（dist + .d.ts）
+pnpm extensions:build # 构建官方场景包（竹影）到 extensions/dist
+pnpm extensions:check # 校验官方场景摘要 / 清单 / 产物边界
 ```
 
 校验内容：
@@ -341,7 +321,7 @@ Vitest 还会解析随包目录与示例场景，防止文档与实现漂移。
 ## 7. 版本与兼容
 
 - `schemaVersion` 是破坏性变更开关；新增可选字段不升版本。
-- 宿主读到不支持的版本会拒绝该目录并保留内置场景，不崩溃。
+- 宿主读到不支持的版本会拒绝该目录并保留内置媒体场景，不崩溃。
 - 内容包 `version` 独立于 Lull 版本；`compatibility.hostApi` 声明最低宿主 API，`maxHostApi` 声明最高可用版本，`platforms` 声明平台。
 - 场景 id 一经发布不要修改；改名视为新场景。
 - 同 id 安装新版本会**覆盖**旧目录（先备份再替换），壁纸按 manifest `version`
@@ -356,13 +336,14 @@ Vitest 还会解析随包目录与示例场景，防止文档与实现漂移。
 - 不允许场景创建/管理窗口；
 - 不允许场景修改全局配置；
 - 不允许场景在首版访问麦克风、文件系统或网络；
-- 不允许外部场景使用 `MediaSurface`、视频会话命令或读取宿主媒体 token；首版视频壁纸是内置 `lull.video`，本地素材由设置页登记，细节见 [Media Runtime](media-runtime.md)；
+- 不允许外部场景使用 `MediaSurface`、视频会话命令或读取宿主媒体 token；视频壁纸是内置 `lull.video`，本地素材由设置页登记，细节见 [Media Runtime](media-runtime.md)；
 - 不把 React 组件直接分发给第三方；外部场景用静态 HTML/CSS 或 `@lull/scene-sdk` 的
-  沙箱脚本包，不能直接复用内置 React 组件。
+  沙箱脚本包，不能直接复用宿主 React 组件（官方竹影也已改写为脚本场景包）。
 
 ## 9. 许可
 
 - `src/sdk/scene/**`、`packages/scene-sdk/**`：**Apache-2.0**（见 [SDK License](../SDK-LICENSE.md)）；
-- 内置场景实现 `src/scenes/**`：**GPL-3.0-or-later**；
-- 外部内容示例 `public/content/**`：**CC BY 4.0**（见 [Content License](../CONTENT-LICENSE.md)）；
+- 内置媒体场景实现 `src/scenes/**`：**GPL-3.0-or-later**；
+- 官方竹影场景包 `extensions/official/bamboo/**`：应用代码，**GPL-3.0-or-later**；
+- 外部内容示例 `examples/scenes/**`：**CC BY 4.0**（见 [Content License](../CONTENT-LICENSE.md)）；
 - 第三方内容包：作者自选许可，但必须在 manifest 的 `license` 字段声明。

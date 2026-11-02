@@ -1,5 +1,7 @@
 /**
  * 壁纸页测试：验证哈希参数解析、场景选择、跨屏画布布局与外部内容包挂载。
+ *
+ * 宿主不再内嵌竹影；没有桌面内容包时默认回退到内置媒体场景。
  */
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -14,9 +16,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("default (empty hash) renders bamboo in viewport layout", () => {
+test("default (empty hash) renders the built-in media scene in viewport layout", () => {
   render(<Page />);
-  expect(screen.getByTestId("scene-bamboo")).toBeDefined();
+  expect(screen.getByTestId("scene-video")).toBeDefined();
   expect(screen.queryByTestId("canvas-container")).toBeNull();
 });
 
@@ -29,7 +31,7 @@ test("startup veil stays visible until the scene reports its first paint", () =>
 
 test("span hash renders canvas container with transform numbers", () => {
   window.location.hash =
-    "#mode=span&sync=1&scene=lull.bamboo&canvas=-2560,0,4480,1440&view=0,0,1920,1080";
+    "#mode=span&sync=1&scene=lull.video&canvas=-2560,0,4480,1440&view=0,0,1920,1080";
   render(<Page />);
   const container = screen.getByTestId("canvas-container");
   // jsdom dpr = 1；view 相对画布原点偏移 +2560 ⇒ 容器左移 -2560。
@@ -39,40 +41,20 @@ test("span hash renders canvas container with transform numbers", () => {
   expect(container.style.top).toBe("0px");
 });
 
-test("unknown scene id falls back to the default bamboo scene", () => {
+test("unknown scene id falls back to the built-in media scene", () => {
   window.location.hash = "#scene=nope";
   render(<Page />);
-  expect(screen.getByTestId("scene-bamboo")).toBeDefined();
+  expect(screen.getByTestId("scene-video")).toBeDefined();
 });
 
-test("hashchange switches scene and canvas without reload", async () => {
+test("hashchange switches canvas without reload", async () => {
   render(<Page />);
-  expect(screen.getByTestId("scene-bamboo")).toBeDefined();
+  expect(screen.getByTestId("scene-video")).toBeDefined();
   window.location.hash =
-    "#mode=span&scene=lull.aurora&canvas=-2560,0,4480,1440&view=-2560,0,2560,1440";
+    "#mode=span&scene=lull.video&canvas=-2560,0,4480,1440&view=-2560,0,2560,1440";
   window.dispatchEvent(new HashChangeEvent("hashchange"));
-  expect(await screen.findByTestId("scene-aurora")).toBeDefined();
-  const container = screen.getByTestId("canvas-container");
+  const container = await screen.findByTestId("canvas-container");
   expect(container.style.left).toBe("0px");
-});
-
-test("span with sync=0 still anchors phases (forced sync)", () => {
-  vi.useFakeTimers();
-  vi.setSystemTime(1234);
-  window.location.hash =
-    "#mode=span&sync=0&scene=lull.aurora&canvas=0,0,1920,1080&view=0,0,1920,1080";
-  render(<Page />);
-  const band = screen.getByTestId("band-a");
-  expect(band.style.animationDelay).toBe("-1234ms");
-});
-
-test("bamboo carries its moon glow and stalk layer", () => {
-  // 回归：默认场景必须有可见光源与竹林层次，不能只剩渐变底。
-  render(<Page />);
-  const moon = screen.getByTestId("bamboo-moon");
-  expect(moon.className).toContain("bg-[radial-gradient");
-  expect(moon.className).toContain("lull-breath");
-  expect(screen.getByTestId("bamboo-stalk-0")).toBeDefined();
 });
 
 test("external catalog scene mounts in a sandboxed iframe", async () => {

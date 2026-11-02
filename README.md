@@ -22,13 +22,9 @@
 
 ## 界面预览
 
-| 竹影（默认）                              | 暮色                                |
-| ----------------------------------- | --------------------------------- |
-| ![竹影](docs/assets/scene-bamboo.jpg) | ![暮色](docs/assets/scene-dusk.jpg) |
-
-| 极光                                  | 社区示例「雾岚」                          |
-| ----------------------------------- | --------------------------------- |
-| ![极光](docs/assets/scene-aurora.jpg) | ![雾岚](docs/assets/scene-mist.jpg) |
+| 竹影（官方壁纸，默认）                       |
+| ----------------------------------- |
+| ![竹影](docs/assets/scene-bamboo.jpg) |
 
 ![设置窗口](docs/assets/window-setting.jpg)
 
@@ -38,7 +34,8 @@
 
 ### 桌面壁纸
 
-目前有四个官方场景：竹影（默认）、暮色、极光、视频。动画都走慢节奏、低干扰的路子。每台显示器各开一个壁纸窗口，互不影响。展开方式有复制、独立、跨屏三种，跨屏时可以让动画相位对齐（见[壁纸与多屏](#壁纸与多屏)）。设置里改场景参数是实时生效的，不用重启。视频壁纸默认走 HTML `<video>`；原生 media-pp/TextureStream 共享解码已作为可选的 `native-media` feature 实现，但需要 FFmpeg 8.0.1 与运行环境支持，默认安装包不启用。本地视频只登记路径，不复制大文件，技术边界见[Media Runtime](docs/media-runtime.md)。
+目前宿主内嵌只保留媒体（图片 / 视频）壁纸；竹影作为官方场景扩展随安装包分发并保持默认，
+极光与暮色已移除。动画都走慢节奏、低干扰的路子。每台显示器各开一个壁纸窗口，互不影响。展开方式有复制、独立、跨屏三种，跨屏时可以让动画相位对齐（见[壁纸与多屏](#壁纸与多屏)）。设置里改场景参数是实时生效的，不用重启。视频壁纸默认走 HTML `<video>`；原生 media-pp/TextureStream 共享解码已作为可选的 `native-media` feature 实现，但需要 FFmpeg 8.0.1 与运行环境支持，默认安装包不启用。本地视频只登记路径，不复制大文件，技术边界见[Media Runtime](docs/media-runtime.md)。
 
 ### 声景与专注
 
@@ -217,7 +214,7 @@ Lull 的取舍不多，但每条都很清楚。下面几点解释了它为什么
 | 有明确的版本、兼容与不兼容升级规则     | 待补（`hostApi` 已有，弃用与迁移未建立）      | 待补（有兼容矩阵，无弃用策略）         |
 | 权限清晰，第三方内容不能越权调用原生能力  | 已具备（iframe 沙箱 + 只读 capability） | 部分（逐项授权，音频与系统能力仍在收敛）    |
 
-推进顺序上，先把 Core 与内置场景保持全开源，再挑一个内置场景，把描述、参数和入口从运行时里拆出来；然后用 `examples/` 做一个不改核心就能导入运行的独立示例包，把验证通过的部分固化成实验性 SDK，补齐 Manifest 规范与开发文档；最后逐条发布 Beta / Stable，并写上版本规则和迁移说明。
+推进顺序上，先把 Core 与内置场景保持全开源，再挑一个官方场景，把描述、参数和入口从运行时里拆出来；然后用 `examples/` 做一个不改核心就能导入运行的独立示例包，把验证通过的部分固化成实验性 SDK，补齐 Manifest 规范与开发文档；最后逐条发布 Beta / Stable，并写上版本规则和迁移说明。
 
 在这之前，请把 `@lull/*-sdk` 和相关清单字段当作 **0.x 实验性接口**：可以用，可以分发内容包，但升级 Lull 时请预留改动成本。
 
@@ -234,13 +231,13 @@ src/
     scene/                 # Scene Manifest、Catalog、运行时类型
     widget/                # Widget Manifest、能力分层
     content/               # 通用内容包清单
-  scenes/                  # 官方内置场景（bamboo / aurora / dusk）、外部场景桥与注册表
+  scenes/                  # 内置媒体壁纸、外部场景桥与注册表
   widgets/registry.ts      # 内置工具窗口元数据（设置页唯一来源）
   components/              # 窗口外壳、共享 UI、资料库实现（播放器/白噪音/番茄钟在扩展包）
-  styles/                  # Tailwind 主题与壁纸动效
+  styles/                  # Tailwind 主题与窗口动效
 packages/widget-sdk/       # 第三方插件侧 SDK：TypeScript 源码 → dist + .d.ts
 packages/scene-sdk/        # 场景侧 SDK：参数/几何/同步/可见性桥
-extensions/official/       # 官方扩展源码（标准 widget 包 + Vite 工程）
+extensions/official/       # 官方扩展源码（noise / player / bamboo 场景 + Vite 工程）
 extensions/dist/           # 官方扩展构建产物（不入库，Tauri bundle.resources）
 examples/widgets/          # 原生 / React / Vue / Liquid 番茄钟四个插件包示例
 examples/scenes/           # 可安装内容包示例（静态 / 脚本场景）
@@ -260,7 +257,7 @@ src-tauri/
   native/                  # C++ 原生宿主（lull_native.dll）
   acceptance/              # Windows 真机验收工具（Python）
   capabilities/            # Tauri 权限（壁纸窗口刻意不在授权列表内）
-public/content/            # 随包分发的内容目录与外部场景示例
+public/content/            # 随包内容目录（默认 scenes 为空，签名机制保留）
 content/schema/            # JSON Schema
 docs/                      # 架构、SDK、Skill、内容格式、原生宿主、贡献指南
 website/                   # Astro 官网（独立 pnpm 项目，CI 发布到 GitHub Pages）
@@ -320,7 +317,7 @@ pnpm build
 pnpm release:package      # → artifacts/release/
 ```
 
-便携版 zip 会带上 `extensions/{noise,player}`、`extensions/index.json` 与摘要锁；缺少索引或混入 `.lull-dev.json` 时 `release:package` 直接失败。
+便携版 zip 会带上 `extensions/{noise,player,lull.bamboo}`、`extensions/index.json` 与摘要锁；缺少索引或混入 `.lull-dev.json` 时 `release:package` 直接失败。
 
 ### 自定义扩展的方式
 
@@ -345,7 +342,7 @@ lull-ext pack ./my-tool --out ./artifacts                    # 产出可安装 z
 ```text
 my-scene/
   catalog.json
-  scenes/mist/
+  scenes/my-scene/
     index.html
 ```
 

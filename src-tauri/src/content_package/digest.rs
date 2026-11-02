@@ -82,16 +82,28 @@ mod tests {
     let _ = std::fs::remove_dir_all(&dir);
   }
 
-  /// 跨语言对照：官方示例包的摘要写在 `public/content/catalog.json` 里，
-  /// 由 Node 侧的 `content-digest.mjs` 生成。Rust 这里必须算出同一个值，
+  /// 跨语言对照：示例内容包的摘要写在 `catalog.json` 里，由 Node 侧的
+  /// `content-digest.mjs` 生成。Rust 这里必须算出同一个值，
   /// 否则「官方工具打包 → 客户端安装」会全部失败。
   #[test]
-  fn digest_matches_official_mist_package() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/content/scenes/mist");
-    let digest = compute("community.mist", "1.0.0", &dir).unwrap_or_default();
-    assert_eq!(
-      digest,
-      "f6b86e63434d810099e293bfa74c556542a02fbe96fc7ce97390e0938a608ecb"
-    );
+  fn digest_matches_scripted_scene_example() {
+    use serde_json::Value;
+
+    let bundle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/scenes/param-demo");
+    let catalog: Value = std::fs::read_to_string(bundle.join("catalog.json"))
+      .ok()
+      .and_then(|text| serde_json::from_str(&text).ok())
+      .unwrap_or(Value::Null);
+    let scene = &catalog["scenes"][0];
+    let id = scene["id"].as_str().unwrap_or_default();
+    let version = scene["version"].as_str().unwrap_or_default();
+    let entry = scene["entry"].as_str().unwrap_or_default();
+    let expected = scene["integrity"]["digest"].as_str().unwrap_or_default();
+    let Some(package_dir) = bundle.join(entry).parent().map(Path::to_path_buf) else {
+      return;
+    };
+    let digest = compute(id, version, &package_dir).unwrap_or_default();
+    assert!(!expected.is_empty(), "示例包缺少 integrity");
+    assert_eq!(digest, expected);
   }
 }

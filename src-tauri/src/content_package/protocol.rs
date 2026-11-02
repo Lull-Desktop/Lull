@@ -1,4 +1,4 @@
-//! `lullcontent://` 自定义协议：只读服务用户内容包。
+//! `lullcontent://` 自定义协议：只读服务官方随包场景与用户内容包。
 //!
 //! 静态包仍在 `sandbox=""` 的 iframe 里运行；声明 `wallpaper.script` 的包改用
 //! `allow-scripts`，因此 HTML 必须像插件协议一样注入 nonce 并下发 CSP。

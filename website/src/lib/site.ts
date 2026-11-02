@@ -94,7 +94,7 @@ export const siteMeta = {
   nameZh: "云栖",
   tagline: "云栖之处，安然入眠",
   description:
-    "Lull（云栖）是一款开源的助眠与专注桌面应用：竹影、暮色与极光在桌面上缓缓流动，雨声与远雷在耳边轻轻起伏。断网可用，不推送、不打扰。",
+    "Lull（云栖）是一款开源的助眠与专注桌面应用：竹影在桌面上缓缓流动，雨声与远雷在耳边轻轻起伏。断网可用，不推送、不打扰。",
 } as const;
 
 export const navItems = [

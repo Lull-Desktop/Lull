@@ -14,6 +14,7 @@ use crate::media::video::config::MediaConfig;
 pub const CURRENT_VERSION: u32 = 2;
 
 /// 默认场景 id，与前端 `src/core/wallpaper/params.ts` 的 DEFAULT_SCENE_ID 对齐。
+/// 竹影是随包官方场景扩展；缺包时由前端回退到内置媒体场景。
 pub const DEFAULT_SCENE_ID: &str = "lull.bamboo";
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

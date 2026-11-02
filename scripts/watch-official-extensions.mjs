@@ -8,7 +8,7 @@
  * 用法：node scripts/watch-official-extensions.mjs <id>
  */
 import { spawnSync } from "node:child_process";
-import { watch } from "node:fs";
+import { existsSync, watch } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,11 +50,14 @@ function rebuild() {
 }
 
 rebuild();
+const isScene = existsSync(join(sourceDir, "catalog.json"));
 console.log(
   `[extensions:watch] 监听 ${sourceDir}\n` +
-    "  宿主内：设置 → 扩展 → 开发模式 → 添加 extensions/dist/" +
-    id +
-    " → 打开；改完点「重载」。",
+    (isScene
+      ? "  壁纸场景：重建到 extensions/dist 后，在壁纸设置里重新选择该场景（或重开壁纸窗）。"
+      : "  宿主内：设置 → 扩展 → 开发模式 → 添加 extensions/dist/" +
+        id +
+        " → 打开；改完点「重载」。"),
 );
 
 let timer = null;

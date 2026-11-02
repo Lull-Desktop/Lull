@@ -1,81 +1,17 @@
 /**
  * 官方内置场景注册表。
  *
- * 新增内置场景只需在本文件追加一个 `BuiltinScene`；设置页、壁纸宿主和
- * 跨屏布局都从同一份清单读取，不再分别维护元数据与实现。
+ * 宿主内嵌只保留媒体壁纸（`lull.video`）：它需要 MediaSurface、素材库与原生会话，
+ * 不适合做成沙箱场景包。竹影已迁移为随包官方扩展
+ * `extensions/official/bamboo`（产物 id `lull.bamboo`），极光与暮色已移除。
  */
 import { DEFAULT_SCENE_ID } from "@/core/wallpaper/params";
-import { AuroraScene } from "@/scenes/aurora";
-import { BambooScene } from "@/scenes/bamboo";
-import { DuskScene } from "@/scenes/dusk";
 import { VideoScene } from "@/scenes/video";
 import {
   type BuiltinScene,
   parseSceneManifest,
   type SceneCatalogEntry,
 } from "@/sdk/scene";
-
-const BAMBOO_MANIFEST = parseSceneManifest({
-  schemaVersion: 1,
-  type: "scene",
-  id: "lull.bamboo",
-  name: "竹影",
-  version: "1.1.0",
-  description: "深夜竹林、薄雾与远山，Lull 的默认场景。",
-  author: "Lull",
-  license: "GPL-3.0-or-later",
-  capabilities: [
-    "wallpaper.viewport",
-    "wallpaper.canvas",
-    "wallpaper.sync",
-    "wallpaper.params",
-  ],
-  theme: { background: "#07110f", accent: "#a9bf9b" },
-  params: [
-    {
-      key: "mist",
-      type: "number",
-      label: "薄雾浓度",
-      description: "0 为无雾（清爽），1 为最浓（整屏雾幔 + 三层带雾）。",
-      default: 0.5,
-      min: 0,
-      max: 1,
-      step: 0.05,
-    },
-  ],
-  performance: { tier: "low", targetFps: 60 },
-  compatibility: { hostApi: 1, platforms: ["windows"] },
-});
-
-const AURORA_MANIFEST = parseSceneManifest({
-  schemaVersion: 1,
-  type: "scene",
-  id: "lull.aurora",
-  name: "极光",
-  version: "1.0.0",
-  description: "深蓝夜空与缓慢漂移的极光光带。",
-  author: "Lull",
-  license: "GPL-3.0-or-later",
-  capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
-  theme: { background: "#07131f", accent: "#8fe4ff" },
-  performance: { tier: "medium", targetFps: 30 },
-  compatibility: { hostApi: 1, platforms: ["windows"] },
-});
-
-const DUSK_MANIFEST = parseSceneManifest({
-  schemaVersion: 1,
-  type: "scene",
-  id: "lull.dusk",
-  name: "暮色",
-  version: "1.0.0",
-  description: "落日、云带与层叠远山，适合傍晚的暖调天光。",
-  author: "Lull",
-  license: "GPL-3.0-or-later",
-  capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],
-  theme: { background: "#1b1520", accent: "#e0ad83" },
-  performance: { tier: "low", targetFps: 30 },
-  compatibility: { hostApi: 1, platforms: ["windows"] },
-});
 
 const VIDEO_MANIFEST = parseSceneManifest({
   schemaVersion: 1,
@@ -95,9 +31,6 @@ const VIDEO_MANIFEST = parseSceneManifest({
 export { DEFAULT_SCENE_ID };
 
 export const BUILTIN_SCENES: readonly BuiltinScene[] = [
-  { source: "builtin", manifest: BAMBOO_MANIFEST, component: BambooScene },
-  { source: "builtin", manifest: AURORA_MANIFEST, component: AuroraScene },
-  { source: "builtin", manifest: DUSK_MANIFEST, component: DuskScene },
   { source: "builtin", manifest: VIDEO_MANIFEST, component: VideoScene },
 ];
 

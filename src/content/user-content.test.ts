@@ -54,6 +54,22 @@ describe("toUserSceneEntries", () => {
     expect(result.entries[0]?.component).toBeNull();
   });
 
+  test("官方随包场景转成 official 来源，且不提示未验签", () => {
+    const result = toUserSceneEntries([
+      pkg({
+        origin: "bundled",
+        signature: {
+          status: "unsigned",
+          decision: "warn",
+          reason: "official-bundle",
+        },
+      }),
+    ]);
+    expect(result.issues).toEqual([]);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]?.source).toBe("official");
+  });
+
   test("未校验的包仍可用，但要给出提示", () => {
     const result = toUserSceneEntries([pkg({ verified: false })]);
     expect(result.entries).toHaveLength(1);

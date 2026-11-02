@@ -1,11 +1,16 @@
-//! 用户内容包目录：扫描、安装、卸载、打开目录。
+//! 内容包目录：官方随包场景与用户内容包的发现、安装、卸载、打开目录。
 //!
 //! 目录布局与官方内容根同构（见 `manifest` 模块文档）：
 //! ```text
 //! %APPDATA%\app.lull.desktop\content\<scene-id>\catalog.json
 //! %APPDATA%\app.lull.desktop\content\<scene-id>\scenes\<name>\index.html
 //! ```
-//! `LULL_CONTENT_DIR` 可覆盖根目录（开发/测试）。安装器只接受**文件夹或 zip**：
+//! 官方场景随安装包位于 `extensions/`（`LULL_EXTENSIONS_DIR` 可覆盖）：
+//! ```text
+//! extensions\<scene-id>\catalog.json
+//! extensions\<scene-id>\scenes\<name>\index.html
+//! ```
+//! `LULL_CONTENT_DIR` 可覆盖用户根目录（开发/测试）。安装器只接受**文件夹或 zip**：
 //! 解压到 `.staging-*` → 校验清单 → 复核整包摘要 → 通过后才 rename 进根目录；
 //! 任何一步失败都只清 staging，不碰已安装内容。
 
@@ -19,6 +24,9 @@ use serde::Serialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
+
+/// 官方场景保留 id：用户不能从文件安装同 id 的内容包来遮挡随包壁纸。
+const RESERVED_IDS: [&str; 1] = ["lull.bamboo"];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,8 +43,10 @@ pub struct ContentPackageInfo {
   pub entry_url: String,
   /// 是否通过整包摘要校验；手动放置且未声明摘要的包为 false。
   pub verified: bool,
-  /// 社区发布者签名状态；与摘要校验是两条独立的链。
+  /// 社区发布者签名状态；与摘要校验是两条独立的链。官方包固定为未签名。
   pub signature: SignatureInfo,
+  /// `bundled`（随应用分发）或 `user`（用户安装）。
+  pub origin: String,
   /// 单条 scene 清单原文，前端用 `parseSceneManifest()` 再校验一次。
   pub manifest: Value,
 }
@@ -53,8 +63,33 @@ pub fn root(app: &AppHandle) -> Result<PathBuf, String> {
     .map_err(|error| error.to_string())
 }
 
+/// 官方扩展资源根（与 widget 共用同一套解析顺序），用于发现随包场景。
+fn official_root(app: &AppHandle) -> Option<PathBuf> {
+  crate::widget_package::official::root(app)
+}
+
+fn official_dir(app: &AppHandle, id: &str) -> Option<PathBuf> {
+  if !manifest::valid_id(id) {
+    return None;
+  }
+  let dir = official_root(app)?.join(id);
+  (dir.is_dir() && dir.join(MANIFEST_FILE).is_file()).then_some(dir)
+}
+
+/// 官方场景按目录优先、用户内容目录兜底；资源协议与目录扫描共用这一处解析。
 pub fn package_dir(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+  if let Some(dir) = official_dir(app, id) {
+    return Ok(dir);
+  }
   Ok(root(app)?.join(id))
+}
+
+pub fn is_official(app: &AppHandle, id: &str) -> bool {
+  official_dir(app, id).is_some()
+}
+
+pub(crate) fn is_reserved(id: &str) -> bool {
+  RESERVED_IDS.contains(&id)
 }
 
 pub fn entry_url(id: &str, entry: &str) -> String {
@@ -65,15 +100,27 @@ pub fn entry_url(id: &str, entry: &str) -> String {
   format!("{origin}/{id}/{}", entry.trim_start_matches('/'))
 }
 
-/// 扫描已安装内容包；单个包坏掉不影响其它包。
+/// 扫描官方随包场景与用户内容包；官方在前，单个包坏掉不影响其它包。
 pub fn list(app: &AppHandle) -> Vec<ContentPackageInfo> {
-  let Ok(root) = root(app) else {
-    return Vec::new();
-  };
-  let Ok(entries) = std::fs::read_dir(&root) else {
-    return Vec::new();
-  };
   let policy = crate::content_trust::policy::load(app);
+  let mut packages = official_root(app)
+    .map(|root| list_packages(&root, "bundled", &policy, true))
+    .unwrap_or_default();
+  if let Ok(root) = root(app) {
+    packages.extend(list_packages(&root, "user", &policy, false));
+  }
+  packages
+}
+
+fn list_packages(
+  dir: &Path,
+  origin: &str,
+  policy: &TrustPolicy,
+  require_dir_id: bool,
+) -> Vec<ContentPackageInfo> {
+  let Ok(entries) = std::fs::read_dir(dir) else {
+    return Vec::new();
+  };
   let mut packages: Vec<ContentPackageInfo> = Vec::new();
   for entry in entries.filter_map(Result::ok) {
     let path = entry.path();
@@ -86,26 +133,41 @@ pub fn list(app: &AppHandle) -> Vec<ContentPackageInfo> {
     if dir_name.starts_with('.') || !path.join(MANIFEST_FILE).is_file() {
       continue;
     }
-    packages.push(inspect_with_policy(&path, dir_name, &policy));
+    if origin == "user" && is_reserved(dir_name) {
+      eprintln!("[official] 忽略用户内容包 {dir_name}：与官方场景 id 冲突");
+      continue;
+    }
+    let info = inspect_with_policy(&path, dir_name, policy, origin);
+    if require_dir_id && info.id != dir_name {
+      eprintln!(
+        "[official] 忽略场景 {dir_name}：清单 id={} 与目录名不一致",
+        info.id
+      );
+      continue;
+    }
+    packages.push(info);
   }
   packages.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
   packages
 }
 
-/// 读取单个 bundle 并校验摘要 + 发布签名。
+/// 读取单个 bundle 并校验摘要 + 发布签名。官方包只做摘要校验，不参与社区签名策略。
 #[must_use]
 fn inspect_with_policy(
   bundle: &Path,
   fallback_id: &str,
   policy: &TrustPolicy,
+  origin: &str,
 ) -> ContentPackageInfo {
   let registration = match manifest::parse(bundle) {
     Ok(registration) => registration,
-    Err(error) => return invalid_info(fallback_id, &error),
+    Err(error) => return invalid_info(fallback_id, &error, origin),
   };
+  let official = origin == "bundled";
 
   let package = bundle.join(&registration.package_rel);
   let computed = digest::compute(&registration.id, &registration.version, &package);
+  let missing_integrity = official && registration.integrity.is_none();
   let (verified, digest_error) = match (&registration.integrity, &computed) {
     (Some(expected), Ok(actual)) if actual == expected => (true, None),
     (Some(expected), Ok(actual)) => (
@@ -113,28 +175,39 @@ fn inspect_with_policy(
       Some(format!("内容包摘要不匹配：声明 {expected}，实际 {actual}")),
     ),
     (Some(_), Err(error)) => (false, Some(error.clone())),
-    // 手动放置的包允许不带摘要：可用，但标记为「未校验」。
+    // 手动放置的用户包允许不带摘要：可用，但标记为「未校验」。
+    // 官方包必须带摘要锁，缺锁按 invalid 处理。
     (None, _) => (false, None),
   };
 
-  let signature = match &computed {
-    Ok(actual) => verify_installed(
-      bundle,
-      &PackageClaim {
-        kind: PackageKind::Scene,
-        id: registration.id.clone(),
-        version: registration.version.clone(),
-        digest: actual.clone(),
-      },
-      policy,
-    ),
-    Err(_) => SignatureInfo::unsigned(policy, "digest-unavailable"),
+  let signature = if official {
+    // 官方包由安装包承载分发信任；不读取社区发布者签名。
+    SignatureInfo::unsigned(&TrustPolicy::default(), "official-bundle")
+  } else {
+    match &computed {
+      Ok(actual) => verify_installed(
+        bundle,
+        &PackageClaim {
+          kind: PackageKind::Scene,
+          id: registration.id.clone(),
+          version: registration.version.clone(),
+          digest: actual.clone(),
+        },
+        policy,
+      ),
+      Err(_) => SignatureInfo::unsigned(policy, "digest-unavailable"),
+    }
   };
 
-  let status = if verified || registration.integrity.is_none() {
-    "ready"
+  let (status, error) = if missing_integrity {
+    (
+      "invalid",
+      Some("官方扩展缺少摘要锁，请重装应用".to_string()),
+    )
+  } else if verified || (!official && registration.integrity.is_none()) {
+    ("ready", digest_error)
   } else {
-    "tampered"
+    ("tampered", digest_error)
   };
 
   ContentPackageInfo {
@@ -145,10 +218,11 @@ fn inspect_with_policy(
     author: optional_string(&registration.manifest, "author"),
     license: optional_string(&registration.manifest, "license"),
     status: status.to_string(),
-    error: digest_error,
+    error,
     entry_url: entry_url(&registration.id, &registration.entry),
     verified,
     signature,
+    origin: origin.to_string(),
     manifest: registration.manifest,
   }
 }
@@ -156,7 +230,7 @@ fn inspect_with_policy(
 /// 读取单个 bundle（默认宽松策略）；安装路径由 `extension` 层先做门禁。
 #[must_use]
 fn inspect(bundle: &Path, fallback_id: &str) -> ContentPackageInfo {
-  inspect_with_policy(bundle, fallback_id, &TrustPolicy::default())
+  inspect_with_policy(bundle, fallback_id, &TrustPolicy::default(), "user")
 }
 
 fn optional_string(manifest: &Value, key: &str) -> Option<String> {
@@ -166,7 +240,7 @@ fn optional_string(manifest: &Value, key: &str) -> Option<String> {
     .map(str::to_string)
 }
 
-fn invalid_info(id: &str, error: &str) -> ContentPackageInfo {
+fn invalid_info(id: &str, error: &str, origin: &str) -> ContentPackageInfo {
   ContentPackageInfo {
     id: id.to_string(),
     name: id.to_string(),
@@ -179,6 +253,7 @@ fn invalid_info(id: &str, error: &str) -> ContentPackageInfo {
     entry_url: String::new(),
     verified: false,
     signature: SignatureInfo::unsigned(&TrustPolicy::default(), "manifest-invalid"),
+    origin: origin.to_string(),
     manifest: Value::Null,
   }
 }
@@ -193,6 +268,12 @@ fn install_into(root: &Path, source: &Path) -> Result<ContentPackageInfo, String
 /// 复用共享 staging：调用方负责 `Staged` 的生命周期。
 pub fn install_staged(root: &Path, staged: &install::Staged) -> Result<ContentPackageInfo, String> {
   let registration = manifest::parse(staged.bundle())?;
+  if is_reserved(&registration.id) {
+    return Err(format!(
+      "{} 是官方保留 id，不能作为用户内容包安装",
+      registration.id
+    ));
+  }
   let expected = registration.integrity.clone().ok_or_else(|| {
     "catalog.json 缺少 integrity 摘要：安装器只接受声明了整包摘要的内容包".to_string()
   })?;
@@ -402,56 +483,6 @@ mod tests {
     let _ = std::fs::remove_dir_all(&root);
   }
 
-  /// 端到端：用官方 `scenes/mist` 真实资源 + 官方摘要装一遍，
-  /// 验证「创作者按文档打包 → 客户端可安装」这条链路。
-  #[test]
-  fn installs_official_mist_bundle() {
-    let Some(root) = temp_root("mist") else {
-      return;
-    };
-    let source = root.join("mist-bundle");
-    let scene_dir = source.join("scenes/mist");
-    let official = Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/content/scenes/mist");
-    if copy_dir_all(&official, &scene_dir).is_err() {
-      let _ = std::fs::remove_dir_all(&root);
-      return;
-    }
-    let catalog = r#"{
-      "schemaVersion": 1,
-      "scenes": [
-        {
-          "schemaVersion": 1,
-          "type": "scene",
-          "id": "community.mist",
-          "name": "雾岚",
-          "version": "1.0.0",
-          "license": "CC-BY-4.0",
-          "entry": "scenes/mist/index.html",
-          "capabilities": ["wallpaper.viewport", "wallpaper.canvas"],
-          "integrity": {
-            "algorithm": "sha256",
-            "scope": "package",
-            "digest": "f6b86e63434d810099e293bfa74c556542a02fbe96fc7ce97390e0938a608ecb"
-          }
-        }
-      ]
-    }"#;
-    if std::fs::write(source.join(MANIFEST_FILE), catalog).is_err() {
-      let _ = std::fs::remove_dir_all(&root);
-      return;
-    }
-
-    let installed = install_into(&root, &source);
-    assert!(installed.is_ok(), "官方示例包安装失败：{installed:?}");
-    if let Ok(info) = installed {
-      assert_eq!(info.id, "community.mist");
-      assert!(info.verified);
-      assert_eq!(info.status, "ready");
-      assert_eq!(info.license.as_deref(), Some("CC-BY-4.0"));
-    }
-    let _ = std::fs::remove_dir_all(&root);
-  }
-
   /// 端到端：Three.js 示例（WebGL + 参数）按文档构建后可直接安装。
   #[test]
   fn installs_three_scene_example_bundle() {
@@ -628,6 +659,133 @@ mod tests {
       Some("package.unsafe-entry")
     );
     assert!(!root.join("escaped.txt").exists());
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn lists_official_scene_with_bundled_origin() {
+    let Some(root) = temp_root("official-list") else {
+      return;
+    };
+    let packages = root.join("extensions");
+    let bundle = packages.join("lull.bamboo");
+    if write_bundle_version(&bundle, "lull.bamboo", "1.2.0", "<html>ok</html>").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let policy = crate::content_trust::TrustPolicy::default();
+    let listed = list_packages(&packages, "bundled", &policy, true);
+    assert_eq!(listed.len(), 1);
+    if let Some(info) = listed.first() {
+      assert_eq!(info.id, "lull.bamboo");
+      assert_eq!(info.origin, "bundled");
+      assert_eq!(info.status, "ready");
+      assert!(info.verified);
+      assert!(info
+        .entry_url
+        .contains("/lull.bamboo/scenes/test/index.html"));
+      assert_eq!(
+        info.signature.status,
+        crate::content_trust::verify::SignatureStatus::Unsigned
+      );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn official_scene_requires_and_verifies_integrity() {
+    let Some(root) = temp_root("official-integrity") else {
+      return;
+    };
+    let packages = root.join("extensions");
+    let bundle = packages.join("lull.bamboo");
+    if write_bundle_version(&bundle, "lull.bamboo", "1.2.0", "<html>ok</html>").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let policy = crate::content_trust::TrustPolicy::default();
+
+    // 摘要不符：tampered
+    let _ = std::fs::write(
+      bundle.join("scenes/test/index.html"),
+      "<html>changed</html>",
+    );
+    let tampered = list_packages(&packages, "bundled", &policy, true);
+    assert_eq!(
+      tampered.first().map(|info| info.status.as_str()),
+      Some("tampered")
+    );
+
+    // 缺摘要锁：官方包 invalid，用户包仍 ready
+    let mut catalog: Value = serde_json::from_str(
+      &std::fs::read_to_string(bundle.join(MANIFEST_FILE)).unwrap_or_default(),
+    )
+    .unwrap_or(Value::Null);
+    if let Some(scene) = catalog
+      .get_mut("scenes")
+      .and_then(|scenes| scenes.get_mut(0))
+      .and_then(Value::as_object_mut)
+    {
+      scene.remove("integrity");
+    }
+    let _ = std::fs::write(bundle.join(MANIFEST_FILE), format!("{catalog}\n"));
+    let official = list_packages(&packages, "bundled", &policy, true);
+    assert_eq!(
+      official.first().map(|info| info.status.as_str()),
+      Some("invalid")
+    );
+
+    // 用户包不带摘要仍可手动放置：status=ready、verified=false。
+    let user_packages = root.join("user");
+    let user_bundle = user_packages.join("community.test");
+    if write_bundle_version(&user_bundle, "community.test", "1.0.0", "<html>ok</html>").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let mut user_catalog: Value = serde_json::from_str(
+      &std::fs::read_to_string(user_bundle.join(MANIFEST_FILE)).unwrap_or_default(),
+    )
+    .unwrap_or(Value::Null);
+    if let Some(scene) = user_catalog
+      .get_mut("scenes")
+      .and_then(|scenes| scenes.get_mut(0))
+      .and_then(Value::as_object_mut)
+    {
+      scene.remove("integrity");
+    }
+    let _ = std::fs::write(user_bundle.join(MANIFEST_FILE), format!("{user_catalog}\n"));
+    let user = list_packages(&user_packages, "user", &policy, false);
+    assert_eq!(user.first().map(|info| info.status.as_str()), Some("ready"));
+    assert_eq!(user.first().map(|info| info.verified), Some(false));
+
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn official_scene_requires_dir_id_match_and_reserves_bamboo() {
+    let Some(root) = temp_root("official-reserved") else {
+      return;
+    };
+    let packages = root.join("extensions");
+    let mismatch = packages.join("lull.bamboo");
+    if write_bundle_version(&mismatch, "demo.other", "1.0.0", "<html>ok</html>").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let policy = crate::content_trust::TrustPolicy::default();
+    assert!(list_packages(&packages, "bundled", &policy, true).is_empty());
+
+    // 用户目录里同 id 的包被跳过，不能遮挡随包场景。
+    let user_bamboo = packages.join("lull.bamboo");
+    let _ = std::fs::remove_dir_all(&user_bamboo);
+    if write_bundle_version(&user_bamboo, "lull.bamboo", "1.0.0", "<html>ok</html>").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    assert!(list_packages(&packages, "user", &policy, false).is_empty());
+    assert!(is_reserved("lull.bamboo"));
+    assert!(!is_reserved("community.mist"));
+
     let _ = std::fs::remove_dir_all(&root);
   }
 }

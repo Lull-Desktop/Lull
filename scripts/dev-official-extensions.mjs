@@ -32,6 +32,12 @@ function fail(message) {
 if (!id) fail("用法：pnpm extensions:dev <id> [--port 5273]");
 const sourceDir = join(repoRoot, "extensions", "official", id);
 if (!existsSync(join(sourceDir, "widget.json"))) {
+  if (existsSync(join(sourceDir, "catalog.json"))) {
+    fail(
+      `extensions/official/${id} 是壁纸场景：暂不支持 Vite dev server；` +
+        `请用 pnpm extensions:build ${id} 或 pnpm extensions:watch ${id}`,
+    );
+  }
   fail(`找不到官方扩展：extensions/official/${id}`);
 }
 

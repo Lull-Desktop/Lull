@@ -5,6 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { FLOW_THEME_STORAGE_KEY } from "@/lib/flow-theme";
+import { m } from "@/paraglide/messages";
+import type { SceneCatalogEntry } from "@/sdk/scene";
 import Page from "./page";
 
 afterEach(() => {
@@ -13,6 +15,79 @@ afterEach(() => {
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.reject(new Error("not in tauri"))),
+}));
+
+// 壁纸面板的场景目录由这里固定为「官方竹影 + 内置媒体」；目录合并本身由
+// use-scene-catalog 的单元测试覆盖，设置页测试只关心控件契约。
+const sceneCatalog = vi.hoisted(() => ({
+  entries: [
+    {
+      manifest: {
+        schemaVersion: 1,
+        type: "scene",
+        id: "lull.bamboo",
+        name: "竹影",
+        version: "1.2.0",
+        description: "深夜竹林、薄雾与远山。",
+        author: "Lull",
+        license: "GPL-3.0-or-later",
+        capabilities: [
+          "wallpaper.viewport",
+          "wallpaper.canvas",
+          "wallpaper.sync",
+          "wallpaper.params",
+          "wallpaper.script",
+        ],
+        entry: "scenes/bamboo/index.html",
+        params: [
+          {
+            key: "mist",
+            type: "number",
+            label: "薄雾浓度",
+            default: 0.5,
+            min: 0,
+            max: 1,
+            step: 0.05,
+          },
+        ],
+        compatibility: { hostApi: 1, platforms: ["windows"] },
+      },
+      source: "official",
+      entryUrl:
+        "http://lullcontent.localhost/lull.bamboo/scenes/bamboo/index.html",
+      component: null,
+    },
+    {
+      manifest: {
+        schemaVersion: 1,
+        type: "scene",
+        id: "lull.video",
+        name: "媒体",
+        version: "1.0.0",
+        description: "本地图片或视频壁纸。",
+        author: "Lull",
+        license: "GPL-3.0-or-later",
+        capabilities: [
+          "wallpaper.viewport",
+          "wallpaper.canvas",
+          "wallpaper.sync",
+        ],
+        compatibility: { hostApi: 1, platforms: ["windows"] },
+      },
+      source: "builtin",
+      entryUrl: null,
+      component: null,
+    },
+  ] as SceneCatalogEntry[],
+}));
+
+vi.mock("@/hooks/use-scene-catalog", () => ({
+  useSceneCatalog: () => ({
+    entries: sceneCatalog.entries,
+    loading: false,
+    error: null,
+    issues: [],
+  }),
 }));
 // 注意：listen 不用 vi.fn 包装——vitest 会给 vi.fn 返回的 promise 挂 then 做
 // settledResults 记账，rejection 永远到不了 unhandledRejection，测试就观测不到
@@ -341,15 +416,32 @@ test("global scene dropdown shows current value and invokes on select", async ()
     scene: "lull.bamboo",
   });
   renderWallpaperTab();
-  const trigger = await screen.findByRole("combobox", { name: "全局场景" });
+  const trigger = await screen.findByRole("combobox", {
+    name: m.wallpaper_scene_global(),
+  });
   expect(trigger.textContent).toContain("竹影");
   fireEvent.keyDown(trigger, { key: "Enter" });
-  const option = await screen.findByRole("option", { name: "极光" });
+  const option = await screen.findByRole("option", { name: "媒体" });
   fireEvent.keyDown(option, { key: "ArrowDown" });
   fireEvent.keyDown(option, { key: "Enter" });
   await waitFor(() => {
     expect(invoke).toHaveBeenCalledWith("wallpaper_set_display", {
-      scene: "lull.aurora",
+      scene: "lull.video",
+    });
+  });
+});
+
+test("缺失的全局场景回退到默认竹影并写回宿主", async () => {
+  mockWallpaperWithDisplay({ mode: "mirror", sync: true, scene: "" });
+  renderWallpaperTab();
+
+  const trigger = await screen.findByRole("combobox", {
+    name: m.wallpaper_scene_global(),
+  });
+  expect(trigger.textContent).toContain("竹影");
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("wallpaper_set_display", {
+      scene: "lull.bamboo",
     });
   });
 });
@@ -365,13 +457,13 @@ test("independent shows per-row scene dropdowns; selecting invokes command", asy
     name: "显示器 2 场景",
   });
   fireEvent.keyDown(trigger, { key: "Enter" });
-  const option = await screen.findByRole("option", { name: "极光" });
+  const option = await screen.findByRole("option", { name: "媒体" });
   fireEvent.keyDown(option, { key: "ArrowDown" });
   fireEvent.keyDown(option, { key: "Enter" });
   await waitFor(() => {
     expect(invoke).toHaveBeenCalledWith("wallpaper_set_monitor_scene", {
       device: "\\\\.\\DISPLAY1",
-      scene: "lull.aurora",
+      scene: "lull.video",
     });
   });
 });
@@ -384,7 +476,7 @@ test("global scene group hidden in independent mode", async () => {
   });
   renderWallpaperTab();
   await waitFor(() => expect(screen.getByText("显示模式")).toBeDefined());
-  expect(screen.queryByText("全局场景")).toBeNull();
+  expect(screen.queryByText(m.wallpaper_scene_global())).toBeNull();
 });
 
 test("窗口全局开关读取并保存 taskbarAndMinimize", async () => {

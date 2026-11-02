@@ -43,12 +43,20 @@ function configPath() {
 }
 
 const sourceDir = join(repoRoot, "extensions", "official", id);
-const manifestPath = join(sourceDir, "widget.json");
-if (!existsSync(manifestPath)) {
-  console.error(`找不到官方扩展：${manifestPath}`);
+if (!existsSync(join(sourceDir, "widget.json"))) {
+  if (existsSync(join(sourceDir, "catalog.json"))) {
+    console.error(
+      `${id} 是壁纸场景：开发模式（devPackages）目前只支持 Widget；` +
+        `请用 pnpm extensions:build ${id} / pnpm extensions:watch ${id}。`,
+    );
+    process.exit(1);
+  }
+  console.error(`找不到官方扩展：${sourceDir}`);
   process.exit(1);
 }
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+const manifest = JSON.parse(
+  readFileSync(join(sourceDir, "widget.json"), "utf8"),
+);
 if (manifest.id !== id) {
   console.error(`清单 id=${manifest.id} 与目录 ${id} 不一致`);
   process.exit(1);

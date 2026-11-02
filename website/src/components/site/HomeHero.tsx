@@ -67,7 +67,7 @@ export default function HomeHero({ version }: HomeHeroProps) {
             <p className="mb-3.5 font-serif text-[clamp(1.05rem,1.7vw,1.22rem)] text-mist">
               一款开源的助眠与专注桌面应用。
             </p>
-            <Lead>竹影、暮色、极光，在桌面上缓缓流动；雨、风、海浪、篝火、远雷，在耳边轻轻起伏。</Lead>
+            <Lead>竹影在桌面上缓缓流动；雨、风、海浪、篝火、远雷，在耳边轻轻起伏。</Lead>
             <div className={cn(buttonRow, "mt-[30px]")}>
               <Button href={page("/download/")}>
                 下载 Lull
@@ -89,7 +89,7 @@ export default function HomeHero({ version }: HomeHeroProps) {
           <Preview
             file="images/scene-bamboo.jpg"
             alt="Lull 竹影壁纸在桌面上的实际效果"
-            captionLeft="竹影 · 官方内置场景"
+            captionLeft="竹影 · 官方壁纸"
             captionRight="桌面实机 · 16:9"
             priority
           />

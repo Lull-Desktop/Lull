@@ -1,6 +1,7 @@
 /**
- * 用户内容包：Rust 侧扫描 `%APPDATA%\app.lull.desktop\content\` 后返回，
- * 前端再按与内置目录**同一套** `parseSceneManifest()` 校验，转成目录条目。
+ * 内容包（官方随包场景 + 用户安装）：Rust 侧扫描 `extensions/` 与
+ * `%APPDATA%\app.lull.desktop\content\` 后返回，前端再按与内置目录**同一套**
+ * `parseSceneManifest()` 校验，转成目录条目。
  *
  * 为什么不在这里做路径/摘要判断：安装与摘要复核发生在 Rust 侧（有文件系统访问权），
  * 前端只负责「这条清单能不能渲染」。两侧各管一层，避免规则漂移。
@@ -26,6 +27,8 @@ export type UserContentPackage = {
   verified: boolean;
   /** 社区发布者签名状态；与摘要校验是两条独立的链。 */
   signature: SignatureInfo;
+  /** `bundled` 随应用分发 / `user` 用户安装；旧后端缺省按 user 处理。 */
+  origin?: "bundled" | "user";
   /** 单条 scene 清单原文；`invalid` 时为 null。 */
   manifest: unknown;
 };
@@ -43,7 +46,7 @@ export type UserContentResult = {
   issues: string[];
 };
 
-/** 把用户包收敛成目录条目；坏包只影响自己。 */
+/** 把内容包收敛成目录条目；坏包只影响自己。 */
 export function toUserSceneEntries(
   packages: readonly UserContentPackage[],
 ): UserContentResult {
@@ -51,6 +54,7 @@ export function toUserSceneEntries(
   const issues: string[] = [];
 
   for (const pkg of packages) {
+    const bundled = pkg.origin === "bundled";
     if (pkg.status === "invalid") {
       issues.push(`内容包 ${pkg.id} 清单不可用：${pkg.error ?? "未知错误"}`);
       continue;
@@ -61,18 +65,19 @@ export function toUserSceneEntries(
       );
       continue;
     }
-    if (pkg.signature.decision === "block") {
+    // 官方包由安装包承载分发信任，不参与社区发布者签名策略，也不提示“未验签”。
+    if (!bundled && pkg.signature?.decision === "block") {
       issues.push(
         `内容包 ${pkg.id} 的发布签名未通过（${pkg.signature.reason ?? pkg.signature.status}），已跳过`,
       );
       continue;
     }
-    if (pkg.signature.status !== "verified") {
+    if (!bundled && pkg.signature?.status !== "verified") {
       issues.push(
-        `内容包 ${pkg.id} 未验签（${pkg.signature.status}）：不能确认它由 community 发布`,
+        `内容包 ${pkg.id} 未验签（${pkg.signature?.status ?? "unknown"}）：不能确认它由 community 发布`,
       );
     }
-    if (!pkg.verified) {
+    if (!pkg.verified && !bundled) {
       issues.push(`内容包 ${pkg.id} 未声明或未通过摘要校验，来源无法确认`);
     }
     if (!pkg.entryUrl) {
@@ -86,7 +91,7 @@ export function toUserSceneEntries(
       });
       entries.push({
         manifest,
-        source: "user",
+        source: bundled ? "official" : "user",
         entryUrl: pkg.entryUrl,
         component: null,
       });

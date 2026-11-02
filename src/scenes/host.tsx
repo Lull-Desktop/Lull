@@ -84,7 +84,7 @@ export function SceneHost({ params, onReady }: SceneHostProps) {
 
   const sceneKey = resolved?.entry.manifest.id ?? null;
   // 目标场景已解析，或目录已加载完（确认只能回退）时，才算"可以揭幕"。
-  // 目录还在加载且当前只是默认回退场景时先不揭幕，避免用户先看到竹影再切到目标场景。
+  // 目录还在加载且当前只是回退到内置媒体场景时先不揭幕，避免用户先看到视频再切到官方壁纸。
   const sceneSettled =
     sceneKey !== null && (sceneKey === params.scene || !loading);
 

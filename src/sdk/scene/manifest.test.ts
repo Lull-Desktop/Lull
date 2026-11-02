@@ -2,12 +2,7 @@ import { describe, expect, test } from "vitest";
 import catalogJson from "../../../public/content/catalog.json" with {
   type: "json",
 };
-import {
-  isSafeContentEntry,
-  parseSceneCatalog,
-  parseSceneManifest,
-  sceneEntryUrl,
-} from "./index";
+import { isSafeContentEntry, parseSceneCatalog, parseSceneManifest } from "./index";
 
 function validManifest(overrides: Record<string, unknown> = {}) {
   return {
@@ -283,15 +278,11 @@ describe("scene manifest", () => {
 });
 
 describe("shipped content catalog", () => {
-  test("is valid and exposes the mist example", () => {
+  test("is valid and ships no bundled scene", () => {
     const catalog = parseSceneCatalog(catalogJson, {
       where: "test catalog",
     });
     expect(catalog.issues).toEqual([]);
-    expect(catalog.scenes).toHaveLength(1);
-    const [mist] = catalog.scenes;
-    expect(mist.id).toBe("community.mist");
-    expect(mist.integrity?.digest).toMatch(/^[0-9a-f]{64}$/);
-    expect(sceneEntryUrl(mist)).toBe("/content/scenes/mist/index.html");
+    expect(catalog.scenes).toEqual([]);
   });
 });

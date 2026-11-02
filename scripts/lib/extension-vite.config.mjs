@@ -1,9 +1,10 @@
 /**
  * 官方扩展的 Vite 配置工厂：生产 build 与 dev server 共用一套解析规则。
  *
- * - `@lull/widget-sdk` / `@lull/media-sdk` 解析到 `packages/<pkg>/dist`（与发布物一致）；
+ * - `@lull/widget-sdk` / `@lull/scene-sdk` / `@lull/media-sdk` 解析到
+ *   `packages/<pkg>/dist`（与发布物一致）；
  * - `server.fs.allow` 放开仓库根：仓库没有 pnpm workspace，扩展目录之外的文件默认会被挡；
- * - 生产 `base: "./"`，产物由 `lullwidget://` 以相对路径服务；
+ * - 生产 `base: "./"`，产物由 `lullwidget://` / `lullcontent://` 以相对路径服务；
  * - 关闭 modulePreload polyfill：WebView2 原生支持，避免多余的 inline script。
  */
 import react from "@vitejs/plugin-react";
@@ -78,6 +79,8 @@ function sdkAliases(repoRoot) {
   return [
     { find: /^@lull\/widget-sdk$/, replacement: alias("widget-sdk") },
     { find: /^@lull\/widget-sdk\/(.*)$/, replacement: alias("widget-sdk", "$1") },
+    { find: /^@lull\/scene-sdk$/, replacement: alias("scene-sdk") },
+    { find: /^@lull\/scene-sdk\/(.*)$/, replacement: alias("scene-sdk", "$1") },
     { find: /^@lull\/media-sdk$/, replacement: alias("media-sdk") },
     { find: /^@lull\/media-sdk\/(.*)$/, replacement: alias("media-sdk", "$1") },
   ];

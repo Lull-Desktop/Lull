@@ -1,5 +1,5 @@
 /**
- * 确保 `packages/widget-sdk/dist` 与 `packages/media-sdk/dist` 存在。
+ * 确保 `packages/{widget,scene,media}-sdk/dist` 存在。
  *
  * SDK dist 不入库；官方扩展构建 / dev server 启动前按需编译，避免依赖 pnpm
  * 生命周期钩子，也避免 CI 里必须先记得跑 `pnpm widgets:sdk`。
@@ -20,7 +20,7 @@ function newestMtime(dir) {
 
 export function ensureSdkDist(repoRoot) {
   const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
-  for (const pkg of ["widget-sdk", "media-sdk"]) {
+  for (const pkg of ["widget-sdk", "scene-sdk", "media-sdk"]) {
     const sourceDir = join(repoRoot, "packages", pkg, "src");
     const distEntry = join(repoRoot, "packages", pkg, "dist", "index.js");
     const stale =

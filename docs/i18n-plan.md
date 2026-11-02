@@ -141,8 +141,8 @@ UI：设置页新增「语言」卡片（`偏好`页签内、主题流光之前�
 - 带插值一律用 ICU 花括号命名参数：`error_save_failed: "保存失败：{reason}"`，禁止字符串拼接。
 - 复数/数量走 ICU `plural`（英文必须，中文单形式）：`scene_params_selected: "{count, plural, =0 {未选择} other {已选 # 项}}"`。
 - 纯装饰性中文（`aria-label`、`title`、`alt`）**必须**迁移，它们会进无障碍树。
-- 用户可见的格式化（时间/日期/数字）统一走 `Intl.*` 配合 `getLocale()`；`scenes/shared/clock.tsx` 需要按 locale 支持 12/24 小时。
-- 内置场景/工具的显示名走消息键（`scene_builtin_bamboo_name`），**不复用**清单 JSON 里的中文 `name`；第三方场景走阶段 3 的元数据。
+- 用户可见的格式化（时间/日期/数字）统一走 `Intl.*` 配合 `getLocale()`；`extensions/official/bamboo/src/scene.ts` 的时钟需要按 locale 支持 12/24 小时。
+- 官方场景/工具的显示名走消息键（例如 `scene_official_bamboo_name`），**不复用**清单 JSON 里的中文 `name`；第三方场景走阶段 3 的元数据。
 
 **验收**：`en-US` 下设置页、播放器、番茄钟、白噪音、扩展中心的 DOM 文本中文占比为 0（脚本判定，见阶段 4）；英文文案 +30% 长度不溢出（播放器固定 880×552、顶栏固定高度是高风险点）；测试改为按 `m.xxx()` 断言或 `data-testid`。
 

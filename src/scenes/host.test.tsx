@@ -106,6 +106,42 @@ describe("SceneHost", () => {
     expect(frame.getAttribute("data-runtime")).toBe("scripted");
   });
 
+  test("官方随包场景同样走 iframe", () => {
+    harness.entries = [
+      {
+        manifest: manifest("lull.bamboo", [
+          "wallpaper.viewport",
+          "wallpaper.params",
+          "wallpaper.script",
+        ]),
+        source: "official",
+        entryUrl:
+          "http://lullcontent.localhost/lull.bamboo/scenes/bamboo/index.html",
+        component: null,
+      } satisfies SceneCatalogEntry,
+    ];
+
+    render(<SceneHost params={{ ...params, scene: "lull.bamboo" }} />);
+
+    const frame = screen.getByTestId("external-scene");
+    expect(frame.getAttribute("data-runtime")).toBe("scripted");
+  });
+
+  test("未声明的旧内置默认 id 回退到内置媒体场景", () => {
+    harness.entries = [
+      {
+        manifest: manifest("lull.video"),
+        source: "builtin",
+        entryUrl: null,
+        component: () => <div data-testid="builtin-scene" />,
+      } satisfies SceneCatalogEntry,
+    ];
+
+    render(<SceneHost params={{ ...params, scene: "lull.dusk" }} />);
+
+    expect(screen.getByTestId("builtin-scene")).toBeDefined();
+  });
+
   test("同 id 场景版本变化时重建 iframe，加载新版本资源", () => {
     const entry: SceneCatalogEntry = {
       manifest: manifest("demo.versioned"),

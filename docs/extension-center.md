@@ -29,7 +29,7 @@
 | --- | --- | --- |
 | 清单 | `catalog.json` + 单条 scene | `widget.json`（schemaVersion 2） |
 | 安装 | zip / 文件夹 + 整包摘要 + 目录签名 | **无安装器**，手动复制目录 |
-| 发现 | `catalog.json` 索引 + 用户目录扫描 | 用户目录扫描 |
+| 发现 | `public/content/catalog.json` + `extensions/dist/<id>` + 用户目录扫描 | 用户目录扫描 |
 | 运行时 | `sandbox=""` iframe，不执行 JS | `sandbox="allow-scripts"` iframe + postMessage 桥 |
 | 设置入口 | 「内容包」卡片 | 「自定义插件」卡片 |
 | 完整性 | 有摘要，运行时复核 | **无摘要**，磁盘改动不会被发现 |
@@ -88,9 +88,16 @@
 `sandbox="allow-scripts"` 的不透明源 iframe 里，能力模型与第三方扩展相同；唯一差别是
 分发方式与授权策略（默认授权、随 App 升级、构建期摘要锁）。
 
-- 保留 id：`noise`、`player`；用户包命中保留 id 时报 `manifest.id-reserved`。
-- 升级：启动时 reconcile 授权与清单哈希，新增能力自动补授，用户此前的撤销保持撤销。
-- 完整性：构建期 `.lull-integrity.json`，运行时只读复核；不参与发布者签名策略。
+竹影壁纸也迁到同一资源根，但它是 **scene**：`catalog.json` + 脚本 iframe，没有启用 /
+停用状态，也不进入 Widget 授权账本；扩展中心只提供详情与「壁纸设置」，不可卸载。
+宿主不再编译 `bamboo` / `aurora` / `dusk`，内置壁纸只剩媒体场景。
+
+- 保留 id：Widget `noise`、`player`；Scene `lull.bamboo`。用户包命中保留 id 时报
+  `manifest.id-reserved`。
+- 升级：Widget 启动时 reconcile 授权与清单哈希，新增能力自动补授，用户此前的撤销保持撤销；
+  Scene 按 manifest version 重建 iframe。
+- 完整性：Widget 用 `.lull-integrity.json`，Scene 用 `catalog.json` 的 `integrity`；
+  运行时只读复核；不参与发布者签名策略。
 - 资料库、设置窗不包化；番茄钟迁到 `examples/widgets/liquid-pomodoro`，按普通用户包管理。
 
 完整契约（包格式、构建、打包、升级、失败模式、验收）见
@@ -167,12 +174,12 @@
 [ 全部 ] [ 工具 ] [ 壁纸 ]            ← 过滤 chip
 
 ┌──────────────────────────────────────────────┐
-│ 🧩 雾岚番茄钟          1.2.0  工具  已启用 ● │
+│ 🧩 示例工具            1.2.0  工具  已启用 ● │
 │    专注计时 · Lull Community · MIT           │
 │    [打开] [详情]                    [卸载]   │
 └──────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────┐
-│ 🖼 雾岚                1.0.0  壁纸  已校验   │
+│ 🖼 竹影                1.2.0  壁纸  已校验   │
 │    薄雾与远山 · CC-BY-4.0                    │
 │    [查看壁纸设置]                  [卸载]    │
 └──────────────────────────────────────────────┘
@@ -270,11 +277,13 @@ Scene 没有“启用/运行”概念，只有：
 
 | 状态 | 判定 | 动作 |
 | --- | --- | --- |
-| 已安装 | 目录存在，清单有效 | 查看详情、去壁纸设置、卸载 |
+| 已安装 | 目录存在，清单有效 | 查看详情、去壁纸设置、卸载（官方场景只读） |
 | 已校验 / 未校验 / 摘要不符 | 同 widget | 摘要不符禁止被壁纸引用 |
 
-扩展中心对 scene 只提供“去壁纸设置”和“卸载”，不复制壁纸选择器。
-后续如果要在中心里直接应用壁纸，再加 `extensions_apply_scene`，v1 不做。
+官方随包场景（`origin=bundled`）与用户 scene 共用同一张卡片，但只有「详情」和
+「壁纸设置」，没有卸载按钮；后端 `extensions_remove` 同样返回只读错误。
+扩展中心对 scene 不复制壁纸选择器；后续如果要在中心里直接应用壁纸，再加
+`extensions_apply_scene`，v1 不做。
 
 ---
 

@@ -144,7 +144,9 @@ Lull 采用分层许可，提交前请确认文件归属：
 
 ## 7. 新增内容 / 场景 / 工具
 
-- 内置场景：`src/scenes/<id>/index.tsx` + `src/scenes/registry.ts`。
+- 内置壁纸：只保留 `src/scenes/video` 的媒体场景（需要 MediaSurface / 原生会话）。
+- 官方壁纸：`extensions/official/<id>/`（`catalog.json` + `index.html` + `src/`），
+  用 `pnpm extensions:build` 生成 `extensions/dist/<scene-id>`；当前只有竹影。
 - 外部静态场景：`public/content/scenes/<id>/index.html` + `catalog.json` + `pnpm content:check`。
 - 外部脚本场景：声明 `wallpaper.script`（参数/同步再加对应能力），用 `@lull/scene-sdk`
   打包进包内 ESM；改桥协议要同时改 `src/scenes/scene-bridge.ts`、`packages/scene-sdk` 与两边测试。

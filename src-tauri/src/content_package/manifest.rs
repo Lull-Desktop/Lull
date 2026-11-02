@@ -1,4 +1,4 @@
-//! 用户内容包清单校验。
+//! 内容包清单校验（官方随包场景与用户包同格式）。
 //!
 //! **安装单位 = 一个内容根目录**，与官方 `public/content/` 完全同构：
 //! ```text
@@ -6,6 +6,7 @@
 //!   catalog.json              # { schemaVersion: 1, scenes: [ 单条 scene ] }
 //!   scenes/<name>/index.html  # entry 必须位于子目录里
 //! ```
+//! 官方场景的根目录是安装目录 `extensions/`；用户包是 `%APPDATA%/content/`。
 //! 这样做的原因：`content-digest.mjs` 的摘要只覆盖 **entry 所在目录**，清单在目录之外。
 //! 若把清单也放进摘要范围，写入 `integrity` 会改变自身字节，摘要永远算不出来。
 //!

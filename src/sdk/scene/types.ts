@@ -72,9 +72,12 @@ export type BuiltinScene = {
 /** 设置页 / 场景宿主共用的目录条目。 */
 export type SceneCatalogEntry = {
   readonly manifest: SceneManifest;
-  /** `builtin` 内置组件 / `content` 随包内容目录（已签名）/ `user` 用户安装的内容包。 */
-  readonly source: "builtin" | "content" | "user";
-  /** 外部静态内容包的入口 URL；内置场景为 null。 */
+  /**
+   * `builtin` 内置组件（当前只有媒体壁纸）/ `official` 随应用分发的官方场景扩展 /
+   * `content` 随包内容目录（已签名）/ `user` 用户安装的内容包。
+   */
+  readonly source: "builtin" | "official" | "content" | "user";
+  /** 外部内容包的入口 URL；内置场景为 null。 */
   readonly entryUrl: string | null;
   /** 内置场景的组件；外部场景为 null。 */
   readonly component: SceneComponent | null;

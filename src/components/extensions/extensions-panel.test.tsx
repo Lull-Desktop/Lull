@@ -1,5 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ExtensionInfo, ExtensionPreview } from "@/lib/extensions";
 import { ExtensionsPanel } from "./extensions-panel";
@@ -49,6 +55,25 @@ const scene: ExtensionInfo = {
   dev: false,
   capabilities: ["wallpaper.viewport"],
   entryUrl: "/content/scenes/mist/index.html",
+};
+
+const officialScene: ExtensionInfo = {
+  kind: "scene",
+  id: "lull.bamboo",
+  name: "竹影",
+  version: "1.2.0",
+  license: "GPL-3.0-or-later",
+  status: "ready",
+  verified: "declared",
+  signature: {
+    status: "unsigned",
+    decision: "warn",
+    reason: "official-bundle",
+  },
+  dev: false,
+  origin: "bundled",
+  capabilities: ["wallpaper.viewport", "wallpaper.script"],
+  entryUrl: "http://lullcontent.localhost/lull.bamboo/scenes/bamboo/index.html",
 };
 
 const preview: ExtensionPreview = {
@@ -230,4 +255,18 @@ test("scene action hands off to wallpaper settings", async () => {
 
   fireEvent.click(await screen.findByRole("button", { name: "壁纸设置" }));
   expect(onOpenWallpaperSettings).toHaveBeenCalledTimes(1);
+});
+
+test("官方场景显示官方徽章，不显示未验签与卸载", async () => {
+  mockCommands({ extensions_list: () => [officialScene] });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  const name = await screen.findByText("竹影");
+  const card = name.closest("article");
+  expect(card).not.toBeNull();
+  if (!card) return;
+  expect(within(card).getByText("官方")).toBeDefined();
+  expect(within(card).queryByText("未验签")).toBeNull();
+  expect(within(card).queryByRole("button", { name: /卸载：竹影/ })).toBeNull();
+  expect(within(card).getByRole("button", { name: "壁纸设置" })).toBeDefined();
 });

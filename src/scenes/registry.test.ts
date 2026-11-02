@@ -17,10 +17,16 @@ describe("builtin scene registry", () => {
     }
   });
 
-  test("default id resolves to a builtin scene", () => {
-    const scene = builtinScene(DEFAULT_SCENE_ID);
-    expect(scene?.manifest.name).toBe("竹影");
-    expect(builtinCatalogEntries()[0]?.manifest.id).toBe(DEFAULT_SCENE_ID);
+  test("host only compiles the media scene", () => {
+    expect(BUILTIN_SCENES.map((scene) => scene.manifest.id)).toEqual([
+      "lull.video",
+    ]);
+    expect(builtinScene("lull.video")?.manifest.name).toBe("媒体");
+    expect(builtinCatalogEntries()[0]?.manifest.id).toBe("lull.video");
+  });
+
+  test("default bamboo is provided by the official extension, not the host", () => {
+    expect(builtinScene(DEFAULT_SCENE_ID)).toBeNull();
   });
 
   test("unknown id does not resolve", () => {

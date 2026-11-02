@@ -39,11 +39,13 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 - 第三方/官方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
 - 壁纸窗口只有一条**只读** capability 基础（`window-wallpaper`：`content_packages` +
   事件订阅 + 视频会话命令）：
-  场景切换走 `location.hash`（不重载页面），壁纸窗必须自己解析场景 id，因此要读得到用户内容包目录；
+  场景切换走 `location.hash`（不重载页面），壁纸窗必须自己解析场景 id，因此要读得到官方
+  与用户内容包目录；
   媒体命令只够顶层页面打开/绑定视频会话，且必须带 Rust 注入的 per-window token；
   外部静态场景跑在 `sandbox=""` 的 iframe 里（不执行 JS）；
-  声明 `wallpaper.script` 的外部场景跑在 `sandbox="allow-scripts"` 的 opaque-origin iframe 里，
-  只通过 `@lull/scene-sdk` 的 postMessage 桥读取参数/几何/相位，不能读取父页面媒体 token。
+  声明 `wallpaper.script` 的外部/官方场景跑在 `sandbox="allow-scripts"` 的 opaque-origin
+  iframe 里，只通过 `@lull/scene-sdk` 的 postMessage 桥读取参数/几何/相位，不能读取父页面
+  媒体 token。
 
 ### 2.2 壁纸画面协议
 
@@ -57,7 +59,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | --- | --- |
 | `mode` | `mirror` / `independent` / `span` |
 | `sync` | `1` 时按绝对时间对齐动画相位 |
-| `scene` | 场景 id（内置 `lull.*`，外部 `community.*`） |
+| `scene` | 场景 id（内置媒体 `lull.video`、官方竹影 `lull.bamboo`、外部 `community.*`） |
 | `canvas` | 跨屏共享画布（物理像素桌面坐标，可为负） |
 | `view` | 当前窗口对应的桌面矩形 |
 | `params` | JSON 后再 URI 编码的场景参数（字符串键值）；为空时省略 |
@@ -69,7 +71,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | 层 | 目录 | 允许依赖 | 禁止 |
 | --- | --- | --- | --- |
 | **Core** | `src/core/**`、`src-tauri/src/{config,media,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
-| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/{widget-sdk,scene-sdk}/**`、`examples/widgets/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
+| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/{widget-sdk,scene-sdk}/**`、`examples/widgets/**`、`extensions/official/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
 | **Community** | `content/**`、`public/content/**`、`scripts/*-content.mjs`、`src-tauri/src/content_package/**` | 清单格式、静态 HTML/CSS、受限沙箱脚本、用户内容目录读写 | 修改核心 / 创建系统窗口 / 越权访问宿主 |
 | **Extension Center** | `src-tauri/src/extension/**`、`src-tauri/src/package_hash.rs`、`src/components/extensions/**`、`src/lib/extensions.ts`、`src/hooks/use-extensions.ts` | `content_package` / `widget_package` 的校验与运行时；共享安装管线 | 拥有包格式 / 直接执行包内代码 |
 | **Services** | 设计文档 | — | 成为本地运行前置依赖 |
@@ -78,7 +80,8 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 落地约束：
 
 - `src/sdk/**` 不 import `src/app/**` 或 `src/components/**`。
-- `src/scenes/**` 只接收 `SceneProps`，不读配置文件、不调用 Tauri。
+- `src/scenes/**` 只接收 `SceneProps`，不读配置文件、不调用 Tauri；当前只保留媒体场景。
+- 官方壁纸/脚本场景在 `extensions/official/<id>/`，通过 Vite 构建为内容包，不进入 `src/`。
 - `src/content/catalog.ts` 是内容加载服务，依赖 `sdk/scene`，不反向被 `core` 依赖。
 - `window_host` 只暴露窗口 label 前缀 `DYNAMIC_WINDOW_PREFIX`；`widget_package` 依赖 Core，Core 不反向 import 插件模块。
 - `src-tauri/src/lib.rs` 只做插件、命令与生命周期接线；新增能力先进对应模块。
@@ -103,6 +106,7 @@ app/(widgets) ──► components/library
                          └──► 纯模型
 
 官方工具 ──► extensions/official/{player,noise} ──► @lull/widget-sdk + @lull/media-sdk
+官方壁纸 ──► extensions/official/bamboo ──► @lull/scene-sdk（构建为 lull.bamboo 场景包）
 示例包   ──► examples/widgets/liquid-pomodoro ──► @lull/widget-sdk + 全局 CSS
 
 app/(widgets)/embed ──► components/widget-plugin-shell ──► iframe（sandbox）
@@ -126,7 +130,7 @@ lib.rs
  │    ├─ mod.rs（命令 + content-changed 事件）
  │    ├─ manifest.rs（catalog.json 校验：单场景 / id / entry / license）
  │    ├─ digest.rs（整包 sha256，与 content-digest.mjs 逐字节一致）
- │    ├─ store.rs（扫描 / zip 安装 / 卸载 / 打开目录）
+ │    ├─ store.rs（官方随包场景 + 用户内容扫描 / zip 安装 / 卸载 / 官方优先解析）
  │    └─ protocol.rs（lullcontent:// 资源协议）
  ├─ resource.rs（safe_join + MIME，插件与内容包共用）
  ├─ package_hash.rs（两类包共用的文件遍历 + 摘要拼装）
@@ -228,7 +232,7 @@ lib.rs
 | `media_call` | `request: {protocol,requestId,namespace,method,args}` | `{ok,result?,error?,revision}` | `media::api`（settings/player/noise/library） |
 | `media_connect` / `media_disconnect` | `request: {topics?,progressMs?,levels?}` | `PlaybackSnapshot` / `()` | `media::playback`（player/noise/settings/library） |
 | `media_engine_ready` / `media_engine_event` | `event: EngineEvent` | `()` | `media::playback`（仅 media-engine） |
-| `content_packages` | — | `ContentPackageInfo[]` | `content_package`（壁纸窗只读） |
+| `content_packages` | — | `ContentPackageInfo[]`（含 `origin: bundled/user`） | `content_package`（壁纸窗只读） |
 
 所有会写配置的命令遵循同一事务模型：**先改内存 → 写盘 → 失败回滚内存 → 返回错误**。写盘使用临时文件 + 原子替换。
 
@@ -333,7 +337,7 @@ form-action 'none'
     }
   },
   "monitors": {
-    "\\\\.\\DISPLAY1": { "enabled": true, "scene": "lull.aurora" }
+    "\\\\.\\DISPLAY1": { "enabled": true, "scene": "lull.bamboo" }
   }
 }
 ```
