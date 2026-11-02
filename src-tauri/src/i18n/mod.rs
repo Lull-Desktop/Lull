@@ -170,6 +170,22 @@ pub fn t(key: &str) -> String {
     .unwrap_or_else(|| key.to_string())
 }
 
+/// 该消息键是否存在（当前语言或基准语言）。
+///
+/// 给「键由数据推导」的场景用（例如托盘按 `widget_<kind>_name` 取内置窗口名）：
+/// `t()` 查不到时会回退成键名本身，调用方需要先判断有没有这条文案，
+/// 再决定是否退回清单里的原始名称。
+#[must_use]
+pub fn has(key: &str) -> bool {
+  let table = catalog();
+  table
+    .get(current().as_str())
+    .is_some_and(|messages| messages.contains_key(key))
+    || table
+      .get(BASE_LOCALE)
+      .is_some_and(|messages| messages.contains_key(key))
+}
+
 /// 带 `{name}` 占位符的查表。
 #[must_use]
 pub fn t_args(key: &str, args: &[(&str, &str)]) -> String {
@@ -398,6 +414,73 @@ mod tests {
       resolve_locale(Some(&broken), Some("en-US")),
       ("en-US".to_string(), false)
     );
+  }
+
+  /// 托盘文案在两种语言下都要有，且英文不能是中文的复制品。
+  #[test]
+  fn tray_strings_are_present_and_translated_in_every_locale() {
+    let table = catalog();
+    for locale in SUPPORTED {
+      let messages = table
+        .get(locale)
+        .unwrap_or_else(|| panic!("缺少语言 {locale}"));
+      for key in [
+        "tray_settings",
+        "tray_toggle_settings",
+        "tray_quit",
+        "tray_extensions",
+        "tray_tooltip",
+      ] {
+        assert!(messages.contains_key(key), "{locale} 缺少 {key}");
+      }
+    }
+
+    let zh = table.get(BASE_LOCALE).unwrap_or_else(|| unreachable!());
+    let en = table.get("en-US").unwrap_or_else(|| unreachable!());
+    assert_eq!(zh.get("tray_settings").map(String::as_str), Some("设置"));
+    assert_eq!(
+      en.get("tray_settings").map(String::as_str),
+      Some("Settings")
+    );
+    assert_ne!(
+      zh.get("tray_settings"),
+      en.get("tray_settings"),
+      "英文托盘文案没有真正翻译"
+    );
+  }
+
+  /// 内置窗口的展示名键：托盘（`tray::window_label`）与设置页共用同一批键，
+  /// 两处都要求两种语言齐全。
+  #[test]
+  fn builtin_window_labels_are_translated_in_every_locale() {
+    let table = catalog();
+    let zh = table.get(BASE_LOCALE).unwrap_or_else(|| unreachable!());
+    let en = table.get("en-US").unwrap_or_else(|| unreachable!());
+    for (key, chinese) in [
+      ("widget_library_name", "音乐库"),
+      ("widget_backdrop_name", "壁纸库"),
+      ("widget_noise_library_name", "白噪音库"),
+    ] {
+      assert_eq!(zh.get(key).map(String::as_str), Some(chinese), "{key}");
+      let translated = en.get(key).unwrap_or_else(|| panic!("en-US 缺少 {key}"));
+      assert!(
+        !translated.trim().is_empty() && translated.as_str() != chinese,
+        "{key} 的英文文案没有翻译：{translated}"
+      );
+    }
+  }
+
+  #[test]
+  fn has_reports_existing_keys_only() {
+    set_current(BASE_LOCALE);
+    assert!(has("tray_settings"));
+    assert!(!has("__missing_key__"));
+
+    set_current("en-US");
+    assert!(has("tray_settings"), "当前语言缺失时应回落到基准语言");
+    assert_eq!(t("tray_settings"), "Settings");
+    set_current(BASE_LOCALE);
+    assert_eq!(t("tray_settings"), "设置");
   }
 
   #[test]

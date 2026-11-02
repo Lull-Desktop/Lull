@@ -121,7 +121,7 @@ examples/scenes/* ──► 内容包样例（静态 CSS / Scene SDK 脚本场�
 
 ```text
 lib.rs
- ├─ tray.rs ───────────────► window_host + widget_package（菜单项：内置工具 + 已启用扩展）
+ ├─ tray.rs ───────────────► window_host + widget_package（菜单项：设置子菜单含各内置窗口 / 功能槽位 / 已启用扩展）
  ├─ window_host
  │    ├─ mod.rs（窗口工厂 / 上下文注入 / IPC）
  │    ├─ spec.rs（WidgetSpec 结构 + 查询；静态描述由 build.rs 生成）

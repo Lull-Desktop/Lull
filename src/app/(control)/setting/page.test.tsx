@@ -152,25 +152,26 @@ test("工具窗开关按当前显示状态渲染，并能打开三个库窗口",
   renderSettingsPage();
 
   for (const name of ["音乐库窗口", "壁纸库窗口", "白噪音库窗口"]) {
-    const toggle = (await screen.findByRole("switch", {
+    const toggle = (await screen.findByRole("button", {
       name,
     })) as HTMLButtonElement;
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.textContent).toBe("打开");
   }
 
   // 三个库窗口按 manifest order 展示：壁纸库 → 音乐库 → 白噪音库。
   expect(
     screen
-      .getAllByRole("switch", { name: /库窗口$/ })
+      .getAllByRole("button", { name: /库窗口$/ })
       .map((toggle) => toggle.getAttribute("aria-label")),
   ).toEqual(["壁纸库窗口", "音乐库窗口", "白噪音库窗口"]);
 
-  fireEvent.click(screen.getByRole("switch", { name: "壁纸库窗口" }));
+  fireEvent.click(screen.getByRole("button", { name: "壁纸库窗口" }));
   await waitFor(() => {
     expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "backdrop" });
   });
 
-  fireEvent.click(screen.getByRole("switch", { name: "白噪音库窗口" }));
+  fireEvent.click(screen.getByRole("button", { name: "白噪音库窗口" }));
   await waitFor(() => {
     expect(invoke).toHaveBeenCalledWith("widget_open", {
       kind: "noise-library",

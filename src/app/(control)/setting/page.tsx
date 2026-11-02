@@ -18,6 +18,7 @@ import {
 import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
 import { SlotPanel } from "@/components/extensions/slot-panel";
 import { ThemeModeSwitch } from "@/components/settings/theme-mode-switch";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -505,34 +506,50 @@ export default function Settings() {
                     />
                   </div>
 
-                  {/* 紧凑列表：库窗口名称与说明同一行，说明溢出时截断并保留 title。 */}
+                  {/* 紧凑列表：库窗口名称与说明同一行，说明溢出时截断并保留 title。
+                      开关为按钮模式：按钮文字随窗口显示状态切换（打开/关闭）。 */}
                   <div className="divide-y divide-border/40 border-t border-border/50">
-                    {toolWindows.map(({ kind, name, description }) => (
-                      <div
-                        key={kind}
-                        className="flex items-center justify-between gap-3 py-1.5"
-                      >
-                        <div className="flex min-w-0 items-baseline gap-2">
-                          <span className="shrink-0 text-sm text-ink-soft">
-                            {name}
-                          </span>
-                          {description && (
-                            <span
-                              className="truncate text-xs text-muted-foreground"
-                              title={description}
-                            >
-                              {description}
+                    {toolWindows.map(({ kind, name, description }) => {
+                      const open = widgetStates?.[kind] === true;
+                      return (
+                        <div
+                          key={kind}
+                          className="flex items-center justify-between gap-3 py-1.5"
+                        >
+                          <div className="flex min-w-0 items-baseline gap-2">
+                            <span className="shrink-0 text-sm text-ink-soft">
+                              {name}
                             </span>
-                          )}
+                            {description && (
+                              <span
+                                className="truncate text-xs text-muted-foreground"
+                                title={description}
+                              >
+                                {description}
+                              </span>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="default"
+                            size="sm"
+                            className={cn(
+                              "h-7 min-w-14 px-3 text-xs",
+                              open &&
+                                "border-bamboo/60 bg-bamboo-mist text-bamboo hover:bg-bamboo-mist/80 hover:text-bamboo",
+                            )}
+                            aria-pressed={open}
+                            aria-label={m.settings_window_toggle_aria({ name })}
+                            disabled={widgetStates === null}
+                            onClick={() => toggleWidget(kind, !open)}
+                          >
+                            {open
+                              ? m.settings_window_tool_close()
+                              : m.settings_window_tool_open()}
+                          </Button>
                         </div>
-                        <Switch
-                          aria-label={m.settings_window_toggle_aria({ name })}
-                          checked={widgetStates?.[kind] === true}
-                          disabled={widgetStates === null}
-                          onCheckedChange={(on) => toggleWidget(kind, on)}
-                        />
-                      </div>
-                    ))}
+                      );
+                    })}
                     {officialTools.map((item) => (
                       <div
                         key={`official-${item.id}`}
