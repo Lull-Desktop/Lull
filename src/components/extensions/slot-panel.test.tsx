@@ -86,14 +86,29 @@ test("shows the current provider and slot status", () => {
   expect(screen.getByText("播放器 1.1.0")).toBeDefined();
 });
 
+test("组件以紧凑列表展示当前实现与操作", () => {
+  renderPanel(activeSlot);
+
+  const list = screen.getByTestId("slot-list");
+  expect(list.className).toContain("divide-y");
+
+  const row = screen.getByTestId("slot-music-player");
+  expect(row.className).toContain("py-2");
+  expect(row.contains(screen.getByRole("button", { name: "切换实现" }))).toBe(
+    true,
+  );
+  expect(row.contains(screen.getByRole("button", { name: "打开" }))).toBe(true);
+});
+
 test("switch sheet invokes slot use and refreshes", async () => {
-  vi.mocked(invoke).mockResolvedValue({ ...activeSlot, selected: "music-vinyl" });
+  vi.mocked(invoke).mockResolvedValue({
+    ...activeSlot,
+    selected: "music-vinyl",
+  });
   const { onChanged } = renderPanel(activeSlot);
 
   fireEvent.click(screen.getByRole("button", { name: "切换实现" }));
-  expect(
-    await screen.findByText("选择「音乐播放器」的实现"),
-  ).toBeDefined();
+  expect(await screen.findByText("选择「音乐播放器」的实现")).toBeDefined();
   expect(screen.getByText("Broken Player")).toBeDefined();
   expect(screen.getByText("扩展未启用")).toBeDefined();
 
@@ -129,8 +144,9 @@ test("empty slot explains that an implementation must be chosen", () => {
   renderPanel(emptySlot);
   expect(screen.getByText("未选择实现")).toBeDefined();
   expect(
-    screen.getAllByText("该槽位还没有选择实现，可在扩展中心启用并选择一个扩展。")
-      .length,
+    screen.getAllByText(
+      "该槽位还没有选择实现，可在扩展中心启用并选择一个扩展。",
+    ).length,
   ).toBeGreaterThan(0);
 });
 

@@ -161,25 +161,61 @@ export function SlotPanel({
     <section className="space-y-2" data-testid="slot-panel">
       {heading}
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div
+        className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/60"
+        data-testid="slot-list"
+      >
         {slots.map((slot) => {
           const provider = selectedProvider(slot);
           const active = slot.status === "active";
+          const note = slot.error
+            ? `${slot.error.code}：${slot.error.message}`
+            : slot.status === "unavailable" && provider?.reason
+              ? m.slot_unavailable_hint({ reason: provider.reason })
+              : slot.status !== "active" && !slot.selected
+                ? m.slot_empty_hint()
+                : null;
           return (
             <article
               key={slot.id}
-              className="space-y-1.5 rounded-xl border border-border/60 p-2.5"
+              className="flex items-start justify-between gap-3 px-3 py-2"
               data-testid={`slot-${slot.id}`}
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="truncate text-sm text-ink-soft">
                     {slot.name}
                   </span>
                   <Badge variant={slotStatusVariant(slot.status)}>
                     {slotStatusLabel(slot.status)}
                   </Badge>
+                  <span className="shrink-0 text-[10px] text-ink-faint">
+                    {m.slot_current()}
+                  </span>
+                  <span className="min-w-0 truncate text-xs text-muted-foreground">
+                    {provider
+                      ? `${provider.name} ${provider.version}`
+                      : (slot.selected ?? m.slot_not_selected())}
+                  </span>
+                  {slot.selected && slot.defaultProvider === slot.selected && (
+                    <span className="shrink-0 text-[10px] text-ink-faint">
+                      {m.slot_default()}
+                    </span>
+                  )}
                 </div>
+                {note && (
+                  <p
+                    className={`truncate text-[11px] ${
+                      slot.error ? "text-destructive" : "text-muted-foreground"
+                    }`}
+                    title={note}
+                  >
+                    {note}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                 <Button
                   type="button"
                   size="sm"
@@ -194,34 +230,6 @@ export function SlotPanel({
                   <Settings2 className="h-3.5 w-3.5" />
                   {m.slot_action_switch()}
                 </Button>
-              </div>
-
-              <div className="space-y-0.5">
-                <p className="text-[11px] text-ink-faint">{m.slot_current()}</p>
-                <p className="truncate text-xs text-ink-soft">
-                  {provider
-                    ? `${provider.name} ${provider.version}`
-                    : (slot.selected ?? m.slot_not_selected())}
-                  {slot.selected && slot.defaultProvider === slot.selected && (
-                    <span className="ml-1.5 text-[10px] text-ink-faint">
-                      {m.slot_default()}
-                    </span>
-                  )}
-                </p>
-              </div>
-
-              {slot.error && (
-                <p className="text-[11px] text-destructive">
-                  {slot.error.code}：{slot.error.message}
-                </p>
-              )}
-              {slot.status === "unavailable" && provider?.reason && (
-                <p className="text-[11px] text-muted-foreground">
-                  {m.slot_unavailable_hint({ reason: provider.reason })}
-                </p>
-              )}
-
-              <div className="flex flex-wrap items-center gap-2">
                 {active ? (
                   <>
                     <Button
@@ -284,11 +292,6 @@ export function SlotPanel({
                   </Button>
                 )}
               </div>
-              {slot.status !== "active" && !slot.selected && (
-                <p className="text-[11px] text-muted-foreground">
-                  {m.slot_empty_hint()}
-                </p>
-              )}
             </article>
           );
         })}
