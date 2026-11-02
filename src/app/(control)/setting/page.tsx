@@ -6,7 +6,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AppWindow, Languages, MoonStar, Sparkles } from "lucide-react";
+import { AppWindow, Languages, MoonStar, Puzzle, Sparkles } from "lucide-react";
 import {
   type CSSProperties,
   useCallback,
@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
+import { SlotPanel } from "@/components/extensions/slot-panel";
 import { LibraryOrganizerPanel } from "@/components/settings/library-organizer-panel";
 import { MediaApiTestPanel } from "@/components/settings/media-api-test-panel";
 import { MusicLibraryPanel } from "@/components/settings/music-library-panel";
@@ -50,12 +51,9 @@ import {
   type TrustPolicy,
 } from "@/lib/content-trust";
 import {
-  activateSlot,
   closeExtension,
-  deactivateSlot,
   type ExtensionInfo,
   openExtension,
-  type SlotInfo,
 } from "@/lib/extensions";
 import { FLOW_THEMES } from "@/lib/flow-theme";
 import { cn } from "@/lib/utils";
@@ -123,6 +121,7 @@ export default function Settings() {
     boolean
   > | null>(null);
   const [widgetMsg, setWidgetMsg] = useState("");
+  const [slotError, setSlotError] = useState("");
   const [trustPolicy, setTrustPolicyState] = useState<TrustPolicy | null>(null);
   const [trustMsg, setTrustMsg] = useState("");
   const [tab, setTab] = useState<SettingsTab>("preferences");
@@ -276,22 +275,17 @@ export default function Settings() {
     [refreshWidgets],
   );
 
-  const toggleSlot = useCallback(
-    (slot: SlotInfo, on: boolean): void => {
-      setWidgetMsg("");
-      const action = on ? activateSlot(slot.id) : deactivateSlot(slot.id);
-      void action
-        .then(() => Promise.all([refreshExtensions(), refreshSlots()]))
-        .catch((error: unknown) => {
-          setWidgetMsg(
-            m.settings_action_failed({
-              reason: localizeError(error),
-            }),
-          );
-          void Promise.all([refreshExtensions(), refreshSlots()]);
-        });
+  // SlotPanel 的变更同时刷新扩展列表与槽位：扩展页的 Provider 徽章要跟着更新。
+  const refreshSlotViews = useCallback(async (): Promise<void> => {
+    await Promise.all([refreshExtensions(), refreshSlots()]);
+  }, [refreshExtensions, refreshSlots]);
+
+  // 成功状态已由 Slot 徽章反映，这里只保留失败原因，避免堆叠“打开/运行中”提示。
+  const handleSlotMessage = useCallback(
+    (message: string, tone?: "info" | "error"): void => {
+      setSlotError(tone === "error" ? message : "");
     },
-    [refreshExtensions, refreshSlots],
+    [],
   );
 
   const toggleOfficialTool = useCallback(
@@ -546,59 +540,6 @@ export default function Settings() {
                     />
                   </div>
                 ))}
-                {slots === null && (
-                  <p className="text-xs text-muted-foreground">
-                    {m.ext_loading()}
-                  </p>
-                )}
-                {slots?.map((slot) => {
-                  const provider = slot.providers.find(
-                    (candidate) => candidate.id === slot.selected,
-                  );
-                  const canToggle = provider?.eligible === true;
-                  return (
-                    <div
-                      key={`slot-${slot.id}`}
-                      className="flex items-center justify-between gap-3"
-                    >
-                      <div className="min-w-0 space-y-0.5">
-                        <span className="text-sm text-ink-soft">
-                          {slot.name}
-                          <span className="ml-1.5 text-[10px] text-ink-faint">
-                            {m.slot_current()}
-                          </span>
-                        </span>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {provider
-                            ? `${provider.name} ${provider.version}`
-                            : m.slot_tools_empty()}
-                        </p>
-                        {slot.error && (
-                          <p className="text-[11px] text-destructive">
-                            {slot.error.message}
-                          </p>
-                        )}
-                      </div>
-                      {canToggle ? (
-                        <Switch
-                          aria-label={m.settings_window_toggle_aria({
-                            name: slot.name,
-                          })}
-                          checked={slot.status === "active"}
-                          onCheckedChange={(on) => toggleSlot(slot, on)}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          className="shrink-0 text-xs text-bamboo hover:underline"
-                          onClick={() => setTab("extensions")}
-                        >
-                          {m.slot_tools_manage()}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
                 {officialTools.map((item) => (
                   <div
                     key={`official-${item.id}`}
@@ -633,6 +574,29 @@ export default function Settings() {
               )}
               {widgetMsg && (
                 <p className="text-xs text-destructive">{widgetMsg}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── Feature Slots（官方扩展的切换与开启关闭，位于窗口设置下方）── */}
+          <Card className="w-full" data-testid="settings-feature-slots">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Puzzle className="h-5 w-5 text-bamboo" />
+                {m.slot_section_title()}
+              </CardTitle>
+              <CardDescription>{m.slot_section_description()}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <SlotPanel
+                slots={slots}
+                busy={false}
+                onChanged={refreshSlotViews}
+                onMessage={handleSlotMessage}
+                showHeading={false}
+              />
+              {slotError && (
+                <p className="text-xs text-destructive">{slotError}</p>
               )}
             </CardContent>
           </Card>

@@ -311,8 +311,6 @@
   "slot_provider_missing_caps": "缺少必需能力",
   "slot_unavailable_hint": "当前实现不可用：{reason}",
   "slot_failed_hint": "启动失败：{reason}",
-  "slot_tools_empty": "未选择实现",
-  "slot_tools_manage": "去扩展中心",
   "media_title": "媒体壁纸",
   "media_description": "选择本地图片或视频。图片直接渲染为静态壁纸；视频可使用 HTML 回退或原生共享解码。",
   "media_asset": "素材",

@@ -73,7 +73,6 @@ import {
   statusLabel,
   UNSIGNED_SIGNATURE,
 } from "./labels";
-import { SlotPanel } from "./slot-panel";
 
 const REMOVE_CONFIRM_MS = 5000;
 
@@ -342,10 +341,6 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       });
   }, [isSceneUpdate, preview, refresh]);
 
-  const refreshAll = useCallback(async (): Promise<void> => {
-    await Promise.all([refresh(), refreshSlots()]);
-  }, [refresh, refreshSlots]);
-
   const runAction = useCallback(
     (action: () => Promise<unknown>, success: string): void => {
       setBusy(true);
@@ -467,13 +462,6 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
         <CardDescription>{m.ext_description()}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <SlotPanel
-          slots={slots}
-          busy={busy}
-          onChanged={refreshAll}
-          onMessage={setMessage}
-        />
-
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
             {items === null

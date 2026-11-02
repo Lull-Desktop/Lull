@@ -79,10 +79,19 @@ type Props = {
   slots: SlotInfo[] | null;
   busy: boolean;
   onChanged: () => Promise<void>;
-  onMessage: (message: string) => void;
+  /** tone 让调用方区分状态提示与失败原因。 */
+  onMessage: (message: string, tone?: "info" | "error") => void;
+  /** 外层卡片已经给出标题与说明时为 false，避免重复。 */
+  showHeading?: boolean;
 };
 
-export function SlotPanel({ slots, busy, onChanged, onMessage }: Props) {
+export function SlotPanel({
+  slots,
+  busy,
+  onChanged,
+  onMessage,
+  showHeading = true,
+}: Props) {
   const [picker, setPicker] = useState<SlotInfo | null>(null);
   const [pickerError, setPickerError] = useState("");
   const [pending, setPending] = useState(false);
@@ -93,6 +102,17 @@ export function SlotPanel({ slots, busy, onChanged, onMessage }: Props) {
     return slots?.find((slot) => slot.id === picker.id) ?? picker;
   }, [picker, slots]);
 
+  const heading = showHeading ? (
+    <div className="space-y-1">
+      <h3 className="text-sm font-medium text-ink-soft">
+        {m.slot_section_title()}
+      </h3>
+      <p className="text-xs text-muted-foreground">
+        {m.slot_section_description()}
+      </p>
+    </div>
+  ) : null;
+
   const run = useCallback(
     async (action: () => Promise<unknown>, success: string): Promise<void> => {
       setPending(true);
@@ -101,7 +121,7 @@ export function SlotPanel({ slots, busy, onChanged, onMessage }: Props) {
         onMessage(success);
         await onChanged();
       } catch (error) {
-        onMessage(toExtensionFailure(error).message);
+        onMessage(toExtensionFailure(error).message, "error");
         await onChanged();
       } finally {
         setPending(false);
@@ -122,7 +142,7 @@ export function SlotPanel({ slots, busy, onChanged, onMessage }: Props) {
       } catch (error) {
         const message = toExtensionFailure(error).message;
         setPickerError(message);
-        onMessage(message);
+        onMessage(message, "error");
         await onChanged();
       } finally {
         setPending(false);
@@ -134,9 +154,7 @@ export function SlotPanel({ slots, busy, onChanged, onMessage }: Props) {
   if (slots === null) {
     return (
       <section className="space-y-2" data-testid="slot-panel">
-        <h3 className="text-sm font-medium text-ink-soft">
-          {m.slot_section_title()}
-        </h3>
+        {heading}
         <p className="text-xs text-muted-foreground">{m.ext_loading()}</p>
       </section>
     );
@@ -144,14 +162,7 @@ export function SlotPanel({ slots, busy, onChanged, onMessage }: Props) {
 
   return (
     <section className="space-y-3" data-testid="slot-panel">
-      <div className="space-y-1">
-        <h3 className="text-sm font-medium text-ink-soft">
-          {m.slot_section_title()}
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          {m.slot_section_description()}
-        </p>
-      </div>
+      {heading}
 
       <div className="grid gap-3 sm:grid-cols-2">
         {slots.map((slot) => {

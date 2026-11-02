@@ -2,8 +2,15 @@
  * 设置页交互测试：验证显示器排序、开关与显示模式、事件订阅和 Tauri IPC 调用契约。
  */
 import { invoke } from "@tauri-apps/api/core";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import type { SlotInfo } from "@/lib/extensions";
 import { FLOW_THEME_STORAGE_KEY } from "@/lib/flow-theme";
 import { m } from "@/paraglide/messages";
 import type { SceneCatalogEntry } from "@/sdk/scene";
@@ -143,6 +150,31 @@ const MONITORS: MonitorRow[] = [
     scene: "lull.bamboo",
   },
 ];
+
+/** 偏好页功能槽位卡片固定用的音乐播放器 Slot。 */
+const MUSIC_SLOT: SlotInfo = {
+  id: "music-player",
+  name: "音乐播放器",
+  description: "选择音乐播放界面",
+  category: "audio",
+  status: "active",
+  selected: "player",
+  active: "player",
+  visible: true,
+  defaultProvider: "player",
+  providers: [
+    {
+      id: "player",
+      name: "播放器",
+      version: "1.1.0",
+      origin: "bundled",
+      enabled: true,
+      eligible: true,
+      selected: true,
+      active: true,
+    },
+  ],
+};
 
 function mockInvoke(
   handlers: Record<string, (args?: unknown) => unknown>,
@@ -539,7 +571,7 @@ test("工具窗开关按当前显示状态渲染，并能打开窗口", async ()
   });
 });
 
-test("偏好页用功能槽位行控制当前实现", async () => {
+test("功能槽位面板迁到偏好页的窗口设置下方，并能打开当前实现", async () => {
   mockInvoke({
     wallpaper_get_visible: () => true,
     wallpaper_monitors: () => MONITORS,
@@ -550,46 +582,46 @@ test("偏好页用功能槽位行控制当前实现", async () => {
     }),
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
     widget_states: () => [],
-    extensions_slots: () => [
-      {
-        id: "music-player",
-        name: "音乐播放器",
-        description: "选择音乐播放界面",
-        category: "audio",
-        status: "active",
-        selected: "player",
-        active: "player",
-        visible: true,
-        defaultProvider: "player",
-        providers: [
-          {
-            id: "player",
-            name: "播放器",
-            version: "1.1.0",
-            origin: "bundled",
-            enabled: true,
-            eligible: true,
-            selected: true,
-            active: true,
-          },
-        ],
-      },
-    ],
-    extensions_slot_deactivate: () => ({}),
+    extensions_list: () => [],
+    extensions_slots: () => [MUSIC_SLOT],
+    extensions_slot_activate: () => MUSIC_SLOT,
   });
   render(<Page />);
 
-  const slotToggle = (await screen.findByRole("switch", {
-    name: "音乐播放器窗口",
-  })) as HTMLButtonElement;
-  expect(slotToggle.getAttribute("aria-checked")).toBe("true");
-  fireEvent.click(slotToggle);
+  const panel = await screen.findByTestId("slot-panel");
+  expect(within(panel).getByText("音乐播放器")).toBeDefined();
+  expect(within(panel).getByText("运行中")).toBeDefined();
+  expect(within(panel).getByText("播放器 1.1.0")).toBeDefined();
 
+  // 功能槽位卡片排在「窗口」之后，保持偏好页的分组顺序。
+  const windowTitle = screen.getByText("窗口");
+  const slotsCard = screen.getByTestId("settings-feature-slots");
+  expect(
+    windowTitle.compareDocumentPosition(slotsCard) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+
+  fireEvent.click(within(panel).getByRole("button", { name: "打开" }));
   await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("extensions_slot_deactivate", {
+    expect(invoke).toHaveBeenCalledWith("extensions_slot_activate", {
       slot: "music-player",
     });
   });
+});
+
+test("扩展页不再重复渲染功能槽位面板", async () => {
+  mockInvoke({
+    extensions_list: () => [],
+    extensions_slots: () => [MUSIC_SLOT],
+    extensions_dev_state: () => ({ devMode: false, packages: [] }),
+  });
+  render(<Page />);
+  expect(await screen.findByTestId("slot-panel")).toBeDefined();
+
+  fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
+
+  expect(await screen.findByText(/已安装 0 个/)).toBeDefined();
+  expect(screen.queryByTestId("slot-panel")).toBeNull();
 });
 
 test("扩展页的「壁纸设置」切到壁纸页签", async () => {

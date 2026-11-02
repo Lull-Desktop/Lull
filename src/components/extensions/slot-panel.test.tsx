@@ -133,3 +133,18 @@ test("empty slot explains that an implementation must be chosen", () => {
       .length,
   ).toBeGreaterThan(0);
 });
+
+test("showHeading=false 时由外层卡片提供标题，面板不重复渲染", () => {
+  render(
+    <SlotPanel
+      slots={[activeSlot]}
+      busy={false}
+      onChanged={vi.fn(async () => {})}
+      onMessage={vi.fn()}
+      showHeading={false}
+    />,
+  );
+
+  expect(screen.queryByText("功能槽位")).toBeNull();
+  expect(screen.getByText("音乐播放器")).toBeDefined();
+});
