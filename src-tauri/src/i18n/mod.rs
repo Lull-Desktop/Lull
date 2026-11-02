@@ -4,7 +4,8 @@
 //! 只有 Rust 在启动时就把语言定下来，才能避免「托盘先出中文、界面随后变英文」的跳变。
 //!
 //! 消息源与前端 Paraglide 共用仓库根部的 `i18n/messages/*.json`（编译期 `include_str!`），
-//! 键名拼错时回退到键名本身，并由 `scripts/i18n-check.mjs` 在 CI 里兜底。
+//! 键名拼错时回退到键名本身；键集与占位符一致性由本文件的 `cargo test` 用例拦截
+//! （`scripts/i18n-check.mjs` 仍是 docs/i18n-plan.md 阶段 4 的计划，尚未落地）。
 #![allow(unsafe_code)]
 
 use std::collections::HashMap;
@@ -212,7 +213,7 @@ fn stored(app: &AppHandle) -> Option<Preferences> {
     Some(pref)
   } else {
     eprintln!(
-      "[i18n] 语言偏好版本 {} 与当前 {VERSION} 不符，按未设置处理",
+      "[i18n] locale preference version {} does not match {VERSION}; treating it as unset",
       pref.version
     );
     None
@@ -257,10 +258,10 @@ pub fn init(app: &AppHandle) {
   let desired = Preferences::of(&locale, explicit);
   if pref.as_ref() != Some(&desired) {
     if let Err(error) = save(app, &desired) {
-      eprintln!("[i18n] 写入语言偏好失败：{error}");
+      eprintln!("[i18n] failed to save locale preference: {error}");
     }
   }
-  println!("[i18n] 当前语言 {locale}（explicit = {explicit}）");
+  println!("[i18n] current locale {locale} (explicit = {explicit})");
 }
 
 /// 语言变更后的联动：广播给所有窗口 + 重建托盘菜单。
