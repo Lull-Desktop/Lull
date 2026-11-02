@@ -53,6 +53,7 @@ const NOT_ON_SITE = new Map([
   ["extension-center-plan", "实施计划，天然会过期，不上站"],
   ["official-extensions", "官方扩展的构建、分发与升级契约，随实施调整，稳定后再上站"],
   ["extension-dev-mode", "扩展开发模式与 React SDK 接入的设计稿，随实施调整，稳定后再上站"],
+  ["extension-slots", "扩展槽位与 Provider 的运行时契约，P4 加固中，稳定后再上站"],
   ["media-runtime", "视频媒体运行时的实现与验收细节，随构建依赖变动，暂不上站"],
   ["media-service", "音乐/白噪音 Media Service 的实现细节，随阶段变动，暂不上站"],
   ["media-noise-plan", "Media 2.5 + Noise 实施计划，随执行状态变动，不上站"],
