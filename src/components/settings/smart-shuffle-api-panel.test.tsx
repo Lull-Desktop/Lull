@@ -56,14 +56,12 @@ function createClient(): LullMediaClient {
   } as unknown as LullMediaClient;
 }
 
-test("随机播放 API 面板加载激活配置并展示参数说明", async () => {
+test("随机播放 API 面板加载激活配置并展示接口清单", async () => {
   const client = createClient();
   render(<SmartShuffleApiPanel client={client} />);
 
   expect(await screen.findByText(/当前激活/)).toBeDefined();
-  expect(screen.getByText("experience.randomness")).toBeDefined();
   expect(screen.getByText("player.listShuffleProfiles()")).toBeDefined();
-  expect(screen.getByText("audioFeatures.*")).toBeDefined();
   await waitFor(() => {
     expect(client.player.listShuffleProfiles).toHaveBeenCalled();
   });

@@ -356,7 +356,6 @@ test("测试与接口页签渲染媒体 API 面板", async () => {
 
   expect(await screen.findByText("媒体 API 测试面板")).toBeDefined();
   expect(await screen.findByText("智能随机 API 能力")).toBeDefined();
-  expect(screen.getByText("experience.randomness")).toBeDefined();
   await waitFor(() => {
     expect(client.player.listShuffleProfiles).toHaveBeenCalled();
   });

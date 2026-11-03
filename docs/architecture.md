@@ -394,7 +394,7 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 64 个测试文件（339 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、队列解析、seek 整数化、懒加载分页、单层目录浏览、P4 元数据/标签/智能歌单/音乐库窗口曲库整理页签、壁纸库窗口、壁纸库素材管理页签、白噪音库窗口、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心、智能随机 Profile/设置面板/API 能力面板）
+pnpm test              前端 64 个测试文件（345 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、队列解析、seek 整数化、懒加载分页、单层目录浏览、P4 元数据/标签/标签管理 CRUD 与标签曲目关联/智能歌单/音乐库窗口曲库整理页签、壁纸库窗口、壁纸库素材管理页签、白噪音库窗口、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心、智能随机 Profile/设置面板/API 能力面板）
 cargo test             Rust 279 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 视频素材批量导入、重命名与失效清理、壁纸库配置读取鉴权 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、默认曲库移除 / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / P6 备份、歌词 sidecar / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照、自动续播列表、智能随机 Profile/Strategy/Engine 与模拟校准、引擎协议）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名

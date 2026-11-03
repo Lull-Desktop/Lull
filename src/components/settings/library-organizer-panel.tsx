@@ -1,8 +1,9 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 音乐库窗口「曲库整理」调试页签：直接驱动 @lull/media-sdk 的 P4 编辑能力。
  *
- * 这是开发验收面板，不是资料库正式 UI；覆盖元数据覆盖、标签、实体合并/拆分、
- * 智能歌单，以及每一步的原始返回，方便手工核对 Rust 行为。
+ * 这是开发验收面板，不是资料库正式 UI；覆盖元数据覆盖、标签管理与标签曲目关联、
+ * 实体合并/拆分、智能歌单，以及每一步的原始返回，方便手工核对 Rust 行为。
  */
 "use client";
 
@@ -10,6 +11,7 @@ import type {
   AlbumSummary,
   ArtistSummary,
   LullMediaClient,
+  PlayerState,
   SmartPlaylistView,
   TagView,
   TrackSummary,
@@ -17,17 +19,19 @@ import type {
 import {
   ListMusic,
   Merge,
+  Play,
   Plus,
   RefreshCw,
   Save,
   Scissors,
-  Search,
-  Tags,
+  Square,
   Trash2,
   Wand2,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoverPreview } from "@/components/library/cover-preview";
+import { LibraryTagManager } from "@/components/settings/library-tag-manager";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -132,7 +136,7 @@ export function LibraryOrganizerPanel({
   /** 测试/嵌入时注入；不传则使用官方 Tauri 单例。 */
   client?: LullMediaClient;
 } = {}) {
-  const { confirm, ask, dialog: confirmDialog } = useConfirmDialog();
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [client, setClient] = useState<LullMediaClient | null>(null);
   const [keyword, setKeyword] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
@@ -140,6 +144,7 @@ export function LibraryOrganizerPanel({
   const [tracks, setTracks] = useState<TrackSummary[]>([]);
   const [trackTotal, setTrackTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [player, setPlayer] = useState<PlayerState | null>(null);
   const [tags, setTags] = useState<TagView[]>([]);
   const [artists, setArtists] = useState<ArtistSummary[]>([]);
   const [albums, setAlbums] = useState<AlbumSummary[]>([]);
@@ -215,6 +220,37 @@ export function LibraryOrganizerPanel({
     }
     setClient(getMediaClient());
   }, [providedClient]);
+
+  // 预览按钮依赖全局播放器状态：音乐库窗口已经订阅 player.state，这里只追加
+  // 一个监听，并主动读一次快照，避免刚打开页签时按钮全部显示成“播放”。
+  useEffect(() => {
+    if (!client) return;
+    let alive = true;
+    void client.player
+      .getState()
+      .then((state) => {
+        if (alive) setPlayer(state);
+      })
+      .catch(() => {
+        // 读不到播放状态时按未播放处理；预览动作本身仍可发起。
+      });
+    const off = client.events.on((event) => {
+      if (event.topic !== "player.state") return;
+      const next = event.payload as PlayerState | undefined;
+      if (next) setPlayer(next);
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [client]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearchKeyword(keyword.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [keyword]);
 
   useEffect(() => {
     if (!client) return;
@@ -381,36 +417,6 @@ export function LibraryOrganizerPanel({
     );
   };
 
-  const renameTag = (tag: TagView): void => {
-    if (!client) return;
-    void ask({
-      title: "重命名标签",
-      confirmLabel: "保存",
-      input: {
-        label: "新标签名",
-        defaultValue: tag.name,
-        ariaLabel: "新标签名",
-      },
-    }).then((name) => {
-      const next = name?.trim();
-      if (!next || next === tag.name) return;
-      void run("renameTag", () => client.library.renameTag(tag.id, next));
-    });
-  };
-
-  const deleteTag = (tag: TagView): void => {
-    if (!client) return;
-    void confirm({
-      title: "删除标签",
-      description: `删除标签「${tag.name}」？只会移除关联。`,
-      confirmLabel: "删除",
-      danger: true,
-    }).then((ok) => {
-      if (!ok) return;
-      void run("deleteTag", () => client.library.deleteTag(tag.id));
-    });
-  };
-
   const mergeArtist = (): void => {
     if (!client || !artistSource || !artistTarget) return;
     void confirm({
@@ -518,6 +524,27 @@ export function LibraryOrganizerPanel({
     );
   };
 
+  /**
+   * 列表行的预览按钮复用全局播放器：同一首正在播（或加载）时点击停止，
+   * 暂停时点击继续，否则切到这首。这里不改播放模式，避免调试面板影响
+   * 用户在主资料库里选的循环方式。
+   */
+  const previewTrack = (track: TrackSummary): void => {
+    if (!client) return;
+    setSelectedId(track.id);
+    const isCurrent = player?.track?.id === track.id;
+    const status = isCurrent ? player?.status : undefined;
+    const action =
+      status === "playing" || status === "loading"
+        ? client.player.stop()
+        : status === "paused"
+          ? client.player.resume()
+          : client.player.play(track.id);
+    void action
+      .then((state) => setPlayer(state))
+      .catch((reason: unknown) => setError(errorText(reason)));
+  };
+
   if (!client) {
     return (
       <Card>
@@ -530,105 +557,147 @@ export function LibraryOrganizerPanel({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-3">
-          <div>
-            <CardTitle>曲库整理测试</CardTitle>
-            <CardDescription>
-              通过 @lull/media-sdk 驱动
-              P4：元数据覆盖、标签、实体合并/拆分、智能歌单。
-            </CardDescription>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy !== ""}
-            onClick={bump}
-          >
-            <RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" />
-            刷新
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-[220px] flex-1">
-              <Field
-                label="搜索曲目"
-                value={keyword}
-                placeholder="标题 / 艺术家 / 专辑 / 文件名"
-                onChange={setKeyword}
-              />
+      <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4">
+        <Card className="min-h-[640px] flex flex-col overflow-hidden contain-size">
+          <CardHeader className="flex flex-row items-start justify-between gap-3">
+            <div>
+              <CardTitle>曲库整理测试</CardTitle>
+              <CardDescription>
+                通过 @lull/media-sdk 驱动、
+                元数据覆盖、标签、实体合并/拆分、智能歌单
+              </CardDescription>
             </div>
             <Button
               type="button"
+              variant="outline"
               size="sm"
-              variant="secondary"
-              onClick={() => setSearchKeyword(keyword)}
+              disabled={busy !== ""}
+              onClick={bump}
             >
-              <Search className="mr-1 h-4 w-4" aria-hidden="true" />
-              搜索
+              <RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" />
+              刷新
             </Button>
-          </div>
-          <div
-            ref={trackListRef}
-            onScroll={onTrackListScroll}
-            className="grid max-h-64 gap-1 overflow-auto rounded-lg border border-paper-deep/60 bg-card p-2"
-          >
-            {tracks.map((track) => (
-              <button
-                key={track.id}
+          </CardHeader>
+          <CardContent className="flex min-h-0 flex-1 flex-col space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-[220px] flex-1">
+                <Field
+                  label="筛选曲目"
+                  value={keyword}
+                  placeholder="输入即筛选：标题 / 艺术家 / 专辑 / 文件名"
+                  onChange={setKeyword}
+                />
+              </div>
+              <Button
                 type="button"
-                aria-label={`选择曲目 ${track.title}`}
-                className={cn(
-                  "flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left text-sm",
-                  track.id === selectedId
-                    ? "bg-accent/15 text-ink"
-                    : "text-ink-soft hover:bg-paper-deep/30",
-                )}
+                size="sm"
+                variant="outline"
+                disabled={!keyword && !searchKeyword}
                 onClick={() => {
-                  setSelectedId(track.id);
-                  setSplitTrackIds((current) =>
-                    current.includes(track.id)
-                      ? current
-                      : [...current, track.id],
-                  );
+                  setKeyword("");
+                  setSearchKeyword("");
                 }}
               >
-                <span className="min-w-0 truncate">
-                  {track.title}
-                  <span className="ml-2 text-xs text-ink-faint">
-                    {track.artists.join(", ") || "—"}
-                  </span>
-                </span>
-                <span className="shrink-0 text-xs text-ink-faint">
-                  {track.tags?.length
-                    ? `#${track.tags.map((tag) => tag.name).join(" #")}`
-                    : ""}
-                </span>
-              </button>
-            ))}
-            {tracks.length === 0 ? (
-              <p className="py-6 text-center text-xs text-ink-faint">
-                没有曲目
-              </p>
-            ) : null}
-            {tracks.length > 0 && tracks.length < trackTotal ? (
-              <p
-                className="py-2 text-center text-[11px] text-ink-faint"
-                aria-live="polite"
-              >
-                {loadingMore
-                  ? "加载中…"
-                  : `继续下滑加载更多（${tracks.length}/${trackTotal}）`}
-              </p>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
+                <X className="mr-1 h-4 w-4" aria-hidden="true" />
+                清除
+              </Button>
+            </div>
+            <div
+              ref={trackListRef}
+              onScroll={onTrackListScroll}
+              className="grid min-h-0 min-w-0 flex-1 auto-rows-max grid-cols-1 content-start gap-1 overflow-y-auto overflow-x-hidden rounded-lg border border-paper-deep/60 bg-card p-2"
+            >
+              {tracks.map((track) => {
+                const isCurrent = player?.track?.id === track.id;
+                const previewing =
+                  isCurrent &&
+                  (player?.status === "playing" ||
+                    player?.status === "loading");
+                return (
+                  <div
+                    key={track.id}
+                    className={cn(
+                      "flex h-9 w-full min-w-0 items-center gap-1 rounded-md pr-1",
+                      track.id === selectedId
+                        ? "bg-accent/15 text-ink"
+                        : "text-ink-soft hover:bg-paper-deep/30",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      aria-label={`选择曲目 ${track.title}`}
+                      className="flex h-full min-w-0 flex-1 items-center justify-between gap-3 overflow-hidden px-2 text-left text-sm"
+                      onClick={() => {
+                        setSelectedId(track.id);
+                        setSplitTrackIds((current) =>
+                          current.includes(track.id)
+                            ? current
+                            : [...current, track.id],
+                        );
+                      }}
+                    >
+                      <span className="min-w-0 truncate">
+                        {track.title}
+                        <span className="ml-2 text-xs text-ink-faint">
+                          {track.artists.join(", ") || "—"}
+                        </span>
+                      </span>
+                      <span className="max-w-[45%] shrink-0 truncate text-xs text-ink-faint">
+                        {track.tags?.length
+                          ? `#${track.tags.map((tag) => tag.name).join(" #")}`
+                          : ""}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={
+                        previewing
+                          ? `停止预览 ${track.title}`
+                          : `播放预览 ${track.title}`
+                      }
+                      title={previewing ? "停止预览" : "预览播放"}
+                      disabled={!track.available}
+                      className={cn(
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+                        previewing
+                          ? "bg-accent/25 text-ink hover:bg-accent/35"
+                          : "text-ink-faint hover:bg-paper-deep/40 hover:text-ink",
+                        !track.available && "cursor-not-allowed opacity-40",
+                      )}
+                      onClick={() => previewTrack(track)}
+                    >
+                      {previewing ? (
+                        <Square
+                          className="h-3.5 w-3.5 fill-current"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+              {tracks.length === 0 ? (
+                <p className="py-6 text-center text-xs text-ink-faint">
+                  没有曲目
+                </p>
+              ) : null}
+              {tracks.length > 0 && tracks.length < trackTotal ? (
+                <p
+                  className="py-2 text-center text-[11px] text-ink-faint"
+                  aria-live="polite"
+                >
+                  {loadingMore
+                    ? "加载中…"
+                    : `继续下滑加载更多（${tracks.length}/${trackTotal}）`}
+                </p>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
+        <Card className="min-h-[640px]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Save className="h-4 w-4" aria-hidden="true" />
@@ -741,60 +810,13 @@ export function LibraryOrganizerPanel({
             )}
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Tags className="h-4 w-4" aria-hidden="true" />
-              标签管理
-            </CardTitle>
-            <CardDescription>
-              创建、重命名、删除；删除只移除关联。
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {tags.map((tag) => (
-              <div
-                key={tag.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-paper-deep/50 px-2 py-1.5 text-xs"
-              >
-                <span className="min-w-0 truncate">
-                  {tag.name}
-                  <span className="ml-2 text-ink-faint">
-                    {tag.trackCount} 首
-                  </span>
-                </span>
-                <span className="flex shrink-0 gap-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-[11px]"
-                    onClick={() => renameTag(tag)}
-                  >
-                    重命名
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-[11px] text-destructive"
-                    onClick={() => deleteTag(tag)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  </Button>
-                </span>
-              </div>
-            ))}
-            {tags.length === 0 ? (
-              <p className="py-6 text-center text-xs text-ink-faint">
-                还没有标签
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
       </div>
-
+      <LibraryTagManager
+        client={client}
+        tags={tags}
+        revision={version}
+        onChanged={bump}
+      />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
