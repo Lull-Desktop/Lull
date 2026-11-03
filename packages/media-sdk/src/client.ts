@@ -53,6 +53,7 @@ import type {
   QueueState,
   ScanJobView,
   SmartPlaylistView,
+  SmartShuffleConfig,
   SourceView,
   TagView,
   TrackDetail,
@@ -166,6 +167,12 @@ export interface LullMediaClient {
      * 不修改用户队列。
      */
     setAdvanceList(trackIds: string[]): Promise<void>;
+    /** 读取面向用户的智能随机配置。 */
+    getSmartShuffleConfig(): Promise<SmartShuffleConfig>;
+    /** 保存智能随机配置；后端会做版本校验与范围 clamp，并返回归一化结果。 */
+    setSmartShuffleConfig(
+      config: SmartShuffleConfig,
+    ): Promise<SmartShuffleConfig>;
   };
   queue: {
     get(): Promise<QueueState>;
@@ -594,6 +601,10 @@ export function createMediaClient(
     setAdvanceList: async (trackIds: string[]) => {
       await call<null>("player", "setAdvanceList", { trackIds });
     },
+    getSmartShuffleConfig: () =>
+      call<SmartShuffleConfig>("player", "getSmartShuffleConfig"),
+    setSmartShuffleConfig: (config: SmartShuffleConfig) =>
+      call<SmartShuffleConfig>("player", "setSmartShuffleConfig", { config }),
   };
 
   const queue = {

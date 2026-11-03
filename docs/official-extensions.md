@@ -44,7 +44,7 @@
   - 白噪音：五层声景、本地轨、Preset、睡眠定时、主音量 / 静音、窗口贴合内容高度、
     关窗即隐藏、多窗口状态同步。
   - 播放器：本地曲目、封面、530↔880 曲库抽屉与左右停靠、进度 / 音量 /
-    播放模式、UI 音效、关窗继续播放。
+    播放模式、智能随机预设与五项滑杆、UI 音效、关窗继续播放。
   - 竹影：深夜竹林、薄雾参数、时钟、跨屏画布定位与同步相位；默认场景仍是
     `lull.bamboo`，由官方扩展提供，不再编译进宿主。
 - 官方包随 App 升级：Widget 的授权与用户状态保留，新增能力自动补授，用户此前的撤销保持撤销；
@@ -299,8 +299,8 @@ Scene：`content_package::store::package_dir`：官方 `extensions/dist/<id>/cat
 
 | 能力 | 覆盖方法 | topic / 快照 | 用途 |
 | --- | --- | --- | --- |
-| `media.player.read` | `player.getState` | `player.state`、`player.progress`、`player.level`、snapshot.player | 播放器状态与进度 |
-| `media.player.control` | `play` / `pause` / `resume` / `stop` / `seek` / `next` / `previous` / `setMode` / `setAdvanceList` | — | 播放控制与自动续播列表 |
+| `media.player.read` | `player.getState` / `getSmartShuffleConfig` | `player.state`、`player.progress`、`player.level`、snapshot.player | 播放器状态、进度与智能随机配置 |
+| `media.player.control` | `play` / `pause` / `resume` / `stop` / `seek` / `next` / `previous` / `setMode` / `setAdvanceList` / `setSmartShuffleConfig` | — | 播放控制、自动续播列表与智能随机配置 |
 | `media.player.volume.write` | `setVolume` / `setMuted` | — | 播放器音量 |
 | `media.queue.read` | `queue.get` | `queue.changed`、snapshot.queue | 队列视图（只读） |
 | `media.queue.write` | `queue.add` / `remove` / `clear` / `move` / `playAt` | — | 加入队列与队列调整 |

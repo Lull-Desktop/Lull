@@ -11,10 +11,14 @@
 
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 /// 最近播放窗口：超过 6 小时的历史不再影响权重。
 pub const RECENT_WINDOW_MS: i64 = 6 * 60 * 60 * 1000;
-/// 参与权重计算的最近播放条数。
+/// 参与权重计算的最近播放条数（固定值，不对用户开放）。
 pub const RECENT_LIMIT: usize = 32;
+/// 当前智能随机配置版本。
+pub const SMART_SHUFFLE_VERSION: u32 = 1;
 
 /// 权重下限：保证任何幸存候选都还有被抽中的机会。
 const MIN_WEIGHT: f64 = 1e-6;
@@ -22,6 +26,148 @@ const MIN_WEIGHT: f64 = 1e-6;
 const MAX_WEIGHT: f64 = 8.0;
 /// 收藏曲目的权重加成。
 const FAVORITE_BOOST: f64 = 1.2;
+
+/// 面向用户的智能随机配置。
+///
+/// 只暴露听感参数；轮次袋、历史窗口、权重方向等算法细节留在
+/// `SmartShuffleTuning`，不随配置暴露。`audioFeatures` 为前向兼容预留，
+/// 当前版本不参与选曲，也不在播放器 UI 中展示。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SmartShuffleConfig {
+  pub version: u32,
+  pub experience: SmartShuffleExperience,
+  pub separation: SmartShuffleSeparation,
+  pub audio_features: SmartShuffleAudioFeatures,
+}
+
+impl Default for SmartShuffleConfig {
+  fn default() -> Self {
+    Self {
+      version: SMART_SHUFFLE_VERSION,
+      experience: SmartShuffleExperience::default(),
+      separation: SmartShuffleSeparation::default(),
+      audio_features: SmartShuffleAudioFeatures::default(),
+    }
+  }
+}
+
+impl SmartShuffleConfig {
+  /// 把字段夹到文档声明的范围；调用方无需自己处理越界值。
+  #[must_use]
+  pub fn normalized(self) -> Self {
+    Self {
+      version: SMART_SHUFFLE_VERSION,
+      experience: SmartShuffleExperience {
+        randomness: self.experience.randomness.min(100),
+        diversity: self.experience.diversity.min(100),
+        repeat_avoidance: self.experience.repeat_avoidance.min(100),
+      },
+      separation: SmartShuffleSeparation {
+        artist: self.separation.artist.min(10),
+        album: self.separation.album.min(10),
+      },
+      audio_features: SmartShuffleAudioFeatures {
+        bpm_matching: self.audio_features.bpm_matching.min(100),
+        energy_matching: self.audio_features.energy_matching.min(100),
+        mood_diversity: self.audio_features.mood_diversity.min(100),
+        genre_diversity: self.audio_features.genre_diversity.min(100),
+      },
+    }
+  }
+
+  /// 只接受当前版本；更高版本交给未来实现，不静默套用旧语义。
+  pub fn validate(self) -> Result<Self, String> {
+    if self.version != SMART_SHUFFLE_VERSION {
+      return Err(format!("不支持的智能随机配置版本：{}", self.version));
+    }
+    Ok(self.normalized())
+  }
+}
+
+/// 随机体验参数；默认值即「均衡随机」预设。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SmartShuffleExperience {
+  /// 0 = 偏向高分，100 = 在剩余候选内更均匀随机。
+  pub randomness: u32,
+  /// 0 = 允许相似曲风连续，100 = 尽量切换曲风。
+  pub diversity: u32,
+  /// 0 = 不回避最近播放，100 = 强回避。
+  pub repeat_avoidance: u32,
+}
+
+impl Default for SmartShuffleExperience {
+  fn default() -> Self {
+    Self {
+      randomness: 60,
+      diversity: 50,
+      repeat_avoidance: 80,
+    }
+  }
+}
+
+/// 歌手 / 专辑间隔，单位「首」。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SmartShuffleSeparation {
+  pub artist: u32,
+  pub album: u32,
+}
+
+impl Default for SmartShuffleSeparation {
+  fn default() -> Self {
+    Self {
+      artist: 3,
+      album: 2,
+    }
+  }
+}
+
+/// 预留的音乐特征参数；v1 不读取，仅保证配置可往返。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SmartShuffleAudioFeatures {
+  pub bpm_matching: u32,
+  pub energy_matching: u32,
+  pub mood_diversity: u32,
+  pub genre_diversity: u32,
+}
+
+impl Default for SmartShuffleAudioFeatures {
+  fn default() -> Self {
+    Self {
+      bpm_matching: 30,
+      energy_matching: 30,
+      mood_diversity: 30,
+      genre_diversity: 50,
+    }
+  }
+}
+
+/// 由用户配置推导出的算法参数；不进入 API。
+#[derive(Debug, Clone, Copy)]
+pub struct SmartShuffleTuning {
+  randomness_exp: f64,
+  genre_scale: f64,
+  recency_exp: f64,
+  artist_window: usize,
+  album_window: usize,
+}
+
+impl SmartShuffleTuning {
+  #[must_use]
+  pub fn from_config(config: &SmartShuffleConfig) -> Self {
+    let experience = &config.experience;
+    Self {
+      randomness_exp: f64::from(100_u32.saturating_sub(experience.randomness.min(100))) / 40.0,
+      genre_scale: f64::from(experience.diversity.min(100)) / 50.0,
+      recency_exp: f64::from(experience.repeat_avoidance.min(100)) / 80.0,
+      artist_window: usize::try_from(config.separation.artist.min(10)).unwrap_or(0),
+      album_window: usize::try_from(config.separation.album.min(10)).unwrap_or(0),
+    }
+  }
+}
 
 /// 参与打分的曲目特征。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -138,35 +284,43 @@ impl RoundState {
 
 /// 候选曲目的综合权重；未知特征按中性 1.0 处理。
 #[must_use]
-pub fn weight(features: Option<&TrackFeatures>, id: &str, recent: &[RecentPlay]) -> f64 {
+pub fn weight(
+  features: Option<&TrackFeatures>,
+  id: &str,
+  recent: &[RecentPlay],
+  tuning: &SmartShuffleTuning,
+) -> f64 {
   let mut value = 1.0;
   if let Some(position) = recent.iter().position(|entry| entry.id == id) {
-    value *= match position {
+    let base: f64 = match position {
       0..=2 => 0.02,
       3..=7 => 0.15,
       8..=15 => 0.5,
       16..=31 => 0.85,
       _ => 1.0,
     };
+    value *= base.powf(tuning.recency_exp);
   }
   if let Some(features) = features {
-    value *= artist_factor(features, recent);
-    value *= album_factor(features, recent);
-    value *= genre_factor(features, recent);
+    value *= artist_factor(features, recent, tuning.artist_window);
+    value *= album_factor(features, recent, tuning.album_window);
+    value *= genre_factor(features, recent, tuning.genre_scale);
     if features.favorite {
       value *= FAVORITE_BOOST;
     }
   }
-  value.clamp(MIN_WEIGHT, MAX_WEIGHT)
+  value
+    .powf(tuning.randomness_exp)
+    .clamp(MIN_WEIGHT, MAX_WEIGHT)
 }
 
-fn artist_factor(features: &TrackFeatures, recent: &[RecentPlay]) -> f64 {
-  if features.artists.is_empty() {
+fn artist_factor(features: &TrackFeatures, recent: &[RecentPlay], window: usize) -> f64 {
+  if window == 0 || features.artists.is_empty() {
     return 1.0;
   }
   let hits = recent
     .iter()
-    .take(3)
+    .take(window)
     .filter(|entry| {
       entry.features.as_ref().is_some_and(|other| {
         other
@@ -183,7 +337,10 @@ fn artist_factor(features: &TrackFeatures, recent: &[RecentPlay]) -> f64 {
   }
 }
 
-fn album_factor(features: &TrackFeatures, recent: &[RecentPlay]) -> f64 {
+fn album_factor(features: &TrackFeatures, recent: &[RecentPlay], window: usize) -> f64 {
+  if window == 0 {
+    return 1.0;
+  }
   let Some(album) = features.album.as_deref() else {
     return 1.0;
   };
@@ -195,7 +352,7 @@ fn album_factor(features: &TrackFeatures, recent: &[RecentPlay]) -> f64 {
   }
   if recent
     .iter()
-    .take(3)
+    .take(window)
     .any(|entry| entry_album(entry).is_some_and(|value| value == album))
   {
     return 0.5;
@@ -210,7 +367,10 @@ fn entry_album(entry: &RecentPlay) -> Option<&str> {
     .and_then(|features| features.album.as_deref())
 }
 
-fn genre_factor(features: &TrackFeatures, recent: &[RecentPlay]) -> f64 {
+fn genre_factor(features: &TrackFeatures, recent: &[RecentPlay], scale: f64) -> f64 {
+  if scale <= f64::EPSILON {
+    return 1.0;
+  }
   let Some(genre) = features.genre.as_deref() else {
     return 1.0;
   };
@@ -225,12 +385,8 @@ fn genre_factor(features: &TrackFeatures, recent: &[RecentPlay]) -> f64 {
         == Some(genre)
     })
     .count();
-  match hits {
-    0 => 1.0,
-    1 => 0.45,
-    2 => 0.2,
-    _ => 0.09,
-  }
+  let hits = f64::from(u32::try_from(hits).unwrap_or(0));
+  0.45_f64.powf(hits * scale)
 }
 
 /// 从本轮剩余候选里按权重抽一首。
@@ -243,6 +399,7 @@ pub fn pick(
   features: &HashMap<String, TrackFeatures>,
   recent: &[RecentPlay],
   round: &RoundState,
+  tuning: &SmartShuffleTuning,
   rng: &mut SmartRng,
 ) -> Option<String> {
   let mut weighted: Vec<(&str, f64)> = Vec::with_capacity(round.remaining.len());
@@ -251,7 +408,7 @@ pub fn pick(
     if !round.remaining.contains(id) {
       continue;
     }
-    let value = weight(features.get(id), id, recent);
+    let value = weight(features.get(id), id, recent, tuning);
     total += value;
     weighted.push((id.as_str(), value));
   }
@@ -341,6 +498,10 @@ mod tests {
     HashMap::new()
   }
 
+  fn default_tuning() -> SmartShuffleTuning {
+    SmartShuffleTuning::from_config(&SmartShuffleConfig::default())
+  }
+
   #[test]
   fn round_covers_every_track_once_before_restart() {
     let candidates = ids(20);
@@ -353,7 +514,15 @@ mod tests {
     let mut last = String::new();
 
     for _ in 0..candidates.len() {
-      let picked = pick(&candidates, &features, &recent, &round, &mut rng).expect("pick");
+      let picked = pick(
+        &candidates,
+        &features,
+        &recent,
+        &round,
+        &default_tuning(),
+        &mut rng,
+      )
+      .expect("pick");
       assert!(
         seen.insert(picked.clone()),
         "round must not repeat: {picked}"
@@ -368,7 +537,15 @@ mod tests {
     round.reconcile(Source::Advance, &candidates, Some(&last));
     assert_eq!(round.remaining_len(), candidates.len() - 1);
     for _ in 0..50 {
-      let picked = pick(&candidates, &features, &recent, &round, &mut rng).expect("pick");
+      let picked = pick(
+        &candidates,
+        &features,
+        &recent,
+        &round,
+        &default_tuning(),
+        &mut rng,
+      )
+      .expect("pick");
       assert_ne!(picked, last, "new round must not replay the previous track");
     }
   }
@@ -381,7 +558,15 @@ mod tests {
     let mut rng = SmartRng::seeded(11);
     let mut seen = HashSet::new();
     for _ in 0..candidates.len() {
-      let picked = pick(&candidates, &empty_features(), &[], &round, &mut rng).expect("pick");
+      let picked = pick(
+        &candidates,
+        &empty_features(),
+        &[],
+        &round,
+        &default_tuning(),
+        &mut rng,
+      )
+      .expect("pick");
       assert!(
         seen.insert(picked.clone()),
         "round must not repeat: {picked}"
@@ -428,63 +613,298 @@ mod tests {
     round.reconcile(Source::Advance, &candidates, None);
     let mut rng = SmartRng::seeded(7);
     assert_eq!(
-      pick(&candidates, &empty_features(), &[], &round, &mut rng).as_deref(),
+      pick(
+        &candidates,
+        &empty_features(),
+        &[],
+        &round,
+        &default_tuning(),
+        &mut rng
+      )
+      .as_deref(),
       Some("only")
     );
     round.mark_played("only");
     round.reconcile(Source::Advance, &candidates, Some("only"));
     assert_eq!(
-      pick(&candidates, &empty_features(), &[], &round, &mut rng).as_deref(),
+      pick(
+        &candidates,
+        &empty_features(),
+        &[],
+        &round,
+        &default_tuning(),
+        &mut rng
+      )
+      .as_deref(),
       Some("only")
     );
   }
 
   #[test]
+  fn config_defaults_match_documented_values() {
+    let config = SmartShuffleConfig::default();
+    assert_eq!(config.version, SMART_SHUFFLE_VERSION);
+    assert_eq!(config.experience.randomness, 60);
+    assert_eq!(config.experience.diversity, 50);
+    assert_eq!(config.experience.repeat_avoidance, 80);
+    assert_eq!(config.separation.artist, 3);
+    assert_eq!(config.separation.album, 2);
+    assert_eq!(config.audio_features.bpm_matching, 30);
+    assert_eq!(config.audio_features.energy_matching, 30);
+    assert_eq!(config.audio_features.mood_diversity, 30);
+    assert_eq!(config.audio_features.genre_diversity, 50);
+  }
+
+  #[test]
+  fn config_normalizes_ranges_and_rejects_unknown_versions() {
+    let config = SmartShuffleConfig {
+      version: 1,
+      experience: SmartShuffleExperience {
+        randomness: 800,
+        diversity: 0,
+        repeat_avoidance: 120,
+      },
+      separation: SmartShuffleSeparation {
+        artist: 99,
+        album: 0,
+      },
+      audio_features: SmartShuffleAudioFeatures::default(),
+    };
+    let normalized = config.normalized();
+    assert_eq!(normalized.experience.randomness, 100);
+    assert_eq!(normalized.experience.repeat_avoidance, 100);
+    assert_eq!(normalized.separation.artist, 10);
+
+    let wrong = SmartShuffleConfig {
+      version: 2,
+      ..SmartShuffleConfig::default()
+    };
+    assert!(wrong.validate().is_err());
+  }
+
+  #[test]
+  fn config_deserializes_partial_and_ignores_unknown_fields() {
+    let config: SmartShuffleConfig =
+      serde_json::from_str(r#"{"experience":{"randomness":90},"future":{"enabled":true}}"#)
+        .expect("partial config");
+    assert_eq!(config.version, SMART_SHUFFLE_VERSION);
+    assert_eq!(config.experience.randomness, 90);
+    assert_eq!(config.experience.diversity, 50);
+    assert_eq!(config.separation.artist, 3);
+  }
+
+  #[test]
+  fn config_serializes_with_camel_case_keys() {
+    let json = serde_json::to_value(SmartShuffleConfig::default()).expect("config json");
+    assert_eq!(json["version"], 1);
+    assert_eq!(json["experience"]["repeatAvoidance"], 80);
+    assert_eq!(json["separation"]["artist"], 3);
+    assert_eq!(json["audioFeatures"]["bpmMatching"], 30);
+  }
+
+  #[test]
+  fn default_tuning_preserves_previous_exponents_and_windows() {
+    let tuning = default_tuning();
+    assert!((tuning.randomness_exp - 1.0).abs() < f64::EPSILON);
+    assert!((tuning.genre_scale - 1.0).abs() < f64::EPSILON);
+    assert!((tuning.recency_exp - 1.0).abs() < f64::EPSILON);
+    assert_eq!(tuning.artist_window, 3);
+    assert_eq!(tuning.album_window, 2);
+  }
+
+  #[test]
+  fn tuning_maps_parameters_to_exponents() {
+    let mut config = SmartShuffleConfig::default();
+    config.experience.randomness = 0;
+    config.experience.diversity = 0;
+    config.experience.repeat_avoidance = 0;
+    config.separation.artist = 0;
+    config.separation.album = 0;
+    let tuning = SmartShuffleTuning::from_config(&config);
+    assert!((tuning.randomness_exp - 2.5).abs() < 1e-9);
+    assert!((tuning.genre_scale - 0.0).abs() < f64::EPSILON);
+    assert!((tuning.recency_exp - 0.0).abs() < f64::EPSILON);
+    assert_eq!(tuning.artist_window, 0);
+    assert_eq!(tuning.album_window, 0);
+
+    config.experience.randomness = 100;
+    config.experience.diversity = 100;
+    config.experience.repeat_avoidance = 100;
+    let tuning = SmartShuffleTuning::from_config(&config);
+    assert!((tuning.randomness_exp - 0.0).abs() < f64::EPSILON);
+    assert!((tuning.genre_scale - 2.0).abs() < 1e-9);
+    assert!((tuning.recency_exp - 1.25).abs() < 1e-9);
+  }
+
+  #[test]
   fn recent_track_is_heavily_penalized() {
+    let tuning = default_tuning();
     let candidate = feats(&["artist-a"], "album-a", "ambient", false);
     let history = vec![recent("track-a", candidate.clone())];
-    let fresh = weight(Some(&candidate), "track-b", &history);
-    let played = weight(Some(&candidate), "track-a", &history);
+    let fresh = weight(Some(&candidate), "track-b", &history, &tuning);
+    let played = weight(Some(&candidate), "track-a", &history, &tuning);
     assert!(played <= fresh * 0.03, "played={played} fresh={fresh}");
   }
 
   #[test]
   fn same_artist_album_and_genre_are_penalized() {
+    let tuning = default_tuning();
     let candidate = feats(&["artist-a"], "album-a", "ambient", false);
     let empty: Vec<RecentPlay> = Vec::new();
-    assert!((weight(Some(&candidate), "track-a", &empty) - 1.0).abs() < f64::EPSILON);
+    assert!((weight(Some(&candidate), "track-a", &empty, &tuning) - 1.0).abs() < f64::EPSILON);
 
     let same_artist = vec![
       recent("r1", feats(&["artist-a"], "album-b", "rock", false)),
       recent("r2", feats(&["artist-a"], "album-c", "jazz", false)),
     ];
-    assert!((weight(Some(&candidate), "track-a", &same_artist) - 0.05).abs() < 1e-9);
+    assert!((weight(Some(&candidate), "track-a", &same_artist, &tuning) - 0.05).abs() < 1e-9);
 
     let same_album = vec![recent("r1", feats(&["artist-b"], "album-a", "rock", false))];
-    assert!((weight(Some(&candidate), "track-a", &same_album) - 0.15).abs() < 1e-9);
+    assert!((weight(Some(&candidate), "track-a", &same_album, &tuning) - 0.15).abs() < 1e-9);
 
     let same_genre = vec![
       recent("r1", feats(&["artist-b"], "album-b", "ambient", false)),
       recent("r2", feats(&["artist-c"], "album-c", "ambient", false)),
       recent("r3", feats(&["artist-d"], "album-d", "ambient", false)),
     ];
-    assert!((weight(Some(&candidate), "track-a", &same_genre) - 0.09).abs() < 1e-9);
+    let expected = 0.45_f64.powi(3);
+    assert!((weight(Some(&candidate), "track-a", &same_genre, &tuning) - expected).abs() < 1e-9);
+  }
+
+  #[test]
+  fn randomness_flattens_or_sharpens_penalties() {
+    let candidate = feats(&["artist-a"], "album-a", "ambient", true);
+    let history = vec![recent("track-a", candidate.clone())];
+
+    let mut flat = SmartShuffleConfig::default();
+    flat.experience.randomness = 100;
+    let flat_weight = weight(
+      Some(&candidate),
+      "track-a",
+      &history,
+      &SmartShuffleTuning::from_config(&flat),
+    );
+    assert!((flat_weight - 1.0).abs() < 1e-9);
+
+    let mut sharp = SmartShuffleConfig::default();
+    sharp.experience.randomness = 0;
+    let sharp_weight = weight(
+      Some(&candidate),
+      "track-a",
+      &history,
+      &SmartShuffleTuning::from_config(&sharp),
+    );
+    assert!(sharp_weight < 1e-4, "sharp={sharp_weight}");
+  }
+
+  #[test]
+  fn repeat_avoidance_zero_removes_recency_penalty() {
+    let mut config = SmartShuffleConfig::default();
+    config.experience.repeat_avoidance = 0;
+    let tuning = SmartShuffleTuning::from_config(&config);
+    let candidate = feats(&["artist-a"], "album-a", "ambient", false);
+    let history = vec![recent(
+      "track-a",
+      feats(&["artist-b"], "album-b", "rock", false),
+    )];
+    let recent_weight = weight(Some(&candidate), "track-a", &history, &tuning);
+    let fresh_weight = weight(Some(&candidate), "track-b", &history, &tuning);
+    assert!((recent_weight - fresh_weight).abs() < 1e-9);
+  }
+
+  #[test]
+  fn diversity_zero_removes_genre_penalty() {
+    let mut config = SmartShuffleConfig::default();
+    config.experience.diversity = 0;
+    let tuning = SmartShuffleTuning::from_config(&config);
+    let candidate = feats(&["artist-a"], "album-a", "ambient", false);
+    let history = vec![
+      recent("r1", feats(&["artist-b"], "album-b", "ambient", false)),
+      recent("r2", feats(&["artist-c"], "album-c", "ambient", false)),
+      recent("r3", feats(&["artist-d"], "album-d", "ambient", false)),
+    ];
+    assert!((weight(Some(&candidate), "track-a", &history, &tuning) - 1.0).abs() < 1e-9);
+  }
+
+  #[test]
+  fn separation_windows_control_artist_and_album_penalties() {
+    let candidate = feats(&["artist-a"], "album-a", "ambient", false);
+    let history = vec![
+      recent("r1", candidate.clone()),
+      recent("r2", candidate.clone()),
+      recent("r3", candidate.clone()),
+    ];
+
+    let mut disabled = SmartShuffleConfig::default();
+    disabled.experience.diversity = 0;
+    disabled.separation.artist = 0;
+    disabled.separation.album = 0;
+    let disabled_weight = weight(
+      Some(&candidate),
+      "track-a",
+      &history,
+      &SmartShuffleTuning::from_config(&disabled),
+    );
+    assert!((disabled_weight - 1.0).abs() < 1e-9);
+
+    let mut wide = SmartShuffleConfig::default();
+    wide.separation.artist = 5;
+    wide.separation.album = 5;
+    let wide_weight = weight(
+      Some(&candidate),
+      "track-a",
+      &history,
+      &SmartShuffleTuning::from_config(&wide),
+    );
+    assert!(wide_weight < 0.01, "wide={wide_weight}");
+  }
+
+  #[test]
+  fn audio_features_are_inert() {
+    let candidate = feats(&["artist-a"], "album-a", "ambient", true);
+    let history = vec![recent("track-a", candidate.clone())];
+    let mut first = SmartShuffleConfig::default();
+    first.audio_features.bpm_matching = 100;
+    first.audio_features.energy_matching = 100;
+    first.audio_features.mood_diversity = 100;
+    first.audio_features.genre_diversity = 100;
+    let mut second = SmartShuffleConfig::default();
+    second.audio_features.bpm_matching = 0;
+    second.audio_features.energy_matching = 0;
+    second.audio_features.mood_diversity = 0;
+    second.audio_features.genre_diversity = 0;
+    let first_weight = weight(
+      Some(&candidate),
+      "track-a",
+      &history,
+      &SmartShuffleTuning::from_config(&first),
+    );
+    let second_weight = weight(
+      Some(&candidate),
+      "track-a",
+      &history,
+      &SmartShuffleTuning::from_config(&second),
+    );
+    assert!((first_weight - second_weight).abs() < f64::EPSILON);
   }
 
   #[test]
   fn favorite_gets_a_small_boost() {
+    let tuning = default_tuning();
     let plain = feats(&["artist-a"], "album-a", "ambient", false);
     let liked = feats(&["artist-a"], "album-a", "ambient", true);
-    let boost = weight(Some(&liked), "track-a", &[]) / weight(Some(&plain), "track-a", &[]);
+    let boost =
+      weight(Some(&liked), "track-a", &[], &tuning) / weight(Some(&plain), "track-a", &[], &tuning);
     assert!((boost - FAVORITE_BOOST).abs() < 1e-9);
   }
 
   #[test]
   fn missing_metadata_is_neutral() {
+    let tuning = default_tuning();
     let empty = TrackFeatures::default();
     let history = vec![recent("r1", TrackFeatures::default())];
-    assert!((weight(Some(&empty), "track-a", &history) - 1.0).abs() < f64::EPSILON);
-    assert!((weight(None, "track-a", &history) - 1.0).abs() < f64::EPSILON);
+    assert!((weight(Some(&empty), "track-a", &history, &tuning) - 1.0).abs() < f64::EPSILON);
+    assert!((weight(None, "track-a", &history, &tuning) - 1.0).abs() < f64::EPSILON);
   }
 
   #[test]
@@ -508,7 +928,15 @@ mod tests {
     let mut rng = SmartRng::seeded(2026);
     let mut favorite = 0;
     for _ in 0..1_000 {
-      let picked = pick(&candidates, &features, &[], &round, &mut rng).expect("pick");
+      let picked = pick(
+        &candidates,
+        &features,
+        &[],
+        &round,
+        &default_tuning(),
+        &mut rng,
+      )
+      .expect("pick");
       if picked == "track-0" {
         favorite += 1;
       }
@@ -526,7 +954,15 @@ mod tests {
       let mut rng = SmartRng::seeded(seed);
       let mut picks = Vec::new();
       for _ in 0..10 {
-        let picked = pick(&candidates, &features, &[], &round, &mut rng).expect("pick");
+        let picked = pick(
+          &candidates,
+          &features,
+          &[],
+          &round,
+          &default_tuning(),
+          &mut rng,
+        )
+        .expect("pick");
         round.mark_played(&picked);
         picks.push(picked);
       }
@@ -542,7 +978,14 @@ mod tests {
     let round = RoundState::new();
     let mut rng = SmartRng::seeded(1);
     assert_eq!(
-      pick(&candidates, &empty_features(), &[], &round, &mut rng),
+      pick(
+        &candidates,
+        &empty_features(),
+        &[],
+        &round,
+        &default_tuning(),
+        &mut rng
+      ),
       None
     );
   }

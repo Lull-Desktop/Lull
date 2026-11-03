@@ -6,7 +6,12 @@
  */
 "use client";
 
-import type { DirectoryEntry, TrackSummary } from "@lull/media-sdk";
+import {
+  DEFAULT_SMART_SHUFFLE_CONFIG,
+  type DirectoryEntry,
+  type SmartShuffleConfig,
+  type TrackSummary,
+} from "@lull/media-sdk";
 import {
   useDirectoryBrowser,
   useMediaClient,
@@ -31,6 +36,7 @@ import {
   Repeat2,
   Settings,
   Shuffle,
+  SlidersHorizontal,
   Upload,
   Volume2,
   VolumeX,
@@ -84,6 +90,7 @@ import {
   readPlayerPrefs,
   totalDuration,
 } from "./player-model";
+import { SmartShufflePanel } from "./smart-shuffle-panel";
 import { TipHost, tip } from "./tooltip";
 
 /** Media Service 的 TrackSummary → 现有玻璃 UI 的 PlayerTrack。 */
@@ -502,6 +509,11 @@ export function LiquidPlayer(): React.ReactElement {
   const [canMinimize, setCanMinimize] = useState(false);
   const [themeReady, setThemeReady] = useState(false);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  // 智能随机配置由 Rust Media Service 持久化；本组件只缓存给设置面板用。
+  const [smartConfig, setSmartConfig] = useState<SmartShuffleConfig>(
+    DEFAULT_SMART_SHUFFLE_CONFIG,
+  );
+  const [smartOpen, setSmartOpen] = useState(false);
   // 收藏页：分页拉取，favorites.changed 事件触发重拉第一页。
   const [favoritesState, setFavoritesState] = useState<{
     tracks: PlayerTrack[];
@@ -567,10 +579,50 @@ export function LiquidPlayer(): React.ReactElement {
   const dockSideRef = useRef<DockSide>("right");
   const dockSwitchBusyRef = useRef(false);
   const dragDepthRef = useRef(0);
+  const savedSmartRef = useRef<SmartShuffleConfig>(
+    DEFAULT_SMART_SHUFFLE_CONFIG,
+  );
+  const smartConfigRef = useRef<SmartShuffleConfig>(smartConfig);
+  const smartSaveTimerRef = useRef<number | null>(null);
+  const smartSaveSeqRef = useRef(0);
 
   // 播放器是固定画布的透明浮窗：只需要等字体就绪后显示窗口，
   // 不能再按内容高度贴合（100vh 内容叠加顶栏高度会让窗口反复长高）。
   useWidgetFit(rootRef, { fit: false });
+
+  useEffect(() => {
+    smartConfigRef.current = smartConfig;
+  }, [smartConfig]);
+
+  useEffect(() => {
+    let alive = true;
+    void mediaClient.player
+      .getSmartShuffleConfig()
+      .then((config) => {
+        if (!alive) return;
+        savedSmartRef.current = config;
+        setSmartConfig(config);
+      })
+      .catch(() => {
+        // 读取失败时沿用默认值，不阻塞播放。
+      });
+    return () => {
+      alive = false;
+    };
+  }, [mediaClient]);
+
+  // 窗口销毁前尽力把最后一次滑杆修改写回后端。
+  useEffect(
+    () => () => {
+      if (smartSaveTimerRef.current === null) return;
+      window.clearTimeout(smartSaveTimerRef.current);
+      smartSaveTimerRef.current = null;
+      void mediaClient.player
+        .setSmartShuffleConfig(smartConfigRef.current)
+        .catch(() => {});
+    },
+    [mediaClient],
+  );
 
   const allTracks = directoryTracks;
   const queueTracks = useMemo(
@@ -837,6 +889,47 @@ export function LiquidPlayer(): React.ReactElement {
       noticeTimerRef.current = null;
     }, 2200);
   }, []);
+
+  const persistSmartConfig = useCallback(
+    (next: SmartShuffleConfig): void => {
+      const seq = smartSaveSeqRef.current + 1;
+      smartSaveSeqRef.current = seq;
+      void mediaClient.player
+        .setSmartShuffleConfig(next)
+        .then((saved) => {
+          savedSmartRef.current = saved;
+          if (smartSaveSeqRef.current === seq) setSmartConfig(saved);
+        })
+        .catch(() => {
+          if (smartSaveSeqRef.current !== seq) return;
+          setSmartConfig(savedSmartRef.current);
+          showNotice("智能随机设置保存失败");
+        });
+    },
+    [mediaClient, showNotice],
+  );
+
+  const updateSmartConfig = useCallback(
+    (next: SmartShuffleConfig): void => {
+      setSmartConfig(next);
+      if (smartSaveTimerRef.current !== null) {
+        window.clearTimeout(smartSaveTimerRef.current);
+      }
+      smartSaveTimerRef.current = window.setTimeout(() => {
+        smartSaveTimerRef.current = null;
+        persistSmartConfig(next);
+      }, 300);
+    },
+    [persistSmartConfig],
+  );
+
+  /** 关闭面板/切换模式时立即落盘，避免防抖窗口内的修改丢失。 */
+  const flushSmartConfig = useCallback((): void => {
+    if (smartSaveTimerRef.current === null) return;
+    window.clearTimeout(smartSaveTimerRef.current);
+    smartSaveTimerRef.current = null;
+    persistSmartConfig(smartConfigRef.current);
+  }, [persistSmartConfig]);
 
   /**
    * 曲库开关：
@@ -1359,9 +1452,23 @@ export function LiquidPlayer(): React.ReactElement {
     setVolume(clampVolume(next));
   };
 
-  const toggleDrawer = useCallback((): void => {
-    setDrawer(!drawerOpenRef.current);
+  const openSmartSettings = useCallback((): void => {
+    setDrawer(true);
+    setSmartOpen(true);
   }, [setDrawer]);
+
+  const closeSmartSettings = useCallback((): void => {
+    flushSmartConfig();
+    setSmartOpen(false);
+  }, [flushSmartConfig]);
+
+  const toggleDrawer = useCallback((): void => {
+    if (drawerOpenRef.current && smartOpen) {
+      flushSmartConfig();
+      setSmartOpen(false);
+    }
+    setDrawer(!drawerOpenRef.current);
+  }, [flushSmartConfig, setDrawer, smartOpen]);
 
   /**
    * 库窗口的开关（toggle）：目标页签已经开着就收起，否则打开 / 切到该页签。
@@ -1587,11 +1694,23 @@ export function LiquidPlayer(): React.ReactElement {
     [session.actions],
   );
 
+  // 切出随机模式时收起设置面板，避免面板悬在别的模式上。
+  useEffect(() => {
+    if (mode !== "shuffle" && smartOpen) {
+      flushSmartConfig();
+      setSmartOpen(false);
+    }
+  }, [flushSmartConfig, mode, smartOpen]);
+
   // 全局快捷键：空格播放 / 暂停，Shift + 左右切歌，左右快退 / 快进，M 静音。
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.defaultPrevented) return;
       if (event.key === "Escape") {
+        if (smartOpen) {
+          closeSmartSettings();
+          return;
+        }
         setDrawer(false);
         return;
       }
@@ -1625,7 +1744,15 @@ export function LiquidPlayer(): React.ReactElement {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [moveTrack, seekRelative, setDrawer, toggleMute, togglePlayback]);
+  }, [
+    closeSmartSettings,
+    moveTrack,
+    seekRelative,
+    setDrawer,
+    smartOpen,
+    toggleMute,
+    togglePlayback,
+  ]);
 
   useEffect(
     () => () => {
@@ -1741,6 +1868,19 @@ export function LiquidPlayer(): React.ReactElement {
                 >
                   <ChevronsLeftRight aria-hidden="true" />
                 </button>
+                {mode === "shuffle" ? (
+                  <button
+                    type="button"
+                    className={styles.dockButton}
+                    aria-label="智能随机设置"
+                    aria-haspopup="dialog"
+                    aria-expanded={smartOpen}
+                    {...tip("智能随机设置")}
+                    onClick={openSmartSettings}
+                  >
+                    <SlidersHorizontal aria-hidden="true" />
+                  </button>
+                ) : null}
                 {canMinimize ? (
                   <button
                     type="button"
@@ -2114,10 +2254,21 @@ export function LiquidPlayer(): React.ReactElement {
         <aside
           ref={drawerSlotRef}
           className={styles.drawerSlot}
-          aria-label="曲库抽屉"
+          aria-label={smartOpen ? "智能随机设置" : "曲库抽屉"}
           inert={!drawerOpen || drawerHeld}
         >
-          <section className={styles.drawer}>
+          {smartOpen ? (
+            <SmartShufflePanel
+              config={smartConfig}
+              onChange={updateSmartConfig}
+              onClose={closeSmartSettings}
+              onNotice={showNotice}
+            />
+          ) : null}
+          <section
+            className={styles.drawer}
+            style={smartOpen ? { display: "none" } : undefined}
+          >
             <header className={styles.drawerHead}>
               <div
                 className={styles.sourcePill}

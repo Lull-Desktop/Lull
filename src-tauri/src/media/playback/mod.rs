@@ -15,7 +15,9 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 use self::model::{PlayerStateView, QueueStateView};
-use self::smart::{RecentPlay, RoundState, SmartRng, Source, TrackFeatures};
+use self::smart::{
+  RecentPlay, RoundState, SmartRng, SmartShuffleConfig, SmartShuffleTuning, Source, TrackFeatures,
+};
 use super::api::dto::TrackSummary;
 use super::api::errors::MediaError;
 use super::engine;
@@ -56,6 +58,8 @@ struct Service {
   /// `shuffle` 模式的轮次袋与随机源；其他模式保持为空/未使用。
   round: Option<RoundState>,
   rng: SmartRng,
+  /// 面向用户的智能随机配置；算法细节由 `SmartShuffleTuning` 推导。
+  smart: SmartShuffleConfig,
   revision: u64,
   engine_ready: bool,
   syncing: bool,
@@ -190,6 +194,12 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     None => None,
   };
   let duration_ms = current_track.as_ref().and_then(|track| track.duration_ms);
+  let smart = store::load_smart_shuffle(pool)
+    .await
+    .unwrap_or_else(|error| {
+      crate::wallpaper::wlog(&format!("读取智能随机配置失败，使用默认值：{error}"));
+      SmartShuffleConfig::default()
+    });
   let service = Service {
     player,
     current_track,
@@ -200,6 +210,7 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     advance_list: None,
     round: None,
     rng: SmartRng::seeded(u64::try_from(now_ms()).unwrap_or(0)),
+    smart,
     revision: 0,
     engine_ready: false,
     syncing: false,
@@ -344,6 +355,22 @@ pub async fn call(
         service.round = None;
       }
       Ok(Value::Null)
+    }
+    ("player", "getSmartShuffleConfig") => {
+      let service = lock()?;
+      Ok(serde_json::to_value(&service.smart).unwrap_or(Value::Null))
+    }
+    ("player", "setSmartShuffleConfig") => {
+      let value = args
+        .get("config")
+        .ok_or_else(|| MediaError::invalid("缺少 config"))?;
+      let config: SmartShuffleConfig = serde_json::from_value(value.clone())
+        .map_err(|error| MediaError::invalid(format!("智能随机配置无效：{error}")))?;
+      let config = config.validate().map_err(MediaError::invalid)?;
+      store::save_smart_shuffle(&pool, &config).await?;
+      let mut service = lock()?;
+      service.smart = config.clone();
+      Ok(serde_json::to_value(&config).unwrap_or(Value::Null))
     }
     ("queue", "get") => {
       let service = lock()?;
@@ -777,9 +804,17 @@ async fn advance_shuffle(app: &AppHandle, pool: &SqlitePool) -> Result<(), Media
           features: features.get(id).cloned(),
         })
         .collect();
+      let tuning = SmartShuffleTuning::from_config(&service.smart);
       let round = service.round.get_or_insert_with(RoundState::new);
       round.reconcile(source, &playable, current.as_deref());
-      smart::pick(&playable, &features, &recent, round, &mut service.rng)
+      smart::pick(
+        &playable,
+        &features,
+        &recent,
+        round,
+        &tuning,
+        &mut service.rng,
+      )
     };
 
     let Some(target) = target else {

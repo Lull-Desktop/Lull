@@ -237,6 +237,38 @@ export type PlaybackStatus =
 
 export type PlayMode = "sequence" | "shuffle" | "repeat-one";
 
+/** 面向用户的智能随机听感参数；算法细节不进入这个结构。 */
+export interface SmartShuffleExperience {
+  /** 0 = 偏向高分，100 = 在剩余候选内更均匀随机。 */
+  randomness: number;
+  /** 0 = 允许相似曲风连续，100 = 尽量切换曲风。 */
+  diversity: number;
+  /** 0 = 不回避最近播放，100 = 强回避。 */
+  repeatAvoidance: number;
+}
+
+export interface SmartShuffleSeparation {
+  /** 最近 N 首内出现过的歌手会降权。 */
+  artist: number;
+  /** 最近 N 首内出现过的专辑会降权。 */
+  album: number;
+}
+
+/** v1 预留字段：当前不参与选曲，也不在播放器 UI 中展示。 */
+export interface SmartShuffleAudioFeatures {
+  bpmMatching: number;
+  energyMatching: number;
+  moodDiversity: number;
+  genreDiversity: number;
+}
+
+export interface SmartShuffleConfig {
+  version: 1;
+  experience: SmartShuffleExperience;
+  separation: SmartShuffleSeparation;
+  audioFeatures: SmartShuffleAudioFeatures;
+}
+
 export interface PlayerState {
   track?: TrackSummary;
   status: PlaybackStatus;

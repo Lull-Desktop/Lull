@@ -12,6 +12,7 @@ export {
   type MediaRequest,
   type MediaResponse,
 } from "./protocol";
+export { DEFAULT_SMART_SHUFFLE_CONFIG } from "./smart-shuffle";
 export { createTauriTransport, isTauriRuntime } from "./tauri";
 export type { MediaTransport } from "./transport";
 export type {
@@ -70,6 +71,10 @@ export type {
   QueueState,
   ScanJobView,
   SmartPlaylistView,
+  SmartShuffleAudioFeatures,
+  SmartShuffleConfig,
+  SmartShuffleExperience,
+  SmartShuffleSeparation,
   SourceKind,
   SourceStatus,
   SourceView,

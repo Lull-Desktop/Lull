@@ -4,6 +4,7 @@
 
 use sqlx::SqlitePool;
 
+use super::smart::SmartShuffleConfig;
 use super::PlayerData;
 use crate::media::api::errors::MediaError;
 use crate::media::repository::now_ms;
@@ -62,6 +63,52 @@ pub async fn save_player(pool: &SqlitePool, player: &PlayerData) -> Result<(), M
   .execute(pool)
   .await
   .map_err(|error| MediaError::internal(format!("保存播放状态失败：{error}")))?;
+  Ok(())
+}
+
+/// 读取智能随机配置；缺省、损坏或版本不支持时回退默认值。
+pub async fn load_smart_shuffle(pool: &SqlitePool) -> Result<SmartShuffleConfig, MediaError> {
+  let raw: Option<String> =
+    sqlx::query_scalar("SELECT config_json FROM player_smart_shuffle WHERE id = 1")
+      .fetch_optional(pool)
+      .await
+      .map_err(|error| MediaError::internal(format!("读取智能随机配置失败：{error}")))?;
+  let Some(raw) = raw else {
+    return Ok(SmartShuffleConfig::default());
+  };
+  let config = match serde_json::from_str::<SmartShuffleConfig>(&raw) {
+    Ok(config) => match config.validate() {
+      Ok(config) => config,
+      Err(error) => {
+        crate::wallpaper::wlog(&format!("智能随机配置版本不受支持，回退默认值：{error}"));
+        SmartShuffleConfig::default()
+      }
+    },
+    Err(error) => {
+      crate::wallpaper::wlog(&format!("智能随机配置无法解析，回退默认值：{error}"));
+      SmartShuffleConfig::default()
+    }
+  };
+  Ok(config)
+}
+
+pub async fn save_smart_shuffle(
+  pool: &SqlitePool,
+  config: &SmartShuffleConfig,
+) -> Result<(), MediaError> {
+  let json = serde_json::to_string(config)
+    .map_err(|error| MediaError::internal(format!("序列化智能随机配置失败：{error}")))?;
+  sqlx::query(
+    "INSERT INTO player_smart_shuffle (id, config_json, updated_at) \
+     VALUES (1, ?, ?) \
+     ON CONFLICT(id) DO UPDATE SET \
+       config_json = excluded.config_json, updated_at = excluded.updated_at",
+  )
+  .bind(json)
+  .bind(now_ms())
+  .execute(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("保存智能随机配置失败：{error}")))?;
   Ok(())
 }
 
@@ -133,6 +180,48 @@ mod tests {
       assert_eq!(restored.position_ms, 1234);
       assert!(restored.muted);
       assert_eq!(restored.mode, "repeat-one");
+      crate::media::repository::db::close(&pool).await;
+    });
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+    let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+  }
+
+  #[test]
+  fn smart_shuffle_config_roundtrips_and_falls_back() {
+    let path = std::env::temp_dir().join(format!("lull-smart-test-{}.db", uuid::Uuid::now_v7()));
+    tauri::async_runtime::block_on(async {
+      let pool = crate::media::repository::db::open_at(&path)
+        .await
+        .expect("open db");
+      assert_eq!(
+        load_smart_shuffle(&pool).await.expect("default"),
+        SmartShuffleConfig::default()
+      );
+
+      let mut config = SmartShuffleConfig::default();
+      config.experience.randomness = 90;
+      config.separation.album = 0;
+      save_smart_shuffle(&pool, &config).await.expect("save");
+      assert_eq!(load_smart_shuffle(&pool).await.expect("load"), config);
+
+      sqlx::query("UPDATE player_smart_shuffle SET config_json = '{\"version\":2}' WHERE id = 1")
+        .execute(&pool)
+        .await
+        .expect("unsupported version");
+      assert_eq!(
+        load_smart_shuffle(&pool).await.expect("version fallback"),
+        SmartShuffleConfig::default()
+      );
+
+      sqlx::query("UPDATE player_smart_shuffle SET config_json = 'not-json' WHERE id = 1")
+        .execute(&pool)
+        .await
+        .expect("broken json");
+      assert_eq!(
+        load_smart_shuffle(&pool).await.expect("json fallback"),
+        SmartShuffleConfig::default()
+      );
       crate::media::repository::db::close(&pool).await;
     });
     let _ = std::fs::remove_file(&path);

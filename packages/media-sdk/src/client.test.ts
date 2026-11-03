@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { createMediaClient } from "./client";
 import { LullMediaError } from "./errors";
 import { MEDIA_PROTOCOL } from "./protocol";
+import { DEFAULT_SMART_SHUFFLE_CONFIG } from "./smart-shuffle";
 import { createMemoryTransport } from "./testing";
 import type { Page, TrackSummary } from "./types";
 
@@ -126,6 +127,35 @@ describe("media client", () => {
     expect(transport.requests[4]?.args).toEqual({
       trackIds: ["trk_1", "trk_2"],
     });
+  });
+
+  test("reads and writes the smart shuffle config", async () => {
+    const next = {
+      ...DEFAULT_SMART_SHUFFLE_CONFIG,
+      experience: {
+        ...DEFAULT_SMART_SHUFFLE_CONFIG.experience,
+        randomness: 90,
+      },
+    };
+    const transport = createMemoryTransport((request) => {
+      expect(request.namespace).toBe("player");
+      return request.method === "getSmartShuffleConfig"
+        ? DEFAULT_SMART_SHUFFLE_CONFIG
+        : next;
+    });
+    const media = createMediaClient({ transport });
+
+    await expect(media.player.getSmartShuffleConfig()).resolves.toEqual(
+      DEFAULT_SMART_SHUFFLE_CONFIG,
+    );
+    await expect(media.player.setSmartShuffleConfig(next)).resolves.toEqual(
+      next,
+    );
+    expect(transport.requests.map((request) => request.method)).toEqual([
+      "getSmartShuffleConfig",
+      "setSmartShuffleConfig",
+    ]);
+    expect(transport.requests[1]?.args).toEqual({ config: next });
   });
 
   test("routes output volume through the system namespace", async () => {

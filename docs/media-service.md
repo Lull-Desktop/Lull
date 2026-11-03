@@ -100,6 +100,8 @@ Media Service（Rust）
 | `player.getState` / `play` / `pause` / `resume` / `stop` / `seek` / `next` / `previous` | `trackId?`, `positionMs` | `PlayerState` |
 | `player.setVolume` / `setMuted` / `setMode` | `volume`, `muted`, `mode` | `PlayerState` |
 | `player.setAdvanceList` | `trackIds` | `null` |
+| `player.getSmartShuffleConfig` | `{}` | `SmartShuffleConfig` |
+| `player.setSmartShuffleConfig` | `config` | `SmartShuffleConfig`（归一化结果） |
 | `queue.get` / `add` / `remove` / `clear` / `move` / `playAt` | `trackId`, `index` | `QueueState` / `PlayerState` |
 | `playlists.list` / `get` / `create` / `update` / `delete` | `playlistId`, `name`, `description` | `PlaylistSummary[]` / `PlaylistDetail` |
 | `playlists.addTrack` / `removeTrack` / `reorder` | `playlistId`, `trackId`, `position` | `{ok}` / `{removed}` / `{moved}` |
@@ -149,34 +151,76 @@ Media Service（Rust）
 - **候选**：优先 `player.setAdvanceList` 同步的当前页签列表，未设置或为空时回退
   `player_queue`；两者都空返回 `queue.empty`。`shuffle` 下 `player.next/previous` 也优先
   使用这份列表（外部 Widget 同样生效），但不会修改 `player_queue`。
-- **轮次袋（Shuffle Bag）**：一轮内不重复，`remaining` 为空才开启下一轮，并排除刚播完的
+- **轮次袋（固定开启）**：一轮内不重复，`remaining` 为空才开启下一轮，并排除刚播完的
   当前曲；分页追加/筛选缩小保留已播进度，切换页签等「互不包含」的列表变化重置一轮。
   轮次状态只在内存，应用重启后重新开始；手动点播同样计入本轮。
 - **特征**：主要/合作艺术家、主专辑、`music_tracks.genre`（小写归一化）、收藏。
 - **最近播放**：`music_play_history` 中最近 6 小时、最多 32 条；同一首歌按最近一次出现
   的位置降权。
-- **权重**（基础 1.0，逐项相乘）：
+- **用户参数**：随机程度、曲风多样性、重复规避、歌手间隔、专辑间隔；通过
+  `player.get/setSmartShuffleConfig` 读写，详见 3.3。
+- **权重**（基础 1.0，逐项相乘，最后应用随机指数）：
 
-| 因素 | 规则 | 乘数 |
-| --- | --- | --- |
-| 最近播放位置 | 0–2 / 3–7 / 8–15 / 16–31 | 0.02 / 0.15 / 0.5 / 0.85 |
-| 同歌手 | 最近 3 首命中 1 首 / ≥2 首 | 0.2 / 0.05 |
-| 同专辑 | 与上一首相同 / 最近 3 首内相同 | 0.15 / 0.5 |
-| 同曲风 | 最近 3 首命中 1 / 2 / 3 首 | 0.45 / 0.2 / 0.09 |
-| 收藏 | 候选已被收藏 | ×1.2 |
+| 因素 | 规则 |
+| --- | --- |
+| 最近播放位置 | 0–2 / 3–7 / 8–15 / 16–31 的基准 0.02 / 0.15 / 0.5 / 0.85，再取 `^ (repeatAvoidance / 80)` |
+| 同歌手 | 最近 `artist` 首命中 1 首 ×0.2，≥2 首 ×0.05；`artist=0` 不惩罚 |
+| 同专辑 | 与上一首相同 ×0.15；在最近 `album` 首内 ×0.5；`album=0` 不惩罚 |
+| 同曲风 | 最近 3 首命中 `h` 首：`0.45 ^ (h × diversity / 50)` |
+| 收藏 | ×1.2（固定内部偏好，不开放） |
+| 随机程度 | `weight ^ ((100 - randomness) / 40)`，最终 clamp 到 `[1e-6, 8]` |
 
-  最终权重夹在 `[1e-6, 8]`，再按权重随机抽取（内置 SplitMix64，不引入额外依赖）；
-  没有元数据的曲目按中性权重处理，不会把「未知专辑」当成同一张专辑。
+`randomness=100` 时所有惩罚被抹平，在**本轮剩余候选**内均匀随机；`randomness=0` 时放大
+评分差异（指数 2.5），偏向高权重但仍是抽样。`repeatAvoidance=0` / `diversity=0` 时对应
+惩罚完全关闭。
+
 - **失败兜底**：候选曲目连续不可播放时最多重试 3 首并移出本轮，再回退队列顺序播放。
 - **限制**：曲库没有 BPM 字段，节奏/情绪维度暂不参与；`shuffle` 下「上一首」同样是随机
   选曲；单曲列表重播当前曲；轮次不持久化。
+
+### 3.3 智能随机配置
+
+```json
+{
+  "version": 1,
+  "experience": {
+    "randomness": 60,
+    "diversity": 50,
+    "repeatAvoidance": 80
+  },
+  "separation": {
+    "artist": 3,
+    "album": 2
+  },
+  "audioFeatures": {
+    "bpmMatching": 30,
+    "energyMatching": 30,
+    "moodDiversity": 30,
+    "genreDiversity": 50
+  }
+}
+```
+
+- 范围：`randomness/diversity/repeatAvoidance` 0–100；`artist/album` 0–10；
+  `audioFeatures` 0–100。后端 `normalized()` 会 clamp 并保证 `version=1`。
+- `version` 不是 1 时 `set` 返回 `argument.invalid`，读取时回退默认值；缺省/损坏的 JSON
+  也回退默认值，不阻断播放。
+- **固定约束**（不开放）：一轮内不重复、排除当前曲、6 小时/32 条历史窗口。`shuffle` 下
+  仍优先播放器同步的当前页签列表，队列只是回退。
+- **`audioFeatures` 为预留字段**：v1 不参与选曲、不展示、复制 JSON 不包含；测试会锁定
+  「改这些值不改变权重」。等 BPM/能量/情绪分析落地后再启用 v2。
+- **预设**（播放器 UI，不进入 API）：均衡随机 = 默认值；高度随机 =
+  `90/25/50 + artist 1/album 1`；多样性优先 = `40/100/90 + artist 6/album 4`。
+  「熟悉歌曲优先」需要播放次数/偏好模型，v1 不提供。
+- 持久化：`player_smart_shuffle` 单行表（迁移 `0011`）；播放器通过
+  `media.player.read/control` 读取与修改。配置变更不清空轮次袋，只影响下一次选曲。
 
 ## 4. 前端 SDK
 
 `packages/media-sdk`（Apache-2.0）：
 
 - `createMediaClient({ transport? })`：Tauri 环境自动使用 `media_call` / `media_connect`；测试传内存 transport。
-- `library.*`（含 scan progress/cancel、cover URL、genre/filter/tag 参数、`updateTrackMetadata`、标签 CRUD/`setTrackTags`、`mergeArtists`/`splitArtist`/`mergeAlbums`/`splitAlbum`、智能歌单 CRUD/`runSmartPlaylist`、`exportBackup`/`importBackup`）、`player.*`、`queue.*`、`playlists.*`、`favorites.*`、`history.*`、`noise.*`（含 `noise.session.*` / `noise.tracks.*` / `noise.library.*` / `noise.presets.*`）、`system.getOutput/setOutput`、`connect/disconnect`、`events.on`。
+- `library.*`（含 scan progress/cancel、cover URL、genre/filter/tag 参数、`updateTrackMetadata`、标签 CRUD/`setTrackTags`、`mergeArtists`/`splitArtist`/`mergeAlbums`/`splitAlbum`、智能歌单 CRUD/`runSmartPlaylist`、`exportBackup`/`importBackup`）、`player.*`（含 `get/setSmartShuffleConfig`）、`queue.*`、`playlists.*`、`favorites.*`、`history.*`、`noise.*`（含 `noise.session.*` / `noise.tracks.*` / `noise.library.*` / `noise.presets.*`）、`system.getOutput/setOutput`、`connect/disconnect`、`events.on`。
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` / `usePlayerSession` / `useDirectoryBrowser`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
 - `@lull/media-sdk/widget`：`createWidgetTransport` / `createWidgetMediaClient`，翻译为 Widget 桥的 `media.call/connect/disconnect`，并通过 `onMediaEvent` 接收宿主转发事件。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
