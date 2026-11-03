@@ -83,6 +83,7 @@ export type {
   TagView,
   TrackDetail,
   TrackFileView,
+  TrackImportResult,
   TrackLyrics,
   TrackMetadataPatch,
   TrackQuery,

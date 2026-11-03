@@ -41,12 +41,15 @@ impl From<SourceRow> for SourceView {
 }
 
 /// 对外的物理目录视图。内部仍复用 `music_sources(kind='local')`。
+///
+/// 没有 `rootPath` 的目录是「单曲导入」聚合目录。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicFolderView {
   pub id: String,
   pub name: String,
-  pub root_path: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub root_path: Option<String>,
   pub recursive: bool,
   /// `active` 在 DTO 层映射为 `available`；其余值保持一致。
   pub status: String,
@@ -57,6 +60,18 @@ pub struct MusicFolderView {
   pub last_scan_error: Option<String>,
   pub created_at: i64,
   pub updated_at: i64,
+}
+
+/// 单曲导入结果：目录视图 + 本次新增/更新/跳过/失败计数。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackImportView {
+  pub folder: MusicFolderView,
+  pub added: i64,
+  pub updated: i64,
+  pub skipped: i64,
+  pub failed: i64,
+  pub errors: Vec<String>,
 }
 
 /// 内部 status 的历史值是 active；对外的 MusicFolder 语义使用 available。

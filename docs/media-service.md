@@ -40,9 +40,9 @@ Media Service（Rust）
 - Noise：`noise_sources`、`noise_assets`、`noise_categories`、`noise_tags`、`noise_asset_tags`、`noise_favorites`、`noise_presets`、`noise_preset_tracks`、`noise_preset_favorites`、`noise_preferences`；N2 seed builtin procedural Asset 与默认/示例 Preset，N3 把本地文件复制到 `<music>/noise/assets/<sha256>.<ext>` 后写 Asset；Session/Track 仍不落盘。
 - 封面/歌词：`music/assets/` 下按 SHA-256 内容寻址保存二进制；`music_assets.storage_key` 只存文件名，`music_track_assets` 关联主封面，`music_lyrics` 存内嵌/同名 `.lrc` 文本。扫描只读用户文件，资产是 Lull 副本。
 - 核心表：
-  - `music_sources`：本地音乐目录。`kind='local'` 的行就是对外的 **MusicFolder**（root_path 唯一、显示名、recursive、status、last_scan_at）；旧 `kind='builtin'` 来源已由 `0010_remove_builtin_music.sql` 清理。
-  - `music_tracks`：可播放实体。一个物理文件只对应一条 Track；曲目直接持有 `folder_id`（指向 `music_sources.id`）、`relative_path` 与 `file_name/file_size/file_modified_at/format/bitrate/sample_rate`。默认/内置曲已移除，曲目全部来自用户导入的物理目录。
-  - 旧的 `music_files` 中间层与虚拟 `music_folders` 表已在 `0009_music_folders.sql` 删除；绝对路径由 `source.root_path + track.relative_path` 计算，不再落库。
+  - `music_sources`：本地音乐目录。`kind='local'` 的行就是对外的 **MusicFolder**（root_path 唯一、显示名、recursive、status、last_scan_at）。`root_path IS NULL` 的行是「单曲导入」聚合目录；它不参与目录扫描，旧 `kind='builtin'` 来源已由 `0010_remove_builtin_music.sql` 清理。
+  - `music_tracks`：可播放实体。一个物理文件只对应一条 Track；目录曲目直接持有 `folder_id`（指向 `music_sources.id`）、`relative_path` 与 `file_name/file_size/file_modified_at/format/bitrate/sample_rate`；单曲导入曲目把绝对路径写入 `file_path`，`relative_path` 只保留文件名用于显示。默认/内置曲已移除，曲目全部来自用户导入的物理目录或单曲。
+  - 旧的 `music_files` 中间层与虚拟 `music_folders` 表已在 `0009_music_folders.sql` 删除；目录曲目的绝对路径由 `source.root_path + track.relative_path` 计算，单曲导入曲目使用 `track.file_path`，不再落库重复路径。
   - `music_artists` / `music_albums` + aliases：稳定实体，支持后续合并/拆分。
   - `music_track_artists` / `music_track_albums`：多艺术家、多角色、专辑关系与来源。
   - `music_track_metadata` / `music_field_sources`：导入快照、规范化、用户覆盖、逐字段来源。
@@ -84,6 +84,7 @@ Media Service（Rust）
 | `folders.list` | `{}` | `MusicFolderView[]`（仅 local 目录，含 trackCount） |
 | `folders.get` | `{folderId}` | `MusicFolderView` |
 | `folders.add` | `{path?, recursive?}` | `MusicFolderView \| null`（无 path 时打开系统目录选择器） |
+| `folders.addSingles` | `{name?}` | `TrackImportView \| null`（打开系统文件选择器，多选音频文件后写入「单曲导入」目录） |
 | `folders.rename` | `{folderId, name}` | `MusicFolderView`（只改显示名） |
 | `folders.remove` | `{folderId}` | `{removed: boolean}`（只删库记录，不删磁盘文件） |
 | `folders.scan` | `{folderId}` | `ScanJobView`（立即返回，扫描后台执行） |

@@ -169,8 +169,14 @@ pub async fn start_scan(app: tauri::AppHandle, source_id: &str) -> Result<ScanJo
   let source = sources::get(pool, source_id)
     .await?
     .ok_or_else(|| MediaError::new("folders.not-found", "音乐目录不存在"))?;
-  if source.kind != "local" || source.root_path.is_none() {
+  if source.kind != "local" {
     return Err(MediaError::new("folders.not-found", "音乐目录不存在"));
+  }
+  if source.root_path.is_none() {
+    return Err(MediaError::new(
+      "folders.scan-unsupported",
+      "「单曲导入」目录没有物理文件夹，请重新导入单曲",
+    ));
   }
   if source.status == "scanning" {
     return Err(MediaError::new("folders.scan-busy", "该目录正在扫描"));

@@ -812,12 +812,37 @@ export function LibraryWindow({
     });
   }, [client, recursiveImport, run]);
 
-  const exportBackup = useCallback((): void => {
+  const importSingles = useCallback((): void => {
     if (!client) return;
-    void run("backup-export", async () => {
-      await client.library.exportBackup();
+    void run("singles-import", async () => {
+      const result = await client.folders.addSingles({
+        name: m.library_folder_singles_name(),
+      });
+      if (!result) return;
+      setSelectedFolderId(result.folder.id);
+      const imported = result.added + result.updated;
+      if (imported > 0) {
+        setNotice(m.library_singles_imported({ count: imported }));
+      } else if (result.failed > 0) {
+        setNotice(
+          m.library_singles_import_failed({
+            reason: result.errors[0] ?? result.failed,
+          }),
+        );
+      } else if (result.skipped > 0) {
+        setNotice(m.library_singles_import_skipped({ count: result.skipped }));
+      } else {
+        setNotice(m.library_singles_import_none());
+      }
     });
   }, [client, run]);
+
+  // const exportBackup = useCallback((): void => {
+  //   if (!client) return;
+  //   void run("backup-export", async () => {
+  //     await client.library.exportBackup();
+  //   });
+  // }, [client, run]);
 
   const importBackup = useCallback((): void => {
     if (!client) return;
@@ -1159,23 +1184,35 @@ export function LibraryWindow({
 
         {tab === "folders" && (
           <div className="grid gap-4 md:h-full md:grid-cols-[260px_minmax(0,1fr)]">
-            {/* 左侧目录卡撑满页签高度：目录列表在中间自己滚，
-                「含子目录」开关与备份操作固定在卡片首尾。 */}
+            {/* 左侧目录卡撑满页签高度：导入入口固定在卡片头部，
+                目录列表在中间自己滚。 */}
             <Card className="flex h-full min-h-0 flex-col">
               <CardHeader className="shrink-0 pb-3">
-                <div className="flex items-center justify-between gap-2">
+                <div className="space-y-2">
                   <CardTitle className="text-base">
                     {m.library_my_folders()}
                   </CardTitle>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={!client || busy !== null}
-                    onClick={importFolder}
-                  >
-                    <FolderOpen className="mr-1 h-4 w-4" aria-hidden="true" />
-                    {m.library_folder_import()}
-                  </Button>
+                  <div className="grid gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!client || busy !== null}
+                      onClick={importFolder}
+                    >
+                      <FolderOpen className="mr-1 h-4 w-4" aria-hidden="true" />
+                      {m.library_folder_import()}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!client || busy !== null}
+                      onClick={importSingles}
+                    >
+                      <Music className="mr-1 h-4 w-4" aria-hidden="true" />
+                      {m.library_folder_import_singles()}
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="flex min-h-0 flex-1 flex-col space-y-1">
@@ -1223,6 +1260,11 @@ export function LibraryWindow({
                               {m.library_folder_recursive()}
                             </span>
                           ) : null}
+                          {!folder.rootPath ? (
+                            <span className="shrink-0 rounded-full bg-bamboo-mist/70 px-1.5 py-0.5 text-[10px] text-bamboo">
+                              {m.library_folder_singles_badge()}
+                            </span>
+                          ) : null}
                           {status ? (
                             <span className="shrink-0 text-xs text-destructive">
                               {status}
@@ -1233,7 +1275,7 @@ export function LibraryWindow({
                     })}
                   </div>
                 )}
-                <div className="shrink-0 space-y-2 border-t border-paper-deep/60 pt-3">
+                {/* <div className="shrink-0 space-y-2 border-t border-paper-deep/60 pt-3">
                   <div>
                     <p className="text-sm font-medium text-ink-soft">
                       {m.library_backup_title()}
@@ -1266,7 +1308,7 @@ export function LibraryWindow({
                       {m.library_backup_import()}
                     </Button>
                   </div>
-                </div>
+                </div> */}
               </CardContent>
             </Card>
 
@@ -1279,7 +1321,8 @@ export function LibraryWindow({
                         {selectedFolder.name}
                       </h2>
                       <p className="truncate text-xs text-ink-faint">
-                        {selectedFolder.rootPath ?? ""}
+                        {selectedFolder.rootPath ??
+                          m.library_folder_singles_hint()}
                       </p>
                       <p className="mt-0.5 text-xs text-ink-faint">
                         {m.library_folder_tracks({
@@ -1294,31 +1337,33 @@ export function LibraryWindow({
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {selectedFolder.status === "scanning" ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={busy !== null}
-                          onClick={() => cancelFolderScan(selectedFolder)}
-                        >
-                          {m.library_folder_cancel_scan()}
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={!client || busy !== null}
-                          onClick={() => scanFolder(selectedFolder)}
-                        >
-                          <RefreshCw
-                            className="mr-1 h-4 w-4"
-                            aria-hidden="true"
-                          />
-                          {m.library_folder_scan()}
-                        </Button>
-                      )}
+                      {selectedFolder.rootPath ? (
+                        selectedFolder.status === "scanning" ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={busy !== null}
+                            onClick={() => cancelFolderScan(selectedFolder)}
+                          >
+                            {m.library_folder_cancel_scan()}
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={!client || busy !== null}
+                            onClick={() => scanFolder(selectedFolder)}
+                          >
+                            <RefreshCw
+                              className="mr-1 h-4 w-4"
+                              aria-hidden="true"
+                            />
+                            {m.library_folder_scan()}
+                          </Button>
+                        )
+                      ) : null}
                       <Button
                         type="button"
                         variant="ghost"

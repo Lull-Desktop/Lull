@@ -39,6 +39,16 @@ const folder: MusicFolderView = {
   updatedAt: 1,
 };
 
+const singlesFolder: MusicFolderView = {
+  id: "src_singles",
+  name: "单曲导入",
+  recursive: false,
+  status: "available",
+  trackCount: 1,
+  createdAt: 1,
+  updatedAt: 1,
+};
+
 const artist: ArtistSummary = {
   id: "art_1",
   name: "Lull",
@@ -140,6 +150,14 @@ function createClient(
         page([{ ...track, relativePath: "rain.mp3" }]),
       ),
       add: vi.fn(async () => folder),
+      addSingles: vi.fn(async () => ({
+        folder: singlesFolder,
+        added: 1,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        errors: [] as string[],
+      })),
       scan: vi.fn(async () => ({
         jobId: "scan_1",
         sourceId: folder.id,
@@ -215,6 +233,36 @@ test("我的目录页签加载目录与目录曲目", async () => {
   expect(client.folders.getTracks).toHaveBeenCalledWith("src_1", {
     pageSize: 100,
   });
+});
+
+test("我的目录提供单曲导入入口", async () => {
+  const client = createClient();
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "我的目录" }));
+  fireEvent.click(await screen.findByRole("button", { name: "导入单曲" }));
+
+  await waitFor(() => {
+    expect(client.folders.addSingles).toHaveBeenCalledWith({
+      name: "单曲导入",
+    });
+  });
+  await screen.findByText("已导入 1 首单曲。");
+});
+
+test("单曲导入目录带单曲标记且不显示扫描按钮", async () => {
+  const client = createClient(idleState, {
+    folderEntries: [singlesFolder],
+  });
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "我的目录" }));
+
+  await waitFor(async () => {
+    expect((await screen.findAllByText("单曲导入")).length).toBeGreaterThan(0);
+  });
+  expect(screen.getByText("单曲")).toBeDefined();
+  expect(screen.queryByRole("button", { name: "扫描" })).toBeNull();
 });
 
 test("最近添加页签按 addedAt 倒序请求", async () => {

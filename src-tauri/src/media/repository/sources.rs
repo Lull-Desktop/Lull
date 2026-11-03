@@ -26,11 +26,14 @@ pub struct SourceRow {
 }
 
 /// `folders` API 的读取行：只包含 local 目录，并带实时曲目数。
+///
+/// `root_path` 为空表示「单曲导入」目录：它没有物理根目录，曲目各自记录
+/// 绝对路径，不参与目录扫描。
 #[derive(Debug, Clone, FromRow)]
 pub struct FolderRow {
   pub id: String,
   pub name: String,
-  pub root_path: String,
+  pub root_path: Option<String>,
   pub recursive: i64,
   pub status: String,
   pub last_scan_at: Option<i64>,
@@ -50,7 +53,7 @@ SELECT s.id, s.name, s.root_path, s.recursive, s.status, s.last_scan_at, s.last_
        s.created_at, s.updated_at, \
        (SELECT COUNT(*) FROM music_tracks t WHERE t.folder_id = s.id) AS track_count \
 FROM music_sources s \
-WHERE s.kind = 'local' AND s.root_path IS NOT NULL";
+WHERE s.kind = 'local'";
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<SourceRow>, MediaError> {
   sqlx::query_as::<_, SourceRow>(&format!("{SELECT} ORDER BY kind, name COLLATE NOCASE, id"))
@@ -136,6 +139,36 @@ pub async fn insert_local(
   get(pool, &id)
     .await?
     .ok_or_else(|| MediaError::internal("添加音乐目录后读取失败"))
+}
+
+/// 「单曲导入」目录：没有物理根目录，用于聚合用户逐个选择的音频文件。
+pub async fn find_singles(pool: &SqlitePool) -> Result<Option<SourceRow>, MediaError> {
+  sqlx::query_as::<_, SourceRow>(&format!(
+    "{SELECT} WHERE kind = 'local' AND root_path IS NULL ORDER BY created_at, id LIMIT 1"
+  ))
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取单曲导入目录失败：{error}")))
+}
+
+pub async fn insert_singles(pool: &SqlitePool, name: &str) -> Result<SourceRow, MediaError> {
+  let id = new_id("src");
+  let now = now_ms();
+  sqlx::query(
+    "INSERT INTO music_sources \
+     (id, kind, name, root_path, status, recursive, created_at, updated_at) \
+     VALUES (?, 'local', ?, NULL, 'active', 0, ?, ?)",
+  )
+  .bind(&id)
+  .bind(name)
+  .bind(now)
+  .bind(now)
+  .execute(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("创建单曲导入目录失败：{error}")))?;
+  get(pool, &id)
+    .await?
+    .ok_or_else(|| MediaError::internal("创建单曲导入目录后读取失败"))
 }
 
 pub async fn rename(pool: &SqlitePool, id: &str, name: &str) -> Result<bool, MediaError> {

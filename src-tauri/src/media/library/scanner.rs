@@ -81,6 +81,8 @@ struct FileEntry {
   format: String,
   size: i64,
   mtime: Option<i64>,
+  /// 单曲导入使用绝对路径；目录扫描的曲目为 None。
+  file_path: Option<String>,
 }
 
 fn is_audio(path: &Path) -> bool {
@@ -138,7 +140,16 @@ fn build_entry(canonical: PathBuf, relative: String) -> Result<FileEntry, MediaE
     format,
     size,
     mtime,
+    file_path: None,
   })
+}
+
+/// 单曲导入的结果；与全量扫描的 `ScanOutcome` 区分开。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportOutcome {
+  Added,
+  Updated,
+  Skipped,
 }
 
 /// 扫描一个本地目录。调用方负责把目录标记为 scanning/active。
@@ -412,7 +423,7 @@ async fn upsert_track(
          genre = CASE WHEN ? THEN genre ELSE ? END, \
          year = CASE WHEN ? THEN year ELSE ? END, \
          duration_ms = ?, folder_id = ?, relative_path = ?, file_name = ?, \
-         file_size = ?, file_modified_at = ?, format = ?, bitrate = ?, sample_rate = ?, \
+         file_path = ?, file_size = ?, file_modified_at = ?, format = ?, bitrate = ?, sample_rate = ?, \
          status = 'active', updated_at = ?, version = version + 1 WHERE id = ?",
       )
       .bind(protected_title)
@@ -427,6 +438,7 @@ async fn upsert_track(
       .bind(&source.id)
       .bind(&file.relative)
       .bind(&file.file_name)
+      .bind(file.file_path.as_deref())
       .bind(file.size)
       .bind(file.mtime)
       .bind(&file.format)
@@ -444,9 +456,9 @@ async fn upsert_track(
       sqlx::query(
         "INSERT INTO music_tracks \
          (id, kind, title, sort_title, duration_ms, year, genre, status, \
-          folder_id, relative_path, file_name, file_size, file_modified_at, format, \
+          folder_id, relative_path, file_name, file_path, file_size, file_modified_at, format, \
           bitrate, sample_rate, added_at, updated_at) \
-         VALUES (?, 'file', ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, 'file', ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .bind(&track_id)
       .bind(&title)
@@ -457,6 +469,7 @@ async fn upsert_track(
       .bind(&source.id)
       .bind(&file.relative)
       .bind(&file.file_name)
+      .bind(file.file_path.as_deref())
       .bind(file.size)
       .bind(file.mtime)
       .bind(&file.format)
@@ -629,6 +642,74 @@ async fn upsert_track(
   } else {
     UpsertResult::Added
   })
+}
+
+/// 导入用户逐个选择的音频文件，写入「单曲导入」目录。
+///
+/// 文件绝对路径写入 `file_path`，`relative_path` 只保留文件名用于显示；因此
+/// 不同目录下的同名文件可以同时存在，重复导入同一个文件则跳过或更新。
+pub async fn import_single(
+  pool: &SqlitePool,
+  source: &SourceRow,
+  path: &Path,
+  assets_dir: &Path,
+) -> Result<ImportOutcome, MediaError> {
+  let canonical = dunce::canonicalize(path)
+    .map_err(|error| MediaError::new("folders.invalid-path", format!("文件不可用：{error}")))?;
+  if !canonical.is_file() {
+    return Err(MediaError::new(
+      "folders.invalid-path",
+      "选择的路径不是文件",
+    ));
+  }
+  if !is_audio(&canonical) {
+    return Err(MediaError::new(
+      "folders.unsupported-format",
+      "只支持导入 mp3/flac/m4a/aac/wav/ogg/opus/aiff 音频文件",
+    ));
+  }
+  let file_name = canonical
+    .file_name()
+    .and_then(std::ffi::OsStr::to_str)
+    .filter(|value| !value.is_empty())
+    .ok_or_else(|| MediaError::new("folders.invalid-path", "文件名不是合法 UTF-8"))?
+    .to_string();
+  let absolute = canonical.to_string_lossy().replace('\\', "/");
+
+  let existing = sqlx::query_as::<_, ExistingTrackRow>(
+    "SELECT id, relative_path, status, file_size, file_modified_at, format \
+     FROM music_tracks WHERE folder_id = ? AND kind = 'file' \
+       AND file_path COLLATE NOCASE = ? LIMIT 1",
+  )
+  .bind(&source.id)
+  .bind(&absolute)
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取已导入单曲失败：{error}")))?;
+
+  let mut entry = build_entry(canonical, file_name)?;
+  entry.file_path = Some(absolute);
+
+  if let Some(track) = existing.as_ref() {
+    let unchanged = track.file_size == entry.size
+      && track.file_modified_at == entry.mtime
+      && track.format.as_deref() == Some(entry.format.as_str());
+    if unchanged {
+      if track.status != "active" {
+        sqlx::query("UPDATE music_tracks SET status = 'active' WHERE id = ?")
+          .bind(&track.id)
+          .execute(pool)
+          .await
+          .map_err(|error| MediaError::internal(format!("恢复单曲状态失败：{error}")))?;
+      }
+      return Ok(ImportOutcome::Skipped);
+    }
+    upsert_track(pool, source, &entry, Some(&track.id), assets_dir).await?;
+    return Ok(ImportOutcome::Updated);
+  }
+
+  upsert_track(pool, source, &entry, None, assets_dir).await?;
+  Ok(ImportOutcome::Added)
 }
 
 #[cfg(test)]

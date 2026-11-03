@@ -10,7 +10,7 @@ use sqlx::SqlitePool;
 
 use crate::media::api::dto::{
   folder_status, DirectoryCrumb, DirectoryEntry, DirectoryFolderView, DirectoryListing,
-  DirectoryLocation, DirectoryQuery, Page, TrackSummary,
+  DirectoryLocation, DirectoryQuery, Page, TrackQuery, TrackSummary,
 };
 use crate::media::api::errors::MediaError;
 use crate::media::repository::sources;
@@ -137,6 +137,48 @@ async fn list_directory_at(
   let folder = sources::get_folder(pool, folder_id)
     .await?
     .ok_or_else(|| MediaError::new("folders.not-found", "音乐目录不存在"))?;
+
+  // 「单曲导入」目录没有物理层级：曲目直接平铺，不按相对路径推导子目录。
+  if folder.root_path.is_none() {
+    let query = TrackQuery {
+      folder_id: Some(folder_id.to_string()),
+      page: Some(page),
+      page_size: Some(page_size),
+      ..TrackQuery::default()
+    };
+    let (rows, total) = tracks::list(pool, &query).await?;
+    return Ok(DirectoryListing {
+      folder: Some(DirectoryFolderView {
+        id: folder.id,
+        name: folder.name.clone(),
+        status: folder_status(&folder.status),
+      }),
+      breadcrumbs: vec![
+        DirectoryCrumb {
+          name: ROOT_CRUMB.to_string(),
+          folder_id: None,
+          path: String::new(),
+        },
+        DirectoryCrumb {
+          name: folder.name,
+          folder_id: Some(folder_id.to_string()),
+          path: String::new(),
+        },
+      ],
+      parent: Some(DirectoryLocation {
+        folder_id: None,
+        path: String::new(),
+      }),
+      directories: Vec::new(),
+      tracks: Page::new(
+        rows.into_iter().map(TrackSummary::from).collect(),
+        total,
+        page,
+        page_size,
+      ),
+    });
+  }
+
   let prefix = if path.is_empty() {
     String::new()
   } else {

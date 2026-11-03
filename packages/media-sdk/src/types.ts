@@ -38,6 +38,16 @@ export interface MusicFolderView {
   updatedAt: number;
 }
 
+/** 单曲导入结果；`folder` 是聚合这些单曲的「单曲导入」目录。 */
+export interface TrackImportResult {
+  folder: MusicFolderView;
+  added: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}
+
 export interface FolderTrack extends TrackSummary {
   relativePath: string;
 }

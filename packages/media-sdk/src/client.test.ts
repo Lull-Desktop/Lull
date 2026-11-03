@@ -471,6 +471,24 @@ describe("media client", () => {
           hasMore: false,
         };
       }
+      if (request.method === "addSingles") {
+        return {
+          folder: {
+            id: "src_singles",
+            name: "Imported songs",
+            recursive: false,
+            status: "available",
+            trackCount: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          added: 1,
+          updated: 0,
+          skipped: 0,
+          failed: 0,
+          errors: [],
+        };
+      }
       if (request.method === "remove") return { removed: true };
       if (request.method === "cancelScan") return { cancelled: true };
       if (request.method === "scan") {
@@ -491,6 +509,9 @@ describe("media client", () => {
 
     await expect(media.folders.list()).resolves.toHaveLength(1);
     await media.folders.add({ recursive: false });
+    await expect(
+      media.folders.addSingles({ name: "Imported songs" }),
+    ).resolves.toMatchObject({ added: 1 });
     await media.folders.rename("src_1", "My Pop");
     await expect(media.folders.remove("src_1")).resolves.toBe(true);
     await media.folders.scan("src_1");
@@ -507,13 +528,15 @@ describe("media client", () => {
       "folders",
       "folders",
       "folders",
+      "folders",
     ]);
     expect(transport.requests[1]?.args).toEqual({ recursive: false });
-    expect(transport.requests[2]?.args).toEqual({
+    expect(transport.requests[2]?.args).toEqual({ name: "Imported songs" });
+    expect(transport.requests[3]?.args).toEqual({
       folderId: "src_1",
       name: "My Pop",
     });
-    expect(transport.requests[6]?.args).toEqual({
+    expect(transport.requests[7]?.args).toEqual({
       pageSize: 200,
       folderId: "src_1",
     });

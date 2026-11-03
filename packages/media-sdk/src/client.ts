@@ -59,6 +59,7 @@ import type {
   SourceView,
   TagView,
   TrackDetail,
+  TrackImportResult,
   TrackMetadataPatch,
   TrackQuery,
   TrackSummary,
@@ -143,6 +144,8 @@ export interface LullMediaClient {
       path?: string;
       recursive?: boolean;
     }): Promise<MusicFolderView | null>;
+    /** 打开系统文件选择器，把选中的音频文件导入「单曲导入」目录。 */
+    addSingles(options?: { name?: string }): Promise<TrackImportResult | null>;
     rename(folderId: string, name: string): Promise<MusicFolderView>;
     remove(folderId: string): Promise<boolean>;
     scan(folderId: string): Promise<ScanJobView>;
@@ -566,6 +569,8 @@ export function createMediaClient(
       call<MusicFolderView>("folders", "get", { folderId }),
     add: (options: { path?: string; recursive?: boolean } = {}) =>
       call<MusicFolderView | null>("folders", "add", options),
+    addSingles: (options: { name?: string } = {}) =>
+      call<TrackImportResult | null>("folders", "addSingles", options),
     rename: (folderId: string, name: string) =>
       call<MusicFolderView>("folders", "rename", { folderId, name }),
     remove: async (folderId: string) => {

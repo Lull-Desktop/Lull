@@ -6,10 +6,14 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
+use sqlx::SqlitePool;
 use tauri::AppHandle;
 
 use super::events;
-use crate::media::api::dto::{FolderTrackView, MusicFolderView, Page, TrackQuery, TrackSummary};
+use super::scanner;
+use crate::media::api::dto::{
+  FolderTrackView, MusicFolderView, Page, TrackImportView, TrackQuery, TrackSummary,
+};
 use crate::media::api::errors::MediaError;
 use crate::media::repository::{sources, tracks};
 
@@ -139,7 +143,7 @@ pub async fn remove(app: &AppHandle, folder_id: &str) -> Result<bool, MediaError
   let source = sources::get(pool, folder_id)
     .await?
     .ok_or_else(|| MediaError::new("folders.not-found", "音乐目录不存在"))?;
-  if source.kind != "local" || source.root_path.is_none() {
+  if source.kind != "local" {
     return Err(MediaError::new("folders.not-found", "音乐目录不存在"));
   }
   if source.status == "scanning" {
@@ -192,12 +196,17 @@ pub async fn get_tracks(
 }
 
 /// 启动或列表时校正目录可用性；扫描中的目录不在这里改状态。
+///
+/// 「单曲导入」目录没有物理根目录，文件是否缺失由播放前检查决定。
 pub async fn revalidate(pool: &sqlx::SqlitePool) -> Result<(), MediaError> {
   for row in sources::list_folders(pool).await? {
     if row.status == "scanning" {
       continue;
     }
-    let exists = Path::new(&row.root_path).is_dir();
+    let Some(root_path) = row.root_path.as_deref() else {
+      continue;
+    };
+    let exists = Path::new(root_path).is_dir();
     if !exists && row.status != "missing" {
       sources::set_status(pool, &row.id, "missing", Some("目录不可用")).await?;
     } else if exists && row.status == "missing" {
@@ -205,6 +214,130 @@ pub async fn revalidate(pool: &sqlx::SqlitePool) -> Result<(), MediaError> {
     }
   }
   Ok(())
+}
+
+fn singles_name(name: Option<&str>) -> Result<String, MediaError> {
+  let name = name
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .unwrap_or("单曲导入");
+  if name.chars().count() > 120 {
+    return Err(MediaError::new(
+      "folders.invalid-name",
+      "目录名称不能超过 120 个字符",
+    ));
+  }
+  Ok(name.to_string())
+}
+
+async fn ensure_singles_source(
+  pool: &SqlitePool,
+  name: &str,
+) -> Result<sources::SourceRow, MediaError> {
+  if let Some(row) = sources::find_singles(pool).await? {
+    return Ok(row);
+  }
+  sources::insert_singles(pool, name).await
+}
+
+fn file_label(path: &Path) -> String {
+  path
+    .file_name()
+    .and_then(|name| name.to_str())
+    .unwrap_or("未知文件")
+    .to_string()
+}
+
+/// 导入一组用户选择的音频文件；与系统文件选择器解耦，便于测试复用。
+pub async fn import_singles(
+  pool: &SqlitePool,
+  paths: &[PathBuf],
+  assets_dir: &Path,
+  name: Option<&str>,
+) -> Result<TrackImportView, MediaError> {
+  let source = ensure_singles_source(pool, &singles_name(name)?).await?;
+  let mut added = 0_i64;
+  let mut updated = 0_i64;
+  let mut skipped = 0_i64;
+  let mut failed = 0_i64;
+  let mut errors = Vec::new();
+  for path in paths {
+    // 已经由目录导入的同一文件不要重复进「单曲导入」；单曲目录内的文件
+    // 继续交给 scanner 做增量更新。
+    match tracks::find_by_path(pool, path).await {
+      Ok(Some(track_id)) => {
+        let folder_id: Option<String> =
+          sqlx::query_scalar("SELECT folder_id FROM music_tracks WHERE id = ?")
+            .bind(&track_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|error| MediaError::internal(format!("读取曲目目录失败：{error}")))?;
+        if folder_id.as_deref() != Some(source.id.as_str()) {
+          skipped += 1;
+          continue;
+        }
+      }
+      Ok(None) => {}
+      Err(error) => {
+        failed += 1;
+        if errors.len() < 10 {
+          errors.push(format!("{}：{}", file_label(path), error.message));
+        }
+        continue;
+      }
+    }
+    match scanner::import_single(pool, &source, path, assets_dir).await {
+      Ok(scanner::ImportOutcome::Added) => added += 1,
+      Ok(scanner::ImportOutcome::Updated) => updated += 1,
+      Ok(scanner::ImportOutcome::Skipped) => skipped += 1,
+      Err(error) => {
+        failed += 1;
+        if errors.len() < 10 {
+          errors.push(format!("{}：{}", file_label(path), error.message));
+        }
+      }
+    }
+  }
+  let folder = sources::get_folder(pool, &source.id)
+    .await?
+    .ok_or_else(|| MediaError::internal("读取单曲导入目录失败"))?;
+  Ok(TrackImportView {
+    folder: MusicFolderView::from(folder),
+    added,
+    updated,
+    skipped,
+    failed,
+    errors,
+  })
+}
+
+/// 打开系统文件选择器，把选中的音频文件导入「单曲导入」目录。
+pub async fn add_singles(
+  app: &AppHandle,
+  label: &str,
+  name: Option<&str>,
+) -> Result<Option<TrackImportView>, MediaError> {
+  if !matches!(label, "settings" | "library") {
+    return Err(MediaError::new(
+      "capability.denied",
+      "当前窗口没有音乐目录权限",
+    ));
+  }
+  let picked = tauri::async_runtime::spawn_blocking(|| {
+    rfd::FileDialog::new()
+      .set_title("选择音乐文件")
+      .add_filter("音频文件", scanner::AUDIO_EXTENSIONS)
+      .pick_files()
+  })
+  .await
+  .map_err(|error| MediaError::internal(format!("打开文件选择器失败：{error}")))?;
+  let Some(paths) = picked else {
+    return Ok(None);
+  };
+  let pool = super::pool()?;
+  let result = import_singles(pool, &paths, &super::assets_dir(app), name).await?;
+  events::changed(app);
+  Ok(Some(result))
 }
 
 fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, MediaError> {
@@ -247,6 +380,10 @@ pub async fn call(
         Some(folder) => Ok(serde_json::json!(folder)),
         None => Ok(Value::Null),
       }
+    }
+    "addSingles" => {
+      let name = args.get("name").and_then(Value::as_str);
+      Ok(serde_json::json!(add_singles(app, label, name).await?))
     }
     "rename" => {
       let id = required_str(args, "folderId")?;
@@ -319,6 +456,83 @@ mod tests {
       assert!(sibling.is_ok());
     });
     let _ = std::fs::remove_file(&path);
+  }
+
+  fn write_silence_wav(path: &Path) {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&36_u32.to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&44_100_u32.to_le_bytes());
+    bytes.extend_from_slice(&88_200_u32.to_le_bytes());
+    bytes.extend_from_slice(&2_u16.to_le_bytes());
+    bytes.extend_from_slice(&16_u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    std::fs::write(path, bytes).expect("write wav");
+  }
+
+  #[test]
+  fn single_import_creates_virtual_folder_and_skips_duplicates() {
+    let root = std::env::temp_dir().join(format!("lull-singles-import-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).expect("create dir");
+    let file = root.join("single.wav");
+    write_silence_wav(&file);
+    let assets = root.join("assets");
+    std::fs::create_dir_all(&assets).expect("assets");
+    let db_path = root.join("music.db");
+
+    tauri::async_runtime::block_on(async {
+      let pool = db::open_at(&db_path).await.expect("open db");
+      let first = import_singles(
+        &pool,
+        std::slice::from_ref(&file),
+        &assets,
+        Some("单曲导入"),
+      )
+      .await
+      .expect("import single");
+      assert_eq!(first.added, 1);
+      assert_eq!(first.folder.name, "单曲导入");
+      assert_eq!(first.folder.root_path, None);
+      assert_eq!(first.folder.track_count, 1);
+
+      let folders = sources::list_folders(&pool).await.expect("list folders");
+      assert_eq!(folders.len(), 1);
+      assert_eq!(folders[0].id, first.folder.id);
+      assert_eq!(folders[0].root_path, None);
+
+      let track_id: String = sqlx::query_scalar("SELECT id FROM music_tracks WHERE folder_id = ?")
+        .bind(&first.folder.id)
+        .fetch_one(&pool)
+        .await
+        .expect("track id");
+      let playable = tracks::playable_path(&pool, &track_id)
+        .await
+        .expect("playable");
+      let expected = file.to_string_lossy().replace('\\', "/");
+      assert_eq!(playable.as_deref(), Some(expected.as_str()));
+
+      let second = import_singles(
+        &pool,
+        std::slice::from_ref(&file),
+        &assets,
+        Some("单曲导入"),
+      )
+      .await
+      .expect("import again");
+      assert_eq!(second.added, 0);
+      assert_eq!(second.skipped, 1);
+      assert_eq!(
+        sources::list_folders(&pool).await.expect("folders").len(),
+        1
+      );
+      db::close(&pool).await;
+    });
+    let _ = std::fs::remove_dir_all(&root);
   }
 
   #[test]

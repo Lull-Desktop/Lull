@@ -407,15 +407,16 @@ pub async fn playable_path(
 ) -> Result<Option<String>, MediaError> {
   #[derive(sqlx::FromRow)]
   struct PlayableRow {
-    root_path: String,
-    relative_path: String,
+    file_path: Option<String>,
+    root_path: Option<String>,
+    relative_path: Option<String>,
   }
 
   let row = sqlx::query_as::<_, PlayableRow>(
-    "SELECT s.root_path, t.relative_path FROM music_tracks t \
+    "SELECT t.file_path, s.root_path, t.relative_path FROM music_tracks t \
      JOIN music_sources s ON s.id = t.folder_id \
      WHERE t.id = ? AND t.kind = 'file' AND t.status = 'active' \
-       AND s.status IN ('active', 'scanning') AND t.relative_path IS NOT NULL",
+       AND s.status IN ('active', 'scanning')",
   )
   .bind(track_id)
   .fetch_optional(pool)
@@ -424,10 +425,17 @@ pub async fn playable_path(
   let Some(row) = row else {
     return Ok(None);
   };
-  if !safe_relative_path(&row.relative_path) {
-    return Ok(None);
-  }
-  let path = std::path::Path::new(&row.root_path).join(&row.relative_path);
+  let path = if let Some(file_path) = row.file_path.filter(|value| !value.is_empty()) {
+    PathBuf::from(file_path)
+  } else {
+    let (Some(root_path), Some(relative_path)) = (row.root_path, row.relative_path) else {
+      return Ok(None);
+    };
+    if !safe_relative_path(&relative_path) {
+      return Ok(None);
+    }
+    Path::new(&root_path).join(relative_path)
+  };
   if !path.is_file() {
     return Ok(None);
   }
@@ -446,6 +454,18 @@ pub async fn find_by_path(pool: &SqlitePool, path: &Path) -> Result<Option<Strin
   let canonical = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
   if canonical.to_str().is_none() {
     return Ok(None);
+  }
+  let absolute = canonical.to_string_lossy().replace('\\', "/");
+  let manual = sqlx::query_scalar::<_, String>(
+    "SELECT id FROM music_tracks WHERE kind = 'file' AND status = 'active' \
+       AND file_path COLLATE NOCASE = ? LIMIT 1",
+  )
+  .bind(&absolute)
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("匹配单曲文件失败：{error}")))?;
+  if manual.is_some() {
+    return Ok(manual);
   }
   let roots = sources::list_local_roots(pool).await?;
   for (folder_id, root) in roots {
