@@ -248,9 +248,9 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 - 官方窗口矩阵：`settings` 全部；`noise-library` Noise 全量（素材/Preset/Session 管理）；`noise` Noise 读写但不导入/删除 Asset、不导入/导出 Preset 文件；`player` 仅播放/队列；`library` 读取 Noise Library。Widget 不获得 `system.snapshot`、Asset 写与 Preset 文件导入导出。
 - Widget `media_connect` 至少需要一项读能力；snapshot 按授权裁剪：`player` 需 `media.player.read`，`queue` 需 `media.queue.read`，output/noise 维持现状；topic 白名单 = 已授权读能力的并集。
 - bridge token 只注入顶层壳页，插件 iframe 拿不到；`media_call`/`media_connect`/`media_disconnect` 都校验 token，伪造 label/token 失败。
-- 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.*` 八项，以及 `media.player.read/control/volume.write`、`media.queue.read/write`、`media.library.read/directory.read/favorites.write`、`media.library.sources.write`（最后一项只允许 `folders.add` / `folders.scan`，通过系统选择器添加并扫描）。
+- 第三方能力见 [Widget SDK](widget-sdk.md)：`media.noise.*` 八项，以及 `media.player.read/control/volume.write`、`media.queue.read/write`、`media.library.read/directory.read/favorites.write`、`media.library.sources.write`（最后一项只允许 `folders.add` / `folders.addSingles` / `folders.scan`，通过系统选择器添加目录或导入单曲并扫描）。
 - 目录的 `rootPath` 与 `folders.getTracks` 的 `relativePath` 只允许 host 窗口读取；带
-  `media.library.sources.write` 的 Widget 只能通过系统选择器添加目录，返回的目录视图也会去掉 `rootPath`。
+  `media.library.sources.write` 的 Widget 只能通过系统选择器添加目录或单曲，返回的目录视图也会去掉 `rootPath`。
 - 播放器目录浏览使用 `library.listDirectory`：只返回当前层子目录和直接音频文件，返回的
   `path` 是相对根目录的显示路径，不返回 `rootPath` / 绝对路径；需要
   `media.library.directory.read`。

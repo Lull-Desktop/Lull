@@ -299,6 +299,14 @@ async fn ensure_singles_source(
   sources::insert_singles(pool, name).await
 }
 
+/// 单曲导入只对 host 窗口与已获授权的 Widget 开放。
+///
+/// 上游 `media_call` 已按 `media.library.sources.write` 校验；这里再挡一次
+/// 非插件窗口，避免未来新增的 host 入口绕过权限矩阵。
+fn can_import_singles(label: &str) -> bool {
+  matches!(label, "settings" | "library") || crate::widget_package::is_plugin_label(label)
+}
+
 fn file_label(path: &Path) -> String {
   path
     .file_name()
@@ -376,7 +384,7 @@ pub async fn add_singles(
   label: &str,
   name: Option<&str>,
 ) -> Result<Option<TrackImportView>, MediaError> {
-  if !matches!(label, "settings" | "library") {
+  if !can_import_singles(label) {
     return Err(MediaError::new(
       "capability.denied",
       "当前窗口没有音乐目录权限",
@@ -496,6 +504,16 @@ mod tests {
     assert!(is_within("c:/music/pop", "c:/music"));
     assert!(!is_within("c:/music2", "c:/music"));
     assert!(is_within("c:", "c:"));
+  }
+
+  #[test]
+  fn singles_import_allows_hosts_and_widgets_only() {
+    assert!(can_import_singles("settings"));
+    assert!(can_import_singles("library"));
+    assert!(can_import_singles("widget-player"));
+    assert!(!can_import_singles("player"));
+    assert!(!can_import_singles("noise"));
+    assert!(!can_import_singles("widget-"));
   }
 
   #[test]

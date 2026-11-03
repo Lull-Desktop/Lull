@@ -76,6 +76,7 @@ import {
   widgetResizeWidth,
 } from "./compat";
 import { CoverArt } from "./cover-art";
+import { LibraryImportActions } from "./library-import-actions";
 import styles from "./liquid-player.module.css";
 import {
   clampVolume,
@@ -507,6 +508,7 @@ export function LiquidPlayer(): React.ReactElement {
   >({});
   const [dropActive, setDropActive] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
   const [pulseKey, setPulseKey] = useState(0);
   const [canMinimize, setCanMinimize] = useState(false);
   const [themeReady, setThemeReady] = useState(false);
@@ -580,6 +582,7 @@ export function LiquidPlayer(): React.ReactElement {
   const volumePointerRef = useRef<number | null>(null);
   const uiContextRef = useRef<AudioContext | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
+  const importBusyRef = useRef(false);
   const drawerWidthTimerRef = useRef<number | null>(null);
   const drawerOpenRef = useRef(true);
   const libraryOpenRef = useRef(false);
@@ -909,6 +912,22 @@ export function LiquidPlayer(): React.ReactElement {
       noticeTimerRef.current = null;
     }, 2200);
   }, []);
+
+  /** 导入目录/单曲共用的忙碌闸门：选择器与导入期间禁用两个按钮。 */
+  const runImport = useCallback(
+    (action: () => Promise<void>, failure: string): void => {
+      if (importBusyRef.current) return;
+      importBusyRef.current = true;
+      setImportBusy(true);
+      void action()
+        .catch(() => showNotice(failure))
+        .finally(() => {
+          importBusyRef.current = false;
+          setImportBusy(false);
+        });
+    },
+    [showNotice],
+  );
 
   const persistSmartConfig = useCallback(
     (next: SmartShuffleConfig): void => {
@@ -1459,14 +1478,38 @@ export function LiquidPlayer(): React.ReactElement {
     scrollTrackIntoView(track.id, "center");
   }, [current, scrollTrackIntoView, showNotice, visibleTracks]);
 
-  const openFilePicker = useCallback((): void => {
+  /** 打开系统目录选择器；选中后立即启动扫描，取消则保持原状。 */
+  const openFolderPicker = useCallback((): void => {
     setTab("library");
     setDrawer(true);
-    void session.actions
-      .addSource()
-      .then(() => showNotice("正在扫描音乐文件夹"))
-      .catch(() => showNotice("添加音乐文件夹失败"));
-  }, [session.actions, setDrawer, showNotice]);
+    runImport(async () => {
+      const folder = await mediaClient.folders.add({ recursive: true });
+      if (!folder) return;
+      showNotice("正在扫描音乐文件夹");
+      await mediaClient.folders.scan(folder.id);
+    }, "添加音乐文件夹失败");
+  }, [mediaClient, runImport, setDrawer, showNotice]);
+
+  /** 打开系统文件选择器，把音频逐个导入「单曲导入」目录。 */
+  const openSinglesPicker = useCallback((): void => {
+    setTab("library");
+    setDrawer(true);
+    runImport(async () => {
+      const result = await mediaClient.folders.addSingles({ name: "单曲导入" });
+      if (!result) return;
+      const imported = result.added + result.updated;
+      if (imported > 0) {
+        showNotice(`已导入 ${imported} 首单曲`);
+      } else if (result.failed > 0) {
+        const reason = result.errors[0] ?? `${result.failed} 个文件失败`;
+        showNotice(`单曲导入失败：${reason}`);
+      } else if (result.skipped > 0) {
+        showNotice(`没有新增单曲（${result.skipped} 首已在曲库中）`);
+      } else {
+        showNotice("没有可导入的音频文件");
+      }
+    }, "添加单曲失败");
+  }, [mediaClient, runImport, setDrawer, showNotice]);
 
   const addSelectedToQueue = useCallback((): void => {
     if (!selectedTrack) {
@@ -1799,14 +1842,6 @@ export function LiquidPlayer(): React.ReactElement {
     },
     [session.actions],
   );
-
-  // 切出随机模式时收起设置面板，避免面板悬在别的模式上。
-  useEffect(() => {
-    if (mode !== "shuffle" && smartOpen) {
-      flushSmartConfig();
-      setSmartOpen(false);
-    }
-  }, [flushSmartConfig, mode, smartOpen]);
 
   // 全局快捷键：空格播放 / 暂停，Shift + 左右切歌，左右快退 / 快进，M 静音。
   useEffect(() => {
@@ -2424,20 +2459,18 @@ export function LiquidPlayer(): React.ReactElement {
                   收藏
                 </button>
               </div>
-              {mode === "shuffle" ? (
-                <button
-                  type="button"
-                  className={styles.drawerAdd}
-                  data-action="smart"
-                  aria-label="智能随机设置"
-                  aria-haspopup="dialog"
-                  aria-expanded={smartOpen}
-                  {...tip("智能随机设置")}
-                  onClick={openSmartSettings}
-                >
-                  <SlidersHorizontal aria-hidden="true" />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className={styles.drawerAdd}
+                data-action="smart"
+                aria-label="智能随机设置"
+                aria-haspopup="dialog"
+                aria-expanded={smartOpen}
+                {...tip("智能随机设置")}
+                onClick={openSmartSettings}
+              >
+                <SlidersHorizontal />
+              </button>
               {tab === "library" ? (
                 <button
                   type="button"
@@ -2620,7 +2653,7 @@ export function LiquidPlayer(): React.ReactElement {
                       tab === "queue" || tab === "favorites"
                         ? () => switchTab("library")
                         : atDirectoryRoot
-                          ? openFilePicker
+                          ? openFolderPicker
                           : directory.goBack
                     }
                   >
@@ -2682,14 +2715,23 @@ export function LiquidPlayer(): React.ReactElement {
             <footer className={styles.drawerFoot}>
               <div className={styles.footNote}>
                 <span className={styles.footDot} aria-hidden="true" />
-                {tab === "queue"
-                  ? `队列 ${queueTracks.length} 首 · ${listTotal}`
-                  : tab === "favorites"
-                    ? `收藏 ${favoritesState.total || favoritesTracks.length} 首 · ${listTotal}`
-                    : atDirectoryRoot
-                      ? `目录 ${directoryCount} 个`
-                      : `目录 ${allTracks.length}/${libraryTotal} 首 · ${listTotal}`}
+                <span className={styles.footText}>
+                  {tab === "queue"
+                    ? `队列 ${queueTracks.length} 首 · ${listTotal}`
+                    : tab === "favorites"
+                      ? `收藏 ${favoritesState.total || favoritesTracks.length} 首 · ${listTotal}`
+                      : atDirectoryRoot
+                        ? `目录 ${directoryCount} 个`
+                        : `目录 ${allTracks.length}/${libraryTotal} 首 · ${listTotal}`}
+                </span>
               </div>
+              {tab === "library" ? (
+                <LibraryImportActions
+                  onAddFolder={openFolderPicker}
+                  onAddSingles={openSinglesPicker}
+                  disabled={importBusy}
+                />
+              ) : null}
             </footer>
           </section>
         </aside>

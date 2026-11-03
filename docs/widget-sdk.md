@@ -56,7 +56,7 @@ window label = widget-<id>
 | `media.library.read` | 硬约束 | 曲目/艺术家/专辑查询与封面 URL |
 | `media.library.directory.read` | 硬约束 | 单层目录浏览 `library.listDirectory`（相对路径，不含根路径） |
 | `media.library.favorites.write` | 硬约束 | 喜欢/取消喜欢曲目 |
-| `media.library.sources.write` | 硬约束 | 打开文件夹选择器并触发扫描 |
+| `media.library.sources.write` | 硬约束 | 打开文件夹/单曲选择器，添加目录或导入单曲并触发扫描 |
 
 `widget.window`（创建或控制其他窗口）与 `widget.native`（Win32 / 原生宿主）**不可申请**。
 

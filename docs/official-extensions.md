@@ -307,7 +307,7 @@ Scene：`content_package::store::package_dir`：官方 `extensions/dist/<id>/cat
 | `media.library.read` | `listTracks` / `getTrack` / `getCoverUrl` / `listArtists` / `listAlbums` | `library.changed` | 曲目与封面 |
 | `media.library.directory.read` | `listDirectory` | `library.changed` | 播放器单层目录浏览 |
 | `media.library.favorites.write` | `favorites.set` | — | 播放器喜欢按钮 |
-| `media.library.sources.write` | `folders.add` / `folders.scan`（旧 `library.addSource` / `startScan` 兼容） | — | 播放器「添加音乐文件夹」（见 §13） |
+| `media.library.sources.write` | `folders.add` / `folders.addSingles` / `folders.scan`（旧 `library.addSource` / `startScan` 兼容） | — | 播放器「导入目录 / 导入单曲」（见 §13） |
 
 现有 8 个 `media.noise.*` 能力不变；`widget.media` 仍是总开关。
 
@@ -439,8 +439,8 @@ localStorage 偏好（启动静音、播放模式/音量）会一次性重置；
 已随方案批准：
 
 1. 官方包**不可卸载**：Widget 只能停用 / 恢复默认，Scene 只读。
-2. 播放器保留「添加音乐文件夹」：新增 `media.library.sources.write`（仅打开系统
-   文件夹选择器并触发扫描）。若 P4 验收认为风险偏高，降级为「请到设置 → 音乐库
+2. 播放器保留「导入目录 / 导入单曲」：`media.library.sources.write` 允许打开系统
+   目录/文件选择器并触发扫描或导入。若 P4 验收认为风险偏高，降级为「请到设置 → 音乐库
    添加来源」，并删除该能力。
 3. 字体优先走宿主共享字体服务；不可行时接受系统字体回退。
 4. 官方包不在官网单独分发 zip：保留 id 使安装到其它实例会被拒绝；构建产物仅供

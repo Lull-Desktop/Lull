@@ -110,9 +110,9 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
       "addSource" | "startScan" => Some(MEDIA_LIBRARY_SOURCES_WRITE),
       _ => None,
     },
-    // 目录管理仍只给 host；Widget 只保留“打开选择器并扫描”的能力。
+    // 目录管理仍只给 host；Widget 只保留通过系统选择器添加目录/单曲的能力。
     "folders" => match method {
-      "add" | "scan" => Some(MEDIA_LIBRARY_SOURCES_WRITE),
+      "add" | "scan" | "addSingles" => Some(MEDIA_LIBRARY_SOURCES_WRITE),
       _ => None,
     },
     "favorites" => match method {
@@ -360,6 +360,10 @@ mod tests {
     );
     assert_eq!(
       widget_capability("folders", "scan"),
+      Some(MEDIA_LIBRARY_SOURCES_WRITE)
+    );
+    assert_eq!(
+      widget_capability("folders", "addSingles"),
       Some(MEDIA_LIBRARY_SOURCES_WRITE)
     );
     assert_eq!(widget_capability("folders", "list"), None);

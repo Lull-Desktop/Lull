@@ -1157,14 +1157,14 @@
   display: flex;
   padding: 14px 16px 9px 17px;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 0 0 auto;
 }
 
 .sourcePill {
   position: relative;
   display: grid;
-  width: 216px;
+  width: 204px;
   height: 34px;
   padding: 3px;
   grid-template-columns: repeat(3, 1fr);
@@ -1285,7 +1285,7 @@
   display: grid;
   width: 27px;
   height: 27px;
-  margin-left: auto;
+  margin-left: 0;
   padding: 0;
   place-items: center;
   border: 1px solid rgba(201, 232, 255, 0.16);
@@ -1315,6 +1315,11 @@
 /* 智能随机是滑杆图标，旋转会显得别扭，同样用放大反馈。 */
 .drawerAdd[data-action="smart"]:hover {
   transform: scale(1.08);
+}
+
+/* 智能随机是右上角操作组的第一个：由它把整组推到最右侧。 */
+.drawerAdd[data-action="smart"] {
+  margin-left: auto;
 }
 
 .drawerAdd[data-action="add"] svg {
@@ -1766,27 +1771,95 @@
   display: flex;
   padding: 8px 15px 12px;
   flex: 0 0 auto;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   border-top: 1px solid rgba(190, 225, 255, 0.09);
   background: linear-gradient(to bottom, transparent, rgba(3, 10, 20, 0.2));
 }
 
 .footNote {
   display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
   align-items: center;
   gap: 5px;
+  overflow: hidden;
   color: var(--text-faint);
   font-size: 8px;
   letter-spacing: 0.13em;
+  white-space: nowrap;
+}
+
+.footText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .footDot {
+  flex: 0 0 auto;
   width: 4px;
   height: 4px;
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 6px var(--accent);
+}
+
+.footActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+}
+
+/* 与空状态胶囊同源的玻璃按钮，缩到页脚高度，避免挤压统计文案。 */
+.footAction {
+  display: inline-flex;
+  height: 24px;
+  padding: 0 9px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(201, 232, 255, 0.16);
+  border-radius: 999px;
+  color: var(--text-soft);
+  background: rgba(6, 18, 33, 0.34);
+  font-family: var(--font-body);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.22s ease,
+    border-color 0.22s ease,
+    background 0.22s ease,
+    transform 0.22s var(--ease-liquid);
+}
+
+.footAction:hover:not(:disabled) {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: rgba(17, 42, 68, 0.5);
+  transform: translateY(-1px);
+}
+
+.footAction:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.footAction:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.footAction svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 1.7;
 }
 
 .volumeDock {
