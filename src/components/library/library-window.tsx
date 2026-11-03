@@ -205,6 +205,18 @@ export function LibraryWindow({
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   /** 目录列表按路径展开成树：父目录在前，子目录按层级缩进。 */
   const folderTree = useMemo(() => folderRows(folders), [folders]);
+  /**
+   * 「全部歌曲」的艺术家筛选只列出真正有曲目的实体。
+   *
+   * `listArtists` 返回的是全部艺术家实体，除了曲目标签里的艺术家，还包括导入
+   * 时由 `albumArtist` 创建的实体（合集/原声带常见）以及标签编辑、合并后留下
+   * 的孤立实体。这些实体在 `music_track_artists` 里没有关系，选中它们必然得到
+   * 空列表，所以在筛选与计数里先按 `trackCount > 0` 过滤。
+   */
+  const filterableArtists = useMemo(
+    () => artists.filter((artist) => artist.trackCount > 0),
+    [artists],
+  );
   const [folderTracks, setFolderTracks] = useState<TrackSummary[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1019,7 +1031,7 @@ export function LibraryWindow({
               className="h-9 min-w-0 rounded-lg border border-paper-deep/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
             >
               <option value="">{m.library_filter_artist()}</option>
-              {artists.map((artist) => (
+              {filterableArtists.map((artist) => (
                 <option key={artist.id} value={artist.id}>
                   {artist.name}
                 </option>
@@ -1093,7 +1105,7 @@ export function LibraryWindow({
             </span>
             <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-paper/70 px-2.5 py-1">
               <strong className="text-sm font-semibold tabular-nums text-ink">
-                {artists.length}
+                {filterableArtists.length}
               </strong>
               {m.library_stat_artists()}
             </span>

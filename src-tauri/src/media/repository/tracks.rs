@@ -511,12 +511,26 @@ pub async fn list_genres(pool: &SqlitePool) -> Result<Vec<String>, MediaError> {
   .map_err(|error| MediaError::internal(format!("读取流派失败：{error}")))
 }
 
+/// 艺术家列表；`track_count` 只统计默认 `listTracks` 会返回的曲目。
+///
+/// 艺术家实体不只来自曲目标签：导入时 `albumArtist` 也会创建艺术家（合集、
+/// 原声带常见），标签编辑/合并后还会留下没有曲目关系的孤立实体。这些实体在
+/// 曲库里没有可展示的曲目，若把它们的 `track_count` 算成非零（或直接列进筛选
+/// 下拉），按艺术家筛选就会得到空列表。这里用与 `push_filters` 一致的可见性
+/// 规则统计，让「艺术家数」与筛选结果始终对得上。
 pub async fn list_artists(pool: &SqlitePool) -> Result<Vec<ArtistRow>, MediaError> {
   sqlx::query_as::<_, ArtistRow>(
     "SELECT a.id, a.name, a.kind, \
-       COUNT(DISTINCT ta.track_id) AS track_count, a.needs_review \
+       COUNT(DISTINCT visible.track_id) AS track_count, a.needs_review \
      FROM music_artists a \
-     LEFT JOIN music_track_artists ta ON ta.artist_id = a.id \
+     LEFT JOIN ( \
+       SELECT ta.artist_id, t.id AS track_id \
+       FROM music_track_artists ta \
+       JOIN music_tracks t ON t.id = ta.track_id \
+       WHERE t.kind = 'builtin' OR (t.status = 'active' AND EXISTS ( \
+         SELECT 1 FROM music_sources s \
+         WHERE s.id = t.folder_id AND s.status IN ('active', 'scanning'))) \
+     ) AS visible ON visible.artist_id = a.id \
      WHERE a.merged_into_id IS NULL \
      GROUP BY a.id \
      ORDER BY a.name COLLATE NOCASE, a.id",
@@ -585,6 +599,52 @@ mod tests {
       assert_eq!(rows[0].genre.as_deref(), Some("Ambient"));
       assert_eq!(rows[0].favorite, 1);
       assert!(features_for(&pool, &[]).await.expect("empty").is_empty());
+      db::close(&pool).await;
+    });
+    cleanup(&path);
+  }
+
+  #[test]
+  fn list_artists_counts_only_visible_tracks() {
+    let path = std::env::temp_dir().join(format!("lull-artists-test-{}.db", uuid::Uuid::now_v7()));
+    tauri::async_runtime::block_on(async {
+      let pool = db::open_at(&path).await.expect("open db");
+      for sql in [
+        "INSERT INTO music_sources (id, kind, name, status, created_at, updated_at) \
+         VALUES ('src_active', 'local', 'Active', 'active', 1, 1)",
+        "INSERT INTO music_sources (id, kind, name, status, created_at, updated_at) \
+         VALUES ('src_missing', 'local', 'Missing', 'missing', 1, 1)",
+        "INSERT INTO music_tracks (id, kind, title, status, folder_id, added_at, updated_at) \
+         VALUES ('trk_visible', 'file', 'A', 'active', 'src_active', 1, 1)",
+        "INSERT INTO music_tracks (id, kind, title, status, folder_id, added_at, updated_at) \
+         VALUES ('trk_hidden', 'file', 'B', 'active', 'src_missing', 1, 1)",
+        "INSERT INTO music_artists (id, name, created_at, updated_at) \
+         VALUES ('art_visible', 'Visible', 1, 1)",
+        "INSERT INTO music_artists (id, name, created_at, updated_at) \
+         VALUES ('art_hidden', 'Hidden', 1, 1)",
+        "INSERT INTO music_artists (id, name, created_at, updated_at) \
+         VALUES ('art_orphan', 'Orphan', 1, 1)",
+        "INSERT INTO music_track_artists \
+           (track_id, artist_id, role, position, source, updated_at) \
+         VALUES ('trk_visible', 'art_visible', 'primary', 0, 'import', 1)",
+        "INSERT INTO music_track_artists \
+           (track_id, artist_id, role, position, source, updated_at) \
+         VALUES ('trk_hidden', 'art_hidden', 'primary', 0, 'import', 1)",
+      ] {
+        sqlx::query(sql).execute(&pool).await.expect("seed");
+      }
+
+      let rows = list_artists(&pool).await.expect("artists");
+      let counts = rows
+        .iter()
+        .map(|row| (row.id.as_str(), row.track_count))
+        .collect::<Vec<_>>();
+      // 来源 missing 的曲目不参与默认列表，因此也不能给艺术家凑数；
+      // 只作为专辑艺术家存在的孤立实体固定是 0。
+      assert_eq!(
+        counts,
+        vec![("art_hidden", 0), ("art_orphan", 0), ("art_visible", 1)]
+      );
       db::close(&pool).await;
     });
     cleanup(&path);

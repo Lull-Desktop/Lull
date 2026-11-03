@@ -113,6 +113,7 @@ function createClient(
     queueState?: QueueState;
     historyEntries?: HistoryEntry[];
     folderEntries?: MusicFolderView[];
+    artistEntries?: ArtistSummary[];
   } = {},
 ): LullMediaClient {
   const client = {
@@ -121,7 +122,7 @@ function createClient(
     events: { on: () => () => {} },
     library: {
       listTracks: vi.fn(async () => page([track])),
-      listArtists: vi.fn(async () => [artist]),
+      listArtists: vi.fn(async () => options.artistEntries ?? [artist]),
       listAlbums: vi.fn(async () => [album]),
       listGenres: vi.fn(async () => ["电子"]),
       listTags: vi.fn(async () => []),
@@ -293,6 +294,28 @@ test("全部歌曲的筛选索引与关键字一起进入 TrackQuery", async () 
       pageSize: 100,
     });
   });
+});
+
+test("艺术家筛选只列出有曲目的艺术家", async () => {
+  // albumArtist 也会创建艺术家实体，但没有曲目关系；选中它只会得到空列表。
+  const albumOnlyArtist: ArtistSummary = {
+    ...artist,
+    id: "art_album_only",
+    name: "Ocean Waves",
+    trackCount: 0,
+  };
+  const client = createClient(idleState, {
+    artistEntries: [artist, albumOnlyArtist],
+  });
+  render(<LibraryWindow client={client} />);
+
+  const select = screen.getByLabelText("艺术家") as HTMLSelectElement;
+  await waitFor(() => {
+    expect(
+      Array.from(select.options).map((option) => option.textContent),
+    ).toEqual(["艺术家", "Lull"]);
+  });
+  expect(screen.queryByRole("option", { name: "Ocean Waves" })).toBeNull();
 });
 
 test("从资料库播放会先切到单曲循环", async () => {
