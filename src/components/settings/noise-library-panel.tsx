@@ -21,7 +21,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -86,14 +86,21 @@ export function NoiseLibraryPanel() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const pageSize = 30;
-  const refresh = useCallback(() => setVersion((value) => value + 1), []);
+  const refresh = useCallback(() => {
+    setPage(1);
+    setVersion((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     setClient(getMediaClient());
   }, []);
 
+  // 筛选条件 / 刷新变化时，重置为第 1 页并整体替换列表。
   useEffect(() => {
     if (!client) return;
     let alive = true;
@@ -105,7 +112,7 @@ export function NoiseLibraryPanel() {
             categoryId: categoryId || undefined,
             tagId: tagId || undefined,
             favoriteOnly: favoriteOnly || undefined,
-            page,
+            page: 1,
             pageSize,
           }),
           client.noise.library.getCategories(),
@@ -115,8 +122,10 @@ export function NoiseLibraryPanel() {
             if (!alive) return;
             setAssets(result.items);
             setTotal(result.total);
+            setHasMore(result.hasMore);
             setCategories(nextCategories);
             setTags(nextTags);
+            setPage(1);
             setError("");
           })
           .catch((reason: unknown) => {
@@ -129,7 +138,63 @@ export function NoiseLibraryPanel() {
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [categoryId, client, favoriteOnly, keyword, page, tagId, version]);
+  }, [categoryId, client, favoriteOnly, keyword, tagId, version]);
+
+  // 滚动到底部时加载下一页，追加到现有列表。
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (!client || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const result = await client.noise.library.listAssets({
+        keyword: keyword.trim() || undefined,
+        categoryId: categoryId || undefined,
+        tagId: tagId || undefined,
+        favoriteOnly: favoriteOnly || undefined,
+        page: nextPage,
+        pageSize,
+      });
+      setAssets((previous) => [...previous, ...result.items]);
+      setTotal(result.total);
+      setHasMore(result.hasMore);
+      setPage(nextPage);
+    } catch (reason: unknown) {
+      setError(errorText(reason));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [
+    categoryId,
+    client,
+    favoriteOnly,
+    hasMore,
+    keyword,
+    loadingMore,
+    page,
+    tagId,
+  ]);
+
+  const handleScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>): void => {
+      const el = event.currentTarget;
+      if (loadingMore || !hasMore) return;
+      // 距离底部不足 48px 时触发加载。
+      const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distanceToBottom <= 48) {
+        void loadMore();
+      }
+    },
+    [hasMore, loadMore, loadingMore],
+  );
+
+  // 若首屏数据未撑满容器（无滚动条），自动续载直到填满或无更多数据。
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || loadingMore || !hasMore || assets.length === 0) return;
+    if (el.scrollHeight <= el.clientHeight + 1) {
+      void loadMore();
+    }
+  }, [assets, hasMore, loadingMore, loadMore]);
 
   // 分类/标签面板修改后，刷新本面板的筛选下拉与素材编辑卡计数。
   useEffect(() => {
@@ -250,324 +315,337 @@ export function NoiseLibraryPanel() {
     });
   }, [client, confirm, run, selected]);
 
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
-
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Noise 素材库</CardTitle>
-          <CardDescription>
-            导入本地音频、按分类/标签/收藏筛选；导入只复制到 Lull
-            受管目录，不改原文件。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              onClick={importFiles}
-              disabled={!client || busy !== ""}
-            >
-              <Upload className="mr-2 h-4 w-4" />
-              导入文件
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={importFolder}
-              disabled={!client || busy !== ""}
-            >
-              <FolderPlus className="mr-2 h-4 w-4" />
-              导入文件夹
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!client || busy !== ""}
-              onClick={() => {
-                if (!client) return;
-                void run("revalidate", async () => {
-                  const result = await client.noise.library.revalidateAssets();
-                  setNotice(
-                    `检查 ${result.checked}，缺失 ${result.missing}，恢复 ${result.restored}`,
-                  );
-                });
-              }}
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              检查缺失
-            </Button>
-            <div className="ml-auto flex items-center gap-2 text-sm text-ink-soft">
-              <Switch
-                id="noise-favorite-only"
-                checked={favoriteOnly}
-                onCheckedChange={(checked) => {
-                  setPage(1);
-                  setFavoriteOnly(checked);
-                }}
-              />
-              <Label htmlFor="noise-favorite-only">只看收藏</Label>
-            </div>
-          </div>
-
-          <div className="grid gap-2 md:grid-cols-[1fr_180px_180px]">
-            <input
-              className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
-              value={keyword}
-              onChange={(event) => {
-                setPage(1);
-                setKeyword(event.target.value);
-              }}
-              placeholder="搜索名称、描述、标签"
-            />
-            <select
-              className="h-9 rounded-md border border-line bg-paper px-3 text-sm"
-              value={categoryId}
-              onChange={(event) => {
-                setPage(1);
-                setCategoryId(event.target.value);
-              }}
-            >
-              <option value="">全部分类</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {"　".repeat(categoryDepth(categories, category.id))}
-                  {category.name}（{category.assetCount}）
-                </option>
-              ))}
-            </select>
-            <select
-              className="h-9 rounded-md border border-line bg-paper px-3 text-sm"
-              value={tagId}
-              onChange={(event) => {
-                setPage(1);
-                setTagId(event.target.value);
-              }}
-            >
-              <option value="">全部标签</option>
-              {tags.map((tag) => (
-                <option key={tag.id} value={tag.id}>
-                  {tag.name}（{tag.assetCount ?? 0}）
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {notice && <p className="text-sm text-emerald-700">{notice}</p>}
-
-          <div className="max-h-[420px] divide-y divide-paper-deep/50 overflow-auto rounded-xl border border-paper-deep/60 bg-card">
-            {assets.length === 0 ? (
-              <p className="py-16 text-center text-sm text-ink-faint">
-                {busy ? "加载中…" : "还没有素材，先导入音频。"}
-              </p>
-            ) : (
-              <>
-                {assets.map((asset) => (
-                  <div
-                    key={asset.id}
-                    className={`flex cursor-pointer flex-wrap items-center gap-3 px-3 py-2.5 text-sm hover:bg-muted/40 ${
-                      selected?.id === asset.id ? "bg-muted/60" : ""
-                    }`}
-                    onClick={() => setSelected(asset)}
-                  >
-                    <button
-                      type="button"
-                      className="shrink-0"
-                      aria-label={asset.favorite ? "取消收藏" : "收藏"}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleFavorite(asset);
-                      }}
-                    >
-                      <Heart
-                        className={`h-4 w-4 ${
-                          asset.favorite
-                            ? "fill-rose-500 text-rose-500"
-                            : "text-ink-faint"
-                        }`}
-                      />
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{asset.name}</p>
-                      <p className="truncate text-xs text-ink-faint">
-                        {asset.format.toUpperCase()} ·{" "}
-                        {formatDuration(asset.durationMs)} ·{" "}
-                        {formatSize(asset.sizeBytes)}
-                        {asset.category ? ` · ${asset.category.name}` : ""}
-                        {asset.status !== "available"
-                          ? ` · ${asset.status}`
-                          : ""}
-                      </p>
-                    </div>
-                    <div className="hidden gap-1 md:flex">
-                      {asset.tags.slice(0, 3).map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="rounded-full bg-muted px-2 py-0.5 text-xs"
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={busy !== ""}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        addToMix(asset);
-                      }}
-                    >
-                      <Plus className="mr-1 h-4 w-4" />
-                      加入
-                    </Button>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-ink-soft">
-            <span>共 {total} 个素材</span>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => setPage((value) => Math.max(1, value - 1))}
-              >
-                上一页
-              </Button>
-              <span>
-                {page}/{pageCount}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page >= pageCount}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                下一页
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {selected && (
-        <Card>
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2 overflow-hidden">
+        <Card className="flex flex-col overflow-hidden">
           <CardHeader>
-            <CardTitle className="text-base">编辑「{selected.name}」</CardTitle>
+            <CardTitle className="text-base">Noise 素材库</CardTitle>
             <CardDescription>
-              {selected.mediaKind === "procedural"
-                ? "内置程序化素材"
-                : `${selected.format.toUpperCase()} · ${formatDuration(selected.durationMs)}`}
+              导入本地音频、按分类/标签/收藏筛选；导入只复制到 Lull
+              受管目录，不改原文件。
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="noise-asset-name">名称</Label>
-                <input
-                  id="noise-asset-name"
-                  className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
-                  value={name}
-                  disabled={selected.mediaKind === "procedural"}
-                  onChange={(event) => setName(event.target.value)}
+          <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                onClick={importFiles}
+                disabled={!client || busy !== ""}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                音频导入
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={importFolder}
+                disabled={!client || busy !== ""}
+              >
+                <FolderPlus className="mr-2 h-4 w-4" />
+                文件夹导入
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!client || busy !== ""}
+                onClick={() => {
+                  if (!client) return;
+                  void run("revalidate", async () => {
+                    const result =
+                      await client.noise.library.revalidateAssets();
+                    setNotice(
+                      `检查 ${result.checked}，缺失 ${result.missing}，恢复 ${result.restored}`,
+                    );
+                  });
+                }}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                刷新
+              </Button>
+              <div className="ml-auto flex flex-col items-center gap-2 text-sm text-ink-soft">
+                <Switch
+                  id="noise-favorite-only"
+                  checked={favoriteOnly}
+                  onCheckedChange={(checked) => {
+                    setPage(1);
+                    setFavoriteOnly(checked);
+                  }}
                 />
+                <Label htmlFor="noise-favorite-only">只看收藏</Label>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="noise-asset-category">分类</Label>
+            </div>
+
+            <div className="space-y-2">
+              <input
+                className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
+                value={keyword}
+                onChange={(event) => {
+                  setPage(1);
+                  setKeyword(event.target.value);
+                }}
+                placeholder="搜索名称、描述、标签"
+              />
+              <div className="grid gap-2 md:grid-cols-2">
                 <select
-                  id="noise-asset-category"
                   className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
-                  value={assetCategory}
-                  disabled={selected.mediaKind === "procedural"}
-                  onChange={(event) => setAssetCategory(event.target.value)}
+                  value={categoryId}
+                  onChange={(event) => {
+                    setPage(1);
+                    setCategoryId(event.target.value);
+                  }}
                 >
-                  <option value="">未分类</option>
+                  <option value="">全部分类</option>
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
-                      {category.name}
+                      {"　".repeat(categoryDepth(categories, category.id))}
+                      {category.name}（{category.assetCount}）
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
+                  value={tagId}
+                  onChange={(event) => {
+                    setPage(1);
+                    setTagId(event.target.value);
+                  }}
+                >
+                  <option value="">全部标签</option>
+                  {tags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}（{tag.assetCount ?? 0}）
                     </option>
                   ))}
                 </select>
               </div>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="noise-asset-description">描述</Label>
-              <input
-                id="noise-asset-description"
-                className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
-                value={description}
-                disabled={selected.mediaKind === "procedural"}
-                onChange={(event) => setDescription(event.target.value)}
-              />
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            {notice && <p className="text-sm text-emerald-700">{notice}</p>}
+
+            <div
+              ref={listRef}
+              className="h-[420px] divide-y divide-paper-deep/50 overflow-y-auto overflow-x-hidden rounded-xl border border-paper-deep/60 bg-card"
+              onScroll={handleScroll}
+            >
+              {assets.length === 0 ? (
+                <p className="py-16 text-center text-sm text-ink-faint">
+                  {busy ? "加载中…" : "还没有素材，先导入音频。"}
+                </p>
+              ) : (
+                <>
+                  {assets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      className={`flex cursor-pointer flex-wrap items-center gap-3 px-3 py-1.5 text-sm hover:bg-muted/40 ${
+                        selected?.id === asset.id ? "bg-muted/60" : ""
+                      }`}
+                      onClick={() => setSelected(asset)}
+                    >
+                      <button
+                        type="button"
+                        className="shrink-0"
+                        aria-label={asset.favorite ? "取消收藏" : "收藏"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleFavorite(asset);
+                        }}
+                      >
+                        <Heart
+                          className={`h-4 w-4 ${
+                            asset.favorite
+                              ? "fill-rose-500 text-rose-500"
+                              : "text-ink-faint"
+                          }`}
+                        />
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{asset.name}</p>
+                        <p className="truncate text-xs text-ink-faint">
+                          {asset.format.toUpperCase()} ·{" "}
+                          {formatDuration(asset.durationMs)} ·{" "}
+                          {formatSize(asset.sizeBytes)}
+                          {asset.category ? ` · ${asset.category.name}` : ""}
+                          {asset.status !== "available"
+                            ? ` · ${asset.status}`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="hidden gap-1 md:flex">
+                        {asset.tags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag.id}
+                            className="rounded-full bg-muted px-2 py-0.5 text-xs"
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy !== ""}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          addToMix(asset);
+                        }}
+                      >
+                        <Plus className="mr-1 h-4 w-4" />
+                        添加到音轨
+                      </Button>
+                    </div>
+                  ))}
+                  {loadingMore && (
+                    <div className="flex items-center justify-center gap-2 py-2 text-xs text-ink-soft">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      加载更多…
+                    </div>
+                  )}
+                  {!hasMore && assets.length > 0 && (
+                    <p className="py-2 text-center text-xs text-ink-faint">
+                      没有更多了
+                    </p>
+                  )}
+                </>
+              )}
             </div>
-            <div className="space-y-2">
-              <Label>标签</Label>
-              <div className="flex flex-wrap gap-2">
-                {tags.map((tag) => (
-                  <label
-                    key={tag.id}
-                    className="flex cursor-pointer items-center gap-1 rounded-full border border-line px-2 py-1 text-xs"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedTags.has(tag.id)}
-                      disabled={selected.mediaKind === "procedural"}
-                      onChange={(event) => {
-                        setAssetTags((previous) =>
-                          event.target.checked
-                            ? [...previous, tag.id]
-                            : previous.filter((id) => id !== tag.id),
-                        );
-                      }}
-                    />
-                    {tag.name}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                disabled={busy !== "" || selected.mediaKind === "procedural"}
-                onClick={saveSelected}
-              >
-                {busy === "save" && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                保存
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy !== ""}
-                onClick={() => addToMix(selected)}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                加入混音
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="ml-auto text-red-600"
-                disabled={busy !== "" || selected.mediaKind === "procedural"}
-                onClick={removeSelected}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                删除素材
-              </Button>
-            </div>
+
+            <div className="text-xs text-ink-soft">共 {total} 个素材</div>
           </CardContent>
         </Card>
-      )}
+
+        <Card className="flex flex-col overflow-hidden">
+          {selected ? (
+            <>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  编辑「{selected.name}」
+                </CardTitle>
+                <CardDescription>
+                  {selected.mediaKind === "procedural"
+                    ? "内置程序化素材"
+                    : `${selected.format.toUpperCase()} · ${formatDuration(selected.durationMs)}`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="noise-asset-name">名称</Label>
+                    <input
+                      id="noise-asset-name"
+                      className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
+                      value={name}
+                      disabled={selected.mediaKind === "procedural"}
+                      onChange={(event) => setName(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="noise-asset-category">分类</Label>
+                    <select
+                      id="noise-asset-category"
+                      className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
+                      value={assetCategory}
+                      disabled={selected.mediaKind === "procedural"}
+                      onChange={(event) => setAssetCategory(event.target.value)}
+                    >
+                      <option value="">未分类</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="noise-asset-description">描述</Label>
+                  <input
+                    id="noise-asset-description"
+                    className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
+                    value={description}
+                    disabled={selected.mediaKind === "procedural"}
+                    onChange={(event) => setDescription(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>标签</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {tags.map((tag) => (
+                      <label
+                        key={tag.id}
+                        className="flex cursor-pointer items-center gap-1 rounded-full border border-line px-2 py-1 text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedTags.has(tag.id)}
+                          disabled={selected.mediaKind === "procedural"}
+                          onChange={(event) => {
+                            setAssetTags((previous) =>
+                              event.target.checked
+                                ? [...previous, tag.id]
+                                : previous.filter((id) => id !== tag.id),
+                            );
+                          }}
+                        />
+                        {tag.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    disabled={
+                      busy !== "" || selected.mediaKind === "procedural"
+                    }
+                    onClick={saveSelected}
+                  >
+                    {busy === "save" && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    保存
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy !== ""}
+                    onClick={() => addToMix(selected)}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    添加到音轨
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="ml-auto text-red-600"
+                    disabled={
+                      busy !== "" || selected.mediaKind === "procedural"
+                    }
+                    onClick={removeSelected}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    删除素材
+                  </Button>
+                </div>
+              </CardContent>
+            </>
+          ) : (
+            <>
+              <CardHeader>
+                <CardTitle className="text-base">编辑素材</CardTitle>
+                <CardDescription>
+                  从左侧列表选择一个素材来编辑。
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex min-h-0 flex-1 items-center justify-center text-sm text-ink-faint">
+                未选择素材
+              </CardContent>
+            </>
+          )}
+        </Card>
+      </div>
       <NoiseTrackListCard client={client} />
       {confirmDialog}
     </div>

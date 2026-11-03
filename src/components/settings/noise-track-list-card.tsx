@@ -136,61 +136,17 @@ export function NoiseTrackListCard({
       <CardHeader className="pb-3">
         <CardTitle className="text-base">{m.noise_card_tracks()}</CardTitle>
         <CardDescription>
-          add 支持内置 profile 或 Asset ID；每轨音量/开关/loop/顺序/移除都走新
-          API。
+          这里给当前Session添加音色素材到音轨，一个音轨代表一个背景音，可以独立设置音量、开关、loop
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 text-sm">
+      <CardContent className="space-y-3 text-sm">
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1">
-            <Label htmlFor={soundId}>内置声景</Label>
-            <select
-              id={soundId}
-              value={selectedSound}
-              onChange={(event) => setSelectedSound(event.target.value)}
-              className="w-48 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-            >
-              {sounds.map((sound) => (
-                <option key={sound.id} value={sound.id}>
-                  {sound.name} · {sound.id}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            onClick={addSelectedSound}
-            disabled={!client || !selectedSound || busy !== ""}
-          >
-            添加声景
-          </Button>
-          <div className="space-y-1">
-            <Label htmlFor={assetInputId}>Asset ID</Label>
-            <input
-              id={assetInputId}
-              value={assetId}
-              onChange={(event) => setAssetId(event.target.value)}
-              className="w-64 rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs"
-            />
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={!client || busy !== ""}
-            onClick={addAssetById}
-          >
-            按 Asset ID 添加
-          </Button>
-        </div>
 
         <div className="space-y-2">
           {(session?.tracks ?? []).map((track, index) => (
             <div
               key={track.id}
-              className="grid gap-3 rounded-lg border border-border/60 p-3 md:grid-cols-[minmax(0,1.2fr)_minmax(10rem,1fr)_auto]"
+              className="grid gap-2 rounded-lg border border-border/60 p-2 md:grid-cols-[minmax(0,1.2fr)_minmax(10rem,1fr)_auto]"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -316,8 +272,8 @@ export function NoiseTrackListCard({
             </div>
           ))}
           {(session?.tracks.length ?? 0) === 0 && (
-            <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-              当前 Session 没有音轨。添加内置声景或按 Asset ID 添加。
+            <p className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
+              当前 Session 没有音轨。选择Noise素材添加到音轨。
             </p>
           )}
         </div>

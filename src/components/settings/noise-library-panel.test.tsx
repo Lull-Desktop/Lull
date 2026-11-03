@@ -128,9 +128,9 @@ async function mount(): Promise<void> {
 describe("NoiseLibraryPanel", () => {
   test("supports import and missing-asset revalidation", async () => {
     await mount();
-    fireEvent.click(screen.getByRole("button", { name: "导入文件" }));
+    fireEvent.click(screen.getByRole("button", { name: "音频导入" }));
     await waitFor(() => expect(mocks.importAssets).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: "检查缺失" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
     await waitFor(() => expect(mocks.revalidateAssets).toHaveBeenCalled());
   });
 });
