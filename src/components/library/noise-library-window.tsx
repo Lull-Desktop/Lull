@@ -1,5 +1,5 @@
 /**
- * 白噪音库窗口：噪音素材库 / 噪音预设 / 噪音测试三个子页签。
+ * 白噪音库窗口：噪音素材库 / 分类与标签 / 噪音预设 / 噪音测试四个子页签。
  *
  * 媒体订阅由窗口根节点独占：Rust 的 `media_connect` 是“每窗口一份”，
  * 子面板只订阅事件与调用 API，不能各自 connect/disconnect。
@@ -7,17 +7,18 @@
 "use client";
 
 import type { LullMediaClient, PlaybackSnapshot } from "@lull/media-sdk";
-import { ListMusic, TestTube, Waves } from "lucide-react";
+import { ListMusic, Tags, TestTube, Waves } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { LibraryWindowFrame } from "@/components/library/library-window-frame";
 import { NoiseApiTestPanel } from "@/components/settings/noise-api-test-panel";
 import { NoiseLibraryPanel } from "@/components/settings/noise-library-panel";
 import { NoisePresetPanel } from "@/components/settings/noise-preset-panel";
+import { NoiseTaxonomyPanel } from "@/components/settings/noise-taxonomy-panel";
 import { getMediaClient } from "@/hooks/use-media-client";
 import { useLocale } from "@/i18n/locale";
 import { m } from "@/paraglide/messages";
 
-type NoiseTab = "library" | "presets" | "test";
+type NoiseTab = "library" | "taxonomy" | "presets" | "test";
 
 /** 与 Rust `NOISE_WINDOW_TOPICS` 对齐；窗口根节点只连接一次。 */
 const NOISE_WINDOW_TOPICS = [
@@ -39,6 +40,7 @@ const NOISE_WINDOW_TOPICS = [
 
 const TABS: { id: NoiseTab; label: () => string; icon: typeof Waves }[] = [
   { id: "library", label: m.noise_tab_library, icon: Waves },
+  { id: "taxonomy", label: m.noise_tab_taxonomy, icon: Tags },
   { id: "presets", label: m.noise_tab_presets, icon: ListMusic },
   { id: "test", label: m.noise_tab_test, icon: TestTube },
 ];
@@ -110,6 +112,7 @@ export function NoiseLibraryWindow() {
 
       <section className="min-h-0 flex-1 overflow-y-auto">
         {tab === "library" && <NoiseLibraryPanel />}
+        {tab === "taxonomy" && <NoiseTaxonomyPanel />}
         {tab === "presets" && <NoisePresetPanel />}
         {tab === "test" && (
           <NoiseApiTestPanel

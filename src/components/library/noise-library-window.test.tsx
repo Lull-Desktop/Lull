@@ -79,7 +79,14 @@ function createClient(
       session: { getCurrent: vi.fn(async () => snapshot.noiseSession) },
       getState: vi.fn(async () => snapshot.noise),
       getSounds: vi.fn(async () => []),
-      tracks: {},
+      tracks: {
+        add: vi.fn(async () => {}),
+        remove: vi.fn(async () => {}),
+        setVolume: vi.fn(async () => {}),
+        setEnabled: vi.fn(async () => {}),
+        setLoop: vi.fn(async () => {}),
+        reorder: vi.fn(async () => {}),
+      },
     },
     system: { getOutput: vi.fn(async () => snapshot.output) },
   };
@@ -90,7 +97,7 @@ beforeEach(() => {
   mediaState.client = createClient();
 });
 
-test("白噪音库三个子页签可切换", async () => {
+test("白噪音库四个子页签可切换", async () => {
   render(<NoiseLibraryWindow />);
 
   expect(screen.getByRole("heading", { name: "白噪音库" })).toBeDefined();
@@ -98,7 +105,12 @@ test("白噪音库三个子页签可切换", async () => {
     .getAllByRole("button")
     .map((button) => button.textContent);
   expect(tabs).toEqual(
-    expect.arrayContaining(["噪音素材库", "噪音预设", "噪音测试"]),
+    expect.arrayContaining([
+      "噪音素材库",
+      "分类与标签",
+      "噪音预设",
+      "噪音测试",
+    ]),
   );
 
   expect(await screen.findByText("Noise 素材库")).toBeDefined();

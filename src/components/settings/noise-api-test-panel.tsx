@@ -14,7 +14,6 @@ import type {
   NoiseSession,
   NoiseSound,
   NoiseState,
-  NoiseTrack,
   PlaybackSnapshot,
 } from "@lull/media-sdk";
 import { Wind } from "lucide-react";
@@ -59,10 +58,6 @@ function json(value: unknown): string {
   }
 }
 
-function trackLabel(track: NoiseTrack): string {
-  return track.name || track.assetId || track.id;
-}
-
 function stateClass(state: string): string {
   if (state === "playing") return "bg-emerald-500/15 text-emerald-700";
   if (state === "paused") return "bg-amber-500/15 text-amber-700";
@@ -86,8 +81,6 @@ export function NoiseApiTestPanel({
   const [legacy, setLegacy] = useState<NoiseState | null>(null);
   const [sounds, setSounds] = useState<NoiseSound[]>([]);
   const [output, setOutput] = useState<MediaOutput | null>(null);
-  const [selectedSound, setSelectedSound] = useState("");
-  const [assetId, setAssetId] = useState("noise:builtin:rain");
   const [sleepMinutes, setSleepMinutes] = useState(0);
   const [master, setMaster] = useState(75);
   const [muted, setMuted] = useState(false);
@@ -187,10 +180,6 @@ export function NoiseApiTestPanel({
     }
   }, [client, refresh]);
 
-  useEffect(() => {
-    if (!selectedSound && sounds[0]) setSelectedSound(sounds[0].id);
-  }, [selectedSound, sounds]);
-
   const run = useCallback(
     async (
       label: string,
@@ -236,19 +225,6 @@ export function NoiseApiTestPanel({
       false,
     );
   }, [client, onReconnect, run]);
-
-  const addSelectedSound = useCallback((): void => {
-    if (!client || !selectedSound) return;
-    void run(`noise.tracks.add ${selectedSound}`, () =>
-      client.noise.tracks.add(selectedSound),
-    );
-  }, [client, run, selectedSound]);
-
-  const addAssetById = useCallback((): void => {
-    const id = assetId.trim();
-    if (!client || !id) return;
-    void run(`noise.tracks.add ${id}`, () => client.noise.tracks.add(id));
-  }, [assetId, client, run]);
 
   const setSessionMaster = useCallback(
     (value: number): void => {
@@ -311,8 +287,6 @@ export function NoiseApiTestPanel({
   const masterId = `${panelId}-master`;
   const mutedId = `${panelId}-muted`;
   const sleepId = `${panelId}-sleep`;
-  const soundId = `${panelId}-sound`;
-  const assetInputId = `${panelId}-asset`;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -557,196 +531,6 @@ export function NoiseApiTestPanel({
             >
               应用
             </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="lg:col-span-2">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">音轨（Session/Track API）</CardTitle>
-          <CardDescription>
-            add 支持内置 profile 或 Asset ID；每轨音量/开关/loop/顺序/移除都走新
-            API。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <Label htmlFor={soundId}>内置声景</Label>
-              <select
-                id={soundId}
-                value={selectedSound}
-                onChange={(event) => setSelectedSound(event.target.value)}
-                className="w-48 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-              >
-                {sounds.map((sound) => (
-                  <option key={sound.id} value={sound.id}>
-                    {sound.name} · {sound.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              onClick={addSelectedSound}
-              disabled={!selectedSound}
-            >
-              添加声景
-            </Button>
-            <div className="space-y-1">
-              <Label htmlFor={assetInputId}>Asset ID</Label>
-              <input
-                id={assetInputId}
-                value={assetId}
-                onChange={(event) => setAssetId(event.target.value)}
-                className="w-64 rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs"
-              />
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={addAssetById}
-            >
-              按 Asset ID 添加
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            {(session?.tracks ?? []).map((track, index) => (
-              <div
-                key={track.id}
-                className="grid gap-3 rounded-lg border border-border/60 p-3 md:grid-cols-[minmax(0,1.2fr)_minmax(10rem,1fr)_auto]"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">
-                      {index + 1}. {trackLabel(track)}
-                    </span>
-                    <span
-                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${stateClass(track.state)}`}
-                    >
-                      {track.state}
-                    </span>
-                  </div>
-                  <p className="truncate font-mono text-[10px] text-muted-foreground">
-                    {track.id} · {track.assetId}
-                  </p>
-                  {track.error && (
-                    <p className="text-xs text-destructive">
-                      {track.error.code}: {track.error.message}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span>音量</span>
-                    <span>{Math.round(track.volume * 100)}%</span>
-                  </div>
-                  <Slider
-                    min={0}
-                    max={100}
-                    step={1}
-                    defaultValue={[Math.round(track.volume * 100)]}
-                    key={`${track.id}:${track.volume.toFixed(3)}`}
-                    thumbLabel={`${trackLabel(track)} volume`}
-                    onValueCommit={([value]) => {
-                      if (!client) return;
-                      void run(
-                        `noise.tracks.setVolume ${trackLabel(track)}`,
-                        () =>
-                          client.noise.tracks.setVolume(
-                            track.id,
-                            (value ?? 0) / 100,
-                          ),
-                        false,
-                      );
-                    }}
-                  />
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <div className="flex items-center gap-1 text-xs">
-                    <Switch
-                      aria-label={`${trackLabel(track)} enabled`}
-                      checked={track.enabled}
-                      onCheckedChange={(next) => {
-                        if (!client) return;
-                        void run(
-                          `noise.tracks.setEnabled ${trackLabel(track)} ${String(next)}`,
-                          () => client.noise.tracks.setEnabled(track.id, next),
-                          false,
-                        );
-                      }}
-                    />
-                    启用
-                  </div>
-                  <div className="flex items-center gap-1 text-xs">
-                    <Switch
-                      aria-label={`${trackLabel(track)} loop`}
-                      checked={track.loop}
-                      onCheckedChange={(next) => {
-                        if (!client) return;
-                        void run(
-                          `noise.tracks.setLoop ${trackLabel(track)} ${String(next)}`,
-                          () => client.noise.tracks.setLoop(track.id, next),
-                          false,
-                        );
-                      }}
-                    />
-                    loop
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={index === 0}
-                    onClick={() => {
-                      if (!client) return;
-                      void run(
-                        `noise.tracks.reorder ${trackLabel(track)} ↑`,
-                        () => client.noise.tracks.reorder(track.id, index - 1),
-                      );
-                    }}
-                  >
-                    上移
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={index === (session?.tracks.length ?? 0) - 1}
-                    onClick={() => {
-                      if (!client) return;
-                      void run(
-                        `noise.tracks.reorder ${trackLabel(track)} ↓`,
-                        () => client.noise.tracks.reorder(track.id, index + 1),
-                      );
-                    }}
-                  >
-                    下移
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      if (!client) return;
-                      void run(`noise.tracks.remove ${trackLabel(track)}`, () =>
-                        client.noise.tracks.remove(track.id),
-                      );
-                    }}
-                  >
-                    移除
-                  </Button>
-                </div>
-              </div>
-            ))}
-            {(session?.tracks.length ?? 0) === 0 && (
-              <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-                当前 Session 没有音轨。添加内置声景或按 Asset ID 添加。
-              </p>
-            )}
           </div>
         </CardContent>
       </Card>

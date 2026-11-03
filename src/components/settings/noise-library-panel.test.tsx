@@ -59,6 +59,7 @@ const tags = [
 
 function client(): LullMediaClient {
   return {
+    events: { on: vi.fn(() => () => {}) },
     noise: {
       library: {
         listAssets: mocks.listAssets,
@@ -75,7 +76,15 @@ function client(): LullMediaClient {
         deleteTag: mocks.deleteTag,
         setAssetFavorite: mocks.setAssetFavorite,
       },
-      tracks: { add: mocks.addTrack },
+      getSounds: vi.fn(async () => []),
+      tracks: {
+        add: mocks.addTrack,
+        remove: vi.fn(async () => {}),
+        setVolume: vi.fn(async () => {}),
+        setEnabled: vi.fn(async () => {}),
+        setLoop: vi.fn(async () => {}),
+        reorder: vi.fn(async () => {}),
+      },
       session: { getCurrent: mocks.getSession, play: mocks.playSession },
     },
   } as unknown as LullMediaClient;
@@ -113,7 +122,7 @@ beforeEach(() => {
 async function mount(): Promise<void> {
   render(<NoiseLibraryPanel />);
   await waitFor(() => expect(mocks.getCategories).toHaveBeenCalled());
-  await screen.findByText("分类与标签");
+  await screen.findByText("Noise 素材库");
 }
 
 describe("NoiseLibraryPanel", () => {
@@ -123,68 +132,5 @@ describe("NoiseLibraryPanel", () => {
     await waitFor(() => expect(mocks.importAssets).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "检查缺失" }));
     await waitFor(() => expect(mocks.revalidateAssets).toHaveBeenCalled());
-  });
-
-  test("creates, renames and deletes user taxonomy", async () => {
-    await mount();
-
-    fireEvent.change(screen.getByPlaceholderText("新分类名称"), {
-      target: { value: "新分类" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "创建分类" }));
-    await waitFor(() =>
-      expect(mocks.createCategory).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "新分类" }),
-      ),
-    );
-
-    fireEvent.click(screen.getAllByLabelText("编辑分类")[0]);
-    fireEvent.change(screen.getByLabelText("编辑分类名称"), {
-      target: { value: "改名分类" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存分类" }));
-    await waitFor(() =>
-      expect(mocks.updateCategory).toHaveBeenCalledWith(
-        "cat_user",
-        expect.objectContaining({ name: "改名分类", parentId: null }),
-      ),
-    );
-
-    fireEvent.click(screen.getAllByLabelText("删除分类")[0]);
-    fireEvent.click(await screen.findByRole("button", { name: "删除" }));
-    await waitFor(() =>
-      expect(mocks.deleteCategory).toHaveBeenCalledWith("cat_user"),
-    );
-
-    fireEvent.change(screen.getByPlaceholderText("新标签名称"), {
-      target: { value: "新标签" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "创建标签" }));
-    await waitFor(() => expect(mocks.createTag).toHaveBeenCalledWith("新标签"));
-
-    fireEvent.click(screen.getAllByLabelText("编辑标签")[0]);
-    fireEvent.change(screen.getByLabelText("编辑标签名称"), {
-      target: { value: "改名标签" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "保存标签" }));
-    await waitFor(() =>
-      expect(mocks.updateTag).toHaveBeenCalledWith("tag_user", "改名标签"),
-    );
-
-    fireEvent.click(screen.getAllByLabelText("删除标签")[0]);
-    fireEvent.click(await screen.findByRole("button", { name: "删除" }));
-    await waitFor(() =>
-      expect(mocks.deleteTag).toHaveBeenCalledWith("tag_user"),
-    );
-  });
-
-  test("shows backend duplicate/cycle errors", async () => {
-    mocks.createTag.mockRejectedValueOnce(new Error("已存在同名标签"));
-    await mount();
-    fireEvent.change(screen.getByPlaceholderText("新标签名称"), {
-      target: { value: "雨" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "创建标签" }));
-    expect(await screen.findByText("已存在同名标签")).toBeDefined();
   });
 });
