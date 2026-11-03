@@ -232,7 +232,7 @@ Media Service（Rust）
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` / `usePlayerSession` / `useDirectoryBrowser`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
 - `@lull/media-sdk/widget`：`createWidgetTransport` / `createWidgetMediaClient`，翻译为 Widget 桥的 `media.call/connect/disconnect`，并通过 `onMediaEvent` 接收宿主转发事件。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
-- 音乐库 / 壁纸库 / 白噪音库窗口、官方播放器与白噪音窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。音乐库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单，以及「曲库整理」「媒体测试」两个调试页签，并负责导入、扫描、重命名与移除目录；壁纸库（label `backdrop`）承载壁纸层与媒体壁纸配置；白噪音库（label `noise-library`）承载 Noise 素材、Preset 与 API 调试。
+- 音乐库 / 壁纸库 / 白噪音库窗口、官方播放器与白噪音窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。音乐库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单，以及「曲库整理」「测试与接口」两个调试页签，并负责导入、扫描、重命名与移除目录；壁纸库（label `backdrop`）承载壁纸层与媒体壁纸配置；白噪音库（label `noise-library`）承载 Noise 素材、Preset 与 API 调试。
 
 P5 已落地：`./widget` 传输、8 个 Noise capability、Rust bridge token、`noise-mixer` 示例；`./vue` 与查询缓存仍未实现。
 
@@ -301,13 +301,15 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 
 ### 7.1 手工验收（开发调试）
 
-音乐库窗口的「媒体测试」页签（`components/settings/media-api-test-panel.tsx`）直接调用 `@lull/media-sdk` 并显示 API 结果与 `media:event`，用于验收：
+音乐库窗口的「测试与接口」页签（`components/settings/media-api-test-panel.tsx`）直接调用 `@lull/media-sdk` 并显示 API 结果与 `media:event`，用于验收：
 
 - 添加音乐文件夹并扫描，得到可测试曲目；
 - 新建/重命名/删除歌单，加入/移除/排序曲目；
 - 收藏、清空历史、播放后确认 `history.changed` 与历史列表；
 - 队列播放/移出后确认 `player.state` / `queue.changed` 刷新；
-- 导入/导出 M3U，检查导入匹配与导出文件内容。
+- 导入/导出 M3U，检查导入匹配与导出文件内容；
+- 智能随机：查看 Profile / Strategy / Engine 边界、五项参数、固定约束与输入/返回示例，
+  并在线读取、另存、激活、删除 Profile（`smart-shuffle-api-panel.tsx`）。
 
 该页签是调试工具，不是正式资料库 UI；正式界面是同一窗口的曲库/歌单/收藏等页签。媒体连接由窗口根节点统一建立，页签只订阅事件，不重复 connect/disconnect。
 

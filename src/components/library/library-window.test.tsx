@@ -1,13 +1,16 @@
-import type {
-  AlbumSummary,
-  ArtistSummary,
-  HistoryEntry,
-  LullMediaClient,
-  MusicFolderView,
-  Page,
-  PlayerState,
-  QueueState,
-  TrackSummary,
+import {
+  type AlbumSummary,
+  type ArtistSummary,
+  DEFAULT_SMART_SHUFFLE_CONFIG,
+  type HistoryEntry,
+  type LullMediaClient,
+  type MusicFolderView,
+  type Page,
+  type PlayerState,
+  type QueueState,
+  type SmartShuffleProfile,
+  type SmartShuffleProfileSummary,
+  type TrackSummary,
 } from "@lull/media-sdk";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
@@ -71,6 +74,35 @@ const playingState: PlayerState = {
   revision: 2,
 };
 
+const builtinShuffleProfile: SmartShuffleProfile = {
+  id: "builtin:balanced",
+  name: "均衡随机",
+  builtin: true,
+  config: DEFAULT_SMART_SHUFFLE_CONFIG,
+};
+
+const userShuffleProfile: SmartShuffleProfile = {
+  id: "shuffle_profile_test",
+  name: "夜航",
+  builtin: false,
+  config: DEFAULT_SMART_SHUFFLE_CONFIG,
+};
+
+const shuffleProfiles: SmartShuffleProfileSummary[] = [
+  {
+    id: builtinShuffleProfile.id,
+    name: builtinShuffleProfile.name,
+    builtin: true,
+    active: true,
+  },
+  {
+    id: userShuffleProfile.id,
+    name: userShuffleProfile.name,
+    builtin: false,
+    active: false,
+  },
+];
+
 function page<T>(items: T[]): Page<T> {
   return { items, total: items.length, page: 1, pageSize: 100, hasMore: false };
 }
@@ -125,6 +157,30 @@ function createClient(
       resume: vi.fn(async () => ({ ...state, status: "playing" })),
       stop: vi.fn(async () => idleState),
       setMode: vi.fn(async () => ({ ...state, mode: "repeat-one" as const })),
+      listShuffleProfiles: vi.fn(async () => shuffleProfiles),
+      getShuffleProfile: vi.fn(async (profileId?: string) =>
+        profileId === userShuffleProfile.id
+          ? userShuffleProfile
+          : builtinShuffleProfile,
+      ),
+      saveShuffleProfile: vi.fn(
+        async (input: {
+          profileId?: string;
+          name: string;
+          config: SmartShuffleProfile["config"];
+        }) => ({
+          id: input.profileId ?? "shuffle_profile_saved",
+          name: input.name,
+          builtin: false,
+          config: input.config,
+        }),
+      ),
+      deleteShuffleProfile: vi.fn(async () => true),
+      activateShuffleProfile: vi.fn(async (profileId: string) =>
+        profileId === userShuffleProfile.id
+          ? userShuffleProfile
+          : builtinShuffleProfile,
+      ),
     },
     queue: {
       get: vi.fn(
@@ -292,13 +348,18 @@ test("曲库整理页签渲染整理面板并复用窗口 client", async () => {
   });
 });
 
-test("媒体测试页签渲染媒体 API 面板", async () => {
+test("测试与接口页签渲染媒体 API 面板", async () => {
   const client = createClient();
   render(<LibraryWindow client={client} />);
 
-  fireEvent.click(screen.getByRole("button", { name: "媒体测试" }));
+  fireEvent.click(screen.getByRole("button", { name: "测试与接口" }));
 
   expect(await screen.findByText("媒体 API 测试面板")).toBeDefined();
+  expect(await screen.findByText("智能随机 API 能力")).toBeDefined();
+  expect(screen.getByText("experience.randomness")).toBeDefined();
+  await waitFor(() => {
+    expect(client.player.listShuffleProfiles).toHaveBeenCalled();
+  });
 });
 
 test("切换工具页签不会断开窗口的媒体订阅", async () => {
@@ -310,7 +371,7 @@ test("切换工具页签不会断开窗口的媒体订阅", async () => {
   });
 
   fireEvent.click(screen.getByRole("button", { name: "曲库整理" }));
-  fireEvent.click(screen.getByRole("button", { name: "媒体测试" }));
+  fireEvent.click(screen.getByRole("button", { name: "测试与接口" }));
   fireEvent.click(screen.getByRole("button", { name: "全部歌曲" }));
 
   expect(client.connect).toHaveBeenCalledTimes(1);

@@ -15,6 +15,7 @@ import type {
   TrackSummary,
 } from "@lull/media-sdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SmartShuffleApiPanel } from "@/components/settings/smart-shuffle-api-panel";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -301,6 +302,8 @@ export function MediaApiTestPanel({
           </span>
         </CardContent>
       </Card>
+
+      <SmartShuffleApiPanel client={client} />
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
