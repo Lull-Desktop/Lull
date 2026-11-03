@@ -78,7 +78,7 @@ export function MediaApiTestPanel({
 
   useEffect(() => {
     if (!client) return;
-    const stop = client.events.on((event) => {
+    const stop = client.events.on((event:any) => {
       push(`event ${event.topic}`, {
         revision: event.revision,
         eventId: event.eventId,
@@ -117,10 +117,10 @@ export function MediaApiTestPanel({
     if (playlistId) {
       setPlaylist(await client.playlists.get(playlistId));
     }
-    const missing = queueState.trackIds.filter((id) => !queueTracks[id]);
+    const missing = queueState.trackIds.filter((id: string | number) => !queueTracks[id]);
     if (missing.length > 0) {
       const loaded = await Promise.all(
-        missing.map(async (id) => {
+        missing.map(async (id: string) => {
           try {
             return [id, await client.library.getTrack(id)] as const;
           } catch {
@@ -292,9 +292,9 @@ export function MediaApiTestPanel({
           <Button type="button" size="sm" onClick={() => void refresh()}>
             刷新全部
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={addFolder}>
+          {/* <Button type="button" size="sm" variant="outline" disabled={true} onClick={addFolder}>
             导入音乐目录并扫描
-          </Button>
+          </Button> */}
           <span className="text-xs text-muted-foreground">
             {busy
               ? `执行中：${busy}`
@@ -311,288 +311,10 @@ export function MediaApiTestPanel({
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">当前曲目</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
-          <select
-            value={selectedTrackId}
-            onChange={(event) => setSelectedTrackId(event.target.value)}
-            className="max-w-[22rem] rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-          >
-            {tracks.map((track) => (
-              <option key={track.id} value={track.id}>
-                {track.title} · {track.artists.join(", ")}
-              </option>
-            ))}
-          </select>
-          <Button type="button" size="sm" onClick={playSelected}>
-            播放
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={toggleFavorite}
-          >
-            {selectedTrack?.favorite ? "取消喜欢" : "喜欢"}
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={addQueue}>
-            加入队列
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={addToPlaylist}
-            disabled={!playlistId}
-          >
-            加入当前歌单
-          </Button>
-        </CardContent>
-      </Card>
+
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">歌单</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <select
-              value={playlistId}
-              onChange={(event) => reloadPlaylist(event.target.value)}
-              className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-            >
-              <option value="">选择歌单</option>
-              {playlists.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}（{item.trackCount}）
-                </option>
-              ))}
-            </select>
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-                placeholder="新歌单名称"
-              />
-              <Button type="button" size="sm" onClick={createPlaylist}>
-                新建
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={rename}
-                onChange={(event) => setRename(event.target.value)}
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm"
-                placeholder="新名称"
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={renamePlaylist}
-                disabled={!playlistId}
-              >
-                重命名
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={deletePlaylist}
-                disabled={!playlistId}
-              >
-                删除
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={importM3u}
-              >
-                导入 M3U
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={exportM3u}
-                disabled={!playlistId}
-              >
-                导出 M3U
-              </Button>
-            </div>
-            <div className="space-y-1">
-              {playlist?.entries.map((entry, index) => (
-                <div
-                  key={entry.trackId}
-                  className="flex items-center gap-1 rounded border border-border/50 px-2 py-1 text-xs"
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {index + 1}. {entry.track?.title ?? entry.trackId}
-                  </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      void run("playlists.reorder up", () =>
-                        client.playlists.reorder(
-                          playlistId,
-                          entry.trackId,
-                          Math.max(0, index - 1),
-                        ),
-                      );
-                    }}
-                  >
-                    ↑
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      void run("playlists.reorder down", () =>
-                        client.playlists.reorder(
-                          playlistId,
-                          entry.trackId,
-                          index + 1,
-                        ),
-                      );
-                    }}
-                  >
-                    ↓
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      void run("playlists.removeTrack", () =>
-                        client.playlists.removeTrack(playlistId, entry.trackId),
-                      );
-                    }}
-                  >
-                    移除
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">喜欢 / 历史</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p className="text-xs text-muted-foreground">
-              播放曲目后应收到 history.changed，并出现在历史列表。
-            </p>
-            <div className="max-h-40 space-y-1 overflow-y-auto">
-              {history.map((entry) => (
-                <div key={entry.id} className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate">
-                    {entry.track?.title ?? entry.trackId} ·{" "}
-                    {new Date(entry.playedAt).toLocaleTimeString()}
-                  </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      if (entry.track) {
-                        void run("player.play from history", () =>
-                          client.player.play(entry.track?.id ?? ""),
-                        );
-                      }
-                    }}
-                  >
-                    播放
-                  </Button>
-                </div>
-              ))}
-              {history.length === 0 && (
-                <p className="text-xs text-muted-foreground">暂无历史</p>
-              )}
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                void run("history.clear", () => client.history.clear());
-              }}
-            >
-              清空历史
-            </Button>
-            <div className="max-h-36 space-y-1 overflow-y-auto border-t border-border/50 pt-2">
-              {favorites.map((track) => (
-                <div key={track.id} className="truncate">
-                  ♥ {track.title}
-                </div>
-              ))}
-              {favorites.length === 0 && (
-                <p className="text-xs text-muted-foreground">暂无收藏</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">队列与事件</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p className="text-xs text-muted-foreground">
-              队列播放/移出后应收到 queue.changed；播放状态变化应收到
-              player.state。
-            </p>
-            <div className="max-h-40 space-y-1 overflow-y-auto">
-              {queue?.trackIds.map((trackId, index) => (
-                <div key={trackId} className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate">
-                    {index + 1}. {queueTracks[trackId]?.title ?? trackId}
-                  </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      void run("queue.playAt", () =>
-                        client.queue.playAt(index),
-                      );
-                    }}
-                  >
-                    播放
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      void run("queue.remove", () =>
-                        client.queue.remove(trackId),
-                      );
-                    }}
-                  >
-                    移出
-                  </Button>
-                </div>
-              ))}
-              {(!queue || queue.trackIds.length === 0) && (
-                <p className="text-xs text-muted-foreground">队列为空</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
+        {/* <Card className="lg:col-span-1">
           <CardHeader className="flex-row items-center justify-between pb-3">
             <CardTitle className="text-base">API / 事件日志</CardTitle>
             <Button
@@ -622,7 +344,7 @@ export function MediaApiTestPanel({
               </details>
             ))}
           </CardContent>
-        </Card>
+        </Card> */}
       </div>
     </div>
   );
