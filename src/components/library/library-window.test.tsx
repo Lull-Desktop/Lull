@@ -12,7 +12,13 @@ import {
   type SmartShuffleProfileSummary,
   type TrackSummary,
 } from "@lull/media-sdk";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { LibraryWindow } from "./library-window";
 
@@ -166,6 +172,7 @@ function createClient(
       cancelScan: vi.fn(async () => true),
       rename: vi.fn(async () => folder),
       remove: vi.fn(async () => true),
+      removeTrack: vi.fn(async () => true),
     },
     playlists: {
       list: vi.fn(async () => []),
@@ -263,6 +270,37 @@ test("单曲导入目录带单曲标记且不显示扫描按钮", async () => {
   });
   expect(screen.getByText("单曲")).toBeDefined();
   expect(screen.queryByRole("button", { name: "扫描" })).toBeNull();
+});
+
+test("单曲导入目录的曲目可逐条删除", async () => {
+  const client = createClient(idleState, {
+    folderEntries: [singlesFolder],
+  });
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "我的目录" }));
+  fireEvent.click(await screen.findByRole("button", { name: "删除单曲" }));
+
+  const dialog = await screen.findByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "删除单曲" }));
+
+  await waitFor(() => {
+    expect(client.folders.removeTrack).toHaveBeenCalledWith(
+      "src_singles",
+      "trk_1",
+    );
+  });
+  await screen.findByText("已删除该单曲。");
+});
+
+test("目录导入的曲目列表不显示单曲删除按钮", async () => {
+  const client = createClient();
+  render(<LibraryWindow client={client} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "我的目录" }));
+
+  expect(await screen.findByText("雨")).toBeDefined();
+  expect(screen.queryByRole("button", { name: "删除单曲" })).toBeNull();
 });
 
 test("最近添加页签按 addedAt 倒序请求", async () => {

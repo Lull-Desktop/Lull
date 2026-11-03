@@ -148,6 +148,8 @@ export interface LullMediaClient {
     addSingles(options?: { name?: string }): Promise<TrackImportResult | null>;
     rename(folderId: string, name: string): Promise<MusicFolderView>;
     remove(folderId: string): Promise<boolean>;
+    /** 仅「单曲导入」目录：删除一条曲目记录，不动磁盘文件。 */
+    removeTrack(folderId: string, trackId: string): Promise<boolean>;
     scan(folderId: string): Promise<ScanJobView>;
     cancelScan(folderId: string): Promise<boolean>;
     getTracks(
@@ -578,6 +580,14 @@ export function createMediaClient(
         "folders",
         "remove",
         { folderId },
+      );
+      return result.removed;
+    },
+    removeTrack: async (folderId: string, trackId: string) => {
+      const result = await call<{ removed: boolean }>(
+        "folders",
+        "removeTrack",
+        { folderId, trackId },
       );
       return result.removed;
     },

@@ -412,7 +412,9 @@ mod tests {
     assert!(host_only("library", "listSources", "settings").is_ok());
     assert!(host_only("folders", "list", "library").is_ok());
     assert!(host_only("folders", "add", "settings").is_ok());
+    assert!(host_only("folders", "removeTrack", "library").is_ok());
     assert!(host_only("folders", "list", "player").is_err());
     assert!(host_only("folders", "getTracks", "noise").is_err());
+    assert!(host_only("folders", "removeTrack", "player").is_err());
   }
 }

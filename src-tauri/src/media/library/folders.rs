@@ -170,6 +170,65 @@ pub async fn remove(app: &AppHandle, folder_id: &str) -> Result<bool, MediaError
   Ok(removed)
 }
 
+/// 删除「单曲导入」目录中的一条曲目。
+///
+/// 普通目录不经过这里：它们的曲目由磁盘扫描维护，单条删除会在下次扫描时
+/// 被重新发现。只有 `root_path IS NULL` 的单曲目录没有扫描入口，删库记录
+/// 才是持久的。磁盘文件永远不动。
+async fn delete_single_track(
+  pool: &SqlitePool,
+  folder_id: &str,
+  track_id: &str,
+) -> Result<bool, MediaError> {
+  let folder = sources::get_folder(pool, folder_id)
+    .await?
+    .ok_or_else(|| MediaError::new("folders.not-found", "音乐目录不存在"))?;
+  if folder.root_path.is_some() {
+    return Err(MediaError::new(
+      "folders.not-singles",
+      "只能从「单曲导入」目录删除单曲",
+    ));
+  }
+
+  let track = sqlx::query_as::<_, (String, Option<String>)>(
+    "SELECT kind, folder_id FROM music_tracks WHERE id = ?",
+  )
+  .bind(track_id)
+  .fetch_optional(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取曲目失败：{error}")))?
+  .ok_or_else(|| MediaError::new("track.not-found", "曲目不存在"))?;
+  if track.0 != "file" || track.1.as_deref() != Some(folder_id) {
+    return Err(MediaError::new(
+      "folders.track-mismatch",
+      "曲目不属于该目录",
+    ));
+  }
+
+  let result = sqlx::query("DELETE FROM music_tracks WHERE id = ? AND folder_id = ?")
+    .bind(track_id)
+    .bind(folder_id)
+    .execute(pool)
+    .await
+    .map_err(|error| MediaError::internal(format!("删除单曲失败：{error}")))?;
+  Ok(result.rows_affected() > 0)
+}
+
+/// 单曲目录的删除入口：删库记录、清理内存播放引用并广播资料库变更。
+pub async fn remove_track(
+  app: &AppHandle,
+  folder_id: &str,
+  track_id: &str,
+) -> Result<bool, MediaError> {
+  let pool = super::pool()?;
+  let removed = delete_single_track(pool, folder_id, track_id).await?;
+  if removed {
+    crate::media::playback::forget_track(app, pool, track_id);
+    events::changed(app);
+  }
+  Ok(removed)
+}
+
 pub async fn get_tracks(
   folder_id: &str,
   query: &TrackQuery,
@@ -394,6 +453,13 @@ pub async fn call(
       let id = required_str(args, "folderId")?;
       Ok(serde_json::json!({ "removed": remove(app, id).await? }))
     }
+    "removeTrack" => {
+      let folder_id = required_str(args, "folderId")?;
+      let track_id = required_str(args, "trackId")?;
+      Ok(serde_json::json!({
+        "removed": remove_track(app, folder_id, track_id).await?
+      }))
+    }
     "scan" => {
       let id = required_str(args, "folderId")?;
       Ok(serde_json::json!(super::start_scan(app.clone(), id).await?))
@@ -565,6 +631,104 @@ mod tests {
       db::close(&pool).await;
       assert_eq!(tracks, 0);
       assert!(file.is_file());
+    });
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn single_track_removal_is_scoped_to_singles_folder() {
+    let root = std::env::temp_dir().join(format!("lull-singles-remove-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).expect("create dir");
+    let first_file = root.join("first.wav");
+    let second_file = root.join("second.wav");
+    write_silence_wav(&first_file);
+    write_silence_wav(&second_file);
+    let assets = root.join("assets");
+    std::fs::create_dir_all(&assets).expect("assets");
+    let album = root.join("album");
+    std::fs::create_dir_all(&album).expect("album");
+    let db_path = root.join("music.db");
+
+    tauri::async_runtime::block_on(async {
+      let pool = db::open_at(&db_path).await.expect("open db");
+      let imported = import_singles(
+        &pool,
+        &[first_file.clone(), second_file.clone()],
+        &assets,
+        Some("单曲导入"),
+      )
+      .await
+      .expect("import singles");
+      assert_eq!(imported.added, 2);
+
+      let physical =
+        sources::insert_local(&pool, "Album", album.to_str().expect("album utf8"), true)
+          .await
+          .expect("physical folder");
+      sqlx::query(
+        "INSERT INTO music_tracks \
+         (id, kind, title, status, added_at, updated_at, folder_id, relative_path, \
+          file_size, file_modified_at, format) \
+         VALUES ('trk_dir', 'file', '目录曲目', 'active', 1, 1, ?, 'dir.wav', 3, 1, 'wav')",
+      )
+      .bind(&physical.id)
+      .execute(&pool)
+      .await
+      .expect("directory track");
+
+      let single_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM music_tracks WHERE folder_id = ? ORDER BY file_name, id",
+      )
+      .bind(&imported.folder.id)
+      .fetch_all(&pool)
+      .await
+      .expect("single ids");
+      assert_eq!(single_ids.len(), 2);
+
+      assert!(
+        delete_single_track(&pool, &imported.folder.id, &single_ids[0])
+          .await
+          .expect("delete single")
+      );
+      let remaining: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM music_tracks WHERE folder_id = ?")
+          .bind(&imported.folder.id)
+          .fetch_one(&pool)
+          .await
+          .expect("remaining singles");
+      assert_eq!(remaining, 1);
+      let folder = sources::get_folder(&pool, &imported.folder.id)
+        .await
+        .expect("folder")
+        .expect("folder exists");
+      assert_eq!(folder.track_count, 1);
+      // 删库记录不动磁盘文件。
+      assert!(first_file.is_file());
+      assert!(second_file.is_file());
+
+      let error = delete_single_track(&pool, &physical.id, "trk_dir")
+        .await
+        .expect_err("physical folder must be rejected");
+      assert_eq!(error.code, "folders.not-singles");
+      let directory_tracks: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM music_tracks WHERE folder_id = ?")
+          .bind(&physical.id)
+          .fetch_one(&pool)
+          .await
+          .expect("directory tracks");
+      assert_eq!(directory_tracks, 1);
+
+      let error = delete_single_track(&pool, &imported.folder.id, "trk_dir")
+        .await
+        .expect_err("track from another folder must be rejected");
+      assert_eq!(error.code, "folders.track-mismatch");
+
+      let error = delete_single_track(&pool, &imported.folder.id, "trk_missing")
+        .await
+        .expect_err("missing track");
+      assert_eq!(error.code, "track.not-found");
+
+      db::close(&pool).await;
     });
     let _ = std::fs::remove_dir_all(&root);
   }

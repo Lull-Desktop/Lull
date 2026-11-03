@@ -87,6 +87,7 @@ Media Service（Rust）
 | `folders.addSingles` | `{name?}` | `TrackImportView \| null`（打开系统文件选择器，多选音频文件后写入「单曲导入」目录） |
 | `folders.rename` | `{folderId, name}` | `MusicFolderView`（只改显示名） |
 | `folders.remove` | `{folderId}` | `{removed: boolean}`（只删库记录，不删磁盘文件） |
+| `folders.removeTrack` | `{folderId, trackId}` | `{removed: boolean}`（仅「单曲导入」目录；只删库记录，不删磁盘文件） |
 | `folders.scan` | `{folderId}` | `ScanJobView`（立即返回，扫描后台执行） |
 | `folders.cancelScan` | `{folderId}` | `{cancelled: boolean}` |
 | `folders.getTracks` | `{folderId, ...TrackQuery}` | `Page<FolderTrackView>`（host 窗口可读 relativePath） |

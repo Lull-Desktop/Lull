@@ -542,6 +542,23 @@ describe("media client", () => {
     });
   });
 
+  test("routes folders.removeTrack with the single-import folder id", async () => {
+    const transport = createMemoryTransport((request) => {
+      expect(request.namespace).toBe("folders");
+      expect(request.method).toBe("removeTrack");
+      return { removed: true };
+    });
+    const media = createMediaClient({ transport });
+
+    await expect(
+      media.folders.removeTrack("src_singles", "trk_1"),
+    ).resolves.toBe(true);
+    expect(transport.requests[0]?.args).toEqual({
+      folderId: "src_singles",
+      trackId: "trk_1",
+    });
+  });
+
   test("routes Noise preset methods", async () => {
     const transport = createMemoryTransport((request) => {
       if (request.method === "listPresets") {

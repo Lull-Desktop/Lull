@@ -364,6 +364,7 @@ mod tests {
     );
     assert_eq!(widget_capability("folders", "list"), None);
     assert_eq!(widget_capability("folders", "remove"), None);
+    assert_eq!(widget_capability("folders", "removeTrack"), None);
   }
 
   #[test]

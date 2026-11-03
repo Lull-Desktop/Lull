@@ -917,6 +917,27 @@ export function LibraryWindow({
     [folders, selectedFolderId],
   );
 
+  /** 单曲导入目录的逐条删除；普通目录不提供此入口。 */
+  const removeSingleTrack = useCallback(
+    (track: TrackSummary): void => {
+      if (!client || !selectedFolder || selectedFolder.rootPath) return;
+      const folderId = selectedFolder.id;
+      void confirm({
+        title: m.library_singles_remove(),
+        description: m.library_singles_remove_confirm({ title: track.title }),
+        confirmLabel: m.library_singles_remove(),
+        danger: true,
+      }).then((ok) => {
+        if (!ok) return;
+        void run(`singles-remove:${track.id}`, async () => {
+          await client.folders.removeTrack(folderId, track.id);
+          setNotice(m.library_singles_removed());
+        });
+      });
+    },
+    [client, confirm, run, selectedFolder],
+  );
+
   const playlistOptions = useMemo(
     () =>
       playlists.map((playlist) => ({
@@ -1401,6 +1422,15 @@ export function LibraryWindow({
                       onFavorite={toggleFavorite}
                       onAddToPlaylist={addToPlaylist}
                       onEdit={setEditingTrack}
+                      onRemove={
+                        selectedFolder.rootPath ? undefined : removeSingleTrack
+                      }
+                      removeLabel={
+                        selectedFolder.rootPath
+                          ? undefined
+                          : m.library_singles_remove()
+                      }
+                      removeIcon={selectedFolder.rootPath ? undefined : "trash"}
                       showFileName
                       empty={m.library_empty()}
                     />
@@ -1748,6 +1778,8 @@ type TrackTableProps = {
   /** 额外的行内「移除」操作；文案由 `removeLabel` 提供。 */
   onRemove?: (track: TrackSummary) => void;
   removeLabel?: string;
+  /** 移除按钮图标；默认 X，单曲删除用垃圾桶。 */
+  removeIcon?: "x" | "trash";
   onPlay: (track: TrackSummary) => void;
   onQueue: (track: TrackSummary) => void;
   onFavorite: (track: TrackSummary) => void;
@@ -1856,8 +1888,13 @@ function TrackTable(props: TrackTableProps) {
                 size="sm"
                 onClick={() => props.onRemove?.(track)}
                 disabled={props.busy !== null}
+                title={props.removeLabel}
               >
-                <X className="h-4 w-4" aria-hidden="true" />
+                {props.removeIcon === "trash" ? (
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <X className="h-4 w-4" aria-hidden="true" />
+                )}
                 {props.removeLabel}
               </Button>
             ) : null}

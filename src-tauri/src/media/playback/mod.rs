@@ -1306,6 +1306,17 @@ fn queue_remove(app: &AppHandle, pool: &SqlitePool, track_id: &str) -> Result<()
   Ok(())
 }
 
+/// 曲目从资料库删除后清理内存引用：当前曲目停止播放，队列中的引用移除。
+///
+/// 持久化状态由外键兜底（`player_state.current_track_id` 置空、
+/// `player_queue.track_id` 级联删除）；这里只处理同进程内已加载的状态。
+/// 清理失败只记日志，不阻断已经提交的删除。
+pub(crate) fn forget_track(app: &AppHandle, pool: &SqlitePool, track_id: &str) {
+  if let Err(error) = queue_remove(app, pool, track_id) {
+    crate::wallpaper::wlog(&format!("清理已删除曲目的播放引用失败：{error}"));
+  }
+}
+
 fn queue_clear(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
   let mut service = lock()?;
   service.queue.clear();
