@@ -1,5 +1,5 @@
 /**
- * 播放器纯函数测试：曲名解析、时间格式、模式循环、随机切歌与偏好读取。
+ * 播放器纯函数测试：曲名解析、时间格式、模式循环与偏好读取。
  */
 import { beforeEach, expect, test } from "vitest";
 import {
@@ -8,13 +8,11 @@ import {
   coverToneForText,
   formatClock,
   formatTrackDuration,
-  nextIndexForMode,
   nextPlayMode,
   type PlayerTrack,
   parseTrackName,
   persistPlayerPrefs,
   playModeLabel,
-  previousIndex,
   readPlayerPrefs,
   totalDuration,
 } from "./player-model";
@@ -53,15 +51,6 @@ test("播放模式按顺序循环，并带中文标签", () => {
   expect(nextPlayMode("shuffle")).toBe("repeat-one");
   expect(nextPlayMode("repeat-one")).toBe("sequence");
   expect(playModeLabel("repeat-one")).toBe("单曲循环");
-});
-
-test("随机切歌避开当前曲目，单曲列表不会越界", () => {
-  expect(nextIndexForMode(0, 6, "sequence")).toBe(1);
-  expect(nextIndexForMode(5, 6, "sequence")).toBe(0);
-  expect(nextIndexForMode(2, 6, "shuffle", () => 0)).toBe(3);
-  expect(nextIndexForMode(2, 6, "shuffle", () => 0.999)).toBe(1);
-  expect(nextIndexForMode(0, 1, "shuffle")).toBe(0);
-  expect(previousIndex(0, 6)).toBe(5);
 });
 
 test("封面色板循环取用，本地文件名哈希稳定", () => {

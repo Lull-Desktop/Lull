@@ -257,31 +257,6 @@ export function parseTrackName(fileName: string): {
   };
 }
 
-/**
- * 自动切下一首的索引。repeat-one 由调用方直接重播当前曲目，
- * 这里的随机模式会避开当前行，列表只有一首时仍返回 0。
- */
-export function nextIndexForMode(
-  currentIndex: number,
-  length: number,
-  mode: PlayMode,
-  random: () => number = Math.random,
-): number {
-  if (length <= 0) return 0;
-  if (length === 1) return 0;
-  if (mode === "shuffle") {
-    const base = ((currentIndex % length) + length) % length;
-    const offset = 1 + Math.floor(random() * (length - 1));
-    return (base + offset) % length;
-  }
-  return (currentIndex + 1) % length;
-}
-
-export function previousIndex(currentIndex: number, length: number): number {
-  if (length <= 0) return 0;
-  return (currentIndex - 1 + length) % length;
-}
-
 export function findTrackById(
   tracks: readonly PlayerTrack[],
   id: string,

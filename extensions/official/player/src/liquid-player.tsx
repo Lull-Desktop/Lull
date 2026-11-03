@@ -1069,6 +1069,20 @@ export function LiquidPlayer(): React.ReactElement {
 
   const moveTrack = useCallback(
     (direction: 1 | -1): void => {
+      // 随机播放的选曲完全由 Rust Media Service 决定（当前页签列表通过
+      // setAdvanceList 同步过去）；前端只发「下一首 / 上一首」意图，避免
+      // 再维护一套 Math.random 选曲。
+      if (mode === "shuffle") {
+        const action =
+          direction > 0 ? session.actions.next : session.actions.previous;
+        void action()
+          .then(() => {
+            playDropSound();
+            setPulseKey((value) => value + 1);
+          })
+          .catch(() => showNotice("没有可播放的曲目"));
+        return;
+      }
       const list = visibleTracks;
       if (list.length === 0) {
         showNotice(tab === "queue" ? "播放队列为空" : "曲库为空");
@@ -1080,12 +1094,7 @@ export function LiquidPlayer(): React.ReactElement {
       // 当前曲目不在当前列表（例如从另一页签播放）时，下一首从表头开始，
       // 上一首从表尾开始；否则沿当前页签的列表顺序循环。
       let target: PlayerTrack | undefined;
-      if (mode === "shuffle" && list.length > 1) {
-        const random = Math.floor(Math.random() * list.length);
-        const randomIndex =
-          index >= 0 && random === index ? (random + 1) % list.length : random;
-        target = list[randomIndex];
-      } else if (index < 0) {
+      if (index < 0) {
         target = direction > 0 ? list[0] : list[list.length - 1];
       } else {
         target = list[(index + direction + list.length) % list.length];
@@ -1093,7 +1102,15 @@ export function LiquidPlayer(): React.ReactElement {
       if (!target) return;
       selectTrack(target, true);
     },
-    [mode, selectTrack, showNotice, tab, visibleTracks],
+    [
+      mode,
+      playDropSound,
+      selectTrack,
+      session.actions,
+      showNotice,
+      tab,
+      visibleTracks,
+    ],
   );
 
   const commitSeek = useCallback(

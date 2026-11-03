@@ -120,13 +120,14 @@ Media Service（Rust）
 | `noise.presets.listPresets` / `getPreset` | `keyword`, `sourceType`, `favoriteOnly`, `page` | `Page<NoisePresetSummary>` / `NoisePresetDetail` |
 | `noise.presets.savePreset` / `updatePreset` / `deletePreset` | `name`, `description?`, `cover?`, `presetId` | `NoisePresetDetail` / `{removed}`（内置 Preset 不可改删） |
 | `noise.presets.loadPreset` / `mapPresetTrack` | `presetId`, `presetTrackId`, `assetId` | `NoisePresetLoadResult` / `NoisePresetDetail` |
-
-`player.setAdvanceList` 是官方播放器的运行时提示：自然播完后按 `sequence` / `shuffle`
-从这份列表选下一首；列表为空或未设置时回退到宿主队列。它不修改用户队列。
 | `noise.presets.importPreset` / `exportPreset` | `path?` | `NoisePresetDetail`（取消为 null）/ `NoisePresetExportResult`（仅 settings） |
 | `noise.presets.setPresetFavorite` | `presetId`, `favorite` | `NoisePresetSummary` |
 | `system.snapshot` | `{}` | `PlaybackSnapshot`（含 `output` / `noiseSession`） |
 | `system.getOutput` / `setOutput` | `volume?`, `muted?` | `MediaOutput` |
+
+`player.setAdvanceList` 是官方播放器的运行时提示：自然播完与 `shuffle` 手动上/下一首都按
+这份列表选曲；`shuffle` 走多因素加权随机 + 轮次袋（见 3.2），其他模式按列表顺序。列表为空
+或未设置时回退到宿主队列。它不修改用户队列。
 
 约定：
 
@@ -139,6 +140,36 @@ Media Service（Rust）
 - 播放状态事件发完整 `PlayerState`；进度/电平只发给订阅窗口；音频电平最高 20Hz。
 - 引擎窗口只接收 `media-engine-command`，通过 `media_engine_ready/event` 上报；命令携带 `loadId`，旧加载事件被丢弃。N1 起 engine protocol 为 v2，Music 与 Noise 共用 `AudioGraph`（musicBus/noiseBus/master/limiter），并支持 `output.volume` 与 `engine.shutdown`；N2 起 Noise 用 `noise.session.sync` 下发完整 Session/Track 快照，N3 文件轨道的 `source.kind=asset` 通过 asset protocol URL 进入同一 `noiseBus`。
 - 本地音频经 Tauri asset protocol 进入引擎；`<audio>` 必须设置 `crossOrigin="anonymous"`，asset protocol 返回的 `Access-Control-Allow-Origin` 才能让 `MediaElementAudioSourceNode` 输出非静音。缺少 CORS opt-in 时元素可直出，但接入 Web Audio 后会静音。
+
+### 3.2 随机播放（智能）
+
+`shuffle` 不再使用时间取模或前端 `Math.random()`，由 Rust 侧统一选曲，自然播完与
+`player.next/previous` 共用同一套逻辑：
+
+- **候选**：优先 `player.setAdvanceList` 同步的当前页签列表，未设置或为空时回退
+  `player_queue`；两者都空返回 `queue.empty`。`shuffle` 下 `player.next/previous` 也优先
+  使用这份列表（外部 Widget 同样生效），但不会修改 `player_queue`。
+- **轮次袋（Shuffle Bag）**：一轮内不重复，`remaining` 为空才开启下一轮，并排除刚播完的
+  当前曲；分页追加/筛选缩小保留已播进度，切换页签等「互不包含」的列表变化重置一轮。
+  轮次状态只在内存，应用重启后重新开始；手动点播同样计入本轮。
+- **特征**：主要/合作艺术家、主专辑、`music_tracks.genre`（小写归一化）、收藏。
+- **最近播放**：`music_play_history` 中最近 6 小时、最多 32 条；同一首歌按最近一次出现
+  的位置降权。
+- **权重**（基础 1.0，逐项相乘）：
+
+| 因素 | 规则 | 乘数 |
+| --- | --- | --- |
+| 最近播放位置 | 0–2 / 3–7 / 8–15 / 16–31 | 0.02 / 0.15 / 0.5 / 0.85 |
+| 同歌手 | 最近 3 首命中 1 首 / ≥2 首 | 0.2 / 0.05 |
+| 同专辑 | 与上一首相同 / 最近 3 首内相同 | 0.15 / 0.5 |
+| 同曲风 | 最近 3 首命中 1 / 2 / 3 首 | 0.45 / 0.2 / 0.09 |
+| 收藏 | 候选已被收藏 | ×1.2 |
+
+  最终权重夹在 `[1e-6, 8]`，再按权重随机抽取（内置 SplitMix64，不引入额外依赖）；
+  没有元数据的曲目按中性权重处理，不会把「未知专辑」当成同一张专辑。
+- **失败兜底**：候选曲目连续不可播放时最多重试 3 首并移出本轮，再回退队列顺序播放。
+- **限制**：曲库没有 BPM 字段，节奏/情绪维度暂不参与；`shuffle` 下「上一首」同样是随机
+  选曲；单曲列表重播当前曲；轮次不持久化。
 
 ## 4. 前端 SDK
 

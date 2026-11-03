@@ -48,6 +48,23 @@ pub async fn record(
   Ok(id)
 }
 
+/// 读取窗口内最近的播放曲目 id（新到旧），供智能随机降权。
+pub async fn recent_ids(
+  pool: &SqlitePool,
+  since_ms: i64,
+  limit: usize,
+) -> Result<Vec<String>, MediaError> {
+  sqlx::query_scalar(
+    "SELECT track_id FROM music_play_history \
+     WHERE played_at >= ? ORDER BY played_at DESC, id DESC LIMIT ?",
+  )
+  .bind(since_ms)
+  .bind(i64::try_from(limit).unwrap_or(i64::MAX))
+  .fetch_all(pool)
+  .await
+  .map_err(|error| MediaError::internal(format!("读取最近播放失败：{error}")))
+}
+
 pub async fn list(
   pool: &SqlitePool,
   page: u32,
@@ -84,6 +101,55 @@ pub async fn clear(pool: &SqlitePool) -> Result<u64, MediaError> {
 mod tests {
   use super::*;
   use crate::media::repository::db;
+
+  #[test]
+  fn recent_ids_respects_window_and_limit() {
+    let path = std::env::temp_dir().join(format!("lull-history-test-{}.db", uuid::Uuid::now_v7()));
+    tauri::async_runtime::block_on(async {
+      let pool = db::open_at(&path).await.expect("open db");
+      let now = now_ms();
+      for (id, track) in [
+        ("hist_1", "track-a"),
+        ("hist_2", "track-b"),
+        ("hist_3", "track-c"),
+      ] {
+        sqlx::query(
+          "INSERT INTO music_tracks (id, kind, title, added_at, updated_at) \
+           VALUES (?, 'file', ?, 1, 1)",
+        )
+        .bind(track)
+        .bind(track)
+        .execute(&pool)
+        .await
+        .expect("insert track");
+        sqlx::query(
+          "INSERT INTO music_play_history \
+             (id, track_id, played_at, duration_ms, completed, source) \
+           VALUES (?, ?, ?, 1000, 0, 'play')",
+        )
+        .bind(id)
+        .bind(track)
+        .bind(match id {
+          "hist_1" => now - 1_000,
+          "hist_2" => now - 500,
+          _ => now - 10 * 60 * 60 * 1000,
+        })
+        .execute(&pool)
+        .await
+        .expect("insert history");
+      }
+
+      let window = now - 6 * 60 * 60 * 1000;
+      let ids = recent_ids(&pool, window, 10).await.expect("recent");
+      assert_eq!(ids, vec!["track-b".to_string(), "track-a".to_string()]);
+      let limited = recent_ids(&pool, window, 1).await.expect("limited");
+      assert_eq!(limited, vec!["track-b".to_string()]);
+      db::close(&pool).await;
+    });
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+    let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+  }
 
   #[test]
   fn history_records_and_pages_newest_first() {

@@ -161,7 +161,10 @@ export interface LullMediaClient {
     setVolume(volume: number): Promise<PlayerState>;
     setMuted(muted: boolean): Promise<PlayerState>;
     setMode(mode: PlayerState["mode"]): Promise<PlayerState>;
-    /** 同步当前 UI 页签的曲目顺序，供自然播完时按该列表选下一首。 */
+    /**
+     * 同步当前 UI 页签的曲目顺序：自然播完与 `shuffle` 手动切歌都按这份列表选曲，
+     * 不修改用户队列。
+     */
     setAdvanceList(trackIds: string[]): Promise<void>;
   };
   queue: {

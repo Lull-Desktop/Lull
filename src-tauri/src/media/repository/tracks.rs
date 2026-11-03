@@ -41,6 +41,16 @@ pub struct TrackRow {
   pub sample_rate: Option<i64>,
 }
 
+/// 智能随机选曲需要的轻量特征；不进入公开 DTO。
+#[derive(Debug, Clone, FromRow)]
+pub struct FeatureRow {
+  pub id: String,
+  pub genre: Option<String>,
+  pub album_id: Option<String>,
+  pub artist_ids: Option<String>,
+  pub favorite: i64,
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct TrackMetadataRow {
   pub imported_json: String,
@@ -351,6 +361,45 @@ pub async fn list_by_ids(pool: &SqlitePool, ids: &[String]) -> Result<Vec<TrackR
     .map_err(|error| MediaError::internal(format!("批量读取曲目失败：{error}")))
 }
 
+/// 批量读取智能随机所需的特征。
+///
+/// 只返回仍可用的曲目（`status = 'active'`），按 300 个 id 分块，避免
+/// SQLite 的变量数量上限；艺术家只取主要/合作角色。
+pub async fn features_for(
+  pool: &SqlitePool,
+  ids: &[String],
+) -> Result<Vec<FeatureRow>, MediaError> {
+  if ids.is_empty() {
+    return Ok(Vec::new());
+  }
+  let mut rows = Vec::with_capacity(ids.len());
+  for chunk in ids.chunks(300) {
+    let mut builder = QueryBuilder::<Sqlite>::new(
+      "SELECT t.id, t.genre, \
+        (SELECT ta.album_id FROM music_track_albums ta \
+          WHERE ta.track_id = t.id AND ta.is_primary = 1 LIMIT 1) AS album_id, \
+        (SELECT group_concat(ta.artist_id, char(31)) FROM music_track_artists ta \
+          WHERE ta.track_id = t.id AND ta.role IN ('primary', 'featured')) AS artist_ids, \
+        EXISTS (SELECT 1 FROM music_favorites f WHERE f.track_id = t.id) AS favorite \
+       FROM music_tracks t WHERE t.status = 'active' AND t.id IN (",
+    );
+    for (index, id) in chunk.iter().enumerate() {
+      if index > 0 {
+        builder.push(", ");
+      }
+      builder.push_bind(id.clone());
+    }
+    builder.push(")");
+    let batch = builder
+      .build_query_as::<FeatureRow>()
+      .fetch_all(pool)
+      .await
+      .map_err(|error| MediaError::internal(format!("读取选曲特征失败：{error}")))?;
+    rows.extend(batch);
+  }
+  Ok(rows)
+}
+
 /// 返回一个可播放的本地文件路径；内置曲、目录缺失或文件被移动时返回 None。
 pub async fn playable_path(
   pool: &SqlitePool,
@@ -492,4 +541,52 @@ pub async fn list_albums(pool: &SqlitePool) -> Result<Vec<AlbumRow>, MediaError>
   .fetch_all(pool)
   .await
   .map_err(|error| MediaError::internal(format!("读取专辑失败：{error}")))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::media::repository::db;
+
+  fn cleanup(path: &Path) {
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+    let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+  }
+
+  #[test]
+  fn features_for_reads_artist_album_genre_and_favorite() {
+    let path = std::env::temp_dir().join(format!("lull-features-test-{}.db", uuid::Uuid::now_v7()));
+    tauri::async_runtime::block_on(async {
+      let pool = db::open_at(&path).await.expect("open db");
+      for sql in [
+        "INSERT INTO music_tracks (id, kind, title, genre, status, added_at, updated_at) \
+         VALUES ('trk_1', 'file', 'A', 'Ambient', 'active', 1, 1)",
+        "INSERT INTO music_artists (id, name, created_at, updated_at) \
+         VALUES ('art_1', 'Artist', 1, 1)",
+        "INSERT INTO music_albums (id, title, created_at, updated_at) \
+         VALUES ('alb_1', 'Album', 1, 1)",
+        "INSERT INTO music_track_artists \
+           (track_id, artist_id, role, position, source, updated_at) \
+         VALUES ('trk_1', 'art_1', 'primary', 0, 'import', 1)",
+        "INSERT INTO music_track_albums (track_id, album_id, is_primary, source) \
+         VALUES ('trk_1', 'alb_1', 1, 'import')",
+        "INSERT INTO music_favorites (track_id, created_at) VALUES ('trk_1', 1)",
+      ] {
+        sqlx::query(sql).execute(&pool).await.expect("seed");
+      }
+
+      let rows = features_for(&pool, &["trk_1".to_string()])
+        .await
+        .expect("features");
+      assert_eq!(rows.len(), 1);
+      assert_eq!(rows[0].artist_ids.as_deref(), Some("art_1"));
+      assert_eq!(rows[0].album_id.as_deref(), Some("alb_1"));
+      assert_eq!(rows[0].genre.as_deref(), Some("Ambient"));
+      assert_eq!(rows[0].favorite, 1);
+      assert!(features_for(&pool, &[]).await.expect("empty").is_empty());
+      db::close(&pool).await;
+    });
+    cleanup(&path);
+  }
 }

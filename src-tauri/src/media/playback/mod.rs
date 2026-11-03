@@ -4,8 +4,10 @@
 //! 暂停/停止/切歌/音量/队列写入 SQLite。Noise 业务在 `media::noise`。
 
 pub mod model;
+pub mod smart;
 pub mod store;
 
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 use serde_json::{json, Value};
@@ -13,10 +15,11 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 use self::model::{PlayerStateView, QueueStateView};
+use self::smart::{RecentPlay, RoundState, SmartRng, Source, TrackFeatures};
 use super::api::dto::TrackSummary;
 use super::api::errors::MediaError;
 use super::engine;
-use super::repository::{now_ms, tracks};
+use super::repository::{history, now_ms, tracks};
 
 const ENGINE_LABEL: &str = engine::ENGINE_LABEL;
 
@@ -50,6 +53,9 @@ struct Service {
   queue: Vec<String>,
   /// 当前 UI 页签的曲目顺序；自然播完时优先按它选下一首。
   advance_list: Option<Vec<String>>,
+  /// `shuffle` 模式的轮次袋与随机源；其他模式保持为空/未使用。
+  round: Option<RoundState>,
+  rng: SmartRng,
   revision: u64,
   engine_ready: bool,
   syncing: bool,
@@ -59,6 +65,12 @@ struct Service {
 }
 
 static SERVICE: OnceLock<Mutex<Service>> = OnceLock::new();
+/// 智能随机选曲串行化：避免连点下一首或「播完 + 手动」并发选中同一首。
+static SELECT_LOCK: OnceLock<tauri::async_runtime::Mutex<()>> = OnceLock::new();
+
+fn select_lock() -> &'static tauri::async_runtime::Mutex<()> {
+  SELECT_LOCK.get_or_init(|| tauri::async_runtime::Mutex::new(()))
+}
 
 fn lock() -> Result<MutexGuard<'static, Service>, MediaError> {
   SERVICE
@@ -186,6 +198,8 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     error: None,
     queue,
     advance_list: None,
+    round: None,
+    rng: SmartRng::seeded(u64::try_from(now_ms()).unwrap_or(0)),
     revision: 0,
     engine_ready: false,
     syncing: false,
@@ -324,11 +338,11 @@ pub async fn call(
         }
       }
       let mut service = lock()?;
-      service.advance_list = if track_ids.is_empty() {
-        None
-      } else {
-        Some(track_ids)
-      };
+      let empty = track_ids.is_empty();
+      service.advance_list = if empty { None } else { Some(track_ids) };
+      if empty {
+        service.round = None;
+      }
       Ok(Value::Null)
     }
     ("queue", "get") => {
@@ -427,7 +441,7 @@ async fn play(
   super::library::record_history(app, &id, track.duration_ms).await;
   let player = {
     let mut service = lock()?;
-    service.player.current_track_id = Some(id);
+    service.player.current_track_id = Some(id.clone());
     service.player.position_ms = 0;
     service.current_track = Some(TrackSummary::from(track));
     service.duration_ms = service
@@ -436,6 +450,10 @@ async fn play(
       .and_then(|track| track.duration_ms);
     service.status = "loading".to_string();
     service.error = None;
+    // 手动点播同样消耗本轮名额，避免下一轮之前又被随机选中。
+    if let Some(round) = service.round.as_mut() {
+      round.mark_played(&id);
+    }
     touch(&mut service);
     emit_state(app, &service);
     service.player.clone()
@@ -570,6 +588,10 @@ fn set_mode(app: &AppHandle, pool: &SqlitePool, mode: &str) -> Result<(), MediaE
   let player = {
     let mut service = lock()?;
     service.player.mode = mode.as_str().to_string();
+    // 轮次只在随机模式内有意义；切出时丢弃，切回时从新一轮开始。
+    if mode != model::PlayMode::Shuffle {
+      service.round = None;
+    }
     touch(&mut service);
     emit_state(app, &service);
     service.player.clone()
@@ -579,6 +601,37 @@ fn set_mode(app: &AppHandle, pool: &SqlitePool, mode: &str) -> Result<(), MediaE
 }
 
 async fn next(app: &AppHandle, pool: &SqlitePool, direction: i32) -> Result<(), MediaError> {
+  let shuffle = {
+    let service = lock()?;
+    service.player.mode == "shuffle"
+  };
+  if shuffle {
+    return advance_shuffle_or_queue(app, pool, direction).await;
+  }
+  next_from_queue(app, pool, direction).await
+}
+
+/// 智能随机选曲失败时回退队列顺序播放，避免播完或点下一首直接停住。
+async fn advance_shuffle_or_queue(
+  app: &AppHandle,
+  pool: &SqlitePool,
+  direction: i32,
+) -> Result<(), MediaError> {
+  match advance_shuffle(app, pool).await {
+    Ok(()) => Ok(()),
+    Err(error) => {
+      crate::wallpaper::wlog(&format!("智能随机选曲失败，回退队列：{error}"));
+      next_from_queue(app, pool, direction).await
+    }
+  }
+}
+
+/// 队列顺序播放（原 `next` 逻辑）；shuffle 兜底与其他模式共用。
+async fn next_from_queue(
+  app: &AppHandle,
+  pool: &SqlitePool,
+  direction: i32,
+) -> Result<(), MediaError> {
   let target = {
     let service = lock()?;
     if service.queue.is_empty() {
@@ -593,26 +646,162 @@ async fn next(app: &AppHandle, pool: &SqlitePool, direction: i32) -> Result<(), 
         .as_ref()
         .and_then(|id| service.queue.iter().position(|item| item == id));
       let len = service.queue.len();
-      let index = if service.player.mode == "shuffle" {
-        // 不引入额外随机数依赖；用时间与当前索引轮转，避免连续重复。
-        let offset = usize::try_from(now_ms()).unwrap_or(0) % (len - 1) + 1;
-        (current.unwrap_or(0) + offset) % len
-      } else {
-        match current {
-          Some(index) => {
-            if direction > 0 {
-              (index + 1) % len
-            } else {
-              (index + len - 1) % len
-            }
+      let index = match current {
+        Some(index) => {
+          if direction > 0 {
+            (index + 1) % len
+          } else {
+            (index + len - 1) % len
           }
-          None => 0,
         }
+        None => 0,
       };
       service.queue[index].clone()
     }
   };
   play(app, pool, Some(target)).await
+}
+
+fn feature_map(rows: Vec<tracks::FeatureRow>) -> HashMap<String, TrackFeatures> {
+  rows
+    .into_iter()
+    .map(|row| {
+      let artists = row
+        .artist_ids
+        .as_deref()
+        .map(|value| {
+          value
+            .split('\u{1f}')
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .collect()
+        })
+        .unwrap_or_default();
+      let genre = row
+        .genre
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty());
+      (
+        row.id,
+        TrackFeatures {
+          artists,
+          album: row.album_id,
+          genre,
+          favorite: row.favorite != 0,
+        },
+      )
+    })
+    .collect()
+}
+
+fn retryable(error: &MediaError) -> bool {
+  matches!(error.code, "track.not-found" | "track.unavailable")
+}
+
+/// `shuffle` 模式的选曲入口：自然播完与手动上/下一首都走这里。
+///
+/// 候选来自播放器同步的当前页签列表，缺失时回退用户队列；优先查播放历史
+/// 与曲目特征，再按权重抽一首。选曲与 `play` 全程串行化，保证轮次袋一致。
+async fn advance_shuffle(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
+  let _guard = select_lock().lock().await;
+  let mut excluded: HashSet<String> = HashSet::new();
+  let mut last_error: Option<MediaError> = None;
+
+  for _ in 0..3 {
+    let (ids, source, current) = {
+      let service = lock()?;
+      let (ids, source) = match service
+        .advance_list
+        .as_ref()
+        .filter(|list| !list.is_empty())
+      {
+        Some(list) => (list.clone(), Source::Advance),
+        None => (service.queue.clone(), Source::Queue),
+      };
+      (ids, source, service.player.current_track_id.clone())
+    };
+    if ids.is_empty() {
+      return Err(MediaError::new("queue.empty", "播放队列为空"));
+    }
+    let candidates: Vec<String> = ids
+      .into_iter()
+      .filter(|id| !excluded.contains(id))
+      .collect();
+    if candidates.is_empty() {
+      return Err(MediaError::new("track.unavailable", "没有可播放的曲目"));
+    }
+
+    let recent_ids = history::recent_ids(
+      pool,
+      now_ms() - smart::RECENT_WINDOW_MS,
+      smart::RECENT_LIMIT,
+    )
+    .await
+    .unwrap_or_else(|error| {
+      crate::wallpaper::wlog(&format!("读取最近播放失败，忽略降权：{error}"));
+      Vec::new()
+    });
+    let mut feature_ids = candidates.clone();
+    feature_ids.extend(recent_ids.iter().cloned());
+    feature_ids.sort_unstable();
+    feature_ids.dedup();
+    let (features, features_loaded) = match tracks::features_for(pool, &feature_ids).await {
+      Ok(rows) => (feature_map(rows), true),
+      Err(error) => {
+        crate::wallpaper::wlog(&format!("读取选曲特征失败，按中性权重继续：{error}"));
+        (HashMap::new(), false)
+      }
+    };
+
+    let target = {
+      let mut service = lock()?;
+      if service.player.mode != "shuffle" {
+        return Err(MediaError::new("mode.changed", "播放模式已切换"));
+      }
+      let service = &mut *service;
+      let playable: Vec<String> = if features_loaded {
+        candidates
+          .into_iter()
+          .filter(|id| features.contains_key(id))
+          .collect()
+      } else {
+        candidates
+      };
+      if playable.is_empty() {
+        return Err(MediaError::new("track.unavailable", "没有可播放的曲目"));
+      }
+      let recent: Vec<RecentPlay> = recent_ids
+        .iter()
+        .map(|id| RecentPlay {
+          id: id.clone(),
+          features: features.get(id).cloned(),
+        })
+        .collect();
+      let round = service.round.get_or_insert_with(RoundState::new);
+      round.reconcile(source, &playable, current.as_deref());
+      smart::pick(&playable, &features, &recent, round, &mut service.rng)
+    };
+
+    let Some(target) = target else {
+      return Err(MediaError::new("track.unavailable", "没有可播放的曲目"));
+    };
+    match play(app, pool, Some(target.clone())).await {
+      Ok(()) => return Ok(()),
+      Err(error) if retryable(&error) => {
+        crate::wallpaper::wlog(&format!("曲目不可播放，重试下一首：{error}"));
+        excluded.insert(target.clone());
+        if let Ok(mut service) = lock() {
+          if let Some(round) = service.round.as_mut() {
+            round.exclude(&target);
+          }
+        }
+        last_error = Some(error);
+      }
+      Err(error) => return Err(error),
+    }
+  }
+
+  Err(last_error.unwrap_or_else(|| MediaError::new("track.unavailable", "没有可播放的曲目")))
 }
 
 /// 串行化引擎对账，避免 play/ready 并发产生多个 loadId，导致旧引擎事件全部
@@ -804,7 +993,9 @@ pub fn on_engine_event(app: &AppHandle, event: engine::EngineEvent) {
         };
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-          let _ = handle_ended(&app, &pool).await;
+          if let Err(error) = handle_ended(&app, &pool).await {
+            crate::wallpaper::wlog(&format!("自动续播失败：{error}"));
+          }
         });
       }
     }
@@ -854,22 +1045,13 @@ pub fn on_engine_event(app: &AppHandle, event: engine::EngineEvent) {
   }
 }
 
-fn choose_advance_target(list: &[String], current: Option<&str>, shuffle: bool) -> Option<String> {
+fn choose_advance_target(list: &[String], current: Option<&str>) -> Option<String> {
   if list.is_empty() {
     return None;
   }
-  if list.len() == 1 {
-    return list.first().cloned();
-  }
-  let current_index = current.and_then(|id| list.iter().position(|item| item == id));
-  let index = if shuffle {
-    // 与宿主队列的随机策略保持一致：按时间轮转，避免连续重复。
-    let seed = usize::try_from(now_ms()).unwrap_or(0);
-    let offset = seed % (list.len() - 1) + 1;
-    (current_index.unwrap_or(seed % list.len()) + offset) % list.len()
-  } else {
-    current_index.map_or(0, |index| (index + 1) % list.len())
-  };
+  let index = current
+    .and_then(|id| list.iter().position(|item| item == id))
+    .map_or(0, |index| (index + 1) % list.len());
   list.get(index).cloned()
 }
 
@@ -886,9 +1068,12 @@ async fn handle_ended(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaErr
     seek(app, pool, 0)?;
     return resume(app, pool).await;
   }
-  // UI 已把当前页签的列表同步过来时，自然播完按该列表和播放模式选下一首。
+  if mode == "shuffle" {
+    return advance_shuffle_or_queue(app, pool, 1).await;
+  }
+  // UI 已把当前页签的列表同步过来时，自然播完按该列表顺序选下一首。
   if let Some(list) = advance_list {
-    if let Some(target) = choose_advance_target(&list, current.as_deref(), mode == "shuffle") {
+    if let Some(target) = choose_advance_target(&list, current.as_deref()) {
       if play(app, pool, Some(target)).await.is_ok() {
         return Ok(());
       }
@@ -1003,7 +1188,7 @@ pub fn handle_engine_event(
 
 #[cfg(test)]
 mod tests {
-  use super::choose_advance_target;
+  use super::{choose_advance_target, feature_map};
 
   fn ids(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
@@ -1013,31 +1198,42 @@ mod tests {
   fn advance_target_follows_sequence_and_wraps() {
     let list = ids(&["a", "b", "c"]);
     assert_eq!(
-      choose_advance_target(&list, Some("a"), false).as_deref(),
+      choose_advance_target(&list, Some("a")).as_deref(),
       Some("b")
     );
     assert_eq!(
-      choose_advance_target(&list, Some("c"), false).as_deref(),
+      choose_advance_target(&list, Some("c")).as_deref(),
       Some("a")
     );
     assert_eq!(
-      choose_advance_target(&list, Some("missing"), false).as_deref(),
+      choose_advance_target(&list, Some("missing")).as_deref(),
       Some("a")
     );
   }
 
   #[test]
-  fn advance_target_shuffle_avoids_current_and_handles_single() {
-    let list = ids(&["a", "b", "c"]);
-    for _ in 0..20 {
-      let target = choose_advance_target(&list, Some("b"), true).expect("target");
-      assert_ne!(target, "b");
-      assert!(list.contains(&target));
-    }
+  fn advance_target_handles_single_and_empty() {
     assert_eq!(
-      choose_advance_target(&ids(&["only"]), Some("only"), true).as_deref(),
+      choose_advance_target(&ids(&["only"]), Some("only")).as_deref(),
       Some("only")
     );
-    assert_eq!(choose_advance_target(&[], Some("a"), false), None);
+    assert_eq!(choose_advance_target(&[], Some("a")), None);
+  }
+
+  #[test]
+  fn feature_map_splits_artist_ids_and_normalizes_genre() {
+    let rows = vec![crate::media::repository::tracks::FeatureRow {
+      id: "trk_1".to_string(),
+      genre: Some("  Ambient ".to_string()),
+      album_id: Some("alb_1".to_string()),
+      artist_ids: Some("art_1\u{1f}art_2".to_string()),
+      favorite: 1,
+    }];
+    let features = feature_map(rows);
+    let track = features.get("trk_1").expect("features");
+    assert_eq!(track.artists, vec!["art_1", "art_2"]);
+    assert_eq!(track.album.as_deref(), Some("alb_1"));
+    assert_eq!(track.genre.as_deref(), Some("ambient"));
+    assert!(track.favorite);
   }
 }
