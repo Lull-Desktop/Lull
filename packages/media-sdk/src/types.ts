@@ -269,6 +269,21 @@ export interface SmartShuffleConfig {
   audioFeatures: SmartShuffleAudioFeatures;
 }
 
+/** 保存/切换的用户层配置。 */
+export interface SmartShuffleProfile {
+  id: string;
+  name: string;
+  builtin: boolean;
+  config: SmartShuffleConfig;
+}
+
+export interface SmartShuffleProfileSummary {
+  id: string;
+  name: string;
+  builtin: boolean;
+  active: boolean;
+}
+
 export interface PlayerState {
   track?: TrackSummary;
   status: PlaybackStatus;

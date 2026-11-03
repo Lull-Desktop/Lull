@@ -158,6 +158,60 @@ describe("media client", () => {
     expect(transport.requests[1]?.args).toEqual({ config: next });
   });
 
+  test("routes shuffle profile methods", async () => {
+    const profile = {
+      id: "user:1",
+      name: "夜航",
+      builtin: false,
+      config: DEFAULT_SMART_SHUFFLE_CONFIG,
+    };
+    const summary = {
+      id: profile.id,
+      name: profile.name,
+      builtin: false,
+      active: true,
+    };
+    const transport = createMemoryTransport((request) => {
+      if (request.method === "listShuffleProfiles") return [summary];
+      if (request.method === "deleteShuffleProfile") return { removed: true };
+      return profile;
+    });
+    const media = createMediaClient({ transport });
+
+    await expect(media.player.listShuffleProfiles()).resolves.toEqual([
+      summary,
+    ]);
+    await expect(media.player.getShuffleProfile()).resolves.toEqual(profile);
+    await expect(media.player.activateShuffleProfile(profile.id)).resolves.toEqual(
+      profile,
+    );
+    await expect(
+      media.player.saveShuffleProfile({
+        profileId: profile.id,
+        name: profile.name,
+        config: profile.config,
+      }),
+    ).resolves.toEqual(profile);
+    await expect(media.player.deleteShuffleProfile(profile.id)).resolves.toBe(
+      true,
+    );
+
+    expect(transport.requests.map((request) => request.method)).toEqual([
+      "listShuffleProfiles",
+      "getShuffleProfile",
+      "activateShuffleProfile",
+      "saveShuffleProfile",
+      "deleteShuffleProfile",
+    ]);
+    expect(transport.requests[1]?.args).toEqual({});
+    expect(transport.requests[2]?.args).toEqual({ profileId: profile.id });
+    expect(transport.requests[3]?.args).toEqual({
+      profileId: profile.id,
+      name: profile.name,
+      config: profile.config,
+    });
+  });
+
   test("routes output volume through the system namespace", async () => {
     const transport = createMemoryTransport((request) => {
       expect(request.namespace).toBe("system");

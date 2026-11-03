@@ -166,7 +166,7 @@ lib.rs
  │    ├─ output（Music + Noise 共享的全局输出音量）
  │    ├─ library（音乐资料库门面、lofty 元数据、扫描进度/取消、封面/歌词资产、revision 事件）
  │    ├─ noise（Noise Session/Track、内置 procedural Asset、本地素材导入/分类/标签/收藏、旧 5 层兼容门面）
- │    ├─ playback（Music 播放/队列、智能随机选曲与配置、隐藏音频引擎）
+ │    ├─ playback（Music 播放/队列、智能随机 Profile/Strategy/Engine、隐藏音频引擎）
  │    ├─ repository（SQLx：music.db 迁移、来源/曲目/艺术家/专辑查询）
  │    └─ mod.rs（init/shutdown；初始化视频运行时、引擎与音乐资料库）
  ├─ wallpaper
@@ -394,8 +394,8 @@ form-action 'none'
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 63 个测试文件（337 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、队列解析、seek 整数化、懒加载分页、单层目录浏览、P4 元数据/标签/智能歌单/音乐库窗口曲库整理页签、壁纸库窗口、壁纸库素材管理页签、白噪音库窗口、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心、智能随机预设/设置面板）
-cargo test             Rust 280 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 视频素材批量导入、重命名与失效清理、壁纸库配置读取鉴权 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、默认曲库移除 / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / P6 备份、歌词 sidecar / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照、自动续播列表、智能随机配置与引擎协议）
+pnpm test              前端 63 个测试文件（336 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、队列解析、seek 整数化、懒加载分页、单层目录浏览、P4 元数据/标签/智能歌单/音乐库窗口曲库整理页签、壁纸库窗口、壁纸库素材管理页签、白噪音库窗口、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心、智能随机 Profile/设置面板）
+cargo test             Rust 279 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 视频素材批量导入、重命名与失效清理、壁纸库配置读取鉴权 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、默认曲库移除 / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / P6 备份、歌词 sidecar / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照、自动续播列表、智能随机 Profile/Strategy/Engine 与模拟校准、引擎协议）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
@@ -437,4 +437,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
    没有自动更新、版本比较与回滚；安装目录由用户自行维护，卸载即删目录。
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
 9. **视频壁纸的边界**：默认构建走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/WebView2 TextureStream 共享解码在可选 `native-media` feature 下实现，但本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，运行时自动回退。能力探测、构建依赖与验收门见 [Media Runtime](media-runtime.md)。不要把 HTML 回退描述成“单解码器”，也不要把“feature 已实现”描述成“原生已交付”。
-10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。P3 已补歌单/喜欢/历史、M3U 导入导出与独立 `library` 资料库窗口（含队列视图）；N2 已把 Noise 从 `playback` 迁到独立 `media::noise`，引入 Asset/Track/Session 与旧 5 层兼容门面，Session/Track 不持久化；N3 已补 Noise 本地文件导入（受管复制 + SHA-256 + 缺失检测）、分类/标签/收藏/搜索与白噪音库窗口功能页签，文件轨道通过 `<audio>` 接入 `noiseBus`；N3.5 补分类/标签独立 CRUD（内置只读、层级循环保护、删除分类不删素材）；N4 补 Preset 保存/加载/导入导出、收藏与缺失轨道映射，加载替换 Session 但不自动播放；N5/P5 补 Widget 媒体桥、Rust bridge token、8 个 Noise capability、redacted snapshot、React hooks、`noise-mixer` 示例；N6 把白噪音窗口迁到 `NoiseSession` 动态轨道，支持内置泡泡 + 本地轨列表、Preset 选择/加载、播放/暂停，关闭窗口不停止 Session；P4 补元数据编辑与重扫保护、标签实体/多标签、艺术家/专辑合并拆分、智能歌单；P6 补 `.lrc/.txt/.srt` sidecar 歌词与组织数据备份/恢复，在线元数据、文件监听、缩略图未开始；随机播放已改为 Rust 侧多因素权重 + 轮次袋选曲（`playback::smart`），并通过 `player.get/setSmartShuffleConfig` 暴露五项听感参数（预设/滑杆在播放器内），播放器只发切换意图。`media_call` 对 `settings/player/noise/library/noise-library` 与带 token 的 `widget-*` 开放，`media_connect` 返回快照并通过 `media:event` 推送。多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md)、[Widget SDK](widget-sdk.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
+10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。P3 已补歌单/喜欢/历史、M3U 导入导出与独立 `library` 资料库窗口（含队列视图）；N2 已把 Noise 从 `playback` 迁到独立 `media::noise`，引入 Asset/Track/Session 与旧 5 层兼容门面，Session/Track 不持久化；N3 已补 Noise 本地文件导入（受管复制 + SHA-256 + 缺失检测）、分类/标签/收藏/搜索与白噪音库窗口功能页签，文件轨道通过 `<audio>` 接入 `noiseBus`；N3.5 补分类/标签独立 CRUD（内置只读、层级循环保护、删除分类不删素材）；N4 补 Preset 保存/加载/导入导出、收藏与缺失轨道映射，加载替换 Session 但不自动播放；N5/P5 补 Widget 媒体桥、Rust bridge token、8 个 Noise capability、redacted snapshot、React hooks、`noise-mixer` 示例；N6 把白噪音窗口迁到 `NoiseSession` 动态轨道，支持内置泡泡 + 本地轨列表、Preset 选择/加载、播放/暂停，关闭窗口不停止 Session；P4 补元数据编辑与重扫保护、标签实体/多标签、艺术家/专辑合并拆分、智能歌单；P6 补 `.lrc/.txt/.srt` sidecar 歌词与组织数据备份/恢复，在线元数据、文件监听、缩略图未开始；随机播放已拆成 `playback::shuffle` 的 Profile / Strategy / Engine 三层：内置与用户配置可保存/切换，Strategy 用硬近期窗口 + softmax/均匀混合，Engine 管轮次袋与上一首历史；播放器只读写 Profile。详见 [Smart Shuffle](smart-shuffle.md)。`media_call` 对 `settings/player/noise/library/noise-library` 与带 token 的 `widget-*` 开放，`media_connect` 返回快照并通过 `media:event` 推送。多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md)、[Widget SDK](widget-sdk.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。

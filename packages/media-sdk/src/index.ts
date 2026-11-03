@@ -74,6 +74,8 @@ export type {
   SmartShuffleAudioFeatures,
   SmartShuffleConfig,
   SmartShuffleExperience,
+  SmartShuffleProfile,
+  SmartShuffleProfileSummary,
   SmartShuffleSeparation,
   SourceKind,
   SourceStatus,

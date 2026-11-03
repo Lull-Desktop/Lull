@@ -4,7 +4,8 @@
 //! 暂停/停止/切歌/音量/队列写入 SQLite。Noise 业务在 `media::noise`。
 
 pub mod model;
-pub mod smart;
+pub mod profile_store;
+pub mod shuffle;
 pub mod store;
 
 use std::collections::{HashMap, HashSet};
@@ -15,8 +16,10 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 use self::model::{PlayerStateView, QueueStateView};
-use self::smart::{
-  RecentPlay, RoundState, SmartRng, SmartShuffleConfig, SmartShuffleTuning, Source, TrackFeatures,
+use self::shuffle::{
+  default_profile, RecentPlay, ShuffleCandidate, ShuffleContext, ShuffleEngine, ShuffleStrategy,
+  SmartShuffleConfig, SmartShuffleProfile, SmartShuffleProfileSummary, Source, TrackFeatures,
+  RECENT_LIMIT, RECENT_WINDOW_MS,
 };
 use super::api::dto::TrackSummary;
 use super::api::errors::MediaError;
@@ -55,11 +58,10 @@ struct Service {
   queue: Vec<String>,
   /// 当前 UI 页签的曲目顺序；自然播完时优先按它选下一首。
   advance_list: Option<Vec<String>>,
-  /// `shuffle` 模式的轮次袋与随机源；其他模式保持为空/未使用。
-  round: Option<RoundState>,
-  rng: SmartRng,
-  /// 面向用户的智能随机配置；算法细节由 `SmartShuffleTuning` 推导。
-  smart: SmartShuffleConfig,
+  /// 激活的智能随机 Profile；策略在每次选曲时按它推导。
+  profile: SmartShuffleProfile,
+  /// 轮次袋、历史栈与随机源；离开 shuffle 时 reset。
+  engine: ShuffleEngine,
   revision: u64,
   engine_ready: bool,
   syncing: bool,
@@ -194,12 +196,21 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     None => None,
   };
   let duration_ms = current_track.as_ref().and_then(|track| track.duration_ms);
-  let smart = store::load_smart_shuffle(pool)
+  if let Err(error) = profile_store::ensure_builtin_profiles(pool).await {
+    crate::wallpaper::wlog(&format!("写入内置智能随机配置失败：{error}"));
+  }
+  let profile = profile_store::load_active_profile(pool)
     .await
     .unwrap_or_else(|error| {
       crate::wallpaper::wlog(&format!("读取智能随机配置失败，使用默认值：{error}"));
-      SmartShuffleConfig::default()
+      default_profile()
     });
+  let mut engine = ShuffleEngine::new(u64::try_from(now_ms()).unwrap_or(0));
+  engine.update_tracks(
+    Source::Queue,
+    &queue,
+    current_track.as_ref().map(|track| track.id.as_str()),
+  );
   let service = Service {
     player,
     current_track,
@@ -208,9 +219,8 @@ pub async fn init(pool: &SqlitePool) -> Result<(), MediaError> {
     error: None,
     queue,
     advance_list: None,
-    round: None,
-    rng: SmartRng::seeded(u64::try_from(now_ms()).unwrap_or(0)),
-    smart,
+    profile,
+    engine,
     revision: 0,
     engine_ready: false,
     syncing: false,
@@ -273,7 +283,8 @@ pub async fn call(
         .and_then(Value::as_str)
         .map(str::to_string);
       play(&app, &pool, track_id).await?;
-      let service = lock()?;
+      let mut service = lock()?;
+      note_external_play(&mut service);
       Ok(serde_json::to_value(player_view(&service)).unwrap_or(Value::Null))
     }
     ("player", "pause") => {
@@ -350,15 +361,22 @@ pub async fn call(
       }
       let mut service = lock()?;
       let empty = track_ids.is_empty();
-      service.advance_list = if empty { None } else { Some(track_ids) };
+      service.advance_list = if empty { None } else { Some(track_ids.clone()) };
+      let service = &mut *service;
       if empty {
-        service.round = None;
+        service.engine.reset();
+      } else {
+        service.engine.update_tracks(
+          Source::Advance,
+          &track_ids,
+          service.player.current_track_id.as_deref(),
+        );
       }
       Ok(Value::Null)
     }
     ("player", "getSmartShuffleConfig") => {
       let service = lock()?;
-      Ok(serde_json::to_value(&service.smart).unwrap_or(Value::Null))
+      Ok(serde_json::to_value(&service.profile.config).unwrap_or(Value::Null))
     }
     ("player", "setSmartShuffleConfig") => {
       let value = args
@@ -366,11 +384,82 @@ pub async fn call(
         .ok_or_else(|| MediaError::invalid("缺少 config"))?;
       let config: SmartShuffleConfig = serde_json::from_value(value.clone())
         .map_err(|error| MediaError::invalid(format!("智能随机配置无效：{error}")))?;
-      let config = config.validate().map_err(MediaError::invalid)?;
-      store::save_smart_shuffle(&pool, &config).await?;
+      let profile = profile_store::save_alias_config(&pool, config).await?;
       let mut service = lock()?;
-      service.smart = config.clone();
+      service.profile = profile;
+      let config = service.profile.config.clone();
       Ok(serde_json::to_value(&config).unwrap_or(Value::Null))
+    }
+    ("player", "listShuffleProfiles") => {
+      let rows = profile_store::list_profiles(&pool).await?;
+      let summaries: Vec<SmartShuffleProfileSummary> = rows
+        .into_iter()
+        .map(|(profile, active)| SmartShuffleProfileSummary {
+          id: profile.id,
+          name: profile.name,
+          builtin: profile.builtin,
+          active,
+        })
+        .collect();
+      Ok(serde_json::to_value(summaries).unwrap_or(Value::Null))
+    }
+    ("player", "getShuffleProfile") => {
+      let profile_id = args.get("profileId").and_then(Value::as_str);
+      let profile = match profile_id {
+        Some(id) => profile_store::get_profile(&pool, id)
+          .await?
+          .ok_or_else(|| MediaError::new("shuffle.profile.not-found", "智能随机配置不存在"))?,
+        None => {
+          let service = lock()?;
+          service.profile.clone()
+        }
+      };
+      Ok(serde_json::to_value(profile).unwrap_or(Value::Null))
+    }
+    ("player", "saveShuffleProfile") => {
+      let profile_id = args.get("profileId").and_then(Value::as_str);
+      let name = args
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| MediaError::invalid("缺少 name"))?;
+      let value = args
+        .get("config")
+        .ok_or_else(|| MediaError::invalid("缺少 config"))?;
+      let config: SmartShuffleConfig = serde_json::from_value(value.clone())
+        .map_err(|error| MediaError::invalid(format!("智能随机配置无效：{error}")))?;
+      let profile = profile_store::save_profile(&pool, profile_id, name, config).await?;
+      let mut service = lock()?;
+      if service.profile.id == profile.id {
+        service.profile = profile.clone();
+      }
+      Ok(serde_json::to_value(profile).unwrap_or(Value::Null))
+    }
+    ("player", "deleteShuffleProfile") => {
+      let profile_id = args
+        .get("profileId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| MediaError::invalid("缺少 profileId"))?;
+      let was_active = {
+        let service = lock()?;
+        service.profile.id == profile_id
+      };
+      profile_store::delete_profile(&pool, profile_id).await?;
+      if was_active {
+        let profile = profile_store::load_active_profile(&pool).await?;
+        let mut service = lock()?;
+        service.profile = profile;
+      }
+      Ok(json!({ "removed": true }))
+    }
+    ("player", "activateShuffleProfile") => {
+      let profile_id = args
+        .get("profileId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| MediaError::invalid("缺少 profileId"))?;
+      let profile = profile_store::activate_profile(&pool, profile_id).await?;
+      let mut service = lock()?;
+      service.profile = profile.clone();
+      Ok(serde_json::to_value(profile).unwrap_or(Value::Null))
     }
     ("queue", "get") => {
       let service = lock()?;
@@ -477,10 +566,6 @@ async fn play(
       .and_then(|track| track.duration_ms);
     service.status = "loading".to_string();
     service.error = None;
-    // 手动点播同样消耗本轮名额，避免下一轮之前又被随机选中。
-    if let Some(round) = service.round.as_mut() {
-      round.mark_played(&id);
-    }
     touch(&mut service);
     emit_state(app, &service);
     service.player.clone()
@@ -617,7 +702,7 @@ fn set_mode(app: &AppHandle, pool: &SqlitePool, mode: &str) -> Result<(), MediaE
     service.player.mode = mode.as_str().to_string();
     // 轮次只在随机模式内有意义；切出时丢弃，切回时从新一轮开始。
     if mode != model::PlayMode::Shuffle {
-      service.round = None;
+      service.engine.reset();
     }
     touch(&mut service);
     emit_state(app, &service);
@@ -633,7 +718,11 @@ async fn next(app: &AppHandle, pool: &SqlitePool, direction: i32) -> Result<(), 
     service.player.mode == "shuffle"
   };
   if shuffle {
-    return advance_shuffle_or_queue(app, pool, direction).await;
+    return if direction < 0 {
+      advance_shuffle_previous(app, pool).await
+    } else {
+      advance_shuffle_or_queue(app, pool, direction).await
+    };
   }
   next_from_queue(app, pool, direction).await
 }
@@ -725,10 +814,10 @@ fn retryable(error: &MediaError) -> bool {
   matches!(error.code, "track.not-found" | "track.unavailable")
 }
 
-/// `shuffle` 模式的选曲入口：自然播完与手动上/下一首都走这里。
+/// `shuffle` 模式的选曲入口：自然播完与手动下一首都走这里。
 ///
-/// 候选来自播放器同步的当前页签列表，缺失时回退用户队列；优先查播放历史
-/// 与曲目特征，再按权重抽一首。选曲与 `play` 全程串行化，保证轮次袋一致。
+/// 候选来自播放器同步的当前页签列表，缺失时回退用户队列；策略只消费
+/// 上下文/轮次，选曲与 `play` 全程串行化。
 async fn advance_shuffle(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
   let _guard = select_lock().lock().await;
   let mut excluded: HashSet<String> = HashSet::new();
@@ -750,25 +839,21 @@ async fn advance_shuffle(app: &AppHandle, pool: &SqlitePool) -> Result<(), Media
     if ids.is_empty() {
       return Err(MediaError::new("queue.empty", "播放队列为空"));
     }
-    let candidates: Vec<String> = ids
+    let candidate_ids: Vec<String> = ids
       .into_iter()
       .filter(|id| !excluded.contains(id))
       .collect();
-    if candidates.is_empty() {
+    if candidate_ids.is_empty() {
       return Err(MediaError::new("track.unavailable", "没有可播放的曲目"));
     }
 
-    let recent_ids = history::recent_ids(
-      pool,
-      now_ms() - smart::RECENT_WINDOW_MS,
-      smart::RECENT_LIMIT,
-    )
-    .await
-    .unwrap_or_else(|error| {
-      crate::wallpaper::wlog(&format!("读取最近播放失败，忽略降权：{error}"));
-      Vec::new()
-    });
-    let mut feature_ids = candidates.clone();
+    let recent_ids = history::recent_ids(pool, now_ms() - RECENT_WINDOW_MS, RECENT_LIMIT)
+      .await
+      .unwrap_or_else(|error| {
+        crate::wallpaper::wlog(&format!("读取最近播放失败，忽略降权：{error}"));
+        Vec::new()
+      });
+    let mut feature_ids = candidate_ids.clone();
     feature_ids.extend(recent_ids.iter().cloned());
     feature_ids.sort_unstable();
     feature_ids.dedup();
@@ -780,63 +865,98 @@ async fn advance_shuffle(app: &AppHandle, pool: &SqlitePool) -> Result<(), Media
       }
     };
 
-    let target = {
+    let candidates: Vec<ShuffleCandidate> = candidate_ids
+      .into_iter()
+      .filter_map(|id| {
+        let features = features.get(&id).cloned();
+        if features_loaded && features.is_none() {
+          return None;
+        }
+        Some(ShuffleCandidate { id, features })
+      })
+      .collect();
+    if candidates.is_empty() {
+      return Err(MediaError::new("track.unavailable", "没有可播放的曲目"));
+    }
+    let playable_ids: Vec<String> = candidates.iter().map(|item| item.id.clone()).collect();
+    let recent: Vec<RecentPlay> = recent_ids
+      .iter()
+      .map(|id| RecentPlay {
+        id: id.clone(),
+        features: features.get(id).cloned(),
+      })
+      .collect();
+    let context = ShuffleContext {
+      candidates,
+      recent,
+      current: current.clone(),
+    };
+
+    let selection = {
       let mut service = lock()?;
       if service.player.mode != "shuffle" {
         return Err(MediaError::new("mode.changed", "播放模式已切换"));
       }
       let service = &mut *service;
-      let playable: Vec<String> = if features_loaded {
-        candidates
-          .into_iter()
-          .filter(|id| features.contains_key(id))
-          .collect()
-      } else {
-        candidates
-      };
-      if playable.is_empty() {
-        return Err(MediaError::new("track.unavailable", "没有可播放的曲目"));
-      }
-      let recent: Vec<RecentPlay> = recent_ids
-        .iter()
-        .map(|id| RecentPlay {
-          id: id.clone(),
-          features: features.get(id).cloned(),
-        })
-        .collect();
-      let tuning = SmartShuffleTuning::from_config(&service.smart);
-      let round = service.round.get_or_insert_with(RoundState::new);
-      round.reconcile(source, &playable, current.as_deref());
-      smart::pick(
-        &playable,
-        &features,
-        &recent,
-        round,
-        &tuning,
-        &mut service.rng,
-      )
+      service.engine.update_tracks(
+        source,
+        &playable_ids,
+        service.player.current_track_id.as_deref(),
+      );
+      let strategy = ShuffleStrategy::from_config(&service.profile.config);
+      service.engine.next(&strategy, &context)
     };
 
-    let Some(target) = target else {
+    let Some(selection) = selection else {
       return Err(MediaError::new("track.unavailable", "没有可播放的曲目"));
     };
+    let target = selection.id.clone();
     match play(app, pool, Some(target.clone())).await {
-      Ok(()) => return Ok(()),
+      Ok(()) => {
+        if let Ok(mut service) = lock() {
+          service.engine.commit(selection);
+        }
+        return Ok(());
+      }
       Err(error) if retryable(&error) => {
         crate::wallpaper::wlog(&format!("曲目不可播放，重试下一首：{error}"));
-        excluded.insert(target.clone());
         if let Ok(mut service) = lock() {
-          if let Some(round) = service.round.as_mut() {
-            round.exclude(&target);
-          }
+          service.engine.abort(selection);
         }
+        excluded.insert(target);
         last_error = Some(error);
       }
-      Err(error) => return Err(error),
+      Err(error) => {
+        if let Ok(mut service) = lock() {
+          service.engine.abort(selection);
+        }
+        return Err(error);
+      }
     }
   }
 
   Err(last_error.unwrap_or_else(|| MediaError::new("track.unavailable", "没有可播放的曲目")))
+}
+
+/// `shuffle` 下的上一首：优先走引擎历史栈；没有历史时回退加权下一首。
+async fn advance_shuffle_previous(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
+  let guard = select_lock().lock().await;
+  let target = {
+    let mut service = lock()?;
+    if service.player.mode != "shuffle" {
+      return Err(MediaError::new("mode.changed", "播放模式已切换"));
+    }
+    service.engine.previous()
+  };
+  if let Some(target) = target {
+    play(app, pool, Some(target.clone())).await?;
+    if let Ok(mut service) = lock() {
+      service.engine.note_current(&target);
+    }
+    return Ok(());
+  }
+  drop(guard);
+  advance_shuffle(app, pool).await
 }
 
 /// 串行化引擎对账，避免 play/ready 并发产生多个 loadId，导致旧引擎事件全部
@@ -1118,6 +1238,30 @@ async fn handle_ended(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaErr
   next(app, pool, 1).await
 }
 
+fn sync_engine_tracks(service: &mut Service) {
+  let (source, tracks) = match service
+    .advance_list
+    .as_ref()
+    .filter(|list| !list.is_empty())
+  {
+    Some(list) => (Source::Advance, list.clone()),
+    None => (Source::Queue, service.queue.clone()),
+  };
+  let current = service.player.current_track_id.clone();
+  service
+    .engine
+    .update_tracks(source, &tracks, current.as_deref());
+}
+
+fn note_external_play(service: &mut Service) {
+  if service.player.mode != "shuffle" {
+    return;
+  }
+  if let Some(id) = service.player.current_track_id.clone() {
+    service.engine.on_external_play(&id);
+  }
+}
+
 fn queue_add(
   app: &AppHandle,
   pool: &SqlitePool,
@@ -1133,6 +1277,7 @@ fn queue_add(
     .unwrap_or(service.queue.len())
     .min(service.queue.len());
   service.queue.insert(position, track_id.to_string());
+  sync_engine_tracks(&mut service);
   touch(&mut service);
   emit_state(app, &service);
   let queue = service.queue.clone();
@@ -1153,6 +1298,7 @@ fn queue_remove(app: &AppHandle, pool: &SqlitePool, track_id: &str) -> Result<()
     engine::send(app, engine::player_control("player.stop"));
     save_player(app, pool, &service.player);
   }
+  sync_engine_tracks(&mut service);
   touch(&mut service);
   emit_state(app, &service);
   let queue = service.queue.clone();
@@ -1168,6 +1314,7 @@ fn queue_clear(app: &AppHandle, pool: &SqlitePool) -> Result<(), MediaError> {
   service.status = "idle".to_string();
   service.player.position_ms = 0;
   service.current_load_id = None;
+  sync_engine_tracks(&mut service);
   touch(&mut service);
   emit_state(app, &service);
   engine::send(app, engine::player_control("player.stop"));
@@ -1186,6 +1333,7 @@ fn queue_move(app: &AppHandle, pool: &SqlitePool, from: u64, to: u64) -> Result<
   }
   let item = service.queue.remove(from);
   service.queue.insert(to, item);
+  sync_engine_tracks(&mut service);
   touch(&mut service);
   emit_state(app, &service);
   let queue = service.queue.clone();
@@ -1203,7 +1351,11 @@ async fn queue_play_at(app: &AppHandle, pool: &SqlitePool, index: u64) -> Result
       .cloned()
       .ok_or_else(|| MediaError::invalid("队列索引越界"))?
   };
-  play(app, pool, Some(track_id)).await
+  play(app, pool, Some(track_id)).await?;
+  if let Ok(mut service) = lock() {
+    note_external_play(&mut service);
+  }
+  Ok(())
 }
 
 /// 引擎命令入口：校验调用窗口后转发事件。

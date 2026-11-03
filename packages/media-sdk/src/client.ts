@@ -54,6 +54,8 @@ import type {
   ScanJobView,
   SmartPlaylistView,
   SmartShuffleConfig,
+  SmartShuffleProfile,
+  SmartShuffleProfileSummary,
   SourceView,
   TagView,
   TrackDetail,
@@ -173,6 +175,15 @@ export interface LullMediaClient {
     setSmartShuffleConfig(
       config: SmartShuffleConfig,
     ): Promise<SmartShuffleConfig>;
+    listShuffleProfiles(): Promise<SmartShuffleProfileSummary[]>;
+    getShuffleProfile(profileId?: string): Promise<SmartShuffleProfile>;
+    saveShuffleProfile(input: {
+      profileId?: string;
+      name: string;
+      config: SmartShuffleConfig;
+    }): Promise<SmartShuffleProfile>;
+    deleteShuffleProfile(profileId: string): Promise<boolean>;
+    activateShuffleProfile(profileId: string): Promise<SmartShuffleProfile>;
   };
   queue: {
     get(): Promise<QueueState>;
@@ -605,6 +616,31 @@ export function createMediaClient(
       call<SmartShuffleConfig>("player", "getSmartShuffleConfig"),
     setSmartShuffleConfig: (config: SmartShuffleConfig) =>
       call<SmartShuffleConfig>("player", "setSmartShuffleConfig", { config }),
+    listShuffleProfiles: () =>
+      call<SmartShuffleProfileSummary[]>("player", "listShuffleProfiles"),
+    getShuffleProfile: (profileId?: string) =>
+      call<SmartShuffleProfile>(
+        "player",
+        "getShuffleProfile",
+        profileId ? { profileId } : {},
+      ),
+    saveShuffleProfile: (input: {
+      profileId?: string;
+      name: string;
+      config: SmartShuffleConfig;
+    }) => call<SmartShuffleProfile>("player", "saveShuffleProfile", input),
+    deleteShuffleProfile: async (profileId: string) => {
+      const result = await call<{ removed: boolean }>(
+        "player",
+        "deleteShuffleProfile",
+        { profileId },
+      );
+      return result.removed;
+    },
+    activateShuffleProfile: (profileId: string) =>
+      call<SmartShuffleProfile>("player", "activateShuffleProfile", {
+        profileId,
+      }),
   };
 
   const queue = {

@@ -1312,6 +1312,11 @@
   transform: scale(1.12);
 }
 
+/* 智能随机是滑杆图标，旋转会显得别扭，同样用放大反馈。 */
+.drawerAdd[data-action="smart"]:hover {
+  transform: scale(1.08);
+}
+
 .drawerAdd[data-action="add"] svg {
   width: 13px;
   height: 13px;

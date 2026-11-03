@@ -78,7 +78,9 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
       _ => return None,
     }),
     "player" => Some(match method {
-      "getState" | "getSmartShuffleConfig" => PLAYER_READ,
+      "getState" | "getSmartShuffleConfig" | "listShuffleProfiles" | "getShuffleProfile" => {
+        PLAYER_READ
+      }
       "play"
       | "pause"
       | "resume"
@@ -88,7 +90,10 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
       | "previous"
       | "setMode"
       | "setAdvanceList"
-      | "setSmartShuffleConfig" => PLAYER_CONTROL,
+      | "setSmartShuffleConfig"
+      | "saveShuffleProfile"
+      | "deleteShuffleProfile"
+      | "activateShuffleProfile" => PLAYER_CONTROL,
       "setVolume" | "setMuted" => PLAYER_VOLUME_WRITE,
       _ => return None,
     }),
@@ -290,7 +295,27 @@ mod tests {
       widget_capability("player", "getSmartShuffleConfig"),
       Some(PLAYER_READ)
     );
+    assert_eq!(
+      widget_capability("player", "listShuffleProfiles"),
+      Some(PLAYER_READ)
+    );
+    assert_eq!(
+      widget_capability("player", "getShuffleProfile"),
+      Some(PLAYER_READ)
+    );
     assert_eq!(widget_capability("player", "play"), Some(PLAYER_CONTROL));
+    assert_eq!(
+      widget_capability("player", "saveShuffleProfile"),
+      Some(PLAYER_CONTROL)
+    );
+    assert_eq!(
+      widget_capability("player", "activateShuffleProfile"),
+      Some(PLAYER_CONTROL)
+    );
+    assert_eq!(
+      widget_capability("player", "deleteShuffleProfile"),
+      Some(PLAYER_CONTROL)
+    );
     assert_eq!(
       widget_capability("player", "setSmartShuffleConfig"),
       Some(PLAYER_CONTROL)

@@ -138,7 +138,7 @@ mod tests {
           'noise_sources', 'noise_categories', 'noise_tags', 'noise_assets', \
           'noise_asset_tags', 'noise_favorites', 'noise_presets', 'noise_preset_tracks', \
           'noise_preset_favorites', 'noise_preferences', 'music_tags', 'music_track_tags', \
-          'music_smart_playlists', 'player_smart_shuffle')",
+          'music_smart_playlists', 'player_shuffle_profiles', 'player_shuffle_active')",
       )
       .fetch_one(&pool)
       .await
@@ -158,7 +158,7 @@ mod tests {
       (tables, removed, fts5)
     });
     cleanup(&path);
-    assert_eq!(tables, 25);
+    assert_eq!(tables, 26);
     assert_eq!(removed, 0);
     eprintln!("SQLite FTS5 enabled = {fts5}");
   }
@@ -314,6 +314,68 @@ mod tests {
       assert_eq!(builtin_artists, 0);
       assert_eq!(catalog_key, 0);
       assert_eq!(removed_tables, 0);
+    });
+    cleanup(&path);
+  }
+
+  #[test]
+  fn legacy_smart_shuffle_config_migrates_to_user_profile() {
+    let path = temp_db();
+    tauri::async_runtime::block_on(async {
+      let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true)
+        .foreign_keys(true);
+      let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("open legacy db");
+      for sql in [
+        include_str!("../../../migrations/0001_library.sql"),
+        include_str!("../../../migrations/0011_smart_shuffle.sql"),
+      ] {
+        sqlx::raw_sql(sql)
+          .execute(&pool)
+          .await
+          .expect("legacy schema");
+      }
+      sqlx::raw_sql(
+        "INSERT INTO player_smart_shuffle (id, config_json, updated_at) \
+         VALUES (1, '{\"version\":1,\"experience\":{\"randomness\":90,\"diversity\":50,\"repeatAvoidance\":80},\"separation\":{\"artist\":3,\"album\":2},\"audioFeatures\":{\"bpmMatching\":30,\"energyMatching\":30,\"moodDiversity\":30,\"genreDiversity\":50}}', 1)",
+      )
+      .execute(&pool)
+      .await
+      .expect("legacy config");
+      sqlx::raw_sql(include_str!(
+        "../../../migrations/0012_shuffle_profiles.sql"
+      ))
+      .execute(&pool)
+      .await
+      .expect("run 0012");
+
+      let active: String =
+        sqlx::query_scalar("SELECT profile_id FROM player_shuffle_active WHERE id = 1")
+          .fetch_one(&pool)
+          .await
+          .expect("active");
+      let config: String = sqlx::query_scalar(
+        "SELECT config_json FROM player_shuffle_profiles WHERE id = 'user:migrated'",
+      )
+      .fetch_one(&pool)
+      .await
+      .expect("migrated profile");
+      let old_table: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'player_smart_shuffle'",
+      )
+      .fetch_one(&pool)
+      .await
+      .expect("old table");
+      pool.close().await;
+
+      assert_eq!(active, "user:migrated");
+      assert!(config.contains("\"randomness\":90"));
+      assert_eq!(old_table, 0);
     });
     cleanup(&path);
   }

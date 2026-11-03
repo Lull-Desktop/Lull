@@ -10,6 +10,8 @@ import {
   DEFAULT_SMART_SHUFFLE_CONFIG,
   type DirectoryEntry,
   type SmartShuffleConfig,
+  type SmartShuffleProfile,
+  type SmartShuffleProfileSummary,
   type TrackSummary,
 } from "@lull/media-sdk";
 import {
@@ -509,7 +511,13 @@ export function LiquidPlayer(): React.ReactElement {
   const [canMinimize, setCanMinimize] = useState(false);
   const [themeReady, setThemeReady] = useState(false);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
-  // 智能随机配置由 Rust Media Service 持久化；本组件只缓存给设置面板用。
+  // 智能随机 Profile 由 Rust Media Service 持久化；本组件只缓存给设置面板用。
+  const [smartProfiles, setSmartProfiles] = useState<
+    SmartShuffleProfileSummary[]
+  >([]);
+  const [smartProfile, setSmartProfile] = useState<SmartShuffleProfile | null>(
+    null,
+  );
   const [smartConfig, setSmartConfig] = useState<SmartShuffleConfig>(
     DEFAULT_SMART_SHUFFLE_CONFIG,
   );
@@ -583,6 +591,7 @@ export function LiquidPlayer(): React.ReactElement {
     DEFAULT_SMART_SHUFFLE_CONFIG,
   );
   const smartConfigRef = useRef<SmartShuffleConfig>(smartConfig);
+  const smartProfileRef = useRef<SmartShuffleProfile | null>(null);
   const smartSaveTimerRef = useRef<number | null>(null);
   const smartSaveSeqRef = useRef(0);
 
@@ -595,21 +604,26 @@ export function LiquidPlayer(): React.ReactElement {
   }, [smartConfig]);
 
   useEffect(() => {
-    let alive = true;
-    void mediaClient.player
-      .getSmartShuffleConfig()
-      .then((config) => {
-        if (!alive) return;
-        savedSmartRef.current = config;
-        setSmartConfig(config);
-      })
-      .catch(() => {
-        // 读取失败时沿用默认值，不阻塞播放。
-      });
-    return () => {
-      alive = false;
-    };
+    smartProfileRef.current = smartProfile;
+  }, [smartProfile]);
+
+  const refreshSmartProfiles = useCallback(async (): Promise<void> => {
+    const [profiles, active] = await Promise.all([
+      mediaClient.player.listShuffleProfiles(),
+      mediaClient.player.getShuffleProfile(),
+    ]);
+    smartProfileRef.current = active;
+    savedSmartRef.current = active.config;
+    setSmartProfiles(profiles);
+    setSmartProfile(active);
+    setSmartConfig(active.config);
   }, [mediaClient]);
+
+  useEffect(() => {
+    void refreshSmartProfiles().catch(() => {
+      // 读取失败时沿用默认值，不阻塞播放。
+    });
+  }, [refreshSmartProfiles]);
 
   // 窗口销毁前尽力把最后一次滑杆修改写回后端。
   useEffect(
@@ -617,8 +631,14 @@ export function LiquidPlayer(): React.ReactElement {
       if (smartSaveTimerRef.current === null) return;
       window.clearTimeout(smartSaveTimerRef.current);
       smartSaveTimerRef.current = null;
+      const profile = smartProfileRef.current;
+      if (!profile || profile.builtin) return;
       void mediaClient.player
-        .setSmartShuffleConfig(smartConfigRef.current)
+        .saveShuffleProfile({
+          profileId: profile.id,
+          name: profile.name,
+          config: smartConfigRef.current,
+        })
         .catch(() => {});
     },
     [mediaClient],
@@ -892,16 +912,32 @@ export function LiquidPlayer(): React.ReactElement {
 
   const persistSmartConfig = useCallback(
     (next: SmartShuffleConfig): void => {
+      const profile = smartProfileRef.current;
+      if (!profile || profile.builtin) return;
       const seq = smartSaveSeqRef.current + 1;
       smartSaveSeqRef.current = seq;
       void mediaClient.player
-        .setSmartShuffleConfig(next)
+        .saveShuffleProfile({
+          profileId: profile.id,
+          name: profile.name,
+          config: next,
+        })
         .then((saved) => {
-          savedSmartRef.current = saved;
-          if (smartSaveSeqRef.current === seq) setSmartConfig(saved);
+          if (smartProfileRef.current?.id !== saved.id) return;
+          savedSmartRef.current = saved.config;
+          if (smartSaveSeqRef.current !== seq) return;
+          smartProfileRef.current = saved;
+          setSmartProfile(saved);
+          setSmartConfig(saved.config);
+          setSmartProfiles((previous) =>
+            previous.map((item) =>
+              item.id === saved.id ? { ...item, name: saved.name } : item,
+            ),
+          );
         })
         .catch(() => {
           if (smartSaveSeqRef.current !== seq) return;
+          if (smartProfileRef.current?.id !== profile.id) return;
           setSmartConfig(savedSmartRef.current);
           showNotice("智能随机设置保存失败");
         });
@@ -911,6 +947,7 @@ export function LiquidPlayer(): React.ReactElement {
 
   const updateSmartConfig = useCallback(
     (next: SmartShuffleConfig): void => {
+      if (smartProfileRef.current?.builtin !== false) return;
       setSmartConfig(next);
       if (smartSaveTimerRef.current !== null) {
         window.clearTimeout(smartSaveTimerRef.current);
@@ -930,6 +967,75 @@ export function LiquidPlayer(): React.ReactElement {
     smartSaveTimerRef.current = null;
     persistSmartConfig(smartConfigRef.current);
   }, [persistSmartConfig]);
+
+  const activateSmartProfile = useCallback(
+    (profileId: string): void => {
+      if (!profileId || smartProfileRef.current?.id === profileId) return;
+      flushSmartConfig();
+      void mediaClient.player
+        .activateShuffleProfile(profileId)
+        .then((profile) => {
+          smartProfileRef.current = profile;
+          savedSmartRef.current = profile.config;
+          setSmartProfile(profile);
+          setSmartConfig(profile.config);
+          setSmartProfiles((previous) =>
+            previous.map((item) => ({
+              ...item,
+              active: item.id === profile.id,
+            })),
+          );
+        })
+        .catch(() => showNotice("切换智能随机配置失败"));
+    },
+    [flushSmartConfig, mediaClient, showNotice],
+  );
+
+  const saveSmartProfileAs = useCallback(
+    (name: string): void => {
+      if (smartSaveTimerRef.current !== null) {
+        window.clearTimeout(smartSaveTimerRef.current);
+        smartSaveTimerRef.current = null;
+      }
+      void mediaClient.player
+        .saveShuffleProfile({ name, config: smartConfigRef.current })
+        .then((profile) =>
+          mediaClient.player.activateShuffleProfile(profile.id),
+        )
+        .then((profile) => {
+          smartProfileRef.current = profile;
+          savedSmartRef.current = profile.config;
+          setSmartProfile(profile);
+          setSmartConfig(profile.config);
+          setSmartProfiles((previous) => [
+            ...previous.map((item) => ({ ...item, active: false })),
+            {
+              id: profile.id,
+              name: profile.name,
+              builtin: false,
+              active: true,
+            },
+          ]);
+          showNotice("已保存智能随机配置");
+        })
+        .catch(() => showNotice("保存智能随机配置失败"));
+    },
+    [mediaClient, showNotice],
+  );
+
+  const deleteSmartProfile = useCallback((): void => {
+    const profile = smartProfileRef.current;
+    if (!profile || profile.builtin) return;
+    if (smartSaveTimerRef.current !== null) {
+      window.clearTimeout(smartSaveTimerRef.current);
+      smartSaveTimerRef.current = null;
+    }
+    void mediaClient.player
+      .deleteShuffleProfile(profile.id)
+      .then(() => refreshSmartProfiles())
+      .then(() => showNotice("已删除智能随机配置"))
+      .catch(() => showNotice("删除智能随机配置失败"));
+  }, [mediaClient, refreshSmartProfiles, showNotice]);
 
   /**
    * 曲库开关：
@@ -1868,19 +1974,6 @@ export function LiquidPlayer(): React.ReactElement {
                 >
                   <ChevronsLeftRight aria-hidden="true" />
                 </button>
-                {mode === "shuffle" ? (
-                  <button
-                    type="button"
-                    className={styles.dockButton}
-                    aria-label="智能随机设置"
-                    aria-haspopup="dialog"
-                    aria-expanded={smartOpen}
-                    {...tip("智能随机设置")}
-                    onClick={openSmartSettings}
-                  >
-                    <SlidersHorizontal aria-hidden="true" />
-                  </button>
-                ) : null}
                 {canMinimize ? (
                   <button
                     type="button"
@@ -2239,9 +2332,9 @@ export function LiquidPlayer(): React.ReactElement {
               className={`${styles.modeBubble} ${styles.libraryManage}`}
               style={{ left: `${managePos.left}px`, top: `${managePos.top}px` }}
               data-active={libraryOpen ? "true" : "false"}
-              aria-label="状态监控"
+              aria-label="音乐库"
               aria-pressed={libraryOpen}
-              {...tip(libraryOpen ? "关闭状态监控" : "打开状态监控")}
+              {...tip(libraryOpen ? "关闭音乐库" : "打开音乐库")}
               disabled={dockBusy}
               onClick={() => toggleLibraryWindow("folders")}
             >
@@ -2259,8 +2352,13 @@ export function LiquidPlayer(): React.ReactElement {
         >
           {smartOpen ? (
             <SmartShufflePanel
+              profiles={smartProfiles}
+              profile={smartProfile}
               config={smartConfig}
+              onActivate={activateSmartProfile}
               onChange={updateSmartConfig}
+              onSaveAs={saveSmartProfileAs}
+              onDelete={deleteSmartProfile}
               onClose={closeSmartSettings}
               onNotice={showNotice}
             />
@@ -2326,6 +2424,20 @@ export function LiquidPlayer(): React.ReactElement {
                   收藏
                 </button>
               </div>
+              {mode === "shuffle" ? (
+                <button
+                  type="button"
+                  className={styles.drawerAdd}
+                  data-action="smart"
+                  aria-label="智能随机设置"
+                  aria-haspopup="dialog"
+                  aria-expanded={smartOpen}
+                  {...tip("智能随机设置")}
+                  onClick={openSmartSettings}
+                >
+                  <SlidersHorizontal aria-hidden="true" />
+                </button>
+              ) : null}
               {tab === "library" ? (
                 <button
                   type="button"

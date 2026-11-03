@@ -1,25 +1,28 @@
 /**
- * 智能随机设置面板：预设 + 五个听感滑杆 + 复制配置 JSON。
+ * 智能随机设置面板：Profile 选择/另存/删除 + 五个听感滑杆。
  *
- * 不展示 BPM / 能量 / 偏好学习等尚未生效的参数；一轮内不重复等约束
- * 固定在 Rust 侧，这里只做说明。
+ * 内置 profile 只读；用户 profile 可直接调整并自动保存。
  */
 "use client";
 
-import type { SmartShuffleConfig } from "@lull/media-sdk";
-import { Lock, X } from "lucide-react";
+import type {
+  SmartShuffleConfig,
+  SmartShuffleProfile,
+  SmartShuffleProfileSummary,
+} from "@lull/media-sdk";
+import { Lock, Trash2, X } from "lucide-react";
 import { type ReactElement, useEffect, useId, useRef, useState } from "react";
-import {
-  applySmartShufflePreset,
-  SMART_SHUFFLE_PRESETS,
-  smartShufflePresetId,
-  smartShuffleUserJson,
-} from "./smart-shuffle";
+import { BUILTIN_PROFILE_COPY, profileDescription } from "./smart-shuffle";
 import styles from "./smart-shuffle-panel.module.css";
 
 type SmartShufflePanelProps = {
+  profiles: SmartShuffleProfileSummary[];
+  profile: SmartShuffleProfile | null;
   config: SmartShuffleConfig;
+  onActivate: (profileId: string) => void;
   onChange: (next: SmartShuffleConfig) => void;
+  onSaveAs: (name: string) => void;
+  onDelete: () => void;
   onClose: () => void;
   onNotice: (message: string) => void;
 };
@@ -33,6 +36,7 @@ type SliderRowProps = {
   suffix?: string;
   low: string;
   high: string;
+  disabled: boolean;
   onChange: (value: number) => void;
 };
 
@@ -45,10 +49,11 @@ function SliderRow({
   suffix = "",
   low,
   high,
+  disabled,
   onChange,
 }: SliderRowProps): ReactElement {
   return (
-    <label className={styles.sliderRow} htmlFor={id}>
+    <label className={styles.sliderRow} htmlFor={id} data-disabled={disabled}>
       <span className={styles.sliderHead}>
         <span className={styles.sliderLabel}>{label}</span>
         <strong className={styles.sliderValue}>
@@ -64,6 +69,7 @@ function SliderRow({
         max={max}
         step={1}
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
       />
       <span className={styles.hints}>
@@ -74,48 +80,27 @@ function SliderRow({
   );
 }
 
-function copyWithFallback(text: string): boolean {
-  try {
-    const area = document.createElement("textarea");
-    area.value = text;
-    area.setAttribute("readonly", "");
-    area.style.position = "fixed";
-    area.style.opacity = "0";
-    document.body.appendChild(area);
-    area.select();
-    const ok = document.execCommand("copy");
-    area.remove();
-    return ok;
-  } catch {
-    return false;
-  }
-}
-
 export function SmartShufflePanel({
+  profiles,
+  profile,
   config,
+  onActivate,
   onChange,
+  onSaveAs,
+  onDelete,
   onClose,
   onNotice,
 }: SmartShufflePanelProps): ReactElement {
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
-  const copyTimerRef = useRef<number | null>(null);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
-    "idle",
-  );
-  const presetId = smartShufflePresetId(config);
-  const activePreset = SMART_SHUFFLE_PRESETS.find(
-    (preset) => preset.id === presetId,
-  );
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const customProfiles = profiles.filter((item) => !item.builtin);
+  const readOnly = profile?.builtin !== false;
 
   useEffect(() => {
     closeRef.current?.focus();
-    return () => {
-      if (copyTimerRef.current !== null) {
-        window.clearTimeout(copyTimerRef.current);
-        copyTimerRef.current = null;
-      }
-    };
   }, []);
 
   const changeExperience = (
@@ -136,27 +121,15 @@ export function SmartShufflePanel({
     });
   };
 
-  const copyConfig = (): void => {
-    const text = smartShuffleUserJson(config);
-    const finish = (ok: boolean): void => {
-      setCopyState(ok ? "copied" : "failed");
-      onNotice(ok ? "已复制配置" : "复制失败");
-      if (copyTimerRef.current !== null) {
-        window.clearTimeout(copyTimerRef.current);
-      }
-      copyTimerRef.current = window.setTimeout(() => {
-        copyTimerRef.current = null;
-        setCopyState("idle");
-      }, 1600);
-    };
-    if (navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(text).then(
-        () => finish(true),
-        () => finish(copyWithFallback(text)),
-      );
+  const submitSaveAs = (): void => {
+    const name = saveName.trim();
+    if (!name) {
+      onNotice("请输入配置名称");
       return;
     }
-    finish(copyWithFallback(text));
+    onSaveAs(name);
+    setSaveName("");
+    setSaveOpen(false);
   };
 
   return (
@@ -179,26 +152,90 @@ export function SmartShufflePanel({
         </button>
       </header>
 
-      <fieldset className={styles.presets} aria-label="智能随机预设">
-        <legend className={styles.legend}>智能随机预设</legend>
-        {SMART_SHUFFLE_PRESETS.map((preset) => {
-          const active = presetId === preset.id;
-          return (
-            <button
-              key={preset.id}
-              type="button"
-              className={styles.preset}
-              data-active={active ? "true" : "false"}
-              aria-pressed={active}
-              onClick={() => onChange(applySmartShufflePreset(config, preset))}
-            >
-              {preset.label}
-            </button>
-          );
-        })}
-      </fieldset>
+      <div className={styles.profileRow}>
+        <select
+          className={styles.profileSelect}
+          aria-label="智能随机配置"
+          value={profile?.id ?? ""}
+          onChange={(event) => {
+            setConfirmDelete(false);
+            onActivate(event.target.value);
+          }}
+          disabled={!profile || profiles.length === 0}
+        >
+          {profiles.length === 0 ? <option value="">加载中…</option> : null}
+          {profiles.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.builtin
+                ? (BUILTIN_PROFILE_COPY[item.id]?.label ?? item.name)
+                : item.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-label="另存为新配置"
+          title="另存为新配置"
+          onClick={() => setSaveOpen((open) => !open)}
+        >
+          另存
+        </button>
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-label={confirmDelete ? "确认删除配置" : "删除当前配置"}
+          title={confirmDelete ? "再次点击确认删除" : "删除当前配置"}
+          disabled={!profile || profile.builtin}
+          data-danger={confirmDelete ? "true" : "false"}
+          onClick={() => {
+            if (!confirmDelete) {
+              setConfirmDelete(true);
+              return;
+            }
+            setConfirmDelete(false);
+            onDelete();
+          }}
+        >
+          <Trash2 aria-hidden="true" />
+        </button>
+      </div>
+      {saveOpen ? (
+        <div className={styles.saveRow}>
+          <input
+            className={styles.saveInput}
+            value={saveName}
+            maxLength={40}
+            placeholder="配置名称"
+            aria-label="新配置名称"
+            onChange={(event) => setSaveName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") submitSaveAs();
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                setSaveOpen(false);
+              }
+            }}
+          />
+          <button
+            type="button"
+            className={styles.iconButton}
+            onClick={submitSaveAs}
+          >
+            保存
+          </button>
+        </div>
+      ) : null}
+
       <p className={styles.hint}>
-        {activePreset?.description ?? "自定义：当前参数与预设不同。"}
+        {readOnly
+          ? "内置配置只读；调整参数前请先「另存」为自定义配置。"
+          : profile
+            ? profileDescription(profile.id)
+            : "加载中…"}
+        {customProfiles.length > 0
+          ? ` · 自定义 ${customProfiles.length} 个`
+          : ""}
       </p>
 
       <div className={styles.body}>
@@ -210,6 +247,7 @@ export function SmartShufflePanel({
           max={100}
           low="偏向高分"
           high="更均匀"
+          disabled={readOnly}
           onChange={(randomness) => changeExperience({ randomness })}
         />
         <SliderRow
@@ -220,6 +258,7 @@ export function SmartShufflePanel({
           max={100}
           low="允许相似"
           high="尽量切换"
+          disabled={readOnly}
           onChange={(diversity) => changeExperience({ diversity })}
         />
         <SliderRow
@@ -230,6 +269,7 @@ export function SmartShufflePanel({
           max={100}
           low="少回避"
           high="强回避"
+          disabled={readOnly}
           onChange={(repeatAvoidance) => changeExperience({ repeatAvoidance })}
         />
         <SliderRow
@@ -241,6 +281,7 @@ export function SmartShufflePanel({
           suffix=" 首"
           low="不限制"
           high="间隔越大越分散"
+          disabled={readOnly}
           onChange={(artist) => changeSeparation({ artist })}
         />
         <SliderRow
@@ -252,6 +293,7 @@ export function SmartShufflePanel({
           suffix=" 首"
           low="不限制"
           high="间隔越大越分散"
+          disabled={readOnly}
           onChange={(album) => changeSeparation({ album })}
         />
       </div>
@@ -261,13 +303,6 @@ export function SmartShufflePanel({
           <Lock aria-hidden="true" />
           一轮内不重复 · 已固定开启
         </span>
-        <button type="button" className={styles.copy} onClick={copyConfig}>
-          {copyState === "copied"
-            ? "已复制"
-            : copyState === "failed"
-              ? "复制失败"
-              : "复制配置 JSON"}
-        </button>
       </footer>
     </section>
   );
