@@ -1,6 +1,6 @@
 [package]
 name = "lull"
-version = "0.2.0"
+version = "0.2.2"
 description = "Lull — an open-source sleep & focus desktop companion"
 authors = ["Lull contributors"]
 license = "GPL-3.0-or-later"
