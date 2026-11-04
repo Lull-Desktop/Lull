@@ -1,6 +1,6 @@
 {
   "name": "@lull/widget-sdk",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2",
   "description": "Lull Widget 插件侧 SDK（TypeScript）：与宿主 iframe 壳通过 postMessage 通信，提供类型化客户端与 React / Vue 适配。",
   "keywords": [
     "lull",

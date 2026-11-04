@@ -1,6 +1,6 @@
 {
   "name": "@lull/website",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Lull 官网：产品宣传、下载入口与文档",
