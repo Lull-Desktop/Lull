@@ -202,6 +202,8 @@ Lull 的取舍不多，但每条都很清楚。下面几点解释了它为什么
 
 两条路线的技术边界不一样，所以各自独立定级、独立演进：Scene SDK 负责背景怎么展示，Widget SDK 负责桌面工具怎么运行，一个进 Beta 不代表另一个也进。
 
+> Game SDK 目前只有[设计基线](docs/game-runtime.md)与[开发者契约](docs/game-sdk.md)，**尚未实现**，不在下表的成熟度承诺范围内。
+
 可以依赖、但实验期内会变的部分，包括 `packages/*-sdk` 导出的类型与函数（含 `./react`、`./vue`、`./testing` 子入口）、`src/sdk/**` 的清单与运行时契约、Scene / Widget Manifest 的字段与 `schemaVersion` 及能力名称、iframe 与宿主之间的 postMessage 桥协议及授权语义，以及内容包目录结构、`integrity` 整包摘要与安装 / 加载规则。
 
 读得到但不算接口承诺的部分，包括 `src-tauri/**`、`src/core/**`、`src/components/**` 等未导出模块，内置场景与工具的实现细节（可读可改，fork 之后要自己跟进上游），以及实验期内新增、还没写进文档的行为。
@@ -422,6 +424,7 @@ pnpm scenes:sdk
 | 功能槽位与 Provider | [docs/extension-slots.md](docs/extension-slots.md) · [RFC](docs/Lull%20第三方扩展体系.md) |
 | 官方扩展    | [docs/official-extensions.md](docs/official-extensions.md)                               |
 | 扩展开发模式  | [docs/extension-dev-mode.md](docs/extension-dev-mode.md)                                 |
+| 游戏运行时（设计） | [Game Runtime](docs/game-runtime.md) · [Game SDK](docs/game-sdk.md) · [RFC](docs/rfc/RFC-Game-Runtime.md) |
 | 原生桌面宿主  | [docs/native-host.md](docs/native-host.md)                                             |
 | 媒体运行时   | [docs/media-runtime.md](docs/media-runtime.md)                                         |
 | 多语言方案   | [docs/i18n-plan.md](docs/i18n-plan.md)                                                 |
@@ -437,6 +440,7 @@ pnpm scenes:sdk
 - 视频壁纸默认走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/TextureStream 共享解码是可选 `native-media` feature，依赖与验收门见 [Media Runtime](docs/media-runtime.md)。当前目标机器实测 WebView2 `CreateTextureStream` 返回 `0x80070032`，因此预览构建也自动回退。
 - 安装是本地行为。只接受单场景包，包必须声明整包摘要，同 id 覆盖也算本地手动更新；社区包内 `.lull-signature.json` 的发布者验签已落地（默认只警告，`invalid`/`mismatch`/`revoked` 阻断），在线更新和回滚还没做。
 - 扩展不是通用插件系统。静态包不执行脚本，脚本包只能通过 Scene SDK 桥读帧，两者都拿不到宿主 DOM、原生调用和 IPC。
+- Game Runtime 只有设计基线，没有实现。[Game Runtime 设计](docs/game-runtime.md)与[Game SDK](docs/game-sdk.md)里的 `game-authority-*` 窗口、`game_*` 命令、`lullgame://`、`games/` 与 `game-data/` 目录、`game.json` 包格式都还不存在；实现按文档 P1–P5 分阶段推进。
 - 接口还在 0.x。`@lull/widget-sdk`（`0.2.0`）和 `@lull/scene-sdk`（`0.1.0`）随仓库构建，还没发到 npm，不承诺跨版本兼容，见[扩展接口的成熟度](#扩展接口的成熟度)。
 - 发布流程还没完备。安装包还没做代码签名，公开分发前要补签名和素材授权复核。
 
