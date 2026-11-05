@@ -20,9 +20,25 @@
         "id": "community.living-world",
         "role": "replica"
       },
-      "theme": { "background": "#07110f", "accent": "#8fd8b0" },
-      "performance": { "tier": "low", "targetFps": 30 },
-      "compatibility": { "hostApi": 2, "platforms": ["windows"] }
+      "theme": {
+        "background": "#07110f",
+        "accent": "#8fd8b0"
+      },
+      "performance": {
+        "tier": "low",
+        "targetFps": 30
+      },
+      "compatibility": {
+        "hostApi": 2,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "519c898a8d18a3a1226ec0cfb39851123d38e6481fa8938c369050e251f6296b"
+      }
     }
   ]
 }

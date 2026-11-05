@@ -73,12 +73,8 @@ fn package_error(message: String) -> GameError {
 /// 启动一个 Game Instance；幂等：已在运行返回当前视图。
 pub fn start(app: &AppHandle, game_id: &str) -> GameResult<GameInstanceView> {
   let manifest = store::ensure_runnable(app, game_id).map_err(package_error)?;
-  if manifest.runtime.authority != "host-tick" {
-    return Err(GameError::new(
-      codes::UNSUPPORTED_AUTHORITY_MODE,
-      "当前版本只支持 runtime.authority=host-tick",
-    ));
-  }
+  // P3：host-tick 与 self-loop 都允许；ticker 只给 host-tick 发 tick，
+  // self-loop 由权威页自己的循环推进。
   let spec = spec_from_manifest(&manifest);
   let loaded = repository::load(app, game_id, spec.state_schema_version)?;
   let (instance_id, epoch, revision, simulation_time_ms, state) = match loaded {
@@ -340,6 +336,42 @@ pub fn resume(app: &AppHandle, game_id: &str) -> GameResult<GameInstanceView> {
   let lifecycle = instance.lifecycle("resumed", Some("user"), Some(offline_ms));
   let view = instance.view(replicas, controllers);
   let _ = repository::save(app, instance, true);
+  drop(manager_guard);
+  manager::emit_lifecycle(app, &lifecycle);
+  manager::emit_games_changed(app);
+  Ok(view)
+}
+
+/// 用户切换后台运行：后台 tickMs×4，回到前台时按是否有参与者落到 running/hidden。
+pub fn set_background(
+  app: &AppHandle,
+  game_id: &str,
+  enabled: bool,
+) -> GameResult<GameInstanceView> {
+  let mut manager_guard = manager();
+  let (replicas, controllers) = counts(&manager_guard, game_id);
+  let Some(instance) = manager_guard.instances.get_mut(game_id) else {
+    return Err(GameError::new(
+      codes::INSTANCE_NOT_FOUND,
+      format!("游戏 {game_id} 没有活动实例"),
+    ));
+  };
+  let changed = if enabled {
+    instance.enter_background(now_ms())
+  } else {
+    instance.leave_background(now_ms(), replicas + controllers > 0)
+  };
+  if !changed {
+    return Ok(instance.view(replicas, controllers));
+  }
+  instance.dirty = true;
+  let lifecycle = instance.lifecycle(
+    "resumed",
+    Some(if enabled { "background" } else { "foreground" }),
+    None,
+  );
+  let view = instance.view(replicas, controllers);
+  let _ = repository::save(app, instance, false);
   drop(manager_guard);
   manager::emit_lifecycle(app, &lifecycle);
   manager::emit_games_changed(app);

@@ -189,6 +189,7 @@ export type GameConnectResult = {
 export type GamesConfig = {
   schemaVersion: number;
   autoStartWithWallpaper: boolean;
+  resumeOnLaunch: boolean;
   maxRunning: number;
   offlineMaxMs: number;
 };
@@ -196,6 +197,7 @@ export type GamesConfig = {
 export const GAMES_CONFIG_DEFAULT: GamesConfig = {
   schemaVersion: 1,
   autoStartWithWallpaper: true,
+  resumeOnLaunch: false,
   maxRunning: 3,
   offlineMaxMs: 7 * 24 * 3_600 * 1_000,
 };
@@ -227,6 +229,10 @@ export function normalizeGamesConfig(value: unknown): GamesConfig {
       typeof record.autoStartWithWallpaper === "boolean"
         ? record.autoStartWithWallpaper
         : GAMES_CONFIG_DEFAULT.autoStartWithWallpaper,
+    resumeOnLaunch:
+      typeof record.resumeOnLaunch === "boolean"
+        ? record.resumeOnLaunch
+        : GAMES_CONFIG_DEFAULT.resumeOnLaunch,
     maxRunning,
     offlineMaxMs,
   };

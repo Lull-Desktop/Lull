@@ -42,6 +42,23 @@ fn visible_for_debug() -> bool {
   std::env::var("LULL_GAME_AUTHORITY_VISIBLE").as_deref() == Ok("1")
 }
 
+/// 强制隐藏（对照组）：用于验证"隐藏 WebView 会暂停游戏页面 timer/rAF"。
+fn hidden_forced() -> bool {
+  std::env::var("LULL_GAME_AUTHORITY_HIDDEN").as_deref() == Ok("1")
+}
+
+/// self-loop 权威窗默认放到屏幕外但保持 visible。
+///
+/// 跨源 iframe 在 hidden 窗口里可能被 Chromium 当成不可见页面，timer/rAF 被挂起；
+/// host-tick 由 Rust 驱动不受影响。P3 的对照方案是"可见但离屏 1×1"。
+/// 用 `LULL_GAME_AUTHORITY_HIDDEN=1` 可强制隐藏做基线实验。
+fn authority_window_placement(self_loop: bool) -> (bool, bool) {
+  let debug_visible = visible_for_debug();
+  let visible = debug_visible || (self_loop && !hidden_forced());
+  let offscreen = self_loop && !debug_visible && !hidden_forced();
+  (visible, offscreen)
+}
+
 /// 创建（或复用）权威窗口；已存在时直接返回。
 pub fn create(
   app: &AppHandle,
@@ -60,10 +77,25 @@ pub fn create(
     .map_err(|error| GameError::new(codes::AUTHORITY_NOT_READY, error.to_string()))?;
   let script =
     format!("window.__LULL_LOCALE__ = {locale};\nwindow.__LULL_GAME_AUTHORITY__ = {context_json};");
-  let visible = visible_for_debug();
-  let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(ROUTE.into()))
+  let self_loop = instance.spec.authority_mode == "self-loop";
+  let (visible, offscreen) = authority_window_placement(self_loop);
+  let width = if offscreen {
+    1.0
+  } else if self_loop {
+    320.0
+  } else {
+    640.0
+  };
+  let height = if offscreen {
+    1.0
+  } else if self_loop {
+    240.0
+  } else {
+    480.0
+  };
+  let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(ROUTE.into()))
     .title("Lull Game Authority")
-    .inner_size(640.0, 480.0)
+    .inner_size(width, height)
     .visible(visible)
     .skip_taskbar(true)
     .decorations(false)
@@ -73,6 +105,10 @@ pub fn create(
     .additional_browser_args(crate::webview::browser_args())
     .initialization_script(script)
     .devtools(crate::window_host::devtools_enabled());
+  if offscreen {
+    // 可见但 1×1 的屏幕角落：探索隐藏 WebView 下 timer/rAF 被挂起的问题。
+    builder = builder.position(0.0, 0.0).focused(false);
+  }
   builder.build().map_err(|error| {
     GameError::new(
       codes::AUTHORITY_NOT_READY,
@@ -117,5 +153,23 @@ mod tests {
       label_for("0192f3a0000000000000000000000001"),
       "game-authority-0192f3a0000000000000000000000001"
     );
+  }
+
+  #[test]
+  fn host_csp_allows_game_authority_iframe() {
+    // authority 宿主壳通过 iframe 加载 http://lullgame.localhost/...；
+    // 若 tauri.conf 的 frame-src 漏掉该源，所有游戏都会在 10s 后报 authority.not_ready。
+    let raw = include_str!("../../tauri.conf.json");
+    let config: serde_json::Value = serde_json::from_str(raw).expect("tauri.conf.json");
+    for key in ["csp", "devCsp"] {
+      let csp = config["app"]["security"][key]
+        .as_str()
+        .unwrap_or_else(|| panic!("app.security.{key} 缺失"));
+      assert!(
+        csp.contains("http://lullgame.localhost"),
+        "{key} 的 frame-src 必须允许 lullgame.localhost，否则权威 iframe 被 CSP 拦截"
+      );
+      assert!(csp.contains("lullgame:"), "{key} 必须允许 lullgame: 协议");
+    }
   }
 }

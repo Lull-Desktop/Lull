@@ -40,6 +40,9 @@ yarn-error.log*
 
 # 插件样例构建产物（pnpm widgets:samples:build 生成）
 /examples/widgets/*/dist/
+# 游戏样例构建/发布产物（pnpm games:samples:build / pack 生成）
+/examples/games/*/dist/
+/examples/games/release/
 __pycache__/
 
 # 官方扩展构建产物（pnpm extensions:build 生成）

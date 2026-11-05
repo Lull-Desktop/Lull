@@ -1,6 +1,6 @@
 # Game SDK
 
-> 状态：**P2 已落地（authority / controller / scene / testing）｜Experimental**；引擎 Adapter 仍为设计（P4）。
+> 状态：**P1–P3 已落地，P4 Canvas2D Adapter 已落地｜Experimental**；其余引擎 Adapter 与独立 replica 入口仍为设计（P4）。
 > SDK 实现：[`packages/game-sdk`](../packages/game-sdk/README.md)｜宿主设计：[Game Runtime 设计](./game-runtime.md)。
 > 面向第三方游戏作者：包结构 → `game.json` → 角色 API → 场景/Widget 接入 → 引擎适配 → 安全边界。
 
@@ -127,12 +127,12 @@ my-game/
 | `license` | ✅ | SPDX 标识或许可证名 |
 | `hostApi` | ✅ | 最小宿主 API；高于当前宿主 → 明确拒绝 |
 | `entry.authority` | ✅ | Authority 入口，相对 `.html` |
-| `entry.replica` | — | 游戏自带渲染入口；P4 起支持 |
+| `entry.replica` | — | 游戏自带渲染入口；P4 起**校验接受**，宿主独立 replica 入口尚未实现 |
 | `engine.id` | — | 开放字符串（不枚举）；缺省 `custom` |
 | `engine.version` | — | 引擎版本范围（仅展示与开发者自检） |
 | `engine.adapter` | — | 适配器包名（仅元数据；宿主**不加载**） |
 | `engine.renderMode` | — | `canvas2d` / `webgl` / `webgpu` / `dom` / `custom`，缺省 `canvas2d` |
-| `runtime.authority` | ✅ | `host-tick`（P1–P2 唯一支持）或 `self-loop`（P3） |
+| `runtime.authority` | ✅ | `host-tick`（默认）或 `self-loop`（P3 experimental） |
 | `runtime.tickMs` | — | host-tick 间隔，200–60000，默认 1000 |
 | `runtime.replicas` | — | 是否允许渲染副本，默认 `true` |
 | `runtime.maxReplicas` | — | 1–16，默认 8 |
@@ -564,7 +564,7 @@ document.querySelector("#plant")!.addEventListener("click", async () => {
 
 ## 7. 引擎与 Adapter
 
-> **P1 状态**：Adapter 包尚未实现（P4）；当前只定义接口与包名。
+> **P4 状态**：`@lull/game-adapter-canvas` 已落地；Phaser / PixiJS / Three.js Adapter 仍为设计。
 
 ### 7.1 定位
 
@@ -598,11 +598,32 @@ interface LullEngineAdapter<TEngine = unknown> {
 ### 7.3 包名（P4）
 
 ```text
-@lull/game-adapter-canvas    # 原生 Canvas2D，最先支持
-@lull/game-adapter-phaser
-@lull/game-adapter-pixi
-@lull/game-adapter-three
+@lull/game-adapter-canvas    # 已落地：原生 Canvas2D
+@lull/game-adapter-phaser    # 设计
+@lull/game-adapter-pixi      # 设计
+@lull/game-adapter-three     # 设计
 ```
+
+Canvas 适配器用法（游戏包自己 import 并打包，宿主不加载）：
+
+```ts
+import { createCanvasGameRenderer } from "@lull/game-adapter-canvas";
+import { connectLullGameRender } from "@lull/game-sdk/scene";
+
+const game = await connectLullGameRender();
+if (game) {
+  const renderer = createCanvasGameRenderer({
+    canvas,
+    game,
+    maxFps: 30,
+    draw: ({ context, width, height, state }) => drawWorld(context, state, width, height),
+  });
+  renderer.start();
+}
+```
+
+它只做 dpr/backing store、rAF 节流、暂停/恢复与快照/渲染态分发；不写状态、不发命令。
+Canvas2D 之外仍按 §7.2 的 `LullEngineAdapter` 结构自行接入。
 
 ### 7.4 渲染模式
 
@@ -618,7 +639,24 @@ WebGL 是首期主要图形能力基线；WebGPU 不是运行所有游戏的必�
 
 ### 7.5 引擎权威（P3）
 
-`runtime.authority: "self-loop"` 时，游戏自己驱动循环并提交状态；宿主仍校验 epoch/lease/revision/配额；`onTick` 不触发。P1–P2 该值会被拒绝（`game.unsupported_authority_mode`）。
+`runtime.authority: "self-loop"` 时，游戏自己驱动循环并提交状态；宿主仍校验 epoch/lease/revision/配额；`onTick` 不触发。P3 起可用但标记 **experimental**（隐藏 WebView2/WebGL 稳定性尚未出真机报告，见 [稳定性报告](./game-runtime-webview-stability.md)）；默认仍建议 host-tick。
+
+### 7.6 稳定性探针（P3）
+
+`@lull/game-sdk/diagnostics` 提供页面级采样，用于填写稳定性报告：
+
+```ts
+import { createStabilityProbe } from "@lull/game-sdk/diagnostics";
+
+const probe = createStabilityProbe({ canvas: webglCanvas });
+probe.start();
+// 2h 后
+console.log(JSON.stringify(probe.summary(), null, 2));
+probe.stop();
+```
+
+包含帧率/长帧/最差帧、`webglcontextlost/restored`、页面隐藏时长、JS 堆增长与采样序列。
+报告方法、阈值与转正门槛见 [隐藏 WebView2 / WebGL 稳定性报告](./game-runtime-webview-stability.md)。
 
 ## 8. 状态、事件与命令约定
 
@@ -725,12 +763,30 @@ pnpm game:pack  ./my-game --out artifacts
 | 示例 | 阶段 | 说明 |
 | --- | --- | --- |
 | `examples/games/living-world` | P1/P2 | Canvas2D + host-tick + 场景绑定；最小闭环 |
+| `examples/games/stability-probe` | P3 | self-loop + WebGL 稳定性探针，用于 2h 长跑与 context loss 测试 |
 | `examples/scenes/living-world` | P2 | 只读 Scene 绑定：canvas 绘制植物/水位，走 `game.*` 桥 |
+| `examples/scenes/stability-probe` | P3 | 只读指标墙：展示 self-loop 的 frames/长帧/contextLost/displayId |
 | `examples/widgets/living-world-controller` | P1/P2 | 控制器 Widget：种/浇水/状态面板，走 `game.*` Widget 桥 |
-| `examples/games/canvas-demo` | P4 | 原生 Canvas 适配器 |
-| `examples/games/phaser-demo` | P4 | Phaser 适配器 |
-| `examples/games/pixi-demo` | P4 | PixiJS 适配器 |
-| `examples/games/three-demo` | P4 | Three.js 适配器 |
+| `examples/games/canvas-demo` | P4（规划） | 原生 Canvas 适配器示例 |
+| `examples/games/phaser-demo` | P4（规划） | Phaser 适配器示例 |
+| `examples/games/pixi-demo` | P4（规划） | PixiJS 适配器示例 |
+| `examples/games/three-demo` | P4（规划） | Three.js 适配器示例 |
+
+### 10.5 示例打包
+
+```bash
+pnpm games:samples:check     # 校验 examples/games/*/game.json 与预算（CI）
+pnpm games:samples:build     # 生成 examples/games/<name>/dist
+pnpm games:samples:pack      # 打 .lull-game.zip + release/manifest.json
+pnpm games:samples:install   # 安装 dist 到 %APPDATA%\app.lull.desktop\games\<id>\
+```
+
+- 校验/预算在 `scripts/lib/game-package.mjs`，按安装器当前实际 8 MiB/64 MiB/512 文件执行；
+- zip 根目录直接是包内容，并写入与 Rust `game_package::digest` 同算法的 `.lull-integrity.json`；
+- `release/manifest.json` 记录每个 zip 的 sha256、包摘要与体积，供发布页/目录使用；
+- 示例可提供 `build.mjs` 做 TypeScript/引擎打包，默认直接复制静态文件；
+- CI 在 `examples/games/**` 变化时自动 check/build/pack 并上传 release artifact。
+  细节见 [`examples/games/README.md`](../examples/games/README.md)。
 
 ## 11. 版本兼容
 
@@ -753,7 +809,7 @@ pnpm game:pack  ./my-game --out artifacts
 | 错误码 | 常见原因 | 处理 |
 | --- | --- | --- |
 | `game.instance_not_running` | 控制器先于游戏启动操作 | 显示"未运行"，等待启动 |
-| `game.unsupported_authority_mode` | 用了 `self-loop` 但宿主 P1/P2 | 改 `host-tick` 或等 P3 |
+| `game.unsupported_authority_mode` | 宿主尚不认识的 `runtime.authority` | 改用 `host-tick` / `self-loop` |
 | `game.unsupported_display_policy` | 写了 `per-monitor` | 改 `shared` |
 | `command.unknown_type` | `commands` 未声明 | 补 manifest |
 | `command.timeout` | 命令处理超过超时 | 缩短同步逻辑、尽早回结果 |

@@ -124,6 +124,7 @@ describe("GamesPanel", () => {
         return {
           schemaVersion: 1,
           autoStartWithWallpaper: true,
+          resumeOnLaunch: false,
           maxRunning: 2,
           offlineMaxMs: 604_800_000,
         };
@@ -132,6 +133,7 @@ describe("GamesPanel", () => {
         return {
           schemaVersion: 1,
           autoStartWithWallpaper: false,
+          resumeOnLaunch: false,
           maxRunning: 2,
           offlineMaxMs: 604_800_000,
         };
@@ -150,9 +152,32 @@ describe("GamesPanel", () => {
         config: {
           schemaVersion: 1,
           autoStartWithWallpaper: false,
+          resumeOnLaunch: false,
           maxRunning: 2,
           offlineMaxMs: 604_800_000,
         },
+      });
+    });
+  });
+
+  test("后台运行与回到前台调用 game_set_background", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [gameView({ instance: instanceView({ status: "running" }) })];
+      }
+      if (command === "game_set_background") {
+        return instanceView({ status: "background" });
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "后台运行" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("game_set_background", {
+        gameId: "community.living-world",
+        enabled: true,
       });
     });
   });

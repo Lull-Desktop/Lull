@@ -119,9 +119,21 @@ export function useGameReplica({
         }
         return;
       }
-      if (readyRef.current) {
-        post(sceneGameInitMessage(result.context, snapshotRef.current));
+      // 首份快照可能在监听器注册前就被投递；缺失时主动取一次。
+      if (!snapshotRef.current && token) {
+        try {
+          const snapshot = await invoke<GameSnapshot | null>(
+            "game_snapshot_get",
+            { token },
+          );
+          if (snapshot) snapshotRef.current = snapshot;
+        } catch {
+          // 取不到就退回 game.init(snapshot: null)，场景等待后续快照。
+        }
       }
+      // 不按 readyRef 门控：iframe 的 load 事件会在 script 的 game.ready 之后触发，
+      // 重连期间 readyRef 可能被重置；消息丢了由下一次 game.ready 再补。
+      post(sceneGameInitMessage(result.context, snapshotRef.current));
     } catch (reason) {
       contextRef.current = null;
       if (readyRef.current) {
@@ -203,9 +215,9 @@ export function useGameReplica({
   }, [connect, gameId]);
 
   const resetForReload = useCallback((): void => {
+    // 只失效 ready 握手；不要清 context/snapshot：iframe 的 load 在 script 的
+    // game.ready 之后触发，清空会让刚完成的 connect 结果不可用。
     readyRef.current = false;
-    contextRef.current = null;
-    snapshotRef.current = null;
   }, []);
 
   // 显示模式/窗口尺寸/DPI 变化时重新 attach，把新的渲染几何推给场景。
@@ -238,6 +250,9 @@ export function useGameReplica({
       switch (value.type) {
         case "game.ready":
           readyRef.current = true;
+          if (contextRef.current) {
+            post(sceneGameInitMessage(contextRef.current, snapshotRef.current));
+          }
           void connect();
           return true;
         case "game.requestSnapshot":

@@ -152,7 +152,7 @@ lib.rs
  │    ├─ digest.rs（旁路 .lull-integrity.json + 整包摘要）
  │    ├─ store.rs（包发现 / 授权 / 安装卸载 / 运行前检查）
  │    └─ protocol.rs（lullgame:// + 逐包 CSP / nonce）
- ├─ game（Game Runtime P1：实例 / 权威 / 状态 / 存档 / 命令 / 副本注册）
+ ├─ game（Game Runtime P1–P3：实例 / 权威 / 状态 / 存档 / 命令 / 副本注册）
  │    ├─ manager.rs（实例表 / 参与者 / ticker / 事件分发 / 命令去重）
  │    ├─ lifecycle.rs（启动 / 停止 / 立即保存 / failover）
  │    ├─ authority.rs（隐藏 game-authority-* 窗口与上下文注入）
@@ -255,7 +255,7 @@ lib.rs
 | `media_connect` / `media_disconnect` | `request: {topics?,progressMs?,levels?}` | `PlaybackSnapshot` / `()` | `media::playback`（player/noise/settings/library） |
 | `media_engine_ready` / `media_engine_event` | `event: EngineEvent` | `()` | `media::playback`（仅 media-engine） |
 | `content_packages` | — | `ContentPackageInfo[]`（含 `origin: bundled/user`） | `content_package`（壁纸窗只读） |
-| `games_list` / `games_config_get` / `games_config_set` / `game_start` / `game_stop` / `game_suspend` / `game_resume` / `game_flush` / `game_save_delete` | `gameId` 等 | `GameView[]` / `GamesConfig` / `GameInstanceView` / `()` | `game::api`（settings；启停用走扩展中心命令） |
+| `games_list` / `games_config_get` / `games_config_set` / `game_runtime_diagnostics` / `game_start` / `game_stop` / `game_suspend` / `game_resume` / `game_set_background` / `game_flush` / `game_save_delete` | `gameId` 等 | `GameView[]` / `GamesConfig` / `GameRuntimeDiagnostics` / `GameInstanceView` / `()` | `game::api`（settings；启停用走扩展中心命令） |
 | `game_auto_start` | `gameId` | `GameInstanceView \| null` | `game::api`（壁纸窗专用，按 `games.json.autoStartWithWallpaper`） |
 | `game_connect` / `game_snapshot_get` / `game_command_send` / `game_state_commit` / `game_event_publish` / `game_render_state_publish` / `game_command_result` / `game_ready` / `game_heartbeat` / `game_report_error` / `game_detach` | 见 [Game Runtime](game-runtime.md) 附录 B | 同上 | `game::api`（authority / wallpaper / widget 按窗口 ACL + token 校验） |
 
@@ -335,7 +335,7 @@ font-src 'self' data:;
 style-src 'self' 'unsafe-inline';
 script-src 'self' 'unsafe-inline';
 worker-src 'self' blob:;
-frame-src 'self' http://lullwidget.localhost lullwidget:;
+frame-src 'self' http://lullwidget.localhost lullwidget: http://lullcontent.localhost lullcontent: http://lullgame.localhost lullgame:;
 object-src 'none';
 base-uri 'self';
 form-action 'none'
@@ -344,7 +344,7 @@ form-action 'none'
 - `connect-src` 必须包含 `ipc:` 与 `http://ipc.localhost`，否则所有 Tauri IPC 失效；已通过调试端口实测。
 - `tauri-build` 会给 HTML 里的内联脚本与所有 JS 资源追加 `sha256`，运行时补进 `script-src`；`'unsafe-inline'` 只是兜底。
 - `devCsp` 额外允许 `http://localhost:3000`、`ws://localhost:3000` 与 `'unsafe-eval'`，避免破坏 Next HMR / React 开发模式。
-- `frame-src 'self' http://lullwidget.localhost lullwidget:` 覆盖外部场景 iframe 与第三方插件 iframe；`media-src blob:` 保留给 UI 临时音频；`media-src asset: http://asset.localhost` 同时覆盖视频壁纸 HTML 回退与隐藏音频引擎的本地曲目（Tauri asset protocol 支持 Range）。
+- `frame-src 'self' http://lullwidget.localhost lullwidget: http://lullcontent.localhost lullcontent: http://lullgame.localhost lullgame:` 覆盖外部场景、第三方插件与游戏权威/副本 iframe；漏掉 `lullgame` 会让 Authority 一直等不到 ready（`game.authority_not_ready`），`src-tauri/src/game/authority.rs` 有回归测试。`media-src blob:` 保留给 UI 临时音频；`media-src asset: http://asset.localhost` 同时覆盖视频壁纸 HTML 回退与隐藏音频引擎的本地曲目（Tauri asset protocol 支持 Range）。
 
 ## 5. 配置模型
 
@@ -392,7 +392,7 @@ form-action 'none'
 
 `LULL_WIDGETS_DIR` 可覆盖插件根目录（开发/测试）。包格式、能力声明与协议见 [Widget SDK](widget-sdk.md)。
 
-Game Runtime（P1）路径：
+Game Runtime（P1–P3）路径：
 
 ```text
 %APPDATA%\app.lull.desktop\games\<gameId>\game.json      # 游戏包
@@ -400,11 +400,12 @@ Game Runtime（P1）路径：
 %APPDATA%\app.lull.desktop\games.json                    # 运行偏好（autoStart / maxRunning / offlineMaxMs）
 %APPDATA%\app.lull.desktop\game-data\<gameId>\<instanceId>\state.json
 %APPDATA%\app.lull.desktop\game-data\<gameId>\<instanceId>\metadata.json
+%APPDATA%\app.lull.desktop\game-data\<gameId>\<instanceId>\journal.ndjson  # 诊断用提交日志
 %APPDATA%\app.lull.desktop\game-data\<gameId>\<instanceId>\backups\
 ```
 
 `LULL_GAMES_DIR` / `LULL_GAME_DATA_DIR` 可覆盖。存档与包目录分离：卸载包默认保留存档。
-协议、命令与 P1 边界见 [Game Runtime](game-runtime.md)。
+协议、命令与 P1–P3 边界见 [Game Runtime](game-runtime.md)。
 
 ## 6. 原生 C ABI
 
@@ -462,7 +463,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地：静态包 + `wallpaper.script` 沙箱场景，`@lull/scene-sdk` 提供参数/几何/同步/可见性桥与契约测试；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件 ZIP 安装、旁路摘要锁、扩展中心、逐能力授权、清单漂移复核、开发模式与托盘入口已落地；仍缺 npm 发布与签名 | 外部示例场景无需改核心即可运行 |
 | **C · Community** | 内容包格式、示例、包摘要、目录签名、用户内容目录与安装器 | 格式 + 示例 + 摘要 + 签名 + 统一安装入口（scene/widget 共用 staging）已落地；仍缺在线索引、第三方签名信任链与 scene 卸载自动回退 | 外部开发者可独立构建、安装并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
-| **E · Game Runtime** | 游戏实例管理、权威状态、多屏 Render Replica、第三方引擎接入 | **P1 + P2 已落地**：[Game Runtime](game-runtime.md) / [Game SDK](game-sdk.md)（单实例、`host-tick` 权威、存档、命令/事件、Widget 控制器、Scene 只读 Replica、暂停/恢复）；`self-loop`、`entry.replica` 与引擎 Adapter 仍为设计 | P3 接入 `self-loop` 与崩溃硬化，P4 接引擎 Adapter |
+| **E · Game Runtime** | 游戏实例管理、权威状态、多屏 Render Replica、第三方引擎接入 | **P1–P3 部分 + P4 Canvas Adapter 落地**：[Game Runtime](game-runtime.md) / [Game SDK](game-sdk.md)（单实例、`host-tick`/`self-loop`、存档与 journal、命令/事件、Widget 控制器、Scene 只读 Replica、暂停/恢复、`games.json` 偏好、租约 failover 硬化、Canvas2D Adapter）；`entry.replica`、其余引擎 Adapter 与 WebView 稳定性报告仍为设计 | P4 接 `entry.replica` 与 Phaser/Pixi/Three Adapter，P5 做生态与目录 |
 
 ## 9. 已知边界与风险
 
@@ -480,4 +481,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
 9. **视频壁纸的边界**：默认构建走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/WebView2 TextureStream 共享解码在可选 `native-media` feature 下实现，但本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，运行时自动回退。能力探测、构建依赖与验收门见 [Media Runtime](media-runtime.md)。不要把 HTML 回退描述成“单解码器”，也不要把“feature 已实现”描述成“原生已交付”。
 10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。P3 已补歌单/喜欢/历史、M3U 导入导出与独立 `library` 资料库窗口（含队列视图）；N2 已把 Noise 从 `playback` 迁到独立 `media::noise`，引入 Asset/Track/Session 与旧 5 层兼容门面，Session/Track 不持久化；N3 已补 Noise 本地文件导入（受管复制 + SHA-256 + 缺失检测）、分类/标签/收藏/搜索与白噪音库窗口功能页签，文件轨道通过 `<audio>` 接入 `noiseBus`；N3.5 补分类/标签独立 CRUD（内置只读、层级循环保护、删除分类不删素材）；N4 补 Preset 保存/加载/导入导出、收藏与缺失轨道映射，加载替换 Session 但不自动播放；N5/P5 补 Widget 媒体桥、Rust bridge token、8 个 Noise capability、redacted snapshot、React hooks、`noise-mixer` 示例；N6 把白噪音窗口迁到 `NoiseSession` 动态轨道，支持内置泡泡 + 本地轨列表、Preset 选择/加载、播放/暂停，关闭窗口不停止 Session；P4 补元数据编辑与重扫保护、标签实体/多标签、艺术家/专辑合并拆分、智能歌单；P6 补 `.lrc/.txt/.srt` sidecar 歌词与组织数据备份/恢复，在线元数据、文件监听、缩略图未开始；随机播放已拆成 `playback::shuffle` 的 Profile / Strategy / Engine 三层：内置与用户配置可保存/切换，Strategy 用硬近期窗口 + softmax/均匀混合，Engine 管轮次袋与上一首历史；播放器只读写 Profile。详见 [Smart Shuffle](smart-shuffle.md)。`media_call` 对 `settings/player/noise/library/noise-library` 与带 token 的 `widget-*` 开放，`media_connect` 返回快照并通过 `media:event` 推送。多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md)、[Widget SDK](widget-sdk.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
-11. **Game Runtime 已到 P2**：[Game Runtime 设计](game-runtime.md) 与 [Game SDK](game-sdk.md) 的 P1/P2 已实现：`game-authority-*` 隐藏窗口、21 条命令、`lullgame://`、`games/` 与 `game-data/` 目录、`game.json` 包格式、Widget 控制器桥与示例、Scene 只读 Replica（`game` 绑定 + `game.*` 桥）、暂停/恢复与 hidden、`games.json` 偏好与随壁纸自动启动。`self-loop`、`entry.replica`、引擎 Adapter 与开发挂载**尚未实现**，不要按设计文档假设这些能力已可调用；实现边界见设计文档 §19。
+11. **Game Runtime 已到 P3 部分 + P4 Canvas Adapter**：[Game Runtime 设计](game-runtime.md) 与 [Game SDK](game-sdk.md) 的 P1–P3 及 Canvas2D Adapter 已实现：`game-authority-*` 隐藏窗口、23 条命令、`lullgame://`、`games/` 与 `game-data/` 目录、`game.json` 包格式、Widget 控制器桥与示例、Scene 只读 Replica（`game` 绑定 + `game.*` 桥）、暂停/恢复与 hidden/background、`games.json` 偏好（自动启动/启动恢复/上限）、`self-loop` authority（experimental）、租约 failover 硬化、提交 journal、稳定性诊断命令/探针与 `@lull/game-adapter-canvas`。`entry.replica` 独立入口、Phaser/Pixi/Three Adapter、开发挂载与 WebView 稳定性真机报告**尚未完成**，不要按设计文档假设这些能力已可调用；实现边界见设计文档 §19。

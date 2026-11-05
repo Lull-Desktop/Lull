@@ -144,6 +144,16 @@ pub struct GameInstance {
   pub had_participants: bool,
   /// 最近一次处于运行态的时刻；suspend 恢复时据此计算离线时长。
   pub last_running_ms: u64,
+  /// 诊断计数：ticker 实际发出的 tick 数。
+  pub ticks_total: u64,
+  /// 诊断计数：成功提交次数。
+  pub commits_total: u64,
+  /// 诊断计数：成功提交携带的事件总数。
+  pub events_total: u64,
+  /// 诊断计数：renderState 发布次数。
+  pub render_publishes_total: u64,
+  /// 最近一次成功提交的墙钟时间。
+  pub last_commit_at_ms: u64,
 }
 
 impl GameInstance {
@@ -186,6 +196,11 @@ impl GameInstance {
       hidden_since_ms: None,
       had_participants: false,
       last_running_ms: now,
+      ticks_total: 0,
+      commits_total: 0,
+      events_total: 0,
+      render_publishes_total: 0,
+      last_commit_at_ms: 0,
     }
   }
 
@@ -300,7 +315,60 @@ impl GameInstance {
   /// 单实例的提交间隔（P1 host-tick 下也用 8/s 的硬上限兜底）。
   #[must_use]
   pub fn commit_allowed(&self, now: u64) -> bool {
-    self.last_commit_ms == 0 || now.saturating_sub(self.last_commit_ms) >= 120
+    // self-loop 允许 4 次/秒；host-tick 由 tick 节流，额外兜底 8 次/秒。
+    let interval = if self.spec.authority_mode == "self-loop" {
+      240
+    } else {
+      120
+    };
+    self.last_commit_ms == 0 || now.saturating_sub(self.last_commit_ms) >= interval
+  }
+
+  /// 用户显式要求后台运行：即使没有副本/控制器也继续 tick（降频）。
+  pub fn enter_background(&mut self, now: u64) -> bool {
+    if !matches!(
+      self.status,
+      InstanceStatus::Running | InstanceStatus::Hidden
+    ) {
+      return false;
+    }
+    self.status = InstanceStatus::Background;
+    self.hidden_since_ms = None;
+    self.last_running_ms = now;
+    self.last_tick_ms = now;
+    self.updated_at_ms = now;
+    true
+  }
+
+  /// 回到前台：有参与者或从未接入过参与者 → Running；否则 → Hidden。
+  pub fn leave_background(&mut self, now: u64, attached: bool) -> bool {
+    if self.status != InstanceStatus::Background {
+      return false;
+    }
+    if attached || !self.had_participants {
+      self.status = InstanceStatus::Running;
+      self.hidden_since_ms = None;
+      self.last_running_ms = now;
+    } else {
+      self.status = InstanceStatus::Hidden;
+      self.hidden_since_ms = Some(now);
+    }
+    self.last_tick_ms = now;
+    self.updated_at_ms = now;
+    true
+  }
+
+  /// 稳定运行 60s 后清空崩溃重试计数，避免"历史两次崩溃永久失去 failover"。
+  pub fn maybe_reset_retries(&mut self, now: u64) {
+    if self.retries > 0
+      && matches!(
+        self.status,
+        InstanceStatus::Running | InstanceStatus::Background
+      )
+      && now.saturating_sub(self.last_running_ms) >= 60_000
+    {
+      self.retries = 0;
+    }
   }
 }
 
@@ -368,6 +436,52 @@ mod tests {
     instance.last_commit_ms = 1_000;
     assert!(!instance.commit_allowed(1_050));
     assert!(instance.commit_allowed(1_120));
+  }
+
+  #[test]
+  fn self_loop_commit_limit_is_240ms() {
+    let mut spec = spec();
+    spec.authority_mode = "self-loop".to_string();
+    let mut instance = GameInstance::new("g", "i", 1, 0, 0, json!({}), spec, 0);
+    assert!(instance.commit_allowed(1_000));
+    instance.last_commit_ms = 1_000;
+    assert!(!instance.commit_allowed(1_200));
+    assert!(instance.commit_allowed(1_240));
+  }
+
+  #[test]
+  fn background_transitions_keep_attached_instances_running() {
+    let mut instance = GameInstance::new("g", "i", 1, 0, 0, json!({}), spec(), 0);
+    instance.status = InstanceStatus::Running;
+    instance.had_participants = true;
+    assert!(instance.enter_background(1_000));
+    assert_eq!(instance.status, InstanceStatus::Background);
+    assert!(instance.leave_background(2_000, true));
+    assert_eq!(instance.status, InstanceStatus::Running);
+
+    instance.had_participants = true;
+    instance.status = InstanceStatus::Hidden;
+    assert!(instance.enter_background(3_000));
+    assert!(instance.leave_background(4_000, false));
+    assert_eq!(instance.status, InstanceStatus::Hidden);
+
+    let mut never_attached = GameInstance::new("g2", "i2", 1, 0, 0, json!({}), spec(), 0);
+    never_attached.status = InstanceStatus::Running;
+    assert!(never_attached.enter_background(1_000));
+    assert!(never_attached.leave_background(2_000, false));
+    assert_eq!(never_attached.status, InstanceStatus::Running);
+  }
+
+  #[test]
+  fn retries_reset_after_stable_running() {
+    let mut instance = GameInstance::new("g", "i", 1, 0, 0, json!({}), spec(), 0);
+    instance.status = InstanceStatus::Running;
+    instance.retries = 2;
+    instance.last_running_ms = 10_000;
+    instance.maybe_reset_retries(69_000);
+    assert_eq!(instance.retries, 2);
+    instance.maybe_reset_retries(70_000);
+    assert_eq!(instance.retries, 0);
   }
 
   #[test]

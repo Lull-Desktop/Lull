@@ -22,7 +22,7 @@ use super::protocol::{
   GameReportErrorRequest, GameRole, GameSnapshot, GameStateUpdate, GameView, HOST_API,
   MAX_COMMAND_PAYLOAD_BYTES, PROTOCOL_VERSION,
 };
-use super::{lifecycle, repository, state};
+use super::{journal, lifecycle, repository, state};
 use crate::game_package::store;
 
 #[derive(Debug, Clone, Serialize)]
@@ -359,12 +359,20 @@ pub fn game_state_commit(
     };
     let before = instance.revision;
     match state::apply_commit(instance, &token, request, now_ms()) {
-      Ok(outcome) => (Ok(outcome), before),
+      Ok(outcome) => {
+        instance.commits_total = instance.commits_total.saturating_add(1);
+        instance.events_total = instance
+          .events_total
+          .saturating_add(outcome.events.len() as u64);
+        instance.last_commit_at_ms = now_ms();
+        (Ok(outcome), before)
+      }
       Err(error) => (Err(error), instance.revision),
     }
   };
   match outcome {
     Ok(outcome) => {
+      let _ = journal::append(&app, &outcome.snapshot, &outcome.events, now_ms());
       manager::emit_snapshot(&app, &outcome.snapshot);
       manager::emit_events(&app, &game_id, &outcome.events);
       if let Some(render) = &outcome.render_state {
@@ -413,12 +421,14 @@ pub fn game_render_state_publish(
   let app = window.app_handle().clone();
   let game_id = verify_authority(&window, token.as_deref())?;
   let render = {
-    let manager = manager();
+    let mut manager = manager();
     let instance = manager
       .instances
-      .get(&game_id)
+      .get_mut(&game_id)
       .ok_or_else(|| GameError::new(codes::INSTANCE_NOT_FOUND, "实例不存在"))?;
-    state::publish_render_state(instance, request, now_ms())?
+    let render = state::publish_render_state(instance, request, now_ms())?;
+    instance.render_publishes_total = instance.render_publishes_total.saturating_add(1);
+    render
   };
   manager::emit_render(&app, &game_id, &render);
   Ok(RenderPublishResult {
@@ -805,6 +815,105 @@ pub fn game_suspend(app: AppHandle, game_id: String) -> Result<GameInstanceView,
 #[tauri::command]
 pub fn game_resume(app: AppHandle, game_id: String) -> Result<GameInstanceView, GameError> {
   lifecycle::resume(&app, &game_id)
+}
+
+#[tauri::command]
+pub fn game_set_background(
+  app: AppHandle,
+  game_id: String,
+  enabled: bool,
+) -> Result<GameInstanceView, GameError> {
+  lifecycle::set_background(&app, &game_id, enabled)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameInstanceDiagnostics {
+  pub game_id: String,
+  pub instance_id: String,
+  pub status: String,
+  pub authority_mode: String,
+  pub authority_epoch: u32,
+  pub revision: u64,
+  pub simulation_time_ms: u64,
+  pub ticks_total: u64,
+  pub commits_total: u64,
+  pub events_total: u64,
+  pub render_publishes_total: u64,
+  pub last_commit_at_ms: u64,
+  pub last_tick_age_ms: u64,
+  pub lease_remaining_ms: u64,
+  pub replicas: usize,
+  pub controllers: usize,
+  pub last_error_code: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameRuntimeDiagnostics {
+  pub uptime_ms: u64,
+  pub instance_count: usize,
+  pub replica_count: usize,
+  pub controller_count: usize,
+  pub pending_commands: usize,
+  pub instances: Vec<GameInstanceDiagnostics>,
+}
+
+/// 稳定性报告/诊断用：只读运行时计数，不改变任何状态。
+#[tauri::command]
+#[must_use]
+pub fn game_runtime_diagnostics() -> GameRuntimeDiagnostics {
+  let manager = manager();
+  let now = now_ms();
+  let uptime_ms = if manager.started_at_ms == 0 {
+    0
+  } else {
+    now.saturating_sub(manager.started_at_ms)
+  };
+  let mut instances: Vec<GameInstanceDiagnostics> = manager
+    .instances
+    .values()
+    .map(|instance| GameInstanceDiagnostics {
+      game_id: instance.game_id.clone(),
+      instance_id: instance.instance_id.clone(),
+      status: instance.status.as_str().to_string(),
+      authority_mode: instance.spec.authority_mode.clone(),
+      authority_epoch: instance.epoch(),
+      revision: instance.revision,
+      simulation_time_ms: instance.simulation_time_ms,
+      ticks_total: instance.ticks_total,
+      commits_total: instance.commits_total,
+      events_total: instance.events_total,
+      render_publishes_total: instance.render_publishes_total,
+      last_commit_at_ms: instance.last_commit_at_ms,
+      last_tick_age_ms: if instance.last_tick_ms == 0 {
+        0
+      } else {
+        now.saturating_sub(instance.last_tick_ms)
+      },
+      lease_remaining_ms: instance.lease.expires_at_ms.saturating_sub(now),
+      replicas: manager
+        .replicas
+        .values()
+        .filter(|replica| replica.game_id == instance.game_id)
+        .count(),
+      controllers: manager
+        .controllers
+        .values()
+        .filter(|controller| controller.game_id == instance.game_id)
+        .count(),
+      last_error_code: instance.last_error.as_ref().map(|error| error.code.clone()),
+    })
+    .collect();
+  instances.sort_by(|left, right| left.game_id.cmp(&right.game_id));
+  GameRuntimeDiagnostics {
+    uptime_ms,
+    instance_count: instances.len(),
+    replica_count: manager.replicas.len(),
+    controller_count: manager.controllers.len(),
+    pending_commands: manager.pending.len(),
+    instances,
+  }
 }
 
 #[tauri::command]

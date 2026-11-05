@@ -101,6 +101,8 @@ pub struct GameManager {
   pub pending: HashMap<String, PendingCommand>,
   pub records: VecDeque<CommandRecord>,
   pub buckets: HashMap<String, Bucket>,
+  /// ticker 启动时刻，用于诊断 uptime；0 表示尚未启动。
+  pub started_at_ms: u64,
 }
 
 static MANAGER: OnceLock<Mutex<GameManager>> = OnceLock::new();
@@ -297,6 +299,12 @@ pub fn spawn_ticker(app: AppHandle) {
   if TICKER_STARTED.swap(true, Ordering::SeqCst) {
     return;
   }
+  {
+    let mut manager = manager();
+    if manager.started_at_ms == 0 {
+      manager.started_at_ms = now_ms();
+    }
+  }
   thread::spawn(move || {
     while TICKER_RUNNING.load(Ordering::SeqCst) {
       thread::sleep(Duration::from_millis(100));
@@ -308,6 +316,7 @@ pub fn spawn_ticker(app: AppHandle) {
 fn tick_once(app: &AppHandle) {
   let mut ticks: Vec<(String, GameTick)> = Vec::new();
   let mut lifecycles: Vec<GameLifecycle> = Vec::new();
+  let mut failovers: Vec<String> = Vec::new();
   {
     let mut manager = manager();
     let now = now_ms();
@@ -320,14 +329,24 @@ fn tick_once(app: &AppHandle) {
       *participants.entry(controller.game_id.clone()).or_default() += 1;
     }
     for (game_id, instance) in manager.instances.iter_mut() {
+      instance.maybe_reset_retries(now);
       if instance.lease.is_expired(now) && instance.status.can_tick() {
-        instance.status = InstanceStatus::Failed;
-        instance.set_error(GameErrorBody {
-          code: codes::AUTHORITY_LEASE_EXPIRED.to_string(),
-          message: "Authority 心跳超时".to_string(),
-          detail: None,
-        });
-        lifecycles.push(instance.failed_lifecycle("authority.lease_expired"));
+        if instance.retries >= 2 {
+          instance.status = InstanceStatus::Failed;
+          instance.set_error(GameErrorBody {
+            code: codes::AUTHORITY_LEASE_EXPIRED.to_string(),
+            message: "Authority 心跳超时，已停止重试".to_string(),
+            detail: None,
+          });
+          lifecycles.push(instance.failed_lifecycle("authority.lease_expired"));
+        } else {
+          // P3：心跳过期先尝试重建权威（epoch+1），用尽重试预算后才失败。
+          instance.retries += 1;
+          instance.status = InstanceStatus::Starting;
+          instance.authority_detached = true;
+          lifecycles.push(instance.lifecycle("authority-changed", Some("lease_expired"), None));
+          failovers.push(game_id.clone());
+        }
         continue;
       }
       // hidden：曾经有副本/控制器，现在全部离开；暂停 tick（用户显式后台运行除外）。
@@ -339,7 +358,11 @@ fn tick_once(app: &AppHandle) {
         lifecycles.push(instance.lifecycle("suspended", Some("hidden"), None));
       }
       if instance.status.can_tick() && instance.spec.authority_mode == "host-tick" {
-        let interval = instance.spec.limits.tick_ms.max(200);
+        let interval = if instance.status == InstanceStatus::Background {
+          instance.spec.limits.tick_ms.saturating_mul(4).max(200)
+        } else {
+          instance.spec.limits.tick_ms.max(200)
+        };
         if instance.last_tick_ms == 0 || now.saturating_sub(instance.last_tick_ms) >= interval {
           let delta = if instance.last_tick_ms == 0 {
             0
@@ -347,6 +370,7 @@ fn tick_once(app: &AppHandle) {
             now.saturating_sub(instance.last_tick_ms)
           };
           instance.last_tick_ms = now;
+          instance.ticks_total = instance.ticks_total.saturating_add(1);
           ticks.push((
             authority::label_for(&instance.instance_id),
             GameTick {
@@ -373,6 +397,10 @@ fn tick_once(app: &AppHandle) {
   for lifecycle in lifecycles {
     emit_lifecycle(app, &lifecycle);
     emit_games_changed(app);
+  }
+  for game_id in failovers {
+    let app = app.clone();
+    thread::spawn(move || lifecycle::failover(&app, &game_id));
   }
 }
 

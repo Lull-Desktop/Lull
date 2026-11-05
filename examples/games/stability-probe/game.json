@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "type": "game",
+  "id": "community.stability-probe",
+  "name": "Stability Probe",
+  "version": "1.0.2",
+  "description": "P3 稳定性探针：self-loop + WebGL 自循环，持续提交帧率/长帧/上下文丢失/堆样本。",
+  "author": "Lull",
+  "license": "MIT",
+  "hostApi": 1,
+  "entry": {
+    "authority": "authority/index.html"
+  },
+  "engine": {
+    "id": "custom",
+    "version": "1.0.2",
+    "renderMode": "webgl"
+  },
+  "runtime": {
+    "authority": "self-loop",
+    "tickMs": 1000,
+    "replicas": true,
+    "maxReplicas": 2,
+    "commit": { "flushMs": 1000 }
+  },
+  "display": {
+    "policy": "shared",
+    "modes": ["mirror", "span"]
+  },
+  "capabilities": [
+    "game.state.read",
+    "game.state.write",
+    "game.event.publish",
+    "game.render.publish"
+  ],
+  "commands": {},
+  "events": {
+    "probe.stats": { "description": "运行时稳定性统计" }
+  },
+  "state": {
+    "schemaVersion": 1,
+    "maxSizeBytes": 262144
+  },
+  "network": []
+}

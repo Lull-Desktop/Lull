@@ -1,6 +1,6 @@
 # Game Runtime 设计
 
-> 状态：**v0.3.0 —— P1 与 P2 已落地（host-tick、Render Replica、Scene 绑定、暂停/恢复）；P3–P5 仍为设计**。
+> 状态：**v0.5.1 —— P1–P3 部分落地（含 background 策略），P4 Canvas2D Adapter 已落地；entry.replica 与 Phaser/Pixi/Three Adapter 仍为设计**。
 > 基线：[RFC `LULL-RFC-GAME-001`](./rfc/RFC-Game-Runtime.md)（Proposed）｜代码基线：`0.2.2`。
 > 实现：`src-tauri/src/game/`、`src-tauri/src/game_package/`、`packages/game-sdk/`（含 `./scene`）、`src/games/`、`examples/games/living-world/`、`examples/scenes/living-world/`；未覆盖项见 §19。
 > 范围：Lull 宿主侧 —— 游戏包、实例与权威、状态仓储、命令/事件协议、多屏渲染副本、权限与窗口接线、阶段计划与验收。
@@ -36,7 +36,7 @@ Game Runtime 服务的是 **Ambient Game（环境式桌面游戏）**，不是�
 | D2 | Authority 是独立隐藏窗口 `game-authority-<hex>`，**不与任何显示器绑定** | Explorer 重启、壁纸重建、显示器热插拔不会顺带重启游戏逻辑 |
 | D3 | Replica 不自建窗口，寄生在既有 `wallpaper-<index>` 窗口里 | 复用 `SceneFrame` 的 canvas/view/viewport/dpr 与桌面挂载，不新增 Win32 表面 |
 | D4 | Controller 就是普通 `widget-<id>` 窗口 | 复用 Widget 包、授权、桥与关闭即隐藏的既有语义 |
-| D5 | Authority 分 `host-tick`（P1）与 `self-loop`（P3）两种执行模式，**首期只支持 host-tick** | 先避开 RFC 自认最高风险的"隐藏 WebView 自循环 + WebGL"部分 |
+| D5 | Authority 分 `host-tick`（P1）与 `self-loop`（P3）两种执行模式；P1–P2 只支持 host-tick，P3 起 self-loop 为 experimental | 先避开 RFC 自认最高风险的"隐藏 WebView 自循环 + WebGL"部分 |
 | D6 | 身份只由宿主认定：窗口 label + 宿主注入 token；消息里的 `role` 一律不可信 | RFC §12.2 的硬约束 |
 | D7 | Host 是状态提交的最终裁决者：校验 `instanceId / authorityId / epoch / lease / baseRevision / token`，拒绝即失败，**没有最后写入者获胜** | RFC §4.3、§4.4 |
 | D8 | 状态仓储与游戏包目录分离：包在 `games/<id>/`，存档在 `game-data/<id>/<instanceId>/` | 包摘要扫描不能罩住存档；卸载包不应连坐存档 |
@@ -215,9 +215,10 @@ src-tauri/src/
     lease.rs               #   lease、epoch、token、心跳、过期判定
     state.rs               #   提交校验、revision、事件/渲染态构造、配额
     repository.rs          #   存档读写、metadata、备份、原子写、恢复
-    config.rs              #   games.json（autoStart / maxRunning / offlineMaxMs）
+    journal.rs             #   提交 journal（诊断用 NDJSON，滚动裁剪）
+    config.rs              #   games.json（autoStart / resumeOnLaunch / maxRunning / offlineMaxMs）
     lifecycle.rs           #   启动/停止/立即保存/failover 编排
-    api.rs                 #   21 条 Tauri 命令（管理 + 参与者）
+    api.rs                 #   23 条 Tauri 命令（管理 + 参与者 + 诊断）
     protocol.rs            #   线上结构体、协议版本、错误体
     permissions.rs         #   窗口角色判定、顶层帧 token、Widget 授权
     error.rs               #   稳定错误码 GameError
@@ -251,8 +252,8 @@ src/app/(games)/game-authority/page.tsx
 | `@lull/game-sdk/widget` | `./widget` | Controller Widget 客户端 | P1 |
 | `@lull/game-sdk/scene` | `./scene` | 场景只读渲染桥 | P2 |
 | `@lull/game-sdk/testing` | `./testing` | 内存传输与样例消息 | P1 |
-| `@lull/game-adapter-canvas` | — | 原生 Canvas2D 适配器 | P4 |
-| `@lull/game-adapter-phaser/-pixi/-three` | — | 第三方引擎适配器 | P4 |
+| `@lull/game-adapter-canvas` | — | 原生 Canvas2D 适配器 | P4 已落地 |
+| `@lull/game-adapter-phaser/-pixi/-three` | — | 第三方引擎适配器 | P4 设计 |
 
 SDK 与现有 `packages/*-sdk` 一样用 `tsc` 构建 `dist` + `.d.ts`，包 license 为 Apache-2.0，新增 `game:sdk` / `game:sdk:check` 脚本并纳入 `pnpm check`。
 
@@ -434,6 +435,7 @@ authorityEpoch += 1，新建 authorityId + token
 ### 7.3 暂停与后台
 
 - `game_suspend` / `game_resume` 从 P2 起可用（设置页「暂停 / 恢复」）：暂停前先落盘，恢复时把暂停时长作为 `offlineMs` 下发。**P1 不提供暂停操作**，避免出现"暂停了但状态未落盘"的中间态。
+- `game_set_background` 从 P3 起可用（设置页「后台运行 / 回到前台」）：后台 tick 为 `tickMs × 4`（下限 200ms），没有参与者时也继续；回到前台时若有参与者或从未接入过参与者则回 `running`，否则回 `hidden`。`background` 只降低 tick 频率，不降低提交校验强度。
 - P2 的 `hidden` 是自动状态：实例曾有副本/控制器，后来全部离开且仍在 `running` 时，ticker 把它置为 `hidden` 并停止 tick；新的副本/控制器接入会恢复为 `running`，并把 hidden 时长作为 `offlineMs` 下发。从未接入过参与者的实例保持 `running`（例如只在设置页启动、尚未绑定场景）。
 - 系统休眠/锁屏事件首期不监听；恢复后按墙钟差补一次 offline 结算（见 §7.5）。
 - `background` 只降低 tick 频率，不降低状态提交校验强度。
@@ -491,6 +493,7 @@ authorityEpoch += 1，新建 authorityId + token
       <instanceId>\
         metadata.json                      # 实例元数据与运行状态
         state.json                         # 最后一次成功落盘的权威状态
+        journal.ndjson                     # 提交诊断日志（不回放，滚动裁剪）
         backups\
           state-<revision>.json            # 最多保留 3 份
   games.json                               # 运行偏好（maxRunning / resumeOnLaunch / autoStart / offlineMaxMs）
@@ -599,6 +602,8 @@ manifest 可以**收紧**上限，不能放宽硬上限；放宽只能由宿主�
 | `game_auto_start` | `gameId` | `GameInstanceView \| null` | 壁纸窗专用：按 `autoStartWithWallpaper` 启动场景绑定游戏 |
 | `game_stop` | `gameId` | `GameInstanceView` | 停止并落盘 |
 | `game_suspend` / `game_resume` | `gameId` | `GameInstanceView` | 暂停 / 恢复（P2；恢复时下发 offlineMs） |
+| `game_set_background` | `gameId, enabled` | `GameInstanceView` | 后台运行（tickMs×4）/ 回到前台（P3） |
+| `game_runtime_diagnostics` | — | `GameRuntimeDiagnostics` | 只读运行时计数（稳定性报告用） |
 | `game_flush` | `gameId` | `GameInstanceView` | 立即落盘（"立即保存"） |
 | `game_save_delete` | `gameId` | `()` | 删除实例存档（需已停止） |
 
@@ -1072,7 +1077,7 @@ Widget 打开 → connectLullGameWidget(widget, { gameId })
 - `entry.authority` 必填；`entry.replica` 可选；两者都必须是相对、`..` 之外的 `.html`。
 - `hostApi` 必须是正整数且 ≤ 当前 `GAME_HOST_API`。
 - `engine.id` 为开放字符串（缺省 `custom`，非空、≤64 字符）；`engine.renderMode ∈ {canvas2d, webgl, webgpu, dom, custom}`，缺省 `canvas2d`。
-- `runtime.authority ∈ {host-tick, self-loop}`；P1/P2 只接受 `host-tick`，否则 `game.unsupported_authority_mode`。
+- `runtime.authority ∈ {host-tick, self-loop}`；P3 起两者都接受，self-loop 仍为 experimental（默认仍推荐 host-tick）。未知值在 manifest 校验阶段被拒绝。
 - `runtime.maxReplicas` 1–16；`runtime.tickMs` 200–60000；`runtime.commit.flushMs` 250–10000。
 - `display.policy` 只接受 `shared`；`display.modes ⊆ {mirror, span}`。
 - `commands` 必填（可为空对象，表示该游戏不接受操作）；`events` 可选。两者的类型键合法（`^[a-z][a-z0-9._-]{0,63}$`）且不重复。
@@ -1206,7 +1211,7 @@ frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 现有页签是 `preferences / extensions / about`（见 `src/app/(control)/setting/page.tsx`），新增 `games`：
 
 - 列表：名称、版本、运行状态、revision、存档大小、最近更新时间。
-- 操作：启动 / 停止 / 暂停 / 恢复 / 立即保存 / 打开存档目录 / 删除存档（二次确认）。
+- 操作：启动 / 停止 / 暂停 / 恢复 / 后台运行 / 回到前台 / 立即保存 / 打开存档目录 / 删除存档（二次确认）。
 - 授权：按能力勾选（`game.*`），与扩展中心的授权入口共用一套数据。
 - 诊断：最近错误、authority epoch、replica 数量、包校验状态。
 - 空态：没有安装游戏时引导到扩展中心；没有运行实例时说明"启动后由壁纸场景或控制器接入"。
@@ -1311,9 +1316,9 @@ frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 P1 明确**未覆盖**、留给后续阶段：
 
 - Render Replica 与 Scene 绑定（P2）：`game_connect` 的 replica 分支已就绪，但壁纸窗尚未接入 `game.*` 场景桥；`@lull/game-sdk` 当前没有 `./scene` 入口。
-- 暂停 / hidden / background 状态机（P2）：状态枚举已定义，命令与自动策略未开放。
-- `self-loop` 权威、崩溃检测硬化、journal（P3）：当前 failover 靠窗口销毁与租约过期，最多自动重试 2 次。
-- `entry.replica` 独立副本与引擎适配器（P4）。
+- 暂停 / hidden / background 状态机（P2/P3）：暂停/恢复、hidden 自动停 tick 与 `game_set_background` 后台降频均已开放。
+- `self-loop` 权威、崩溃检测硬化、journal（P3）：**self-loop 已放行**（提交限流 4 次/秒），租约过期的 failover、稳定 60s 后重试计数复位、`resumeOnLaunch`、提交 journal 与稳定性工具链已落地；见 [稳定性报告](./game-runtime-webview-stability.md)（真机长跑待执行，暂不转正）。
+- `entry.replica` 独立副本与 Phaser/PixiJS/Three.js Adapter（P4）；Canvas2D Adapter 已落地。
 - 游戏开发挂载（dev mode）、官方游戏、控制器 Widget 示例、在线目录与签名 UI（P5）。
 - 扩展中心的游戏详情/逐能力开关 UI：命令已支持 `kind="game"`，设置页当前只提供整体启用/停用。
 
@@ -1333,6 +1338,8 @@ P1 明确**未覆盖**、留给后续阶段：
 
 **改动**：`runtime.authority = "self-loop"` 放行；心跳/超时/窗口销毁/错误上报的 failover 全链路；重试与降级；`journal/`（可选，逐提交追加、滚动裁剪）；隐藏 WebView2 稳定性测试与参数实验记录；系统休眠/锁屏的降频评估；`games.json.resumeOnLaunch`。
 
+**P3 实现状态**：`self-loop` authority 已放行（ticker 不驱动、提交限流 4 次/秒、`onTick` 不触发）；租约过期先尝试 epoch+1 重建权威，重试预算用尽才失败；稳定运行 60s 后重置重试计数；`games.json.resumeOnLaunch` 已落地（启动 1.5s 后在后台线程逐个恢复上次活动实例，单个失败不影响其余）；提交 journal（NDJSON，只记 revision/epoch/事件类型，512KB/256 行滚动裁剪）已落地；`game_set_background` 后台策略（tickMs×4）已落地；稳定性工具链（`game_runtime_diagnostics`、`@lull/game-sdk/diagnostics`、`scripts/game-stability-report.mjs`、`examples/games/stability-probe`）已就绪；self-loop 默认使用 **1×1 visible 权威窗**（`LULL_GAME_AUTHORITY_HIDDEN=1` 可回到隐藏对照组）。**真机 2h 长跑与多屏目视验收未执行，`self-loop` 保持 experimental**，详见 [隐藏 WebView2 / WebGL 稳定性报告](./game-runtime-webview-stability.md)。
+
 **退出标准**：RFC §16 Phase 3 四条验收全过；形成《隐藏 WebView2/WebGL 稳定性报告》（节流、GPU、上下文丢失、异常恢复四类），不达标则保持 `self-loop` 为 experimental 并默认关闭。
 
 ### P4 · 第三方引擎 Adapter（RFC Phase 4）
@@ -1343,11 +1350,15 @@ P1 明确**未覆盖**、留给后续阶段：
 
 **退出标准**：RFC §16 Phase 4 四条验收全过；宿主 `cargo tree` 不出现任何引擎依赖；同一游戏包不同入口（authority/replica）可分别使用；引擎生命周期与 LULL 生命周期对齐。
 
+**P4 实现状态**：`@lull/game-adapter-canvas` 已落地（dpr/backing store、rAF 节流、暂停/恢复、快照/渲染态，4 项单测 + 与 `LullGameRenderClient` 的编译期契约测试）。尚未完成：`entry.replica` 独立副本宿主（`game-replica-host.tsx`）、Phaser/PixiJS/Three.js Adapter 与对应示例、安装体积复核。
+
 ### P5 · 社区游戏生态（RFC Phase 5）
 
 **目标**：安装/卸载/校验/授权/目录/模板/存档迁移的完整链路。
 
 **改动**：在线/离线目录（可选）、摘要与签名 UI、开发者模板、示例项目、存档迁移 hook（`state.migrations`）、官方游戏包、托盘"当前游戏"评估。
+
+**P5 打包基础设施（已提前落地）**：`scripts/build-game-examples.mjs`、`scripts/pack-game.mjs`、`scripts/install-game-examples.mjs` 与 `scripts/lib/game-package.mjs`，生成 `.lull-game.zip` + `release/manifest.json`（sha256/包摘要/体积），并纳入 `pnpm check` 的 `games:samples:check`；CI 见 `.github/workflows/game-examples.yml`。详见 [`examples/games/README.md`](../examples/games/README.md)。
 
 **退出标准**：RFC §16 Phase 5 验收；第三方开发者只依赖 `@lull/game-sdk` 即可从零跑通示例；迁移失败可回滚且不丢存档。
 
@@ -1386,7 +1397,7 @@ P1 明确**未覆盖**、留给后续阶段：
 
 | # | 风险 | 影响 | 缓解 / 验证 | 阶段 |
 | --- | --- | --- | --- | --- |
-| R1 | 隐藏 WebView2 的后台节流、GPU 回收、WebGL 上下文丢失 | Authority 不推进/画面丢失 | host-tick 由 Rust 驱动；全局 browser args 已关闭节流；P3 专项稳定性测试；必要时做"离屏可见 1×1"对照实验 | P3 |
+| R1 | 隐藏 WebView2 的后台节流、GPU 回收、WebGL 上下文丢失 | Authority 不推进/画面丢失 | host-tick 由 Rust 驱动；全局 browser args 已关闭节流；P3 专项稳定性测试与 [稳定性报告](./game-runtime-webview-stability.md)；必要时做"离屏可见 1×1"对照实验 | P3 |
 | R2 | 提交频率与磁盘寿命 | 写放大、卡顿 | 合并落盘 1–2s + 停止/退出强制 flush；备份滚动 3 份 | P1 |
 | R3 | 快照 JSON 序列化与多副本投递成本 | 大状态多屏卡顿 | 快照合并节流；大小硬上限；P2 真机压测（1 MiB × 8 replica） | P2 |
 | R4 | 游戏逻辑不可判定"确定性" | host-tick 下不同步/漂移 | 文档约定：模拟只读宿主 tick 与预置随机源；SDK 提供 seeded RNG；不承诺跨平台逐位一致 | P1 |
@@ -1434,7 +1445,7 @@ P1 明确**未覆盖**、留给后续阶段：
 | `game.unsupported_schema` | schemaVersion 不支持 | 升级 Lull |
 | `game.unsupported_host_api` | hostApi 过高 | 升级 Lull |
 | `game.unsupported_display_policy` | `per-monitor` | 说明首期只支持 shared |
-| `game.unsupported_authority_mode` | `self-loop`（P1/P2） | 说明引擎权威尚未开放 |
+| `game.unsupported_authority_mode` | 宿主尚不认识的 `runtime.authority` | 改用 `host-tick` / `self-loop`；未来 RFC 新模式的兼容错误 |
 | `game.instance_not_found` | 实例不存在 | 刷新列表 |
 | `game.instance_not_running` | 状态不允许 | 启动/等待就绪 |
 | `game.instance_limit` | 运行数超限 | 先停止其它游戏 |
@@ -1445,6 +1456,15 @@ P1 明确**未覆盖**、留给后续阶段：
 | `authority.lease_expired` | 租约过期 | 自动 failover |
 | `authority.token_invalid` | token 错误/缺失 | 安全事件，记日志 |
 | `authority.not_ready` | 启动 10s 未 ready | 重试/查看日志 |
+
+#### `authority.not_ready` 排查
+
+1. **CSP `frame-src` 必须允许 `http://lullgame.localhost lullgame:`**（`tauri.conf.json` 的 `csp` 与 `devCsp`）。漏掉时 iframe 被浏览器直接拦截，页面永远发不出 ready；`src-tauri/src/game/authority.rs` 有回归测试。改完 `tauri.conf.json` 必须重新构建/启动应用。
+2. 用 `LULL_GAME_AUTHORITY_VISIBLE=1` 启动，观察隐藏窗口里的 Console：若可见时正常、隐藏时超时，是 WebView2 隐藏/节流问题，记入 P3 稳定性报告。
+3. 直接打开 `http://lullgame.localhost/<gameId>/<entry.authority>`（或检查 `lullgame://` 服务）确认入口 200、`main.js` 无语法错误。
+4. 确认游戏包 `entry.authority` 指向的文件确实存在，且 manifest `runtime.authority` 是 `host-tick` / `self-loop`。
+5. `self-loop` 还会经过前端 `GameAuthorityContext` 校验：`mode` 必须是 `host-tick` 或 `self-loop`；校验失败时宿主壳不会创建 iframe，同样表现为 10s 超时。
+
 | `state.revision_conflict` | baseRevision 不匹配 | 刷新后重试（游戏自行处理） |
 | `state.too_large` | 提交超限 | 游戏自己压缩状态 |
 | `state.invalid` | simulationTime 回退/超墙钟 | 游戏修正 |
@@ -1471,10 +1491,12 @@ P1 明确**未覆盖**、留给后续阶段：
 games_list(): Promise<GameView[]>;
 games_config_get(): Promise<GamesConfig>;
 games_config_set(config: GamesConfig): Promise<GamesConfig>;
+game_runtime_diagnostics(): Promise<GameRuntimeDiagnostics>;
 game_start(gameId: string): Promise<GameInstanceView>;
 game_stop(gameId: string): Promise<GameInstanceView>;
 game_suspend(gameId: string): Promise<GameInstanceView>;
 game_resume(gameId: string): Promise<GameInstanceView>;
+game_set_background(gameId: string, enabled: boolean): Promise<GameInstanceView>;
 game_flush(gameId: string): Promise<GameInstanceView>;
 game_save_delete(gameId: string): Promise<void>;
 // 壁纸窗专用（按 games.json.autoStartWithWallpaper）

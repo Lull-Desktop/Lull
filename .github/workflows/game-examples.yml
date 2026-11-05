@@ -1,0 +1,69 @@
+# 校验、构建并打包 examples/games，产出可发布的 .lull-game.zip 与 release manifest。
+#
+# 只在游戏示例/打包脚本变化时触发，避免每次前端改动都跑。
+# 签名、在线目录与商店分发仍由后续发布流程处理；这里只产出构建产物。
+
+name: Game examples
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "examples/games/**"
+      - "scripts/build-game-examples.mjs"
+      - "scripts/pack-game.mjs"
+      - "scripts/install-game-examples.mjs"
+      - "scripts/lib/game-package.mjs"
+      - "scripts/lib/widget-digest.mjs"
+      - "scripts/zip-writer.mjs"
+      - ".github/workflows/game-examples.yml"
+  pull_request:
+    paths:
+      - "examples/games/**"
+      - "scripts/build-game-examples.mjs"
+      - "scripts/pack-game.mjs"
+      - "scripts/lib/game-package.mjs"
+      - ".github/workflows/game-examples.yml"
+  workflow_dispatch:
+
+jobs:
+  game-examples:
+    name: Build & pack game examples
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm package manager
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: "pnpm"
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate game examples
+        run: pnpm games:samples:check
+
+      - name: Build game examples
+        run: pnpm games:samples:build
+
+      - name: Pack .lull-game.zip + release manifest
+        run: pnpm games:samples:pack
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-examples-release
+          path: examples/games/release/**
+          if-no-files-found: error
+          retention-days: 7

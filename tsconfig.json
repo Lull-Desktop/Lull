@@ -30,7 +30,13 @@
       "@lull/game-sdk": ["./packages/game-sdk/src/index.ts"],
       "@lull/game-sdk/widget": ["./packages/game-sdk/src/widget.ts"],
       "@lull/game-sdk/scene": ["./packages/game-sdk/src/scene.ts"],
+      "@lull/game-sdk/diagnostics": [
+        "./packages/game-sdk/src/diagnostics.ts"
+      ],
       "@lull/game-sdk/testing": ["./packages/game-sdk/src/testing.ts"],
+      "@lull/game-adapter-canvas": [
+        "./packages/game-adapter-canvas/src/index.ts"
+      ],
       "@lull/media-sdk": ["./packages/media-sdk/src/index.ts"],
       "@lull/media-sdk/react": ["./packages/media-sdk/src/react.tsx"],
       "@lull/media-sdk/widget": ["./packages/media-sdk/src/widget.ts"],

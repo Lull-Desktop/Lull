@@ -5,13 +5,17 @@
  * 立即保存 / 删除存档。安装、启停用与能力授权仍归扩展中心，这里只在空态与
  * 说明里指路。
  */
+import { invoke } from "@tauri-apps/api/core";
 import {
+  Copy,
   Gamepad2,
+  Moon,
   Pause,
   Play,
   Power,
   Save,
   Square,
+  Sun,
   Trash2,
 } from "lucide-react";
 import { useState } from "react";
@@ -140,6 +144,8 @@ function GameCard({
   onEnable,
   onSuspend,
   onResume,
+  onBackground,
+  onForeground,
 }: {
   game: GameView;
   locale: string;
@@ -151,6 +157,8 @@ function GameCard({
   onEnable: () => void;
   onSuspend: () => void;
   onResume: () => void;
+  onBackground: () => void;
+  onForeground: () => void;
 }) {
   const instance = game.instance ?? null;
   const status = instance?.status ?? null;
@@ -264,6 +272,32 @@ function GameCard({
               {m.games_suspend()}
             </Button>
           )}
+          {(status === "running" || status === "hidden") && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending}
+              onClick={onBackground}
+            >
+              <Moon className="h-3.5 w-3.5" />
+              {m.games_background()}
+            </Button>
+          )}
+          {status === "background" && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending}
+              onClick={onForeground}
+            >
+              <Sun className="h-3.5 w-3.5" />
+              {m.games_foreground()}
+            </Button>
+          )}
           {status === "suspended" && (
             <Button
               type="button"
@@ -369,12 +403,28 @@ export function GamesPanel() {
     flush,
     suspend,
     resume,
+    setBackground,
     deleteSave,
     setEnabled,
     saveConfig,
   } = useGames();
   const { confirm, dialog } = useConfirmDialog();
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
+
+  const copyDiagnostics = async (): Promise<void> => {
+    try {
+      const data = await invoke("game_runtime_diagnostics");
+      if (!navigator.clipboard) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+      setDiagnostics("copied");
+    } catch {
+      setDiagnostics("failed");
+    }
+    window.setTimeout(() => setDiagnostics("idle"), 2_500);
+  };
 
   const run = async (
     gameId: string,
@@ -406,10 +456,26 @@ export function GamesPanel() {
         data-testid="settings-games-card"
       >
         <CardHeader className="shrink-0 p-5 pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Gamepad2 className="h-4 w-4 text-bamboo" />
-            {m.games_title()}
-          </CardTitle>
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Gamepad2 className="h-4 w-4 text-bamboo" />
+              {m.games_title()}
+            </CardTitle>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 shrink-0 px-2 text-[11px]"
+              onClick={() => void copyDiagnostics()}
+            >
+              <Copy className="h-3.5 w-3.5" />
+              {diagnostics === "copied"
+                ? m.games_diagnostics_copied()
+                : diagnostics === "failed"
+                  ? m.games_diagnostics_failed()
+                  : m.games_copy_diagnostics()}
+            </Button>
+          </div>
           <CardDescription>{m.games_description()}</CardDescription>
         </CardHeader>
         <CardContent className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-5 pt-0">
@@ -430,6 +496,24 @@ export function GamesPanel() {
                 aria-label={m.games_auto_start()}
                 onCheckedChange={(checked) => {
                   void saveConfig({ autoStartWithWallpaper: checked });
+                }}
+              />
+            </div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {m.games_resume_on_launch()}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {m.games_resume_on_launch_hint()}
+                </p>
+              </div>
+              <Switch
+                size="sm"
+                checked={config.resumeOnLaunch}
+                aria-label={m.games_resume_on_launch()}
+                onCheckedChange={(checked) => {
+                  void saveConfig({ resumeOnLaunch: checked });
                 }}
               />
             </div>
@@ -493,6 +577,12 @@ export function GamesPanel() {
                 onEnable={() => void run(game.id, (id) => setEnabled(id, true))}
                 onSuspend={() => void run(game.id, suspend)}
                 onResume={() => void run(game.id, resume)}
+                onBackground={() =>
+                  void run(game.id, (id) => setBackground(id, true))
+                }
+                onForeground={() =>
+                  void run(game.id, (id) => setBackground(id, false))
+                }
               />
             );
           })}

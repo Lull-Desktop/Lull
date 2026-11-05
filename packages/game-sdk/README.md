@@ -8,6 +8,7 @@ Scene 场景只读渲染游戏副本。
 - authority 客户端：`@lull/game-sdk`
 - Controller Widget 客户端：`@lull/game-sdk/widget`
 - Scene 只读渲染桥：`@lull/game-sdk/scene`
+- 稳定性探针：`@lull/game-sdk/diagnostics`
 - 测试辅助：`@lull/game-sdk/testing`
 
 ```ts
@@ -33,6 +34,15 @@ const game = await connectLullGameRender();
 if (game) {
   game.onSnapshot((snapshot) => draw(snapshot.state, game.render));
 }
+```
+
+```ts
+import { createStabilityProbe } from "@lull/game-sdk/diagnostics";
+
+const probe = createStabilityProbe({ canvas: webglCanvas });
+probe.start();
+// ... run ...
+console.log(JSON.stringify(probe.summary(), null, 2));
 ```
 
 ## 构建

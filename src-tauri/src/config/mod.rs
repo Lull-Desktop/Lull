@@ -280,6 +280,20 @@ impl WallpaperConfig {
       self.display.scene.clone()
     }
   }
+
+  /// 场景是否仍在任何屏幕上实际生效。
+  ///
+  /// 不能用 `resolved_scene`：mirror/span 下每屏覆盖被忽略，残留的 monitor.scene
+  /// 不应阻止卸载场景（否则切换了全局壁纸也卸载不掉）。
+  pub fn scene_in_use(&self, scene: &str) -> bool {
+    if self.display.scene == scene {
+      return true;
+    }
+    self
+      .monitors
+      .keys()
+      .any(|device| self.effective_scene(device) == scene)
+  }
 }
 
 fn temp_file_path(path: &Path) -> PathBuf {
@@ -527,6 +541,27 @@ mod tests {
     c.display.mode = DisplayMode::Independent;
     assert_eq!(c.effective_scene(D1), "lull.aurora");
     assert_eq!(c.effective_scene(D2), "lull.video");
+  }
+
+  #[test]
+  fn scene_in_use_ignores_stale_overrides_outside_independent_mode() {
+    // 用户把全局壁纸切回 video，但 DISPLAY2 残留 overlay 覆盖；mirror 下该覆盖
+    // 不参与渲染，不能阻止卸载场景。
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Mirror;
+    c.display.scene = "lull.video".into();
+    c.set_monitor_scene(D2, Some("community.stability-probe-overlay".into()));
+    assert!(!c.scene_in_use("community.stability-probe-overlay"));
+
+    c.display.mode = DisplayMode::Independent;
+    assert!(c.scene_in_use("community.stability-probe-overlay"));
+
+    c.display.mode = DisplayMode::Mirror;
+    c.set_monitor_scene(D2, None);
+    assert!(!c.scene_in_use("community.stability-probe-overlay"));
+
+    c.display.scene = "community.stability-probe-overlay".into();
+    assert!(c.scene_in_use("community.stability-probe-overlay"));
   }
 
   #[test]

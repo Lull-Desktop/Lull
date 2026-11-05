@@ -85,6 +85,48 @@ pub fn load(
   load_at(&root, game_id, expected_schema)
 }
 
+/// `resumeOnLaunch` 用：扫描上次仍处于活动状态的实例（在 mark_interrupted 之前调用）。
+#[must_use]
+pub fn active_game_ids(app: &AppHandle) -> Vec<String> {
+  data_root(app)
+    .map(|root| active_game_ids_at(&root))
+    .unwrap_or_default()
+}
+
+fn active_game_ids_at(root: &Path) -> Vec<String> {
+  let Ok(games) = std::fs::read_dir(root) else {
+    return Vec::new();
+  };
+  let mut ids = Vec::new();
+  for game in games.flatten() {
+    let game_dir = game.path();
+    if !game_dir.is_dir() {
+      continue;
+    }
+    let Ok(instances) = std::fs::read_dir(&game_dir) else {
+      continue;
+    };
+    for instance in instances.flatten() {
+      let instance_dir = instance.path();
+      if !instance_dir.is_dir() {
+        continue;
+      }
+      let Some(metadata) = read_metadata(&instance_dir.join(METADATA_FILE)) else {
+        continue;
+      };
+      if matches!(
+        metadata.status.as_str(),
+        "starting" | "ready" | "running" | "background" | "hidden" | "suspended"
+      ) {
+        ids.push(metadata.game_id);
+      }
+    }
+  }
+  ids.sort();
+  ids.dedup();
+  ids
+}
+
 /// 落盘当前实例；`force_backup` 用于干净停止。
 pub fn save(app: &AppHandle, instance: &mut GameInstance, force_backup: bool) -> GameResult<()> {
   let root = data_root(app).map_err(|error| GameError::new(codes::IO_ERROR, error))?;
@@ -358,6 +400,23 @@ mod tests {
     instance.status = InstanceStatus::Running;
     instance.dirty = true;
     instance
+  }
+
+  #[test]
+  fn active_game_ids_only_reports_non_stopped_instances() {
+    let root = temp_root("active");
+    let mut running = instance();
+    running.instance_id = "0192f3a0000000000000000000000002".into();
+    save_at(&root, &mut running, false).expect("save running");
+
+    let mut stopped = instance();
+    stopped.game_id = "other.game".into();
+    stopped.instance_id = "0192f3a0000000000000000000000003".into();
+    stopped.status = InstanceStatus::Stopped;
+    save_at(&root, &mut stopped, false).expect("save stopped");
+
+    assert_eq!(active_game_ids_at(&root), vec!["demo.game".to_string()]);
+    let _ = std::fs::remove_dir_all(root);
   }
 
   #[test]

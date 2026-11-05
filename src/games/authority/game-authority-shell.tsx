@@ -29,7 +29,7 @@ export type GameAuthorityContext = {
   authorityId: string;
   authorityEpoch: number;
   role: "authority";
-  mode: "host-tick";
+  mode: "host-tick" | "self-loop";
   entryUrl: string;
   token: string;
   limits: GameLimits;
@@ -57,7 +57,9 @@ const PROTOCOL_VERSION = 1;
 const HEARTBEAT_INTERVAL_MS = 2_000;
 const HEARTBEAT_MAX_FAILURES = 3;
 
-function isGameAuthorityContext(value: unknown): value is GameAuthorityContext {
+export function isGameAuthorityContext(
+  value: unknown,
+): value is GameAuthorityContext {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
   return (
@@ -68,7 +70,7 @@ function isGameAuthorityContext(value: unknown): value is GameAuthorityContext {
     typeof record.authorityId === "string" &&
     typeof record.authorityEpoch === "number" &&
     record.role === "authority" &&
-    record.mode === "host-tick" &&
+    (record.mode === "host-tick" || record.mode === "self-loop") &&
     typeof record.entryUrl === "string" &&
     isHttpUrl(record.entryUrl) &&
     typeof record.token === "string" &&

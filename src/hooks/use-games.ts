@@ -32,6 +32,7 @@ export type GamesState = {
   flush: (gameId: string) => Promise<void>;
   suspend: (gameId: string) => Promise<void>;
   resume: (gameId: string) => Promise<void>;
+  setBackground: (gameId: string, enabled: boolean) => Promise<void>;
   deleteSave: (gameId: string) => Promise<void>;
   setEnabled: (gameId: string, enabled: boolean) => Promise<void>;
 };
@@ -135,6 +136,20 @@ export function useGames(): GamesState {
     (gameId: string): Promise<void> => runAction("game_resume", gameId),
     [runAction],
   );
+  const setBackground = useCallback(
+    async (gameId: string, enabled: boolean): Promise<void> => {
+      try {
+        await invoke("game_set_background", { gameId, enabled });
+        if (!aliveRef.current) return;
+        setError(null);
+        await refresh();
+      } catch (reason) {
+        if (!aliveRef.current) return;
+        setError(toGameErrorBody(reason).message);
+      }
+    },
+    [refresh],
+  );
   const deleteSave = useCallback(
     (gameId: string): Promise<void> => runAction("game_save_delete", gameId),
     [runAction],
@@ -195,6 +210,7 @@ export function useGames(): GamesState {
     flush,
     suspend,
     resume,
+    setBackground,
     deleteSave,
     setEnabled,
   };

@@ -29,6 +29,10 @@
       "types": "./dist/scene.d.ts",
       "default": "./dist/scene.js"
     },
+    "./diagnostics": {
+      "types": "./dist/diagnostics.d.ts",
+      "default": "./dist/diagnostics.js"
+    },
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"

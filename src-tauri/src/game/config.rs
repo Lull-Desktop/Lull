@@ -26,6 +26,8 @@ pub struct GamesConfig {
   pub schema_version: u32,
   /// 场景绑定游戏且实例未运行时，是否允许壁纸窗自动启动（默认开）。
   pub auto_start_with_wallpaper: bool,
+  /// 应用启动时是否恢复上次仍在运行的实例（默认关；崩溃后恢复）。
+  pub resume_on_launch: bool,
   /// 同时运行实例上限，clamp 1..=3。
   pub max_running: u32,
   /// 恢复/暂停补算离线时间的上限，clamp 1h..=30d。
@@ -37,6 +39,7 @@ impl Default for GamesConfig {
     Self {
       schema_version: CONFIG_SCHEMA_VERSION,
       auto_start_with_wallpaper: true,
+      resume_on_launch: false,
       max_running: DEFAULT_MAX_RUNNING,
       offline_max_ms: DEFAULT_OFFLINE_MAX_MS,
     }
@@ -106,6 +109,11 @@ pub fn auto_start_with_wallpaper(app: &AppHandle) -> bool {
   load(app).auto_start_with_wallpaper
 }
 
+#[must_use]
+pub fn resume_on_launch(app: &AppHandle) -> bool {
+  load(app).resume_on_launch
+}
+
 fn write_atomic(path: &Path, bytes: &[u8]) -> GameResult<()> {
   let temp = path.with_extension("tmp");
   std::fs::write(&temp, bytes)
@@ -127,6 +135,7 @@ mod tests {
     let config = GamesConfig::default().sanitized();
     assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
     assert!(config.auto_start_with_wallpaper);
+    assert!(!config.resume_on_launch);
     assert_eq!(config.max_running, MAX_RUNNING_MAX);
     assert_eq!(config.offline_max_ms, DEFAULT_OFFLINE_MAX_MS);
   }
@@ -136,11 +145,13 @@ mod tests {
     let config = GamesConfig {
       schema_version: 99,
       auto_start_with_wallpaper: false,
+      resume_on_launch: true,
       max_running: 0,
       offline_max_ms: 1,
     }
     .sanitized();
     assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+    assert!(config.resume_on_launch);
     assert_eq!(config.max_running, MAX_RUNNING_MIN);
     assert_eq!(config.offline_max_ms, OFFLINE_MAX_MIN_MS);
 
