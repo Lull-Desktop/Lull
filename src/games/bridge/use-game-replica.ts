@@ -111,8 +111,10 @@ export function useGameReplica({
         autoStartTriedRef.current = true;
         try {
           await invoke<GameInstanceView | null>("game_auto_start", { gameId });
-        } catch {
-          // 自动启动失败（上限/包损坏）继续走 connect，由宿主回 unavailable。
+        } catch (reason) {
+          // 自动启动失败（上限/包损坏）继续走 connect，由宿主回 unavailable；
+          // 控制台保留原因，避免设置页只看到“未运行”而无从排查。
+          console.warn(`[game:${gameId}] 自动启动失败`, reason);
         }
       }
       const result = await invoke<GameConnectResult>("game_connect", {
@@ -146,6 +148,7 @@ export function useGameReplica({
       // 重连期间 readyRef 可能被重置；消息丢了由下一次 game.ready 再补。
       post(sceneGameInitMessage(result.context, snapshotRef.current));
     } catch (reason) {
+      console.warn(`[game:${gameId}] connect failed`, reason);
       contextRef.current = null;
       if (readyRef.current) {
         post(

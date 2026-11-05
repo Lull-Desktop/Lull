@@ -496,6 +496,43 @@ mod tests {
   }
 
   #[test]
+  fn installs_living_world_package_with_authority_and_replica() {
+    let zip = Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../examples/games/release/community.living-world-1.1.2.lull-game.zip");
+    if !zip.is_file() {
+      return;
+    }
+    let root = temp_root("living-world-package");
+    let staging = temp_root("living-world-staging");
+    let staged = install::stage(&staging, &zip).expect("stage living-world zip");
+    let manifest = install_from_staged(&root, &staged).expect("install living-world zip");
+    assert_eq!(manifest.id, "community.living-world");
+    assert_eq!(manifest.version, "1.1.2");
+    assert_eq!(manifest.entry.authority, "authority/index.html");
+    assert_eq!(
+      manifest.entry.replica.as_deref(),
+      Some("replica/index.html")
+    );
+    let info = inspect(
+      &root.join("community.living-world"),
+      "community.living-world",
+      &GrantsFile::default(),
+    );
+    assert!(info
+      .entry_replica_url
+      .as_deref()
+      .is_some_and(|url| url.ends_with("/replica/index.html")));
+    assert!(root
+      .join("community.living-world/authority/main.js")
+      .is_file());
+    assert!(root
+      .join("community.living-world/replica/main.js")
+      .is_file());
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&staging);
+  }
+
+  #[test]
   fn inspect_lists_ready_and_disabled_consistently() {
     let root = temp_root("inspect");
     write_package(&root, "demo.game");

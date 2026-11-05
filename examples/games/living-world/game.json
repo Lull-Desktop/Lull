@@ -3,18 +3,19 @@
   "type": "game",
   "id": "community.living-world",
   "name": "Living World",
-  "version": "1.0.0",
-  "description": "低频交互式桌面生态游戏：植物随时间生长，用户通过控制器浇水/种植。",
+  "version": "1.1.2",
+  "description": "低频交互式桌面生态游戏：植物随时间生长，用户通过控制器浇水/种植；单包包含 authority 与可见 replica。",
   "author": "Lull",
   "license": "MIT",
   "hostApi": 1,
   "entry": {
-    "authority": "authority/index.html"
+    "authority": "authority/index.html",
+    "replica": "replica/index.html"
   },
   "engine": {
     "id": "vanilla-js",
-    "version": "1.0.0",
-    "renderMode": "dom"
+    "version": "1.1.2",
+    "renderMode": "canvas2d"
   },
   "runtime": {
     "authority": "host-tick",

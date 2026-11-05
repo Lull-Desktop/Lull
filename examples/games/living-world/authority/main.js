@@ -34,6 +34,22 @@
     };
   }
 
+  /**
+   * 首份快照可能是 `{}`（新实例）；直接覆盖会让 tick 读到 undefined.plants。
+   * 用默认值兜底，并只接受类型正确的字段。
+   */
+  function adoptState(next) {
+    var merged = createInitialState();
+    if (!next || typeof next !== "object") return merged;
+    // 只覆盖存在且类型正确的字段；缺省字段保留 createInitialState 的默认值。
+    ["simulationMs", "water", "bloom", "lastSettledMs"].forEach(function (key) {
+      var value = next[key];
+      if (typeof value === "number" && Number.isFinite(value)) merged[key] = value;
+    });
+    if (Array.isArray(next.plants)) merged.plants = next.plants;
+    return merged;
+  }
+
   function post(message) {
     parent.postMessage(message, "*");
   }
@@ -74,6 +90,7 @@
 
   function advance(deltaMs) {
     if (!(deltaMs > 0)) return;
+    if (!Array.isArray(state.plants)) state.plants = [];
     state.simulationMs += deltaMs;
     var growth = deltaMs / 60000;
     for (var i = 0; i < state.plants.length; i += 1) {
@@ -136,7 +153,7 @@
     if (data.type === "init") {
       context = data.context;
       if (data.snapshot && data.snapshot.state) {
-        state = data.snapshot.state;
+        state = adoptState(data.snapshot.state);
       }
       log("init epoch=" + context.authorityEpoch + " revision=" + context.revision);
       request("ready", {}).catch(function (error) { log("ready failed " + error.message); });
@@ -144,7 +161,7 @@
     }
 
     if (data.type === "snapshot" && data.snapshot && data.snapshot.state) {
-      state = data.snapshot.state;
+      state = adoptState(data.snapshot.state);
       context.revision = data.snapshot.revision;
       log("snapshot r" + data.snapshot.revision);
       return;

@@ -21,6 +21,7 @@ import type { GameReplicaEntry } from "@/lib/games";
 import { m } from "@/paraglide/messages";
 import {
   isSceneGamePluginMessage,
+  SCENE_GAME_PROTOCOL,
   SCENE_READY_TIMEOUT_MS,
 } from "@/scenes/scene-bridge";
 import type { SceneFrame } from "@/sdk/scene";
@@ -83,7 +84,12 @@ function GameReplicaFrame({
     // iframe 重新加载后旧页面的 ready 失效；新页面会重新发 game.ready。
     readyRef.current = false;
     resetForReload();
-  }, [resetForReload]);
+    // 本地协议极快：iframe 的 game.ready 可能在宿主 effect 注册监听前就发出。
+    // load 时主动补一次握手；真实的 game.ready 到达时 connect 仍幂等。
+    handleSceneGameMessage({ v: SCENE_GAME_PROTOCOL, type: "game.ready" });
+    readyRef.current = true;
+    onReadyRef.current?.();
+  }, [handleSceneGameMessage, resetForReload]);
 
   useEffect(() => {
     const iframe = iframeRef.current;

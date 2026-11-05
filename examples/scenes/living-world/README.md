@@ -11,5 +11,7 @@ scenes/living-world/main.js      # 零构建渲染示例
 
 - 场景永远拿不到写权限：没有 commitState / command / publishEvent。
 - 游戏未运行或场景未绑定时，宿主发送 `game.unavailable`，场景保持静态视觉。
+- **这是可选主题**：`examples/games/living-world` 1.1.2 起自带 `replica/`，可直接设为壁纸；
+  本场景用于验证“同一游戏世界、可替换视觉层”的 Scene 绑定路径。
 - 正式场景请使用 `@lull/game-sdk/scene` 的 `connectLullGameRender()`；本示例为
   了零构建直接实现了同一份协议。

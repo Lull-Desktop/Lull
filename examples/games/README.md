@@ -26,7 +26,7 @@ pnpm games:samples:install          # 安装 dist 到 %APPDATA%\app.lull.desktop
 
 ```text
 release/
-  community.living-world-1.0.0.lull-game.zip
+  community.living-world-1.1.2.lull-game.zip
   community.stability-probe-1.0.3.lull-game.zip
   manifest.json
 ```

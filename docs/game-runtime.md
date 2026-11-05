@@ -1371,7 +1371,7 @@ P1 明确**未覆盖**、留给后续阶段：
 
 **退出标准**：RFC §16 Phase 4 四条验收全过；宿主 `cargo tree` 不出现任何引擎依赖；同一游戏包不同入口（authority/replica）可分别使用；引擎生命周期与 LULL 生命周期对齐。
 
-**P4 实现状态**：`@lull/game-adapter-canvas` 已落地（dpr/backing store、rAF 节流、暂停/恢复、快照/渲染态，4 项单测 + 与 `LullGameRenderClient` 的编译期契约测试）。**单包双入口已打通**：`GameView.entryReplicaUrl` / `game_replica_entry`、`GameReplicaHost`（不依赖 Scene）、`display.game` + `wallpaper_set_game` + 壁纸 hash `game=`、游戏包 16/128 MiB/1024 预算、`examples/games/stability-probe` 指标墙迁入 `replica/`。尚未完成：Phaser/PixiJS/Three.js Adapter 与对应示例。
+**P4 实现状态**：`@lull/game-adapter-canvas` 已落地（dpr/backing store、rAF 节流、暂停/恢复、快照/渲染态，4 项单测 + 与 `LullGameRenderClient` 的编译期契约测试）。**单包双入口已打通**：`GameView.entryReplicaUrl` / `game_replica_entry`、`GameReplicaHost`（不依赖 Scene）、`display.game` + `wallpaper_set_game` + 壁纸 hash `game=`、游戏包 16/128 MiB/1024 预算、`examples/games/stability-probe` 指标墙迁入 `replica/`；`examples/games/living-world` 1.1.2 也补齐 authority + replica，并修复首份空快照导致 tick 崩溃的问题。尚未完成：Phaser/PixiJS/Three.js Adapter 与对应示例。
 
 ### P5 · 社区游戏生态（RFC Phase 5）
 

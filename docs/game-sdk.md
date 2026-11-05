@@ -772,7 +772,7 @@ pnpm game:pack  ./my-game --out artifacts
 
 | 示例 | 阶段 | 说明 |
 | --- | --- | --- |
-| `examples/games/living-world` | P1/P2 | Canvas2D + host-tick + 场景绑定；最小闭环 |
+| `examples/games/living-world` | P1/P2/P4 | Canvas2D + host-tick；**包内 replica 可直接作壁纸**，场景绑定保留为可选主题 |
 | `examples/games/stability-probe` | P3/P4 | **单包双入口**：self-loop authority + `replica/` 指标墙；设为壁纸即可双屏验收 |
 | `examples/scenes/living-world` | P2 | 只读 Scene 绑定：canvas 绘制植物/水位，走 `game.*` 桥 |
 | `examples/widgets/living-world-controller` | P1/P2 | 控制器 Widget：种/浇水/状态面板，走 `game.*` Widget 桥 |
