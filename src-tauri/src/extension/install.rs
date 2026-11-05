@@ -15,7 +15,7 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 pub const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
 
 const STAGING_PREFIX: &str = ".staging-";
-const MANIFESTS: [&str; 2] = ["catalog.json", "widget.json"];
+const MANIFESTS: [&str; 3] = ["catalog.json", "widget.json", "game.json"];
 
 /// 已经解压/复制到暂存区、并定位到包根的安装候选。
 ///

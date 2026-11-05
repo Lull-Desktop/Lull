@@ -2,7 +2,11 @@ import { describe, expect, test } from "vitest";
 import catalogJson from "../../../public/content/catalog.json" with {
   type: "json",
 };
-import { isSafeContentEntry, parseSceneCatalog, parseSceneManifest } from "./index";
+import {
+  isSafeContentEntry,
+  parseSceneCatalog,
+  parseSceneManifest,
+} from "./index";
 
 function validManifest(overrides: Record<string, unknown> = {}) {
   return {
@@ -62,6 +66,75 @@ describe("scene manifest", () => {
         requireEntry: true,
       }),
     ).toThrow(/entry/);
+  });
+
+  test("parses a game binding on external script scenes", () => {
+    const manifest = parseSceneManifest(
+      validManifest({
+        capabilities: ["wallpaper.viewport", "wallpaper.script"],
+        game: { id: "community.living-world", role: "replica" },
+        compatibility: { hostApi: 2, platforms: ["windows"] },
+      }),
+      { requireEntry: true },
+    );
+    expect(manifest.game).toEqual({
+      id: "community.living-world",
+      role: "replica",
+    });
+  });
+
+  test("game binding requires hostApi 2", () => {
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities: ["wallpaper.viewport", "wallpaper.script"],
+          game: { id: "community.living-world", role: "replica" },
+          compatibility: { hostApi: 1 },
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/hostApi/);
+  });
+
+  test("rejects game binding without wallpaper.script or with bad role", () => {
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          game: { id: "community.living-world", role: "replica" },
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/wallpaper\.script/);
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities: ["wallpaper.viewport", "wallpaper.script"],
+          game: { id: "community.living-world", role: "authority" },
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/replica/);
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities: ["wallpaper.viewport", "wallpaper.script"],
+          game: { id: "community.living-world", role: "replica", extra: 1 },
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/未知|extra/);
+  });
+
+  test("rejects game binding on builtin scenes", () => {
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          entry: undefined,
+          capabilities: ["wallpaper.viewport", "wallpaper.script"],
+          game: { id: "community.living-world", role: "replica" },
+        }),
+      ),
+    ).toThrow(/内置/);
   });
 
   test("skips duplicate ids instead of rejecting the whole catalog", () => {

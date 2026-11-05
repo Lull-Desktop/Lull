@@ -10,6 +10,8 @@ mod config;
 mod content_package;
 mod content_trust;
 mod extension;
+mod game;
+mod game_package;
 mod i18n;
 mod media;
 mod package_hash;
@@ -37,6 +39,10 @@ pub fn run() {
     // 用户内容包资源协议：只读服务 %APPDATA%\content\<id>\，供沙箱 iframe 加载。
     .register_uri_scheme_protocol("lullcontent", |ctx, request| {
       content_package::handle_protocol(ctx, request)
+    })
+    // 第三方游戏包资源协议：只读服务 %APPDATA%\games\<id>\，按包注入 CSP。
+    .register_uri_scheme_protocol("lullgame", |ctx, request| {
+      game_package::handle_protocol(ctx, request)
     })
     .invoke_handler(tauri::generate_handler![
       window_frame::window_set_frame,
@@ -116,11 +122,34 @@ pub fn run() {
       media::api::commands::media_disconnect,
       media::api::commands::media_engine_ready,
       media::api::commands::media_engine_event,
-      content_package::content_packages
+      content_package::content_packages,
+      game::api::games_list,
+      game::api::games_config_get,
+      game::api::games_config_set,
+      game::api::game_auto_start,
+      game::api::game_start,
+      game::api::game_stop,
+      game::api::game_flush,
+      game::api::game_suspend,
+      game::api::game_resume,
+      game::api::game_save_delete,
+      game::api::game_connect,
+      game::api::game_snapshot_get,
+      game::api::game_state_commit,
+      game::api::game_event_publish,
+      game::api::game_render_state_publish,
+      game::api::game_command_result,
+      game::api::game_ready,
+      game::api::game_heartbeat,
+      game::api::game_report_error,
+      game::api::game_detach,
+      game::api::game_command_send
     ])
     .setup(|app| {
       // 语言必须在建窗与建托盘之前定下来，否则系统托盘会先出基准语言再跳变。
       i18n::init(app.handle());
+      // 游戏运行时：标记残留运行态并拉起 ticker；必须在壁纸窗创建之前。
+      game::init(app.handle());
       // 官方扩展随安装包分发：启动时默认启用、升级补授新增能力、保留用户撤销。
       widget_package::official::reconcile(app.handle());
       // 功能槽位只恢复用户选择，不自动开窗/播放。
@@ -165,6 +194,7 @@ pub fn run() {
         media::on_window_destroyed(window.app_handle(), window.label());
         widget_package::on_window_destroyed(window.label());
         extension::slots::on_window_destroyed(window.app_handle(), window.label());
+        game::on_window_destroyed(window.app_handle(), window.label());
       }
       _ => {}
     })
@@ -179,6 +209,7 @@ pub fn run() {
         code: None, api, ..
       } => api.prevent_exit(),
       tauri::RunEvent::Exit => {
+        game::shutdown(_app);
         media::shutdown(_app);
         wallpaper::shutdown();
       }

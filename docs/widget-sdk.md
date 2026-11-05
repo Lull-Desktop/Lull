@@ -57,6 +57,9 @@ window label = widget-<id>
 | `media.library.directory.read` | 硬约束 | 单层目录浏览 `library.listDirectory`（相对路径，不含根路径） |
 | `media.library.favorites.write` | 硬约束 | 喜欢/取消喜欢曲目 |
 | `media.library.sources.write` | 硬约束 | 打开文件夹/单曲选择器，添加目录或导入单曲并触发扫描 |
+| `game.state.read` | 硬约束 | 读取游戏快照、订阅游戏事件（经宿主壳转发） |
+| `game.command.send` | 硬约束 | 向游戏 Authority 发送命令；不能写权威状态 |
+| `game.event.read` | 硬约束 | 订阅游戏事件流 |
 
 `widget.window`（创建或控制其他窗口）与 `widget.native`（Win32 / 原生宿主）**不可申请**。
 
@@ -227,6 +230,25 @@ await media.noise.tracks.setVolume("track-id", 0.4);
 - 可订阅 topic 受 read capability 限制；`player.*` / `queue.changed` / `library.changed` 在对应读能力授权后才下发。
 - `noise.presets.importPreset` / `exportPreset`、Asset 导入/编辑/删除/缺失检查不向 Widget 开放。
 - `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` / `usePlayerSession` 可配合 `@lull/media-sdk/react` 使用；它们共享 MediaSessionHub，订阅归零也不主动断开。
+
+### 游戏控制器（P1）
+
+声明 `game.state.read` 与 `game.command.send`（需要事件流时再加 `game.event.read`）。宿主壳新增四个桥方法：`game.connect` / `game.snapshot` / `game.command` / `game.disconnect`，并把 Tauri 的 `game:snapshot` / `game:event` / `game:lifecycle` 转发成同名 `game.*` 宿主消息。
+
+```ts
+import { connectLullWidget } from "@lull/widget-sdk";
+import { connectLullGameWidget } from "@lull/game-sdk/widget";
+
+const lull = await connectLullWidget();
+const game = await connectLullGameWidget(lull, { gameId: "community.living-world" });
+
+const snapshot = await game.getSnapshot(); // 未运行时为 null
+await game.command("plant.seed", { seedId: "seed-1" });
+```
+
+- 控制器只能读状态、发命令；写状态、启停实例、删除存档属于 Authority / 设置页（宿主控制面），Widget 拿不到。
+- 未运行时 `context.instanceId` 为 `null`，`command` 返回 `game.instance_not_running`；控制器应按"未运行"展示，而不是弹错误。
+- 完整示例：[`examples/widgets/living-world-controller`](../examples/widgets/living-world-controller)；完整 API 与能力语义见 [Game SDK](./game-sdk.md) §6。
 
 React：
 

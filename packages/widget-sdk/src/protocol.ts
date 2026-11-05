@@ -35,6 +35,9 @@ export const WIDGET_CAPABILITIES = [
   "media.library.directory.read",
   "media.library.favorites.write",
   "media.library.sources.write",
+  "game.state.read",
+  "game.command.send",
+  "game.event.read",
 ] as const;
 
 export type WidgetCapability = (typeof WIDGET_CAPABILITIES)[number];
@@ -134,6 +137,27 @@ export interface WidgetMediaEventMessage {
   event: unknown;
 }
 
+/** 宿主 → 插件：游戏快照推送（`game.connect` 之后）。 */
+export interface WidgetGameSnapshotMessage {
+  v: typeof WIDGET_PROTOCOL;
+  type: "game.snapshot";
+  snapshot: unknown;
+}
+
+/** 宿主 → 插件：游戏事件转发（只在插件声明 `game.event.read` 后发送）。 */
+export interface WidgetGameEventMessage {
+  v: typeof WIDGET_PROTOCOL;
+  type: "game.event";
+  event: unknown;
+}
+
+/** 宿主 → 插件：游戏生命周期变化。 */
+export interface WidgetGameLifecycleMessage {
+  v: typeof WIDGET_PROTOCOL;
+  type: "game.lifecycle";
+  event: unknown;
+}
+
 /**
  * 宿主 → 插件：工具窗口可见性变化。
  *
@@ -166,6 +190,9 @@ export type WidgetHostMessage =
   | WidgetVisibilityMessage
   | WidgetLocaleMessage
   | WidgetMediaEventMessage
+  | WidgetGameSnapshotMessage
+  | WidgetGameEventMessage
+  | WidgetGameLifecycleMessage
   | WidgetWindowStateMessage
   | WidgetResponseMessage;
 
@@ -197,6 +224,31 @@ export interface WidgetBridgeMethods {
     result: unknown;
   };
   "media.disconnect": {
+    params: Record<string, never>;
+    result: { disconnected: boolean };
+  };
+  /** 连接游戏实例；返回 `{ context, replicaId }`，实例未运行时 context 为 null。 */
+  "game.connect": {
+    params: { gameId: string };
+    result: unknown;
+  };
+  /** 取当前完整快照；实例未运行时为 null。 */
+  "game.snapshot": {
+    params: Record<string, never>;
+    result: unknown;
+  };
+  /** 发送命令；返回宿主权威执行结果或超时错误。 */
+  "game.command": {
+    params: {
+      requestId: string;
+      type: string;
+      payload: unknown;
+      expectedRevision?: number;
+    };
+    result: unknown;
+  };
+  /** 断开游戏参与关系（窗口关闭前）。 */
+  "game.disconnect": {
     params: Record<string, never>;
     result: { disconnected: boolean };
   };

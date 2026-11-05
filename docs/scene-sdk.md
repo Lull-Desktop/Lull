@@ -76,6 +76,7 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
 | `params` | — | 可选参数声明；每项含 `key/type/label/default`，number 可带 `min/max/step`，enum 必须带 `options`。声明参数时必须同时声明 `wallpaper.params`；内置场景经 `SceneProps` 读取，外部脚本场景经 `@lull/scene-sdk` 读取，外部静态包必须省略 |
 | `performance` | — | 性能提示：`tier` 为 `low/medium/high`，可选 `targetFps`（1-240） |
 | `compatibility` | — | 宿主兼容范围：`hostApi` 必填，可选 `maxHostApi` 与 `platforms` |
+| `game` | — | 只读游戏绑定：`{ id, role: "replica" }`；声明时必须同时声明 `wallpaper.script`，且 `compatibility.hostApi >= 2` |
 | `integrity` | 官方目录必填 | 整个包目录的 sha256 摘要；由 `pnpm content:hash` 维护，格式 `{algorithm:"sha256", scope:"package", digest}` |
 
 未知字段会被拒绝。JSON Schema：[`content/schema/scene.schema.json`](../content/schema/scene.schema.json)。
@@ -90,7 +91,7 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
 | `wallpaper.params` | 场景接受 Manifest 声明的参数 | 声明 `params` 时必填；外部场景还必须同时声明 `wallpaper.script`；Setting 只对声明该能力的场景渲染参数控件 |
 | `wallpaper.script` | 外部场景在 `sandbox="allow-scripts"` 的 iframe 内执行 JS，并通过 Scene SDK 桥读取帧 | 只对内容包有效；没有该能力的外部包仍按静态包加载（空 sandbox） |
 
-`compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。
+`compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。当前宿主为 **`SCENE_HOST_API = 2`**；声明 `game` 绑定的场景必须声明 `compatibility.hostApi: 2`（老宿主会把该场景当作不兼容跳过）。
 当前宿主 API 版本是 `SCENE_HOST_API = 1`。
 
 ## 3. 内置媒体场景接口
@@ -266,6 +267,37 @@ scene.onFrame((frame) => {
 
 > 能加载一个 HTML 包或运行一段沙箱脚本，不等于建立了完整的插件权限系统。
 > 场景没有写配置、创建窗口、调用原生或安装其他包的入口。
+
+### 4.6 游戏渲染绑定（P2）
+
+场景可以只读绑定一个游戏世界（`scene manifest.game`），把壁纸变成该游戏的 Render Replica：
+
+```json
+{
+  "game": { "id": "community.living-world", "role": "replica" },
+  "capabilities": ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.script"],
+  "compatibility": { "hostApi": 2, "platforms": ["windows"] }
+}
+```
+
+- 场景必须声明 `wallpaper.script`；`role` 只能是 `replica`，场景永远不能成为 Authority。
+- 游戏未运行或未启用时，宿主在场景 ready 后发送 `game.unavailable`，场景应回退静态视觉。
+- 宿主 → 场景：`game.init`（context + 首份快照）、`game.snapshot`、`game.event`、
+  `game.render`、`game.lifecycle`、`game.unavailable`；重复 `game.init` 用于 iframe 重载/重连。
+- 场景 → 宿主：`game.ready`、`game.requestSnapshot`、`game.reportError`、`game.detach`。
+- 场景只能读：没有 `commitState` / 命令发送 / `publishEvent` 入口。
+- SDK：`@lull/game-sdk/scene` 的 `connectLullGameRender()`；完整契约见 [Game SDK](./game-sdk.md) §5。
+  示例：[`examples/scenes/living-world`](../examples/scenes/living-world)。
+
+```ts
+import { connectLullGameRender } from "@lull/game-sdk/scene";
+
+const game = await connectLullGameRender();
+if (game) {
+  game.onSnapshot((snapshot) => draw(snapshot.state, game.render));
+  game.onEvent("world.changed", () => refresh());
+}
+```
 
 ## 5. 场景目录与设置页
 

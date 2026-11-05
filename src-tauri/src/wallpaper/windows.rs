@@ -44,6 +44,9 @@ pub(crate) fn create_one(
   // 媒体 token：只注入顶层帧，外部 sandbox iframe 不能读取父 DOM，也就拿不到它。
   let media_token = crate::media::video::lifecycle::register_window(&label);
   let media_token_json = serde_json::to_string(&media_token).unwrap_or_else(|_| "\"\"".to_string());
+  // 游戏 replica token：同一模式，只注入顶层帧；沙箱场景 iframe 读不到父 DOM。
+  let game_token = crate::game::issue_wallpaper_token(&label);
+  let game_token_json = serde_json::to_string(&game_token).unwrap_or_else(|_| "\"\"".to_string());
   // 创建路径只从非主线程调用（async 命令 / async 任务 / ensure 线程）；
   // autostart 虽在主线程，但处于事件循环启动前，等价于 tauri.conf 的建窗时机。
   ffi::wlog(&format!(
@@ -93,7 +96,7 @@ pub(crate) fn create_one(
     .skip_taskbar(true)
     // 壁纸窗也要按当前语言渲染（时钟、场景内的文字），与其它窗口同一注入点。
     .initialization_script(format!(
-      "window.__LULL_LOCALE__ = {}; if (window.top === window) {{ window.__LULL_MEDIA_TOKEN__ = {media_token_json}; }}",
+      "window.__LULL_LOCALE__ = {}; if (window.top === window) {{ window.__LULL_MEDIA_TOKEN__ = {media_token_json}; window.__LULL_GAME_TOKEN__ = {game_token_json}; }}",
       serde_json::to_string(&crate::i18n::current()).unwrap_or_else(|_| "\"zh-CN\"".to_string())
     ))
     .devtools(crate::window_host::devtools_enabled());

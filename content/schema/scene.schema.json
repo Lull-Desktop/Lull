@@ -84,6 +84,19 @@
         }
       }
     },
+    "game": {
+      "type": "object",
+      "description": "只读游戏绑定（场景宿主 API 2 起）；声明时必须同时声明 wallpaper.script。",
+      "additionalProperties": false,
+      "required": ["id", "role"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$"
+        },
+        "role": { "const": "replica" }
+      }
+    },
     "integrity": {
       "type": "object",
       "additionalProperties": false,

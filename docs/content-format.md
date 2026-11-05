@@ -91,6 +91,8 @@ scenes/<name>/
   不直接读取宿主 DOM、存储或 Tauri API；
 - 声明 `params` 时必须声明 `wallpaper.params`；外部场景使用 `wallpaper.params` 或
   `wallpaper.sync` 时必须同时声明 `wallpaper.script`；静态包不能声明这两项；
+- 可选的 `game: { id, role: "replica" }` 是只读游戏绑定（场景宿主 API 2 起）：
+  必须同时声明 `wallpaper.script`，且 `compatibility.hostApi >= 2`；老宿主会跳过该场景；
 - 静态包不依赖构建期工具；脚本包用 esbuild / Vite 打成包内 ESM 即可。
 
 ### 3.2 主题 / 声景 / 布局（预留）

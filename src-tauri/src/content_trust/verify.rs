@@ -20,6 +20,7 @@ pub const SIGNATURE_FILE: &str = ".lull-signature.json";
 pub enum PackageKind {
   Scene,
   Widget,
+  Game,
 }
 
 impl PackageKind {
@@ -28,6 +29,7 @@ impl PackageKind {
     match self {
       Self::Scene => "scene",
       Self::Widget => "widget",
+      Self::Game => "game",
     }
   }
 }

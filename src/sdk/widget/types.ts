@@ -26,6 +26,7 @@ export type WidgetRole = (typeof WIDGET_ROLES)[number];
  * - state：通过 `readWidgetStorage` / `writeWidgetStorage` 访问自己的命名空间；
  * - audio / media：需要用户手势与宿主授权的资源；
  * - chrome：拖动、隐藏、最小化、改自己的窗口几何；
+ * - game：读游戏快照/事件、发命令（需要用户授权，Widget 永远不能写状态）；
  * - window / native：宿主保留，第三方不可申请。
  */
 export const WIDGET_CAPABILITIES = [
@@ -37,6 +38,9 @@ export const WIDGET_CAPABILITIES = [
   "widget.chrome",
   "widget.window",
   "widget.native",
+  "game.state.read",
+  "game.command.send",
+  "game.event.read",
 ] as const;
 
 export type WidgetCapability = (typeof WIDGET_CAPABILITIES)[number];

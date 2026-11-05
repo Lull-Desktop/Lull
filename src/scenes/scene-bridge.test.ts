@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { SceneFrame } from "@/sdk/scene";
+import { SCENE_HOST_API, type SceneFrame } from "@/sdk/scene";
 import {
   isScenePluginMessage,
   SCENE_BRIDGE_PROTOCOL,
@@ -27,7 +27,7 @@ describe("scene bridge protocol", () => {
       v: SCENE_BRIDGE_PROTOCOL,
       type: "init",
       protocol: SCENE_BRIDGE_PROTOCOL,
-      hostApi: 1,
+      hostApi: SCENE_HOST_API,
       id: "demo.param-scene",
       frame: FRAME,
       visible: true,

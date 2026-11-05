@@ -26,6 +26,11 @@
     "allow-widget-visibility",
     "allow-media-call",
     "allow-media-connect",
-    "allow-media-disconnect"
+    "allow-media-disconnect",
+    "allow-game-connect",
+    "allow-game-snapshot-get",
+    "allow-game-command-send",
+    "allow-game-report-error",
+    "allow-game-detach"
   ]
 }

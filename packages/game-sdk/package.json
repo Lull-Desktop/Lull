@@ -1,0 +1,57 @@
+{
+  "name": "@lull/game-sdk",
+  "version": "0.1.0",
+  "description": "Lull 游戏侧 SDK（TypeScript）：authority 提交状态、Scene 只读渲染副本、Controller Widget 收发命令，全部通过 postMessage 桥与宿主通信。",
+  "keywords": [
+    "lull",
+    "game",
+    "authority",
+    "widget",
+    "sdk",
+    "typescript",
+    "tauri"
+  ],
+  "type": "module",
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./widget": {
+      "types": "./dist/widget.d.ts",
+      "default": "./dist/widget.js"
+    },
+    "./scene": {
+      "types": "./dist/scene.d.ts",
+      "default": "./dist/scene.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.check.json",
+    "prepublishOnly": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -35,6 +35,9 @@ pub const PLUGIN_CAPABILITIES: &[&str] = &[
   "media.library.directory.read",
   "media.library.favorites.write",
   "media.library.sources.write",
+  "game.state.read",
+  "game.command.send",
+  "game.event.read",
 ];
 
 const MIN_WIDTH: f64 = 320.0;

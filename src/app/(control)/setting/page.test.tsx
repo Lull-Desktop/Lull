@@ -1,5 +1,5 @@
 /**
- * 设置页交互测试：三页签信息架构、窗口开关、功能槽位与主题偏好。
+ * 设置页交互测试：四页签信息架构、窗口开关、功能槽位与主题偏好。
  *
  * 壁纸库窗口的交互测试在 components/library/wallpaper-library-window.test.tsx。
  */
@@ -83,11 +83,12 @@ test("Page renders in browser mode (no tauri)", () => {
   expect(screen.getByRole("main")).toBeDefined();
 });
 
-test("设置页签按 偏好 / 扩展 / 关于 排列，壁纸与噪音内容不再内嵌", () => {
+test("设置页签按 偏好 / 游戏 / 扩展 / 关于 排列，壁纸与噪音内容不再内嵌", () => {
   renderSettingsPage();
 
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
     "偏好",
+    "游戏",
     "扩展",
     "关于",
   ]);

@@ -1,0 +1,504 @@
+"use client";
+
+/**
+ * 设置页「游戏」页签：列出已安装游戏、实例状态与能力授权，并提供启动 / 停止 /
+ * 立即保存 / 删除存档。安装、启停用与能力授权仍归扩展中心，这里只在空态与
+ * 说明里指路。
+ */
+import {
+  Gamepad2,
+  Pause,
+  Play,
+  Power,
+  Save,
+  Square,
+  Trash2,
+} from "lucide-react";
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Switch } from "@/components/ui/switch";
+import { useGames } from "@/hooks/use-games";
+import { useLocale } from "@/i18n/locale";
+import type { GameStatus, GameView } from "@/lib/games";
+import { cn } from "@/lib/utils";
+import { m } from "@/paraglide/messages";
+
+/** 仍占用运行名额的状态；与 Rust `InstanceStatus::is_active` 保持一致。 */
+const ACTIVE_STATUSES: readonly GameStatus[] = [
+  "starting",
+  "ready",
+  "running",
+  "hidden",
+  "suspended",
+  "background",
+  "stopping",
+];
+
+function statusLabel(status: GameStatus | null): string {
+  switch (status) {
+    case "starting":
+      return m.games_status_starting();
+    case "ready":
+      return m.games_status_ready();
+    case "running":
+      return m.games_status_running();
+    case "hidden":
+      return m.games_status_hidden();
+    case "suspended":
+      return m.games_status_suspended();
+    case "background":
+      return m.games_status_background();
+    case "stopping":
+      return m.games_status_stopping();
+    case "stopped":
+      return m.games_status_stopped();
+    case "failed":
+      return m.games_status_failed();
+    case "interrupted":
+      return m.games_status_interrupted();
+    default:
+      return m.games_status_idle();
+  }
+}
+
+function statusVariant(
+  status: GameStatus | null,
+): "secondary" | "outline" | "destructive" {
+  if (status === "failed") return "destructive";
+  if (status === "running" || status === "ready" || status === "background") {
+    return "secondary";
+  }
+  return "outline";
+}
+
+function statusClass(status: GameStatus | null): string {
+  if (status === "running" || status === "background") {
+    return "border-bamboo/50 bg-bamboo-mist text-bamboo";
+  }
+  if (status === "ready") {
+    return "border-bamboo/40 text-bamboo";
+  }
+  if (status === "suspended" || status === "interrupted") {
+    return "border-dashed border-border/70 text-muted-foreground";
+  }
+  return "";
+}
+
+function packageStatusLabel(status: GameView["status"]): string | null {
+  if (status === "invalid") return m.games_package_invalid();
+  if (status === "disabled") return m.games_package_disabled();
+  return null;
+}
+
+/** 毫秒 → 本地化可读时长；最多保留三档，避免长运行时间挤爆一行。 */
+function formatSimulationTime(ms: number, locale: string): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts: Array<{
+    value: number;
+    unit: "day" | "hour" | "minute" | "second";
+  }> = [];
+  if (days > 0) parts.push({ value: days, unit: "day" });
+  if (hours > 0) parts.push({ value: hours, unit: "hour" });
+  if (minutes > 0) parts.push({ value: minutes, unit: "minute" });
+  if (seconds > 0 || parts.length === 0) {
+    parts.push({ value: seconds, unit: "second" });
+  }
+  return parts
+    .slice(0, 3)
+    .map(({ value, unit }) =>
+      new Intl.NumberFormat(locale, {
+        style: "unit",
+        unit,
+        unitDisplay: "short",
+      }).format(value),
+    )
+    .join(" ");
+}
+
+function GameCard({
+  game,
+  locale,
+  pending,
+  onStart,
+  onStop,
+  onFlush,
+  onDelete,
+  onEnable,
+  onSuspend,
+  onResume,
+}: {
+  game: GameView;
+  locale: string;
+  pending: boolean;
+  onStart: () => void;
+  onStop: () => void;
+  onFlush: () => void;
+  onDelete: () => void;
+  onEnable: () => void;
+  onSuspend: () => void;
+  onResume: () => void;
+}) {
+  const instance = game.instance ?? null;
+  const status = instance?.status ?? null;
+  const active = status !== null && ACTIVE_STATUSES.includes(status);
+  const canSave =
+    status === "ready" ||
+    status === "running" ||
+    status === "hidden" ||
+    status === "background";
+  const canDelete = status === "stopped" || status === "interrupted";
+  const packageIssue = packageStatusLabel(game.status);
+  const startBlockedReason = !game.enabled
+    ? m.games_package_disabled()
+    : game.status !== "ready"
+      ? (packageIssue ?? game.error ?? undefined)
+      : undefined;
+  const summary = [game.description, game.author, game.license]
+    .filter(Boolean)
+    .join(" · ");
+  const granted = new Set(game.granted ?? []);
+  const capabilities = [
+    ...new Set([...(game.capabilities ?? []), ...(game.granted ?? [])]),
+  ];
+
+  return (
+    <article
+      className="space-y-3 rounded-xl border border-border/60 p-3.5"
+      data-testid={`game-card-${game.id}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate text-sm font-medium text-ink">
+              {game.name}
+            </h3>
+            <Badge
+              variant={statusVariant(status)}
+              className={cn("px-1.5 py-0 text-[10px]", statusClass(status))}
+            >
+              {statusLabel(status)}
+            </Badge>
+            {packageIssue && (
+              <Badge
+                variant="outline"
+                className="border-destructive/50 px-1.5 py-0 text-[10px] text-destructive"
+              >
+                {packageIssue}
+              </Badge>
+            )}
+            <span className="font-mono text-[10px] text-ink-faint">
+              v{game.version}
+            </span>
+          </div>
+          {summary && (
+            <p className="text-xs text-muted-foreground">{summary}</p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {!game.enabled && !active && (
+            <Button
+              type="button"
+              size="sm"
+              variant="bamboo"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending || game.status === "invalid"}
+              title={packageIssue ?? game.error ?? undefined}
+              onClick={onEnable}
+            >
+              <Power className="h-3.5 w-3.5" />
+              {m.games_enable()}
+            </Button>
+          )}
+          {!active && game.enabled && (
+            <Button
+              type="button"
+              size="sm"
+              variant="bamboo"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending || game.status !== "ready"}
+              title={startBlockedReason}
+              onClick={onStart}
+            >
+              <Play className="h-3.5 w-3.5" />
+              {m.games_start()}
+            </Button>
+          )}
+          {active && status !== "stopping" && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending}
+              onClick={onStop}
+            >
+              <Square className="h-3.5 w-3.5" />
+              {m.games_stop()}
+            </Button>
+          )}
+          {(status === "running" || status === "background") && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending}
+              onClick={onSuspend}
+            >
+              <Pause className="h-3.5 w-3.5" />
+              {m.games_suspend()}
+            </Button>
+          )}
+          {status === "suspended" && (
+            <Button
+              type="button"
+              size="sm"
+              variant="bamboo"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending}
+              onClick={onResume}
+            >
+              <Play className="h-3.5 w-3.5" />
+              {m.games_resume()}
+            </Button>
+          )}
+          {canSave && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending}
+              onClick={onFlush}
+            >
+              <Save className="h-3.5 w-3.5" />
+              {m.games_save_now()}
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={pending}
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {m.games_delete_save()}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {instance && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          <span>
+            {m.games_revision({ revision: String(instance.revision) })}
+          </span>
+          <span>
+            {m.games_simulation({
+              duration: formatSimulationTime(instance.simulationTimeMs, locale),
+            })}
+          </span>
+          <span>{m.games_replicas({ count: String(instance.replicas) })}</span>
+        </div>
+      )}
+
+      {game.error && <p className="text-xs text-destructive">{game.error}</p>}
+      {instance?.lastError && (
+        <p className="text-xs text-destructive" data-testid="games-last-error">
+          {m.games_last_error({
+            code: instance.lastError.code,
+            message: instance.lastError.message,
+          })}
+        </p>
+      )}
+
+      {capabilities.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[11px] text-muted-foreground">
+            {m.games_capabilities()}
+          </p>
+          <ul className="flex flex-wrap gap-1">
+            {capabilities.map((capability) => (
+              <li key={capability}>
+                <span
+                  className={cn(
+                    "inline-block rounded border px-1.5 py-0.5 font-mono text-[10px]",
+                    granted.has(capability)
+                      ? "border-bamboo/40 bg-bamboo-mist/60 text-bamboo"
+                      : "border-dashed border-border/70 text-muted-foreground",
+                  )}
+                >
+                  {capability}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </article>
+  );
+}
+
+export function GamesPanel() {
+  const locale = useLocale();
+  const {
+    games,
+    config,
+    loading,
+    error,
+    start,
+    stop,
+    flush,
+    suspend,
+    resume,
+    deleteSave,
+    setEnabled,
+    saveConfig,
+  } = useGames();
+  const { confirm, dialog } = useConfirmDialog();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  const run = async (
+    gameId: string,
+    action: (id: string) => Promise<void>,
+  ): Promise<void> => {
+    setPendingId(gameId);
+    try {
+      await action(gameId);
+    } finally {
+      setPendingId(null);
+    }
+  };
+
+  const requestDelete = async (game: GameView): Promise<void> => {
+    const confirmed = await confirm({
+      title: m.games_delete_save(),
+      description: m.games_delete_confirm({ name: game.name }),
+      confirmLabel: m.games_delete_confirm_action(),
+      danger: true,
+    });
+    if (!confirmed) return;
+    await run(game.id, deleteSave);
+  };
+
+  return (
+    <>
+      <Card
+        className="flex h-full max-h-full min-h-0 w-full flex-col"
+        data-testid="settings-games-card"
+      >
+        <CardHeader className="shrink-0 p-5 pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Gamepad2 className="h-4 w-4 text-bamboo" />
+            {m.games_title()}
+          </CardTitle>
+          <CardDescription>{m.games_description()}</CardDescription>
+        </CardHeader>
+        <CardContent className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-5 pt-0">
+          <div
+            className="space-y-2 rounded-lg border border-border/70 bg-card/40 p-3"
+            data-testid="games-config"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{m.games_auto_start()}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {m.games_auto_start_hint()}
+                </p>
+              </div>
+              <Switch
+                size="sm"
+                checked={config.autoStartWithWallpaper}
+                aria-label={m.games_auto_start()}
+                onCheckedChange={(checked) => {
+                  void saveConfig({ autoStartWithWallpaper: checked });
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-ink-soft">
+                {m.games_max_running()}
+              </span>
+              <select
+                className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+                aria-label={m.games_max_running()}
+                value={config.maxRunning}
+                onChange={(event) => {
+                  void saveConfig({ maxRunning: Number(event.target.value) });
+                }}
+              >
+                {[1, 2, 3].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {loading && games.length === 0 && (
+            <p className="text-xs text-muted-foreground">{m.games_loading()}</p>
+          )}
+
+          {error && (
+            <p className="text-xs text-destructive" role="alert">
+              {games.length === 0
+                ? m.games_load_failed({ reason: error })
+                : m.games_action_failed({ reason: error })}
+            </p>
+          )}
+
+          {!loading && games.length === 0 && !error && (
+            <div
+              className="rounded-lg border border-dashed border-border/70 p-5 text-center"
+              data-testid="games-empty"
+            >
+              <p className="text-sm text-ink-soft">{m.games_empty()}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {m.games_empty_hint()}
+              </p>
+            </div>
+          )}
+
+          {games.map((game) => {
+            const pending = pendingId === game.id;
+            return (
+              <GameCard
+                key={game.id}
+                game={game}
+                locale={locale}
+                pending={pending}
+                onStart={() => void run(game.id, start)}
+                onStop={() => void run(game.id, stop)}
+                onFlush={() => void run(game.id, flush)}
+                onDelete={() => void requestDelete(game)}
+                onEnable={() => void run(game.id, (id) => setEnabled(id, true))}
+                onSuspend={() => void run(game.id, suspend)}
+                onResume={() => void run(game.id, resume)}
+              />
+            );
+          })}
+        </CardContent>
+      </Card>
+      {dialog}
+    </>
+  );
+}

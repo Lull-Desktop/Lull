@@ -15,6 +15,12 @@
     "allow-media-open",
     "allow-media-attach",
     "allow-media-detach",
-    "allow-media-degrade"
+    "allow-media-degrade",
+    "allow-game-connect",
+    "allow-game-auto-start",
+    "allow-game-snapshot-get",
+    "allow-game-ready",
+    "allow-game-report-error",
+    "allow-game-detach"
   ]
 }

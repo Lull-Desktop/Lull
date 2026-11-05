@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "community.living-world-forest",
+      "name": "Living World · 森林",
+      "version": "1.0.0",
+      "description": "只读渲染 community.living-world 的示例场景：植物、水位与昼夜色调。",
+      "author": "Lull",
+      "license": "MIT",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.canvas",
+        "wallpaper.script"
+      ],
+      "entry": "scenes/living-world/index.html",
+      "game": {
+        "id": "community.living-world",
+        "role": "replica"
+      },
+      "theme": { "background": "#07110f", "accent": "#8fd8b0" },
+      "performance": { "tier": "low", "targetFps": 30 },
+      "compatibility": { "hostApi": 2, "platforms": ["windows"] }
+    }
+  ]
+}

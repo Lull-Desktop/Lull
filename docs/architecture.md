@@ -147,6 +147,20 @@ lib.rs
  │    ├─ store.rs（包发现 / 授权记录 / 状态 KV / 安装卸载）
  │    ├─ runtime.rs（宿主壳页 ready 握手 / 窗口关闭等待）
  │    └─ protocol.rs（lullwidget:// 资源协议 + 逐插件 CSP）
+ ├─ game_package（游戏包：清单 / 摘要 / 授权账本 / lullgame:// 资源协议）
+ │    ├─ manifest.rs（game.json v1 校验 + capabilities/commands/events）
+ │    ├─ digest.rs（旁路 .lull-integrity.json + 整包摘要）
+ │    ├─ store.rs（包发现 / 授权 / 安装卸载 / 运行前检查）
+ │    └─ protocol.rs（lullgame:// + 逐包 CSP / nonce）
+ ├─ game（Game Runtime P1：实例 / 权威 / 状态 / 存档 / 命令 / 副本注册）
+ │    ├─ manager.rs（实例表 / 参与者 / ticker / 事件分发 / 命令去重）
+ │    ├─ lifecycle.rs（启动 / 停止 / 立即保存 / failover）
+ │    ├─ authority.rs（隐藏 game-authority-* 窗口与上下文注入）
+ │    ├─ lease.rs（authorityEpoch / token / 心跳）
+ │    ├─ state.rs（提交校验：revision / 配额 / 事件构造）
+ │    ├─ repository.rs（game-data/<id>/<instance>/ 原子写 / 备份 / 恢复）
+ │    ├─ api.rs（16 条 game_* / games_* 命令）
+ │    └─ permissions.rs（窗口角色 / 顶层帧 token / Widget 授权）
  ├─ build.rs（校验 widgets/manifests，生成 $OUT_DIR/widget_specs.rs）
  ├─ window_frame.rs（原子 SetWindowPos）
  ├─ config（display.json 模型 / 迁移 / 原子写盘；含 display.media）
@@ -241,6 +255,9 @@ lib.rs
 | `media_connect` / `media_disconnect` | `request: {topics?,progressMs?,levels?}` | `PlaybackSnapshot` / `()` | `media::playback`（player/noise/settings/library） |
 | `media_engine_ready` / `media_engine_event` | `event: EngineEvent` | `()` | `media::playback`（仅 media-engine） |
 | `content_packages` | — | `ContentPackageInfo[]`（含 `origin: bundled/user`） | `content_package`（壁纸窗只读） |
+| `games_list` / `games_config_get` / `games_config_set` / `game_start` / `game_stop` / `game_suspend` / `game_resume` / `game_flush` / `game_save_delete` | `gameId` 等 | `GameView[]` / `GamesConfig` / `GameInstanceView` / `()` | `game::api`（settings；启停用走扩展中心命令） |
+| `game_auto_start` | `gameId` | `GameInstanceView \| null` | `game::api`（壁纸窗专用，按 `games.json.autoStartWithWallpaper`） |
+| `game_connect` / `game_snapshot_get` / `game_command_send` / `game_state_commit` / `game_event_publish` / `game_render_state_publish` / `game_command_result` / `game_ready` / `game_heartbeat` / `game_report_error` / `game_detach` | 见 [Game Runtime](game-runtime.md) 附录 B | 同上 | `game::api`（authority / wallpaper / widget 按窗口 ACL + token 校验） |
 
 所有会写配置的命令遵循同一事务模型：**先改内存 → 写盘 → 失败回滚内存 → 返回错误**。写盘使用临时文件 + 原子替换。
 
@@ -262,6 +279,9 @@ lib.rs
 | `media-degraded` | Rust（原生路径失败） | 壁纸 MediaSurface 切换 HTML 回退 |
 | `media:event` | Rust（资料库 revision、扫描进度、歌单/收藏/历史、播放/队列、Noise Session/Track/Library、输出音量） | 音乐库窗口、白噪音库窗口、已订阅的播放器/白噪音窗口 |
 | `media-engine-command` | Rust（`media::engine`） | 隐藏 `media-engine` 窗口 |
+| `games-changed` | Rust（安装 / 启停 / 失败 / 授权变化） | 设置页「游戏」页签、扩展中心 |
+| `game:snapshot` / `game:event` / `game:render` | Rust（`game::manager`） | 游戏 authority / replica / controller 窗口（定向投递） |
+| `game:lifecycle` / `game:command` / `game:command-result` / `game:tick` | Rust（`game::manager`） | authority、replica、controller（按窗口角色定向） |
 
 ### 4.3 Widget 上下文注入
 
@@ -289,9 +309,14 @@ lib.rs
   - 官方 `widget-player` / `widget-noise` 通过 `window-widgets` 与 Widget 能力清单获得媒体权限，不拿引擎命令；
   - `media-engine`：仅 `core:event:allow-listen/unlisten` + `allow-media-engine-ready/event`，不能打开窗口、读资料库或调用 `media_call`；
   - 壁纸窗口 `wallpaper-*`：`core:event` 的 listen/unlisten + `allow-content-packages`（解析场景 id 用）
-    + `allow-media-capabilities/config-get/open/attach/detach/degrade`；媒体命令还必须带 Rust
-    在建窗时注入顶层帧的 `__LULL_MEDIA_TOKEN__`，没有窗口、壁纸、插件或内容包安装命令；
-  - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten（主题跟随）+ `allow-widget-state-*` + `allow-widget-package-notify` + `allow-widget-package-ready` + `allow-widget-set-transparent`，**没有 `core:default`**、**没有 event.emit**，不能调用包管理、壁纸或偏好命令。
+    + `allow-media-capabilities/config-get/open/attach/detach/degrade` + 游戏只读命令
+    `allow-game-connect/snapshot-get/ready/report-error/detach`；媒体命令还必须带 Rust
+    在建窗时注入顶层帧的 `__LULL_MEDIA_TOKEN__`，游戏命令带同一层注入的 `__LULL_GAME_TOKEN__`；
+    没有窗口、壁纸、插件或内容包安装命令；
+  - 游戏权威窗口 `game-authority-*`（隐藏）：只拿 `core:event` listen/unlisten +
+    `allow-game-connect/snapshot-get/state-commit/event-publish/render-state-publish/command-result/ready/heartbeat/report-error/detach`；
+    没有窗口、文件、包管理命令；authority token 只在宿主壳里，游戏 iframe 拿不到；
+  - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten（主题跟随）+ `allow-widget-state-*` + `allow-widget-package-notify` + `allow-widget-package-ready` + `allow-widget-set-transparent` + `allow-game-connect/snapshot-get/command-send/report-error/detach`（控制器桥，能力由授权账本二次校验），**没有 `core:default`**、**没有 event.emit**，不能调用包管理、壁纸或偏好命令。
 - 构建期 `tauri-build` 会校验 capability 引用的权限是否存在；权限名或命令改名漏同步会直接编译失败。
 - `media-engine` 是隐藏的受信 WebView，不是 Widget；它只拿到引擎命令事件与上报命令，不能反向读曲库或控制窗口。
 - 所有 WebView 共用 `src-tauri/src/webview.rs` 的 Chromium 参数（自动播放、后台节流、occluded/backgrounding），否则隐藏引擎会被暂停；所有窗口必须复用同一份参数，避免 WebView2 environment options 不一致。
@@ -367,6 +392,20 @@ form-action 'none'
 
 `LULL_WIDGETS_DIR` 可覆盖插件根目录（开发/测试）。包格式、能力声明与协议见 [Widget SDK](widget-sdk.md)。
 
+Game Runtime（P1）路径：
+
+```text
+%APPDATA%\app.lull.desktop\games\<gameId>\game.json      # 游戏包
+%APPDATA%\app.lull.desktop\games\.grants.json            # 启用 / 能力授权
+%APPDATA%\app.lull.desktop\games.json                    # 运行偏好（autoStart / maxRunning / offlineMaxMs）
+%APPDATA%\app.lull.desktop\game-data\<gameId>\<instanceId>\state.json
+%APPDATA%\app.lull.desktop\game-data\<gameId>\<instanceId>\metadata.json
+%APPDATA%\app.lull.desktop\game-data\<gameId>\<instanceId>\backups\
+```
+
+`LULL_GAMES_DIR` / `LULL_GAME_DATA_DIR` 可覆盖。存档与包目录分离：卸载包默认保留存档。
+协议、命令与 P1 边界见 [Game Runtime](game-runtime.md)。
+
 ## 6. 原生 C ABI
 
 `lull_native.dll` 导出 13 个函数，Rust 绑定其中 11 个：
@@ -404,6 +443,8 @@ pnpm widgets:sdk       Widget 插件侧 SDK 构建（TS → dist + .d.ts）
 pnpm widgets:sdk:check Widget SDK 类型检查
 pnpm scenes:sdk        场景侧 SDK 构建（TS → dist + .d.ts）
 pnpm scenes:sdk:check  场景 SDK 类型检查
+pnpm game:sdk          Game SDK 构建（TS → dist + .d.ts）
+pnpm game:sdk:check    Game SDK 类型检查
 pnpm media:sdk         Media SDK 构建（TS → dist + .d.ts）
 pnpm media:sdk:check   Media SDK 类型检查
 pnpm build:next        Next 静态导出（离线字体）
@@ -421,7 +462,7 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 | **B · Extensions** | Scene SDK、Widget SDK、内置工具与外置插件验证 | Scene SDK 已落地：静态包 + `wallpaper.script` 沙箱场景，`@lull/scene-sdk` 提供参数/几何/同步/可见性桥与契约测试；内置 Widget SDK、逐窗口 ACL、CSP、插件包/iframe 桥/状态 KV 已落地；插件 ZIP 安装、旁路摘要锁、扩展中心、逐能力授权、清单漂移复核、开发模式与托盘入口已落地；仍缺 npm 发布与签名 | 外部示例场景无需改核心即可运行 |
 | **C · Community** | 内容包格式、示例、包摘要、目录签名、用户内容目录与安装器 | 格式 + 示例 + 摘要 + 签名 + 统一安装入口（scene/widget 共用 staging）已落地；仍缺在线索引、第三方签名信任链与 scene 卸载自动回退 | 外部开发者可独立构建、安装并分享内容包 |
 | **D · Services** | 内容索引、可选同步、创作者发布 | 仅设计 | 服务带来明确价值，且断网不影响本地 |
-| **E · Game Runtime** | 游戏实例管理、权威状态、多屏 Render Replica、第三方引擎接入 | **仅设计**：[Game Runtime](game-runtime.md) 与 [Game SDK](game-sdk.md)（基于 [RFC](rfc/RFC-Game-Runtime.md)）；代码、命令、窗口与包格式均未实现 | P1（宿主权威 + 单实例闭环）通过 RFC §16 Phase 1 验收后，再按 P2–P5 推进 |
+| **E · Game Runtime** | 游戏实例管理、权威状态、多屏 Render Replica、第三方引擎接入 | **P1 + P2 已落地**：[Game Runtime](game-runtime.md) / [Game SDK](game-sdk.md)（单实例、`host-tick` 权威、存档、命令/事件、Widget 控制器、Scene 只读 Replica、暂停/恢复）；`self-loop`、`entry.replica` 与引擎 Adapter 仍为设计 | P3 接入 `self-loop` 与崩溃硬化，P4 接引擎 Adapter |
 
 ## 9. 已知边界与风险
 
@@ -439,4 +480,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
 9. **视频壁纸的边界**：默认构建走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/WebView2 TextureStream 共享解码在可选 `native-media` feature 下实现，但本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，运行时自动回退。能力探测、构建依赖与验收门见 [Media Runtime](media-runtime.md)。不要把 HTML 回退描述成“单解码器”，也不要把“feature 已实现”描述成“原生已交付”。
 10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。P3 已补歌单/喜欢/历史、M3U 导入导出与独立 `library` 资料库窗口（含队列视图）；N2 已把 Noise 从 `playback` 迁到独立 `media::noise`，引入 Asset/Track/Session 与旧 5 层兼容门面，Session/Track 不持久化；N3 已补 Noise 本地文件导入（受管复制 + SHA-256 + 缺失检测）、分类/标签/收藏/搜索与白噪音库窗口功能页签，文件轨道通过 `<audio>` 接入 `noiseBus`；N3.5 补分类/标签独立 CRUD（内置只读、层级循环保护、删除分类不删素材）；N4 补 Preset 保存/加载/导入导出、收藏与缺失轨道映射，加载替换 Session 但不自动播放；N5/P5 补 Widget 媒体桥、Rust bridge token、8 个 Noise capability、redacted snapshot、React hooks、`noise-mixer` 示例；N6 把白噪音窗口迁到 `NoiseSession` 动态轨道，支持内置泡泡 + 本地轨列表、Preset 选择/加载、播放/暂停，关闭窗口不停止 Session；P4 补元数据编辑与重扫保护、标签实体/多标签、艺术家/专辑合并拆分、智能歌单；P6 补 `.lrc/.txt/.srt` sidecar 歌词与组织数据备份/恢复，在线元数据、文件监听、缩略图未开始；随机播放已拆成 `playback::shuffle` 的 Profile / Strategy / Engine 三层：内置与用户配置可保存/切换，Strategy 用硬近期窗口 + softmax/均匀混合，Engine 管轮次袋与上一首历史；播放器只读写 Profile。详见 [Smart Shuffle](smart-shuffle.md)。`media_call` 对 `settings/player/noise/library/noise-library` 与带 token 的 `widget-*` 开放，`media_connect` 返回快照并通过 `media:event` 推送。多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md)、[Widget SDK](widget-sdk.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
-11. **Game Runtime 只有设计**：[Game Runtime 设计](game-runtime.md) 与 [Game SDK](game-sdk.md) 是基于 [RFC](rfc/RFC-Game-Runtime.md) 的落地设计，**尚未实现**；文中出现的 `game-authority-*` 窗口、`game_*` 命令、`lullgame://` 协议、`games/` 与 `game-data/` 目录、`game.json` 包格式均不存在于当前代码，不要按这些设计假设功能已可调用。实现按文档 §19 的 P1–P5 分阶段推进。
+11. **Game Runtime 已到 P2**：[Game Runtime 设计](game-runtime.md) 与 [Game SDK](game-sdk.md) 的 P1/P2 已实现：`game-authority-*` 隐藏窗口、21 条命令、`lullgame://`、`games/` 与 `game-data/` 目录、`game.json` 包格式、Widget 控制器桥与示例、Scene 只读 Replica（`game` 绑定 + `game.*` 桥）、暂停/恢复与 hidden、`games.json` 偏好与随壁纸自动启动。`self-loop`、`entry.replica`、引擎 Adapter 与开发挂载**尚未实现**，不要按设计文档假设这些能力已可调用；实现边界见设计文档 §19。

@@ -11,12 +11,14 @@
  * - 宿主只接受 `event.source === iframe.contentWindow` 的消息。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useGameReplica } from "@/games/bridge/use-game-replica";
 import {
   type SceneCatalogEntry,
   type SceneFrame,
   sceneRunsScript,
 } from "@/sdk/scene";
 import {
+  isSceneGamePluginMessage,
   isScenePluginMessage,
   SCENE_READY_TIMEOUT_MS,
   type SceneHostMessage,
@@ -93,6 +95,12 @@ function ScriptedScene({
   const readyRef = useRef(false);
   const onReadyRef = useRef(onReady);
   const [ready, setReady] = useState(false);
+  const { handleSceneGameMessage, resetForReload } = useGameReplica({
+    gameId: entry.manifest.game?.id ?? null,
+    sceneId: entry.manifest.id,
+    frame,
+    iframeRef,
+  });
 
   // 事件回调里读到的是最新一帧 / 最新回调，而不是注册监听时的闭包。
   frameRef.current = frame;
@@ -119,8 +127,9 @@ function ScriptedScene({
     // iframe 重新加载后旧页面的 ready 失效；先发 init，等新页面回 ready。
     readyRef.current = false;
     setReady(false);
+    resetForReload();
     sendInit();
-  }, [sendInit]);
+  }, [resetForReload, sendInit]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -128,6 +137,11 @@ function ScriptedScene({
     const onMessage = (event: MessageEvent): void => {
       // opaque origin 下 event.origin 是 "null"，只能靠 source 校验。
       if (event.source !== iframe.contentWindow) return;
+      // 游戏渲染桥的消息与 Scene SDK 消息共用同一通道、各自校验。
+      if (isSceneGamePluginMessage(event.data)) {
+        handleSceneGameMessage(event.data);
+        return;
+      }
       if (!isScenePluginMessage(event.data)) return;
       const message = event.data;
       if (message.type === "ready") {
@@ -147,7 +161,7 @@ function ScriptedScene({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [entry.manifest.id, sendInit]);
+  }, [entry.manifest.id, handleSceneGameMessage, sendInit]);
 
   // frame 变化（参数 / 布局 / 窗口尺寸）时推给场景；ready 之前的更新跳过，
   // 首帧由 ready 后的 init 补上。

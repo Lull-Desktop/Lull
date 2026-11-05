@@ -14,6 +14,8 @@ use crate::content_package;
 use crate::content_trust::{
   self, PackageClaim, PackageKind, SignatureDecision, SignatureInfo, TrustPolicy,
 };
+use crate::game;
+use crate::game_package;
 use crate::package_hash;
 use crate::widget_package;
 use serde::Serialize;
@@ -117,6 +119,7 @@ pub struct PickResult {
 enum Kind {
   Scene,
   Widget,
+  Game,
 }
 
 impl Kind {
@@ -124,6 +127,7 @@ impl Kind {
     match self {
       Self::Scene => "scene",
       Self::Widget => "widget",
+      Self::Game => "game",
     }
   }
 }
@@ -132,6 +136,7 @@ fn kind_from_str(kind: &str) -> Result<Kind, ExtensionError> {
   match kind {
     "scene" => Ok(Kind::Scene),
     "widget" => Ok(Kind::Widget),
+    "game" => Ok(Kind::Game),
     other => Err(ExtensionError::new(
       "extension.unsupported-kind",
       format!("未知扩展类型：{other}"),
@@ -280,20 +285,85 @@ fn widget_info(app: &AppHandle, package: widget_package::store::PackageInfo) -> 
   }
 }
 
+fn game_info(package: game_package::store::GamePackageInfo) -> ExtensionInfo {
+  let running = game::instance_active(&package.id);
+  let status = match package.status.as_str() {
+    "invalid" => "invalid",
+    _ if !package.enabled => "disabled",
+    _ => "ready",
+  };
+  let error = package
+    .error
+    .as_ref()
+    .map(|message| ExtensionError::new("manifest.field-invalid", message.clone()));
+  ExtensionInfo {
+    kind: "game".to_string(),
+    id: package.id,
+    name: package.name,
+    version: package.version,
+    description: package.description,
+    author: package.author,
+    license: package.license,
+    status: status.to_string(),
+    verified: "declared".to_string(),
+    signature: SignatureInfo {
+      status: content_trust::verify::SignatureStatus::Unsigned,
+      decision: SignatureDecision::Allow,
+      key_id: None,
+      key_label: None,
+      key_fingerprint: None,
+      signed_at: None,
+      release_seq: None,
+      reason: None,
+    },
+    dev: false,
+    origin: "user".to_string(),
+    error,
+    enabled: Some(package.enabled),
+    running: Some(running),
+    visible: Some(false),
+    capabilities: Some(package.capabilities),
+    provides: Vec::new(),
+    granted: Some(package.granted),
+    network: Some(package.network),
+    window: None,
+    lifecycle: Some("background".to_string()),
+    entry_url: Some(package.entry_authority_url),
+    manifest: None,
+  }
+}
+
+fn find_game(app: &AppHandle, id: &str) -> Result<ExtensionInfo, ExtensionError> {
+  game_package::store::list(app)
+    .into_iter()
+    .find(|item| item.id == id)
+    .map(game_info)
+    .ok_or_else(|| ExtensionError::new("extension.not-found", format!("没有安装 id={id} 的游戏")))
+}
+
 fn detect_kind(bundle: &Path) -> Result<Kind, ExtensionError> {
-  let scene = bundle.join("catalog.json").is_file();
-  let widget = bundle.join("widget.json").is_file();
-  match (scene, widget) {
-    (true, false) => Ok(Kind::Scene),
-    (false, true) => Ok(Kind::Widget),
-    (true, true) => Err(ExtensionError::new(
-      "package.ambiguous",
-      "扩展包同时包含 catalog.json 与 widget.json，无法判断类型",
-    )),
-    (false, false) => Err(ExtensionError::new(
+  let manifests = [
+    ("catalog.json", Kind::Scene),
+    ("widget.json", Kind::Widget),
+    ("game.json", Kind::Game),
+  ];
+  let found: Vec<(&str, Kind)> = manifests
+    .into_iter()
+    .filter(|(file, _)| bundle.join(file).is_file())
+    .collect();
+  match found.as_slice() {
+    [(_, kind)] => Ok(*kind),
+    [] => Err(ExtensionError::new(
       "package.manifest-missing",
-      "扩展包里没有找到 catalog.json 或 widget.json",
+      "扩展包里没有找到 catalog.json / widget.json / game.json",
     )),
+    _ => {
+      let names: Vec<&str> = found.iter().map(|(file, _)| *file).collect();
+      Err(ExtensionError::new(
+        "package.ambiguous",
+        format!("扩展包同时包含 {}，无法判断类型", names.join(" 与 ")),
+      ))
+    }
   }
 }
 
@@ -344,6 +414,18 @@ fn claim_for_bundle(kind: Kind, bundle: &Path) -> Result<PackageClaim, Extension
         kind: PackageKind::Scene,
         id: registration.id,
         version: registration.version,
+        digest,
+      })
+    }
+    Kind::Game => {
+      let manifest = game_package::manifest::GameManifest::from_dir(bundle)
+        .map_err(|error| ExtensionError::new(error.code, error.message))?;
+      let digest = game_package::digest::compute(bundle, &manifest.id, &manifest.version)
+        .map_err(|error| ExtensionError::new("integrity.mismatch", error))?;
+      Ok(PackageClaim {
+        kind: PackageKind::Game,
+        id: manifest.id,
+        version: manifest.version,
         digest,
       })
     }
@@ -475,6 +557,44 @@ fn preview_from_staged_with_policy(
         Vec::new(),
       )
     }
+    Kind::Game => {
+      let manifest = game_package::manifest::GameManifest::from_dir(bundle)
+        .map_err(|error| ExtensionError::new(error.code, error.message))?;
+      if !bundle.join(&manifest.entry.authority).is_file() {
+        return Err(ExtensionError::new(
+          "manifest.entry-missing",
+          format!(
+            "entry.authority 指向的文件不存在：{}",
+            manifest.entry.authority
+          ),
+        ));
+      }
+      if let Some(replica) = &manifest.entry.replica {
+        if !bundle.join(replica).is_file() {
+          return Err(ExtensionError::new(
+            "manifest.entry-missing",
+            format!("entry.replica 指向的文件不存在：{replica}"),
+          ));
+        }
+      }
+      match game_package::digest::check(bundle, &manifest.id, &manifest.version) {
+        Ok(Some(_)) => {}
+        Ok(None) => warnings.push("未带摘要锁：安装时会生成本地锁".to_string()),
+        Err(error) => {
+          return Err(ExtensionError::new("integrity.mismatch", error));
+        }
+      }
+      (
+        manifest.id,
+        manifest.name,
+        manifest.version,
+        manifest.description,
+        manifest.author,
+        Some(manifest.license),
+        manifest.capabilities,
+        manifest.network,
+      )
+    }
   };
 
   let (file_count, bytes) = install::stats(bundle)?;
@@ -511,6 +631,9 @@ pub fn extensions_list(app: AppHandle) -> Vec<ExtensionInfo> {
   }
   for package in widget_package::store::list(&app) {
     items.push(widget_info(&app, package));
+  }
+  for package in game_package::store::list(&app) {
+    items.push(game_info(package));
   }
   items.sort_by(|left, right| {
     left
@@ -661,6 +784,12 @@ pub fn extensions_install(
         .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
       scene_info(package)
     }
+    Kind::Game => {
+      let root = game_package::store::root(&app).map_err(io_error)?;
+      let manifest = game_package::store::install_from_staged(&root, &staged)
+        .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
+      find_game(&app, &manifest.id)?
+    }
   };
   emit_changed(&app);
   Ok(info)
@@ -696,6 +825,16 @@ pub fn extensions_remove(app: AppHandle, kind: String, id: String) -> Result<(),
       content_package::store::remove(&app, &id)
         .map_err(|error| ExtensionError::new("extension.remove-failed", error))?;
     }
+    Kind::Game => {
+      if game::instance_active(&id) {
+        return Err(ExtensionError::new(
+          "game.instance-running",
+          "游戏正在运行，请先停止再卸载",
+        ));
+      }
+      game_package::store::remove(&app, &id)
+        .map_err(|error| ExtensionError::new("extension.remove-failed", error))?;
+    }
   }
   emit_changed(&app);
   Ok(())
@@ -706,12 +845,28 @@ pub fn extensions_set_enabled(
   app: AppHandle,
   id: String,
   enabled: bool,
+  kind: Option<String>,
 ) -> Result<ExtensionInfo, ExtensionError> {
-  widget_package::store::set_enabled(&app, &id, enabled)
-    .map_err(|error| ExtensionError::new("extension.update-failed", error))?;
-  slots::on_extension_changed(&app);
-  emit_changed(&app);
-  find_widget(&app, &id)
+  match kind_from_str(kind.as_deref().unwrap_or("widget"))? {
+    Kind::Widget => {
+      widget_package::store::set_enabled(&app, &id, enabled)
+        .map_err(|error| ExtensionError::new("extension.update-failed", error))?;
+      slots::on_extension_changed(&app);
+      emit_changed(&app);
+      find_widget(&app, &id)
+    }
+    Kind::Game => {
+      game_package::store::set_enabled(&app, &id, enabled)
+        .map_err(|error| ExtensionError::new("extension.update-failed", error))?;
+      crate::game::manager::emit_games_changed(&app);
+      emit_changed(&app);
+      find_game(&app, &id)
+    }
+    Kind::Scene => Err(ExtensionError::new(
+      "extension.unsupported-kind",
+      "scene 没有启用开关",
+    )),
+  }
 }
 
 #[tauri::command]
@@ -720,11 +875,27 @@ pub fn extensions_set_capability(
   id: String,
   capability: String,
   granted: bool,
+  kind: Option<String>,
 ) -> Result<ExtensionInfo, ExtensionError> {
-  widget_package::store::set_capability(&app, &id, &capability, granted)
-    .map_err(|error| ExtensionError::new("extension.update-failed", error))?;
-  emit_changed(&app);
-  find_widget(&app, &id)
+  match kind_from_str(kind.as_deref().unwrap_or("widget"))? {
+    Kind::Widget => {
+      widget_package::store::set_capability(&app, &id, &capability, granted)
+        .map_err(|error| ExtensionError::new("extension.update-failed", error))?;
+      emit_changed(&app);
+      find_widget(&app, &id)
+    }
+    Kind::Game => {
+      let running = game::instance_active(&id);
+      game_package::store::set_capability(&app, &id, &capability, granted, running)
+        .map_err(|error| ExtensionError::new("extension.update-failed", error))?;
+      emit_changed(&app);
+      find_game(&app, &id)
+    }
+    Kind::Scene => Err(ExtensionError::new(
+      "extension.unsupported-kind",
+      "scene 没有能力授权",
+    )),
+  }
 }
 
 fn find_widget(app: &AppHandle, id: &str) -> Result<ExtensionInfo, ExtensionError> {
@@ -760,11 +931,29 @@ pub async fn extensions_open(
         .map_err(|error| ExtensionError::new("extension.open-failed", error))
     }
     Kind::Scene => Ok(()),
+    Kind::Game => {
+      let app_clone = app.clone();
+      let id_clone = id.clone();
+      tauri::async_runtime::spawn_blocking(move || {
+        crate::game::lifecycle::start(&app_clone, &id_clone)
+      })
+      .await
+      .map_err(|error| io_error(format!("启动游戏失败：{error}")))?
+      .map(|_| ())
+      .map_err(|error| ExtensionError::new(error.code, error.message))
+    }
   }
 }
 
 #[tauri::command]
 pub fn extensions_close(app: AppHandle, id: String) -> Result<(), ExtensionError> {
+  // 游戏没有可隐藏的宿主窗口：close 是无操作。
+  if game_package::store::list(&app)
+    .iter()
+    .any(|package| package.id == id)
+  {
+    return Ok(());
+  }
   // Provider 的“关闭窗口”固定为隐藏：关闭不能让出 Slot，也不能触发另一个实现。
   if slots::provider_slot_for_id(&app, &id).is_some() {
     let result = widget_package::close(&app, &id);
@@ -782,9 +971,30 @@ pub fn extensions_close(app: AppHandle, id: String) -> Result<(), ExtensionError
 }
 
 #[tauri::command]
-pub fn extensions_stop(app: AppHandle, id: String) -> Result<(), ExtensionError> {
-  widget_package::stop(&app, &id)
-    .map_err(|error| ExtensionError::new("extension.update-failed", error))
+pub async fn extensions_stop(
+  app: AppHandle,
+  id: String,
+  kind: Option<String>,
+) -> Result<(), ExtensionError> {
+  match kind_from_str(kind.as_deref().unwrap_or("widget"))? {
+    Kind::Widget => widget_package::stop(&app, &id)
+      .map_err(|error| ExtensionError::new("extension.update-failed", error)),
+    Kind::Game => {
+      let app_clone = app.clone();
+      let id_clone = id.clone();
+      tauri::async_runtime::spawn_blocking(move || {
+        crate::game::lifecycle::stop(&app_clone, &id_clone)
+      })
+      .await
+      .map_err(|error| io_error(format!("停止游戏失败：{error}")))?
+      .map(|_| ())
+      .map_err(|error| ExtensionError::new(error.code, error.message))
+    }
+    Kind::Scene => Err(ExtensionError::new(
+      "extension.unsupported-kind",
+      "scene 没有运行实例",
+    )),
+  }
 }
 
 #[tauri::command]
@@ -792,6 +1002,7 @@ pub fn extensions_open_dir(app: AppHandle, kind: String) -> Result<String, Exten
   let root = match kind_from_str(&kind)? {
     Kind::Widget => widget_package::store::root(&app),
     Kind::Scene => content_package::store::root(&app),
+    Kind::Game => game_package::store::root(&app),
   }
   .map_err(io_error)?;
   std::fs::create_dir_all(&root).map_err(|error| io_error(format!("创建目录失败：{error}")))?;

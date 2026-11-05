@@ -50,6 +50,9 @@ export const WIDGET_CAPABILITIES = [
   "media.library.directory.read",
   "media.library.favorites.write",
   "media.library.sources.write",
+  "game.state.read",
+  "game.command.send",
+  "game.event.read",
 ];
 /** Cannot be requested by plugins (host-only). */
 export const WIDGET_FORBIDDEN_CAPABILITIES = ["widget.window", "widget.native"];

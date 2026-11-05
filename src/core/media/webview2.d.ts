@@ -15,5 +15,7 @@ interface LullWebView2Chrome {
 
 interface Window {
   __LULL_MEDIA_TOKEN__?: string;
+  /** 壁纸窗顶层帧的游戏 replica token；沙箱场景 iframe 读不到父 DOM。 */
+  __LULL_GAME_TOKEN__?: string;
   chrome?: LullWebView2Chrome;
 }

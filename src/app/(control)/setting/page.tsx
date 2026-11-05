@@ -1,5 +1,5 @@
 /**
- * 设置窗口页面：偏好（语言 / 主题 / 窗口与库窗口入口）、扩展、关于三个页签。
+ * 设置窗口页面：偏好（语言 / 主题 / 窗口与库窗口入口）、游戏、扩展、关于四个页签。
  * 壁纸库、白噪音库与曲库整理/测试与接口分别迁到独立库窗口，本页只保留控制面。
  */
 "use client";
@@ -17,6 +17,7 @@ import {
 } from "react";
 import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
 import { SlotPanel } from "@/components/extensions/slot-panel";
+import { GamesPanel } from "@/components/settings/games-panel";
 import { ThemeModeSwitch } from "@/components/settings/theme-mode-switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -61,13 +62,14 @@ type WidgetState = {
   visible: boolean;
 };
 
-/** 设置页签，顺序即展示顺序：偏好 → 扩展 → 关于。文案在渲染时按当前语言取。 */
-const SETTINGS_TABS = ["preferences", "extensions", "about"] as const;
+/** 设置页签，顺序即展示顺序：偏好 → 游戏 → 扩展 → 关于。文案在渲染时按当前语言取。 */
+const SETTINGS_TABS = ["preferences", "games", "extensions", "about"] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const TAB_LABELS: Record<SettingsTab, () => string> = {
   preferences: m.settings_tab_preferences,
+  games: m.settings_tab_games,
   extensions: m.settings_tab_extensions,
   about: m.settings_tab_about,
 };
@@ -290,7 +292,7 @@ export default function Settings() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-3">
       <div
-        className="sticky top-0 z-10 mb-2 grid grid-cols-3 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
+        className="sticky top-0 z-10 mb-2 grid grid-cols-4 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
         role="tablist"
         aria-label={m.settings_tabs_label()}
       >
@@ -319,13 +321,13 @@ export default function Settings() {
       )}
 
       {tab !== "about" && (
-        // 扩展页以偏好卡片为高度基准：切到扩展时偏好面板保持挂载但不可见，
-        // 扩展面板绝对定位铺满同一高度；窗口缩放或文案换行时两边仍然等高。
+        // 游戏/扩展页以偏好卡片为高度基准：切到其它页签时偏好面板保持挂载但不可见，
+        // 对应面板绝对定位铺满同一高度；窗口缩放或文案换行时两边仍然等高。
         <div className="relative">
           <main
-            aria-hidden={tab === "extensions" ? true : undefined}
-            inert={tab === "extensions" ? true : undefined}
-            className={cn("space-y-6", tab === "extensions" && "invisible")}
+            aria-hidden={tab !== "preferences" ? true : undefined}
+            inert={tab !== "preferences" ? true : undefined}
+            className={cn("space-y-6", tab !== "preferences" && "invisible")}
             data-testid="settings-preferences-pane"
           >
             {/* ── General（语言 / 主题流光 / 窗口合并为一张卡片）── */}
@@ -773,6 +775,14 @@ export default function Settings() {
             </CardContent>
           </Card> */}
           </main>
+          {tab === "games" && (
+            <main
+              className="absolute inset-0"
+              data-testid="settings-games-pane"
+            >
+              <GamesPanel />
+            </main>
+          )}
           {tab === "extensions" && (
             <main
               className="absolute inset-0"

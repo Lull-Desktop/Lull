@@ -8,7 +8,7 @@
 export const SCENE_SCHEMA_VERSION = 1 as const;
 
 /** 宿主 API 版本：清单里的 compatibility.hostApi 与它比较。破坏性变更才递增。 */
-export const SCENE_HOST_API = 1 as const;
+export const SCENE_HOST_API = 2 as const;
 
 export const SCENE_CAPABILITIES = [
   "wallpaper.viewport",
@@ -93,6 +93,19 @@ export type SceneThemeHints = {
   accent?: string;
 };
 
+/**
+ * 场景对游戏世界的只读绑定（场景宿主 API 2 起）。
+ *
+ * 声明后场景必须同时声明 `wallpaper.script`：游戏快照/事件经场景桥下发，
+ * 场景只渲染，永远不能写权威状态。
+ */
+export type SceneGameBinding = {
+  /** 游戏包 id，例如 `community.living-world`。 */
+  id: string;
+  /** 首期只允许 replica。 */
+  role: "replica";
+};
+
 export type SceneManifest = {
   schemaVersion: typeof SCENE_SCHEMA_VERSION;
   type: "scene";
@@ -116,6 +129,8 @@ export type SceneManifest = {
   params?: SceneParamDefinition[];
   performance?: ScenePerformanceHints;
   compatibility?: SceneCompatibility;
+  /** 只读游戏绑定；声明后必须同时声明 wallpaper.script。 */
+  game?: SceneGameBinding;
   /** 内容包必填（官方目录由 `pnpm content:hash` 维护）；内置场景不使用。 */
   integrity?: SceneIntegrity;
 };
@@ -155,6 +170,7 @@ const MANIFEST_KEYS = new Set([
   "params",
   "performance",
   "compatibility",
+  "game",
   "integrity",
 ]);
 const PERFORMANCE_TIERS = ["low", "medium", "high"] as const;
@@ -438,6 +454,30 @@ function parseIntegrity(
   return { algorithm: "sha256", scope: "package", digest };
 }
 
+function parseGameBinding(
+  value: unknown,
+  where: string,
+): SceneGameBinding | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) fail(where, "game 必须是对象或省略");
+  for (const field of Object.keys(value)) {
+    if (field !== "id" && field !== "role") {
+      fail(where, `game 含未知字段: ${field}`);
+    }
+  }
+  const id = requireString(value, "id", where);
+  if (!ID_PATTERN.test(id)) {
+    fail(
+      where,
+      `game.id "${id}" 非法：只允许小写字母、数字、点、下划线与连字符`,
+    );
+  }
+  if (value.role !== "replica") {
+    fail(where, 'game.role 只支持 "replica"');
+  }
+  return { id, role: "replica" };
+}
+
 /** 校验静态内容入口：必须是相对路径、不得逃逸内容根目录、必须是 .html。 */ export function isSafeContentEntry(
   entry: string,
 ): boolean {
@@ -536,6 +576,18 @@ export function parseSceneManifest(
     };
   }
 
+  const game = parseGameBinding(input.game, where);
+  if (game && !has("wallpaper.script")) {
+    fail(where, "声明 game 绑定时必须同时声明 wallpaper.script");
+  }
+  if (game && options.requireEntry !== true) {
+    fail(where, "内置场景不能声明 game 绑定");
+  }
+  const compatibility = parseCompatibility(input.compatibility, where);
+  if (game && (compatibility === undefined || compatibility.hostApi < 2)) {
+    fail(where, "声明 game 绑定时必须声明 compatibility.hostApi >= 2");
+  }
+
   return {
     schemaVersion: SCENE_SCHEMA_VERSION,
     type: "scene",
@@ -550,7 +602,8 @@ export function parseSceneManifest(
     theme,
     params,
     performance: parsePerformance(input.performance, where),
-    compatibility: parseCompatibility(input.compatibility, where),
+    compatibility,
+    game,
     integrity: parseIntegrity(input.integrity, where),
   };
 }
@@ -558,6 +611,13 @@ export function parseSceneManifest(
 /** 外部场景是否允许脚本桥；内置场景由组件直接渲染，不依赖该能力。 */
 export function sceneRunsScript(manifest: SceneManifest): boolean {
   return manifest.capabilities.includes("wallpaper.script");
+}
+
+/** 场景是否只读绑定了游戏；渲染桥只对这类场景下发 game.* 消息。 */
+export function sceneGameBinding(
+  manifest: SceneManifest,
+): SceneGameBinding | null {
+  return manifest.game ?? null;
 }
 
 /** 场景是否声明了参数通道；Settings 只对这类场景渲染参数控件。 */

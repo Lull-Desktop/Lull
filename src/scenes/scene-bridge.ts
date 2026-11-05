@@ -8,9 +8,19 @@
  * - 场景 → 宿主：`ready` / `log`
  * - 宿主 → 场景：`init` / `frame` / `visibility`
  */
+import type {
+  GameContext,
+  GameEvent,
+  GameLifecycleEvent,
+  GameRenderState,
+  GameSnapshot,
+} from "@/lib/games";
 import { SCENE_HOST_API, type SceneFrame } from "@/sdk/scene";
 
 export const SCENE_BRIDGE_PROTOCOL = 1 as const;
+
+/** 场景游戏桥与 Game SDK 共用的协议版本。 */
+export const SCENE_GAME_PROTOCOL = 1 as const;
 
 /** 场景迟迟不发 ready 时的诊断阈值；超时只记日志，不阻断壁纸渲染。 */
 export const SCENE_READY_TIMEOUT_MS = 8000;
@@ -75,6 +85,108 @@ export function sceneVisibilityMessage(visible: boolean): SceneHostMessage {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// ---------------------------------------------------------------------------
+// Scene ↔ Game 渲染桥（只读）
+// ---------------------------------------------------------------------------
+
+export type SceneGameHostMessage =
+  | {
+      v: typeof SCENE_GAME_PROTOCOL;
+      type: "game.init";
+      context: GameContext;
+      snapshot: GameSnapshot | null;
+    }
+  | {
+      v: typeof SCENE_GAME_PROTOCOL;
+      type: "game.snapshot";
+      snapshot: GameSnapshot;
+    }
+  | {
+      v: typeof SCENE_GAME_PROTOCOL;
+      type: "game.event";
+      event: GameEvent;
+    }
+  | {
+      v: typeof SCENE_GAME_PROTOCOL;
+      type: "game.render";
+      renderState: GameRenderState;
+    }
+  | {
+      v: typeof SCENE_GAME_PROTOCOL;
+      type: "game.lifecycle";
+      event: GameLifecycleEvent;
+    }
+  | {
+      v: typeof SCENE_GAME_PROTOCOL;
+      type: "game.unavailable";
+      reason?: string;
+    };
+
+export type SceneGamePluginMessage =
+  | { v: typeof SCENE_GAME_PROTOCOL; type: "game.ready" }
+  | { v: typeof SCENE_GAME_PROTOCOL; type: "game.requestSnapshot" }
+  | {
+      v: typeof SCENE_GAME_PROTOCOL;
+      type: "game.reportError";
+      code: string;
+      message: string;
+    }
+  | { v: typeof SCENE_GAME_PROTOCOL; type: "game.detach" };
+
+export function sceneGameInitMessage(
+  context: GameContext,
+  snapshot: GameSnapshot | null,
+): SceneGameHostMessage {
+  return { v: SCENE_GAME_PROTOCOL, type: "game.init", context, snapshot };
+}
+
+export function sceneGameSnapshotMessage(
+  snapshot: GameSnapshot,
+): SceneGameHostMessage {
+  return { v: SCENE_GAME_PROTOCOL, type: "game.snapshot", snapshot };
+}
+
+export function sceneGameEventMessage(event: GameEvent): SceneGameHostMessage {
+  return { v: SCENE_GAME_PROTOCOL, type: "game.event", event };
+}
+
+export function sceneGameRenderMessage(
+  renderState: GameRenderState,
+): SceneGameHostMessage {
+  return { v: SCENE_GAME_PROTOCOL, type: "game.render", renderState };
+}
+
+export function sceneGameLifecycleMessage(
+  event: GameLifecycleEvent,
+): SceneGameHostMessage {
+  return { v: SCENE_GAME_PROTOCOL, type: "game.lifecycle", event };
+}
+
+export function sceneGameUnavailableMessage(
+  reason?: string,
+): SceneGameHostMessage {
+  return { v: SCENE_GAME_PROTOCOL, type: "game.unavailable", reason };
+}
+
+/** 场景 → 宿主：游戏渲染桥的握手/请求；来源窗口由调用方校验。 */
+export function isSceneGamePluginMessage(
+  value: unknown,
+): value is SceneGamePluginMessage {
+  if (!isRecord(value) || value.v !== SCENE_GAME_PROTOCOL) return false;
+  switch (value.type) {
+    case "game.ready":
+    case "game.requestSnapshot":
+    case "game.detach":
+      return true;
+    case "game.reportError":
+      return (
+        typeof value.code === "string" && typeof value.message === "string"
+      );
+    default:
+      return false;
+  }
 }
 
 /** 只接受协议内的消息；来源窗口校验由调用方负责（opaque origin 不能靠 origin）。 */

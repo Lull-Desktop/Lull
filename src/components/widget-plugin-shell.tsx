@@ -93,6 +93,22 @@ const READY_TIMEOUT_MS = 8000;
 /** 桥允许插件打开 / 关闭 / 查询的工具窗口白名单。 */
 const BRIDGE_WINDOW_KINDS = ["library"] as const;
 
+/** Widget 可申请的游戏能力；宿主壳按能力把请求转发给 `game_*` 命令。 */
+const GAME_BRIDGE_CAPABILITIES = [
+  "game.state.read",
+  "game.command.send",
+  "game.event.read",
+] as const;
+
+/** 是否持有任一游戏能力；单独的能力门控在各分支里做。 */
+function hasGameBridgeCapability(context: PluginContext | null): boolean {
+  return (
+    context?.granted.some((capability) =>
+      (GAME_BRIDGE_CAPABILITIES as readonly string[]).includes(capability),
+    ) ?? false
+  );
+}
+
 /** 白名单校验：不在名单里的 kind 一律当非法，避免插件探测任意窗口。 */
 function bridgeWindowKind(value: unknown): string | null {
   return typeof value === "string" &&
@@ -248,6 +264,37 @@ export function WidgetPluginShell() {
     return () => {
       disposed = true;
       stop?.();
+    };
+  }, [context, send]);
+
+  // 游戏事件转发：宿主壳持有 Tauri IPC，插件只能通过 postMessage 收到
+  // game.snapshot / game.event / game.lifecycle。未授权 game.* 时不注册。
+  useEffect(() => {
+    if (!hasGameBridgeCapability(context)) return;
+    let disposed = false;
+    const stops: Array<() => void> = [];
+    const forward = (
+      eventName: string,
+      type: string,
+      key: "snapshot" | "event",
+    ): void => {
+      void listen<unknown>(eventName, (event) => {
+        send({ v: PROTOCOL_VERSION, type, [key]: event.payload });
+      })
+        .then((unlisten) => {
+          if (disposed) unlisten();
+          else stops.push(unlisten);
+        })
+        .catch(() => {
+          // 浏览器预览 / 单测没有 Tauri 事件系统。
+        });
+    };
+    forward("game:snapshot", "game.snapshot", "snapshot");
+    forward("game:event", "game.event", "event");
+    forward("game:lifecycle", "game.lifecycle", "event");
+    return () => {
+      disposed = true;
+      for (const stop of stops) stop();
     };
   }, [context, send]);
 
@@ -435,6 +482,57 @@ export function WidgetPluginShell() {
           }
           await invoke("media_disconnect", {
             bridgeToken: context.bridgeToken,
+          });
+          return { disconnected: true };
+        }
+        case "game.connect": {
+          if (!context || !hasGameBridgeCapability(context)) {
+            throw new Error("未获得游戏能力授权");
+          }
+          const gameId = String(params.gameId ?? "");
+          if (!gameId) throw new Error("game.connect 缺少 gameId");
+          return invoke("game_connect", {
+            request: { gameId },
+            token: context.bridgeToken,
+          });
+        }
+        case "game.snapshot": {
+          if (!context || !context.granted.includes("game.state.read")) {
+            throw new Error("未获得 game.state.read 权限");
+          }
+          return invoke("game_snapshot_get", {
+            token: context.bridgeToken,
+          });
+        }
+        case "game.command": {
+          if (!context || !context.granted.includes("game.command.send")) {
+            throw new Error("未获得 game.command.send 权限");
+          }
+          const requestId =
+            typeof params.requestId === "string" ? params.requestId : "";
+          const type = typeof params.type === "string" ? params.type : "";
+          if (!requestId || !type) {
+            throw new Error("game.command 缺少 requestId 或 type");
+          }
+          const request: Record<string, unknown> = {
+            requestId,
+            type,
+            payload: params.payload ?? null,
+          };
+          if (typeof params.expectedRevision === "number") {
+            request.expectedRevision = params.expectedRevision;
+          }
+          return invoke("game_command_send", {
+            request,
+            token: context.bridgeToken,
+          });
+        }
+        case "game.disconnect": {
+          if (!context || !hasGameBridgeCapability(context)) {
+            throw new Error("未获得游戏能力授权");
+          }
+          await invoke("game_detach", {
+            token: context.bridgeToken,
           });
           return { disconnected: true };
         }

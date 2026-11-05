@@ -1,9 +1,8 @@
 # Game SDK
 
-> 状态：**v0.1.0 设计基线（未实现）｜Experimental**。
+> 状态：**P2 已落地（authority / controller / scene / testing）｜Experimental**；引擎 Adapter 仍为设计（P4）。
+> SDK 实现：[`packages/game-sdk`](../packages/game-sdk/README.md)｜宿主设计：[Game Runtime 设计](./game-runtime.md)。
 > 面向第三方游戏作者：包结构 → `game.json` → 角色 API → 场景/Widget 接入 → 引擎适配 → 安全边界。
-> 宿主侧设计（实例、权威、仓储、协议、阶段）见 [Game Runtime 设计](./game-runtime.md)。
-> 本文是设计文档，不代表 SDK 或宿主能力已经落地；接口形态在实现阶段仍可能调整。
 
 ## 这是什么
 
@@ -352,6 +351,10 @@ await game.reportError({ code: "render.context-lost", message: "WebGL 上下文�
 
 ## 5. Replica 接入（Scene）
 
+> **P2 已落地**：`@lull/game-sdk/scene` 的 `connectLullGameRender()`、场景 manifest
+> `game` 绑定与 `game.*` 桥消息已可用；宿主在场景 `game.ready` 后 attach replica。
+> 游戏未运行时 resolve 为 `null`，场景应回退到静态视觉。
+
 ### 5.1 场景绑定
 
 场景包在清单里声明绑定（场景宿主 API 2 起）：
@@ -538,7 +541,7 @@ game.onEvent("world.changed", () => refreshFromSnapshot());
 
 document.querySelector("#plant")!.addEventListener("click", async () => {
   const result = await game.command("plant.seed", { seedId: `seed-${Date.now()}` });
-  if (!result.ok) showError(result.error?.code);
+  if (!result.ok) showError(result.error);
 });
 ```
 
@@ -560,6 +563,8 @@ document.querySelector("#plant")!.addEventListener("click", async () => {
 | 游戏时间 | 只用来对齐动画相位 | 只用来展示 |
 
 ## 7. 引擎与 Adapter
+
+> **P1 状态**：Adapter 包尚未实现（P4）；当前只定义接口与包名。
 
 ### 7.1 定位
 
@@ -720,7 +725,8 @@ pnpm game:pack  ./my-game --out artifacts
 | 示例 | 阶段 | 说明 |
 | --- | --- | --- |
 | `examples/games/living-world` | P1/P2 | Canvas2D + host-tick + 场景绑定；最小闭环 |
-| `examples/widgets/living-world-controller` | P1 | 控制器 Widget：种/浇水/状态面板 |
+| `examples/scenes/living-world` | P2 | 只读 Scene 绑定：canvas 绘制植物/水位，走 `game.*` 桥 |
+| `examples/widgets/living-world-controller` | P1/P2 | 控制器 Widget：种/浇水/状态面板，走 `game.*` Widget 桥 |
 | `examples/games/canvas-demo` | P4 | 原生 Canvas 适配器 |
 | `examples/games/phaser-demo` | P4 | Phaser 适配器 |
 | `examples/games/pixi-demo` | P4 | PixiJS 适配器 |
