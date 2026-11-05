@@ -1,5 +1,5 @@
 /**
- * 设置页交互测试：四页签信息架构、窗口开关、功能槽位与主题偏好。
+ * 设置页交互测试：七页签信息架构、窗口开关、功能槽位与主题偏好。
  *
  * 壁纸库窗口的交互测试在 components/library/wallpaper-library-window.test.tsx。
  */
@@ -83,11 +83,14 @@ test("Page renders in browser mode (no tauri)", () => {
   expect(screen.getByRole("main")).toBeDefined();
 });
 
-test("设置页签按 偏好 / 游戏 / 扩展 / 关于 排列，壁纸与噪音内容不再内嵌", () => {
+test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 游戏 / 扩展 / 关于 排列，壁纸与噪音内容不再内嵌", () => {
   renderSettingsPage();
 
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
     "偏好",
+    "壁纸",
+    "音乐",
+    "白噪音",
     "游戏",
     "扩展",
     "关于",
@@ -98,6 +101,28 @@ test("设置页签按 偏好 / 游戏 / 扩展 / 关于 排列，壁纸与噪音
   // 壁纸层/关于都不在默认偏好页签里。
   expect(screen.queryByText("壁纸层")).toBeNull();
   expect(screen.queryByText("关于 Lull")).toBeNull();
+});
+
+test("壁纸 / 音乐 / 白噪音三个页签是占位页，且沿用偏好卡片作高度基准", () => {
+  renderSettingsPage();
+
+  for (const [label, testId] of [
+    ["壁纸", "settings-wallpaper-pane"],
+    ["音乐", "settings-music-pane"],
+    ["白噪音", "settings-noise-pane"],
+  ] as const) {
+    fireEvent.click(screen.getByRole("tab", { name: label }));
+
+    const pane = screen.getByTestId(testId);
+    expect(within(pane).getByText("功能开发中，后续版本补充。")).toBeDefined();
+    // 页签标题同时是占位卡片的小标题。
+    expect(within(pane).getByRole("heading", { name: label })).toBeDefined();
+    expect(
+      screen
+        .getByTestId("settings-preferences-pane")
+        .getAttribute("aria-hidden"),
+    ).toBe("true");
+  }
 });
 
 test("关于页签展示版本与扩展模型", () => {

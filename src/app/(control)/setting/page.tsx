@@ -1,12 +1,22 @@
 /**
- * 设置窗口页面：偏好（语言 / 主题 / 窗口与库窗口入口）、游戏、扩展、关于四个页签。
- * 壁纸库、白噪音库与曲库整理/测试与接口分别迁到独立库窗口，本页只保留控制面。
+ * 设置窗口页面：偏好（语言 / 主题 / 窗口与库窗口入口）、壁纸、音乐、白噪音、游戏、
+ * 扩展、关于七个页签。壁纸/音乐/白噪音三个页签暂为占位页，内容后续补齐；壁纸库、
+ * 白噪音库与曲库整理/测试与接口仍分别在独立库窗口里，本页只保留控制面。
  */
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AppWindow, Languages, MoonStar, Puzzle, Sparkles } from "lucide-react";
+import {
+  AppWindow,
+  AudioLines,
+  Languages,
+  MoonStar,
+  Music,
+  Puzzle,
+  Sparkles,
+  Wallpaper,
+} from "lucide-react";
 import {
   type CSSProperties,
   type ReactNode,
@@ -62,13 +72,27 @@ type WidgetState = {
   visible: boolean;
 };
 
-/** 设置页签，顺序即展示顺序：偏好 → 游戏 → 扩展 → 关于。文案在渲染时按当前语言取。 */
-const SETTINGS_TABS = ["preferences", "games", "extensions", "about"] as const;
+/**
+ * 设置页签，顺序即展示顺序：偏好 → 壁纸 → 音乐 → 白噪音 → 游戏 → 扩展 → 关于。
+ * 文案在渲染时按当前语言取。
+ */
+const SETTINGS_TABS = [
+  "preferences",
+  "wallpaper",
+  "music",
+  "noise",
+  "games",
+  "extensions",
+  "about",
+] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const TAB_LABELS: Record<SettingsTab, () => string> = {
   preferences: m.settings_tab_preferences,
+  wallpaper: m.settings_tab_wallpaper,
+  music: m.settings_tab_music,
+  noise: m.settings_tab_noise,
   games: m.settings_tab_games,
   extensions: m.settings_tab_extensions,
   about: m.settings_tab_about,
@@ -98,6 +122,34 @@ function SectionHeading({
       </h2>
       <p className="text-xs text-muted-foreground">{description}</p>
     </div>
+  );
+}
+
+/**
+ * 待补内容的页签：先给一张与偏好/关于同制的说明卡片，功能落地后整块替换。
+ * 用 absolute inset-0 与游戏/扩展页同一套布局，高度仍然以偏好卡片为基准。
+ */
+function ComingSoonPanel({
+  icon,
+  title,
+  testId,
+}: {
+  icon: ReactNode;
+  title: string;
+  testId: string;
+}) {
+  return (
+    <main className="absolute inset-0" data-testid={testId}>
+      <Card className="w-full">
+        <CardContent className="p-6">
+          <SectionHeading
+            icon={icon}
+            title={title}
+            description={m.settings_tab_placeholder()}
+          />
+        </CardContent>
+      </Card>
+    </main>
   );
 }
 
@@ -291,8 +343,11 @@ export default function Settings() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-3">
+      {/* 页签固定每行 4 个，多出的自动落到第二行；列宽由网格统一，
+          所以两行标签上下对齐、间距一致，且不随窗口宽度改变排布。
+          字号 text-sm（14px），纵向 py-1 + leading-5 让放大的字不显拥挤。 */}
       <div
-        className="sticky top-0 z-10 mb-2 grid grid-cols-4 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-[11px] shadow-sm backdrop-blur"
+        className="sticky top-0 z-10 mb-2 grid grid-cols-4 gap-0.5 rounded-xl border border-border/60 bg-paper-warm/95 p-0.5 text-sm shadow-sm backdrop-blur"
         role="tablist"
         aria-label={m.settings_tabs_label()}
       >
@@ -303,7 +358,7 @@ export default function Settings() {
             role="tab"
             aria-selected={tab === value}
             onClick={() => setTab(value)}
-            className={`min-w-0 truncate rounded-lg px-2 py-0.5 leading-4 text-center transition-colors ${
+            className={`min-w-0 truncate rounded-lg px-2 py-1 leading-5 text-center transition-colors ${
               tab === value
                 ? "bg-paper text-ink shadow-sm"
                 : "text-muted-foreground hover:text-ink-soft"
@@ -321,8 +376,8 @@ export default function Settings() {
       )}
 
       {tab !== "about" && (
-        // 游戏/扩展页以偏好卡片为高度基准：切到其它页签时偏好面板保持挂载但不可见，
-        // 对应面板绝对定位铺满同一高度；窗口缩放或文案换行时两边仍然等高。
+        // 壁纸/音乐/白噪音/游戏/扩展页以偏好卡片为高度基准：切到其它页签时偏好面板保持挂载
+        // 但不可见，对应面板绝对定位铺满同一高度；窗口缩放或文案换行时两边仍然等高。
         <div className="relative">
           <main
             aria-hidden={tab !== "preferences" ? true : undefined}
@@ -775,6 +830,27 @@ export default function Settings() {
             </CardContent>
           </Card> */}
           </main>
+          {tab === "wallpaper" && (
+            <ComingSoonPanel
+              icon={<Wallpaper className="h-4 w-4 text-bamboo" />}
+              title={TAB_LABELS.wallpaper()}
+              testId="settings-wallpaper-pane"
+            />
+          )}
+          {tab === "music" && (
+            <ComingSoonPanel
+              icon={<Music className="h-4 w-4 text-bamboo" />}
+              title={TAB_LABELS.music()}
+              testId="settings-music-pane"
+            />
+          )}
+          {tab === "noise" && (
+            <ComingSoonPanel
+              icon={<AudioLines className="h-4 w-4 text-bamboo" />}
+              title={TAB_LABELS.noise()}
+              testId="settings-noise-pane"
+            />
+          )}
           {tab === "games" && (
             <main
               className="absolute inset-0"
