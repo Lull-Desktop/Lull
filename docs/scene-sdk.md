@@ -270,7 +270,7 @@ scene.onFrame((frame) => {
 
 ### 4.6 游戏渲染绑定（P2）
 
-场景可以只读绑定一个游戏世界（`scene manifest.game`），把壁纸变成该游戏的 Render Replica：
+场景可以只读绑定一个游戏世界（`scene manifest.game`），把壁纸变成该游戏的 Render Replica。**Scene 是可选的视觉主题，不是显示游戏的必需品**：游戏包自带 `entry.replica` 时，宿主可以直接把它设为壁纸（[Game SDK](./game-sdk.md) §5）。
 
 ```json
 {
@@ -281,6 +281,7 @@ scene.onFrame((frame) => {
 ```
 
 - 场景必须声明 `wallpaper.script`；`role` 只能是 `replica`，场景永远不能成为 Authority。
+- 游戏包内 `entry.replica` 与场景绑定共用同一套 `game.*` 消息；区别只是宿主来源。
 - 游戏未运行或未启用时，宿主在场景 ready 后发送 `game.unavailable`，场景应回退静态视觉。
 - 宿主 → 场景：`game.init`（context + 首份快照）、`game.snapshot`、`game.event`、
   `game.render`、`game.lifecycle`、`game.unavailable`；重复 `game.init` 用于 iframe 重载/重连。

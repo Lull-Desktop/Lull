@@ -6,9 +6,11 @@
  * 说明里指路。
  */
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   Copy,
   Gamepad2,
+  Monitor,
   Moon,
   Pause,
   Play,
@@ -18,7 +20,7 @@ import {
   Sun,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -146,6 +148,8 @@ function GameCard({
   onResume,
   onBackground,
   onForeground,
+  wallpaperActive,
+  onSetWallpaper,
 }: {
   game: GameView;
   locale: string;
@@ -159,6 +163,8 @@ function GameCard({
   onResume: () => void;
   onBackground: () => void;
   onForeground: () => void;
+  wallpaperActive: boolean;
+  onSetWallpaper: () => void;
 }) {
   const instance = game.instance ?? null;
   const status = instance?.status ?? null;
@@ -208,6 +214,14 @@ function GameCard({
                 {packageIssue}
               </Badge>
             )}
+            {wallpaperActive && (
+              <Badge
+                variant="secondary"
+                className="border-bamboo/40 bg-bamboo-mist/60 px-1.5 py-0 text-[10px] text-bamboo"
+              >
+                {m.games_wallpaper_active()}
+              </Badge>
+            )}
             <span className="font-mono text-[10px] text-ink-faint">
               v{game.version}
             </span>
@@ -244,6 +258,33 @@ function GameCard({
             >
               <Play className="h-3.5 w-3.5" />
               {m.games_start()}
+            </Button>
+          )}
+          {game.entryReplicaUrl && !wallpaperActive && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending || game.status !== "ready"}
+              title={m.games_wallpaper_hint()}
+              onClick={onSetWallpaper}
+            >
+              <Monitor className="h-3.5 w-3.5" />
+              {m.games_set_wallpaper()}
+            </Button>
+          )}
+          {wallpaperActive && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs"
+              disabled={pending}
+              onClick={onSetWallpaper}
+            >
+              <Monitor className="h-3.5 w-3.5" />
+              {m.games_clear_wallpaper()}
             </Button>
           )}
           {active && status !== "stopping" && (
@@ -413,6 +454,47 @@ export function GamesPanel() {
   const [diagnostics, setDiagnostics] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
+  const [wallpaperGame, setWallpaperGame] = useState<string | null>(null);
+  const [wallpaperPendingId, setWallpaperPendingId] = useState<string | null>(
+    null,
+  );
+  const [wallpaperError, setWallpaperError] = useState("");
+
+  const refreshWallpaper = useCallback((): void => {
+    invoke<{ game?: string | null }>("wallpaper_display_get")
+      .then((display) => {
+        setWallpaperGame(display.game ?? null);
+        setWallpaperError("");
+      })
+      .catch(() => {
+        // 浏览器预览 / 壁纸子系统未启动：保留最后一次已知状态。
+      });
+  }, []);
+
+  useEffect(() => {
+    void refreshWallpaper();
+    const unlisten = listen("wallpaper-changed", () =>
+      refreshWallpaper(),
+    ).catch(() => () => {});
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, [refreshWallpaper]);
+
+  const setWallpaper = async (gameId: string | null): Promise<void> => {
+    setWallpaperPendingId(gameId ?? wallpaperGame);
+    try {
+      await invoke("wallpaper_set_game", { gameId });
+      setWallpaperGame(gameId);
+      setWallpaperError("");
+    } catch (reason) {
+      setWallpaperError(
+        reason instanceof Error ? reason.message : String(reason),
+      );
+    } finally {
+      setWallpaperPendingId(null);
+    }
+  };
 
   const copyDiagnostics = async (): Promise<void> => {
     try {
@@ -550,6 +632,12 @@ export function GamesPanel() {
             </p>
           )}
 
+          {wallpaperError && (
+            <p className="text-xs text-destructive" role="alert">
+              {m.games_wallpaper_failed({ reason: wallpaperError })}
+            </p>
+          )}
+
           {!loading && games.length === 0 && !error && (
             <div
               className="rounded-lg border border-dashed border-border/70 p-5 text-center"
@@ -564,12 +652,17 @@ export function GamesPanel() {
 
           {games.map((game) => {
             const pending = pendingId === game.id;
+            const wallpaperActive = wallpaperGame === game.id;
             return (
               <GameCard
                 key={game.id}
                 game={game}
                 locale={locale}
-                pending={pending}
+                pending={pending || wallpaperPendingId === game.id}
+                wallpaperActive={wallpaperActive}
+                onSetWallpaper={() =>
+                  void setWallpaper(wallpaperActive ? null : game.id)
+                }
                 onStart={() => void run(game.id, start)}
                 onStop={() => void run(game.id, stop)}
                 onFlush={() => void run(game.id, flush)}

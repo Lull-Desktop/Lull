@@ -1,8 +1,8 @@
 # Game Runtime 设计
 
-> 状态：**v0.5.1 —— P1–P3 部分落地（含 background 策略），P4 Canvas2D Adapter 已落地；entry.replica 与 Phaser/Pixi/Three Adapter 仍为设计**。
+> 状态：**v0.5.2 —— P1–P3 部分落地（含 background 策略），P4 单包双入口与 Canvas2D Adapter 已落地；Phaser/Pixi/Three Adapter 仍为设计**。
 > 基线：[RFC `LULL-RFC-GAME-001`](./rfc/RFC-Game-Runtime.md)（Proposed）｜代码基线：`0.2.2`。
-> 实现：`src-tauri/src/game/`、`src-tauri/src/game_package/`、`packages/game-sdk/`（含 `./scene`）、`src/games/`、`examples/games/living-world/`、`examples/scenes/living-world/`；未覆盖项见 §19。
+> 实现：`src-tauri/src/game/`、`src-tauri/src/game_package/`、`packages/game-sdk/`（含 `./scene`）、`src/games/`（authority / bridge / replica）、`examples/games/living-world/`、`examples/scenes/living-world/`；未覆盖项见 §19。
 > 范围：Lull 宿主侧 —— 游戏包、实例与权威、状态仓储、命令/事件协议、多屏渲染副本、权限与窗口接线、阶段计划与验收。
 > 第三方开发者契约见 [Game SDK](./game-sdk.md)；本文的设计章节仍描述目标形态，未落地部分不要当成既有能力。
 
@@ -218,7 +218,7 @@ src-tauri/src/
     journal.rs             #   提交 journal（诊断用 NDJSON，滚动裁剪）
     config.rs              #   games.json（autoStart / resumeOnLaunch / maxRunning / offlineMaxMs）
     lifecycle.rs           #   启动/停止/立即保存/failover 编排
-    api.rs                 #   23 条 Tauri 命令（管理 + 参与者 + 诊断）
+    api.rs                 #   24 条 Tauri 命令（管理 + 参与者 + 诊断）
     protocol.rs            #   线上结构体、协议版本、错误体
     permissions.rs         #   窗口角色判定、顶层帧 token、Widget 授权
     error.rs               #   稳定错误码 GameError
@@ -233,9 +233,14 @@ src-tauri/src/
 ### 5.2 前端模块
 
 ```text
-src/games/                    # P1 只有 authority 壳；bridge/replica/registry 随 P2 增加
+src/games/
   authority/
     game-authority-shell.tsx  # /game-authority 宿主壳：注入上下文、路由请求、心跳续租
+  bridge/
+    use-game-replica.ts       # 壁纸顶层帧的只读 game.* 桥（场景与包内 replica 共用）
+  replica/
+    game-replica-host.tsx     # 包内 entry.replica 的沙箱 iframe 宿主
+    game-host.tsx             # display.game 的壁纸宿主（几何 / 跨屏 wrapper）
 src/lib/games.ts              # 宿主侧 GameView/Instance/Context 等类型
 src/hooks/use-games.ts        # 列表/状态/事件订阅与实例操作
 src/components/settings/games-panel.tsx
@@ -250,7 +255,7 @@ src/app/(games)/game-authority/page.tsx
 | --- | --- | --- | --- |
 | `@lull/game-sdk` | `.` | 游戏 authority 客户端、context / 快照 / 事件（replica 部分 P2） | P1 |
 | `@lull/game-sdk/widget` | `./widget` | Controller Widget 客户端 | P1 |
-| `@lull/game-sdk/scene` | `./scene` | 场景只读渲染桥 | P2 |
+| `@lull/game-sdk/scene` | `./scene` | 只读渲染桥（场景绑定与包内 replica 共用客户端） | P2/P4 |
 | `@lull/game-sdk/testing` | `./testing` | 内存传输与样例消息 | P1 |
 | `@lull/game-adapter-canvas` | — | 原生 Canvas2D 适配器 | P4 已落地 |
 | `@lull/game-adapter-phaser/-pixi/-three` | — | 第三方引擎适配器 | P4 设计 |
@@ -596,10 +601,11 @@ manifest 可以**收紧**上限，不能放宽硬上限；放宽只能由宿主�
 
 | 命令 | 参数 | 返回 | 说明 |
 | --- | --- | --- | --- |
-| `games_list` | — | `GameView[]` | 已安装游戏 + 运行状态 + 存档摘要 |
+| `games_list` | — | `GameView[]` | 已安装游戏 + 运行状态 + 存档摘要 + `entryReplicaUrl` |
+| `game_replica_entry` | `gameId` | `GameReplicaEntry` | 壁纸窗专用：读取包内 `entry.replica` URL；不需要运行时 token |
 | `game_start` | `gameId` | `GameInstanceView` | 启动实例（幂等：已运行返回现状） |
 | `games_config_get` / `games_config_set` | `config`（set） | `GamesConfig` | 读取/写入 `games.json`（autoStart / maxRunning / offlineMaxMs） |
-| `game_auto_start` | `gameId` | `GameInstanceView \| null` | 壁纸窗专用：按 `autoStartWithWallpaper` 启动场景绑定游戏 |
+| `game_auto_start` | `gameId` | `GameInstanceView \| null` | 壁纸窗专用：按 `autoStartWithWallpaper` 启动场景绑定或设为壁纸的游戏 |
 | `game_stop` | `gameId` | `GameInstanceView` | 停止并落盘 |
 | `game_suspend` / `game_resume` | `gameId` | `GameInstanceView` | 暂停 / 恢复（P2；恢复时下发 offlineMs） |
 | `game_set_background` | `gameId, enabled` | `GameInstanceView` | 后台运行（tickMs×4）/ 回到前台（P3） |
@@ -1060,15 +1066,29 @@ Widget 打开 → connectLullGameWidget(widget, { gameId })
 <来源>/<gameId>/
   game.json          # 必需
   authority/index.html
-  replica/index.html # 可选（P4）
+  replica/index.html # 可选：壁纸直接渲染入口（P4 已接入）
   assets/ ...
 ```
 
 - 来源与 scene/widget 一致：随应用分发的官方包（P5）、用户安装 `%APPDATA%\app.lull.desktop\games\`、开发模式挂载（P1 起支持）。
 - 安装统一走 `extension::install` 的 staging → 校验 → 原子 rename 管线；安装器识别 `game.json` 作为第三类清单。
-- 游戏包单独的体积预算：单文件 16 MiB、整包 128 MiB、最多 1024 个文件。理由：Web 游戏可能携带引擎与贴图；scene/widget 的 8 MiB/64 MiB/512 不变。
+- 游戏包单独的体积预算：单文件 16 MiB、整包 128 MiB、最多 1024 个文件。理由：Web 游戏可能携带引擎与贴图；scene/widget 的 8 MiB/64 MiB/512 不变。安装器按包内是否含 `game.json` 自动选择预算。
 - 摘要：与 widget 相同的旁路 `.lull-integrity.json`（不进摘要、不参与协议服务），算法域分隔符用 `lull-game-package\0`。
 - 签名：复用 `content_trust` 的发布者签名链路，`PackageKind::Game`；官方包按既有策略豁免社区签名。
+
+### 15.1.1 单包双入口：authority + replica
+
+一个 `.lull-game.zip` 同时承载逻辑与可见渲染，不需要再安装 Scene：
+
+| 入口 | 运行位置 | 权限 |
+| --- | --- | --- |
+| `entry.authority` | 隐藏/后台 `game-authority-*` 窗口 | 提交状态、发事件、回传命令结果（token + 租约） |
+| `entry.replica` | 壁纸窗内的 `sandbox="allow-scripts"` iframe | 只读快照/事件/渲染态；没有 Tauri IPC 与提交入口 |
+
+- 壁纸选择：`display.game = <id>`（独立字段，不写进 `display.scene`）。`wallpaper_set_game` 校验包内存在 `entry.replica` 后热更所有壁纸窗；选择场景会自动清空 `display.game`。
+- URL 协议：壁纸 hash 同时携带 `scene=` 与可选的 `game=`；前端只在 `game` 非空时挂 `GameReplicaHost`，清空后立即回退到场景，不重载页面。
+- 信任边界：两个入口同包同源，但 authority 的提交能力来自窗口角色 + token，replica 永远拿不到 token；副本 iframe 的 `allow-scripts` 不包含 `allow-same-origin`。
+- `display.policy` 仍是 `shared`：mirror/span 下两块屏渲染同一个游戏世界；游戏壁纸不提供“每屏不同游戏”的 independent 语义。
 
 ### 15.2 校验规则（`game_package::manifest`）
 
@@ -1214,6 +1234,7 @@ frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 - 操作：启动 / 停止 / 暂停 / 恢复 / 后台运行 / 回到前台 / 立即保存 / 打开存档目录 / 删除存档（二次确认）。
 - 授权：按能力勾选（`game.*`），与扩展中心的授权入口共用一套数据。
 - 诊断：最近错误、authority epoch、replica 数量、包校验状态。
+- 壁纸：包内有 `entry.replica` 的游戏提供「设为壁纸 / 取消游戏壁纸」，写入 `display.game`；壁纸页签选择场景会自动退出游戏壁纸。
 - 空态：没有安装游戏时引导到扩展中心；没有运行实例时说明"启动后由壁纸场景或控制器接入"。
 - 文案全部走 `i18n/messages/{zh-CN,en-US}.json`，键前缀 `games_*` / `settings_tab_games`；风格与现有设置卡片一致。
 
@@ -1318,7 +1339,7 @@ P1 明确**未覆盖**、留给后续阶段：
 - Render Replica 与 Scene 绑定（P2）：`game_connect` 的 replica 分支已就绪，但壁纸窗尚未接入 `game.*` 场景桥；`@lull/game-sdk` 当前没有 `./scene` 入口。
 - 暂停 / hidden / background 状态机（P2/P3）：暂停/恢复、hidden 自动停 tick 与 `game_set_background` 后台降频均已开放。
 - `self-loop` 权威、崩溃检测硬化、journal（P3）：**self-loop 已放行**（提交限流 4 次/秒），租约过期的 failover、稳定 60s 后重试计数复位、`resumeOnLaunch`、提交 journal 与稳定性工具链已落地；见 [稳定性报告](./game-runtime-webview-stability.md)（真机长跑待执行，暂不转正）。
-- `entry.replica` 独立副本与 Phaser/PixiJS/Three.js Adapter（P4）；Canvas2D Adapter 已落地。
+- `entry.replica` 独立副本与 Phaser/PixiJS/Three.js Adapter（P4）：包内 replica 入口、`GameReplicaHost`、壁纸内容源选择与 Canvas2D Adapter 已落地；引擎 Adapter 仍待完成。
 - 游戏开发挂载（dev mode）、官方游戏、控制器 Widget 示例、在线目录与签名 UI（P5）。
 - 扩展中心的游戏详情/逐能力开关 UI：命令已支持 `kind="game"`，设置页当前只提供整体启用/停用。
 
@@ -1350,7 +1371,7 @@ P1 明确**未覆盖**、留给后续阶段：
 
 **退出标准**：RFC §16 Phase 4 四条验收全过；宿主 `cargo tree` 不出现任何引擎依赖；同一游戏包不同入口（authority/replica）可分别使用；引擎生命周期与 LULL 生命周期对齐。
 
-**P4 实现状态**：`@lull/game-adapter-canvas` 已落地（dpr/backing store、rAF 节流、暂停/恢复、快照/渲染态，4 项单测 + 与 `LullGameRenderClient` 的编译期契约测试）。尚未完成：`entry.replica` 独立副本宿主（`game-replica-host.tsx`）、Phaser/PixiJS/Three.js Adapter 与对应示例、安装体积复核。
+**P4 实现状态**：`@lull/game-adapter-canvas` 已落地（dpr/backing store、rAF 节流、暂停/恢复、快照/渲染态，4 项单测 + 与 `LullGameRenderClient` 的编译期契约测试）。**单包双入口已打通**：`GameView.entryReplicaUrl` / `game_replica_entry`、`GameReplicaHost`（不依赖 Scene）、`display.game` + `wallpaper_set_game` + 壁纸 hash `game=`、游戏包 16/128 MiB/1024 预算、`examples/games/stability-probe` 指标墙迁入 `replica/`。尚未完成：Phaser/PixiJS/Three.js Adapter 与对应示例。
 
 ### P5 · 社区游戏生态（RFC Phase 5）
 
@@ -1403,7 +1424,7 @@ P1 明确**未覆盖**、留给后续阶段：
 | R4 | 游戏逻辑不可判定"确定性" | host-tick 下不同步/漂移 | 文档约定：模拟只读宿主 tick 与预置随机源；SDK 提供 seeded RNG；不承诺跨平台逐位一致 | P1 |
 | R5 | 崩溃检测只有心跳与窗口销毁 | 渲染进程卡死不退出时恢复慢 | TTL 10s 内触发；错误上报辅助；P3 评估 WebView2 崩溃事件 | P3 |
 | R6 | 存档 schema 迁移 | 升级后旧档打不开 | P5 做迁移 hook；P1–P4 明确拒绝并保留文件 | P5 |
-| R7 | 包体积/安装预算与引擎体积冲突 | 安装失败 | 游戏单独预算 16/128 MiB；P4 复核并调参 | P4 |
+| R7 | 包体积/安装预算与引擎体积冲突 | 安装失败 | 游戏单独预算 16/128 MiB/1024 已落地；引擎包超出时再按实测调参 | P4 |
 | R8 | WebView2 初始化脚本注入子帧 | 安全边界被误读 | 文档明确 token+ACL+宿主校验是边界；禁止"完全隔离"措辞 | 持续 |
 | R9 | 多实例资源占用（≤3 个权威窗） | 内存/GPU 压力 | 默认上限 3；设置页显示占用；超限拒绝 | P1 |
 | R10 | 场景绑定自动启动与用户预期冲突 | 意外耗电 | `autoStartWithWallpaper` 可关；设置页提示；hidden 策略降频 | P2 |
@@ -1501,6 +1522,8 @@ game_flush(gameId: string): Promise<GameInstanceView>;
 game_save_delete(gameId: string): Promise<void>;
 // 壁纸窗专用（按 games.json.autoStartWithWallpaper）
 game_auto_start(gameId: string): Promise<GameInstanceView | null>;
+// 壁纸窗专用：包内自带渲染入口（不经过 Scene 目录）
+game_replica_entry(gameId: string): Promise<GameReplicaEntry>;
 
 // ---- 参与者
 game_connect(request?: {

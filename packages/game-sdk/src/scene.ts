@@ -1,8 +1,12 @@
 /**
- * 场景侧只读游戏渲染桥（`@lull/game-sdk/scene`）。
+ * 场景 / 游戏包 replica 侧的只读游戏渲染桥（`@lull/game-sdk/scene`）。
  *
- * 场景包在 manifest 里声明 `game: { id, role: "replica" }` 且同时声明
- * `wallpaper.script` 后，宿主会通过场景 iframe 的 postMessage 通道下发
+ * 宿主有两种挂载方式，消息协议相同：
+ * - 场景包在 manifest 里声明 `game: { id, role: "replica" }` 且同时声明
+ *   `wallpaper.script`；
+ * - 游戏包自带 `entry.replica`，被直接设为壁纸。
+ *
+ * 宿主通过 iframe 的 postMessage 通道下发
  * `game.init / game.snapshot / game.event / game.render / game.lifecycle`
  * （或以 `game.unavailable` 告知当前没有可渲染的实例）。
  *

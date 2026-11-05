@@ -39,6 +39,14 @@ pub(crate) fn scene_in_use(scene: &str) -> bool {
   state.data.scene_in_use(scene)
 }
 
+/// 某个游戏包是否正作为壁纸内容源（卸载前兜底，避免配置指向已删除的包）。
+pub(crate) fn game_in_use(game_id: &str) -> bool {
+  let Ok(state) = config() else {
+    return false;
+  };
+  state.data.display.game_content() == Some(game_id)
+}
+
 /// 当前仍解析到视频场景的显示器设备名。
 ///
 /// `independent` 模式下每个显示器可覆盖场景；这里按实际壁纸窗口的 device 解析，
@@ -47,6 +55,10 @@ pub(crate) fn video_devices() -> BTreeSet<String> {
   let Ok(state) = config() else {
     return BTreeSet::new();
   };
+  // 游戏直接渲染时没有任何屏幕在放视频场景；残留的每屏 scene 不能让它误判。
+  if state.data.display.game.is_some() {
+    return BTreeSet::new();
+  }
   snapshot_targets()
     .into_iter()
     .filter(|(_, _, device)| {
@@ -353,6 +365,33 @@ pub async fn wallpaper_set_display(
   windows::reapply_display(&app)
 }
 
+/// 切换壁纸内容源：`game_id` 非空 = 直接渲染该游戏包自带的 `entry.replica`；
+/// 传 null = 回到 `display.scene`。选中场景的命令会清掉游戏壁纸。
+#[tauri::command]
+pub async fn wallpaper_set_game(app: AppHandle, game_id: Option<String>) -> Result<(), String> {
+  {
+    let mut config = config()?;
+    if let Some(id) = &game_id {
+      if !crate::game_package::manifest::valid_id(id) {
+        return Err(format!("游戏 id 非法：{id}"));
+      }
+      let manifest = crate::game_package::store::find(&app, id)
+        .map_err(|error| format!("无法作为壁纸的游戏包：{error}"))?;
+      if manifest.entry.replica.is_none() {
+        return Err(format!("{id} 没有 entry.replica，只能通过场景显示"));
+      }
+    }
+    let old = config.data.display.game.clone();
+    config.data.display.set_game(game_id);
+    if let Err(error) = config.data.save(&config.path) {
+      config.data.display.game = old;
+      return Err(format!("保存配置失败：{error}"));
+    }
+  }
+  crate::media::video::lifecycle::on_display_config_changed();
+  windows::reapply_display(&app)
+}
+
 /// 覆盖某个场景的参数；空 map = 恢复 Manifest 默认值。写盘失败回滚。
 #[tauri::command]
 pub async fn wallpaper_set_scene_params(
@@ -391,9 +430,13 @@ pub async fn wallpaper_set_monitor_scene(
       .monitors
       .get(&device)
       .and_then(|monitor| monitor.scene.clone());
+    let old_game = config.data.display.game.clone();
     config.data.set_monitor_scene(&device, Some(scene));
+    // 显式给某块屏选场景 = 退出游戏壁纸，避免“选了场景但画面仍是游戏”。
+    config.data.display.set_game(None);
     if let Err(error) = config.data.save(&config.path) {
       config.data.set_monitor_scene(&device, old);
+      config.data.display.set_game(old_game);
       return Err(format!("保存配置失败: {error}"));
     }
   }

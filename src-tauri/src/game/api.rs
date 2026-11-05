@@ -753,11 +753,43 @@ pub fn games_list(app: AppHandle) -> Vec<GameView> {
         enabled: package.enabled,
         granted: package.granted,
         capabilities: package.capabilities,
+        entry_replica_url: package.entry_replica_url,
         state_schema_version: package.state_schema_version,
         instance,
       }
     })
     .collect()
+}
+
+/// 壁纸作为“游戏内容源”时解析包内渲染入口；不经过场景目录。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameReplicaEntry {
+  pub game_id: String,
+  pub name: String,
+  pub version: String,
+  /// `entry.replica` 的 `lullgame://` URL；旧包没有自带渲染入口时为 None。
+  pub entry_url: Option<String>,
+  pub enabled: bool,
+}
+
+/// 壁纸窗专用：读取游戏包自带的 replica 入口（只读，不需要运行时 token）。
+#[tauri::command]
+pub fn game_replica_entry(app: AppHandle, game_id: String) -> Result<GameReplicaEntry, GameError> {
+  let manifest =
+    store::find(&app, &game_id).map_err(|error| GameError::new(codes::PACKAGE_NOT_FOUND, error))?;
+  let entry_url = manifest
+    .entry
+    .replica
+    .as_deref()
+    .map(|entry| crate::game_package::protocol::entry_url(&manifest.id, entry));
+  Ok(GameReplicaEntry {
+    game_id: manifest.id.clone(),
+    name: manifest.name,
+    version: manifest.version,
+    entry_url,
+    enabled: store::is_enabled(&app, &game_id),
+  })
 }
 
 #[tauri::command]
@@ -767,8 +799,8 @@ pub async fn game_start(app: AppHandle, game_id: String) -> Result<GameInstanceV
     .map_err(|error| GameError::new(codes::IO_ERROR, format!("启动任务失败：{error}")))?
 }
 
-/// 壁纸窗专用：按 `games.json.autoStartWithWallpaper` 自动启动场景绑定的游戏。
-/// 未启用/已关闭自动启动时返回 null，由场景保持静态视觉。
+/// 壁纸窗专用：按 `games.json.autoStartWithWallpaper` 自动启动壁纸绑定的游戏。
+/// 未启用/已关闭自动启动时返回 null，由场景/游戏壁纸保持静态视觉。
 #[tauri::command]
 pub async fn game_auto_start(
   app: AppHandle,

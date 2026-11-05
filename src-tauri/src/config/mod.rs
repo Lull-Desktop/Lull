@@ -87,6 +87,10 @@ pub struct DisplayConfig {
   pub sync: bool,
   #[serde(default = "default_scene")]
   pub scene: String,
+  /// 非空时壁纸直接渲染该游戏包的 `entry.replica`；`scene` 保留为清空游戏后的回退。
+  /// 与 `scene` 是两个独立字段：游戏 id 永远不会写进 `scene`。
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub game: Option<String>,
   /// 按场景 id 保存的参数；值统一存字符串，由前端按 Manifest 类型还原。
   #[serde(
     default,
@@ -105,6 +109,7 @@ impl Default for DisplayConfig {
       mode: DisplayMode::default(),
       sync: true,
       scene: default_scene(),
+      game: None,
       scene_params: BTreeMap::new(),
       media: MediaConfig::default(),
     }
@@ -127,7 +132,21 @@ impl DisplayConfig {
     }
     if let Some(s) = scene {
       self.scene = s;
+      // 显式选择场景 = 退出“游戏自带 renderer 作为壁纸”的状态。
+      self.game = None;
     }
+  }
+
+  /// 切换壁纸内容源：`Some(game_id)` = 直接渲染游戏包自带 replica；`None` = 回到场景。
+  /// 调用方负责校验 id 与包内是否存在 `entry.replica`。
+  pub fn set_game(&mut self, game: Option<String>) {
+    self.game = game;
+  }
+
+  /// 当前生效的游戏壁纸 id（`None` = 使用场景）。
+  #[must_use]
+  pub fn game_content(&self) -> Option<&str> {
+    self.game.as_deref()
   }
 
   /// 覆盖某个场景的参数；空 map 表示恢复默认值（删除该场景的记录）。
@@ -286,6 +305,10 @@ impl WallpaperConfig {
   /// 不能用 `resolved_scene`：mirror/span 下每屏覆盖被忽略，残留的 monitor.scene
   /// 不应阻止卸载场景（否则切换了全局壁纸也卸载不掉）。
   pub fn scene_in_use(&self, scene: &str) -> bool {
+    // 游戏直接渲染时场景不参与画面，卸载场景不会影响当前壁纸。
+    if self.display.game.is_some() {
+      return false;
+    }
     if self.display.scene == scene {
       return true;
     }
@@ -604,6 +627,36 @@ mod tests {
       .display
       .set_scene_params("lull.bamboo", BTreeMap::new());
     assert!(loaded.display.params_for_scene("lull.bamboo").is_empty());
+  }
+
+  #[test]
+  fn game_content_roundtrips_and_scene_selection_clears_it() {
+    let path = temp_path("game_content");
+    let mut c = WallpaperConfig::default();
+    c.display.set_game(Some("community.stability-probe".into()));
+    assert_eq!(c.display.game_content(), Some("community.stability-probe"));
+    assert!(!c.scene_in_use(DEFAULT_SCENE_ID));
+
+    c.save(&path).unwrap();
+    let mut loaded = WallpaperConfig::load_outcome(&path).config;
+    assert_eq!(
+      loaded.display.game_content(),
+      Some("community.stability-probe")
+    );
+
+    // 显式选择场景 = 退出游戏壁纸；清空后场景恢复“在用”。
+    loaded
+      .display
+      .apply_patch(None, None, Some("lull.aurora".into()));
+    assert_eq!(loaded.display.game_content(), None);
+    assert_eq!(loaded.display.scene, "lull.aurora");
+    assert!(loaded.scene_in_use("lull.aurora"));
+  }
+
+  #[test]
+  fn game_field_is_omitted_when_unset() {
+    let json = serde_json::to_string(&DisplayConfig::default()).unwrap();
+    assert!(!json.contains("\"game\""));
   }
 
   #[test]

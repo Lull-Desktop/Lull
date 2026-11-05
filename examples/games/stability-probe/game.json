@@ -3,17 +3,18 @@
   "type": "game",
   "id": "community.stability-probe",
   "name": "Stability Probe",
-  "version": "1.0.2",
-  "description": "P3 稳定性探针：self-loop + WebGL 自循环，持续提交帧率/长帧/上下文丢失/堆样本。",
+  "version": "1.0.3",
+  "description": "P3 稳定性探针：单包包含 self-loop authority 与 WebGL 指标墙 replica，持续提交帧率/长帧/上下文丢失/堆样本。",
   "author": "Lull",
   "license": "MIT",
   "hostApi": 1,
   "entry": {
-    "authority": "authority/index.html"
+    "authority": "authority/index.html",
+    "replica": "replica/index.html"
   },
   "engine": {
     "id": "custom",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "renderMode": "webgl"
   },
   "runtime": {

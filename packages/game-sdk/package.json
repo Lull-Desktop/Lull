@@ -1,7 +1,7 @@
 {
   "name": "@lull/game-sdk",
   "version": "0.1.0",
-  "description": "Lull 游戏侧 SDK（TypeScript）：authority 提交状态、Scene 只读渲染副本、Controller Widget 收发命令，全部通过 postMessage 桥与宿主通信。",
+  "description": "Lull 游戏侧 SDK（TypeScript）：authority 提交状态、Scene / 包内 replica 只读渲染、Controller Widget 收发命令，全部通过 postMessage 桥与宿主通信。",
   "keywords": [
     "lull",
     "game",

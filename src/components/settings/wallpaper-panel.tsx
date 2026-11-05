@@ -84,6 +84,8 @@ type DisplayConfig = {
   mode: "mirror" | "independent" | "span";
   sync: boolean;
   scene: string;
+  /** 非空 = 壁纸直接渲染游戏包自带 replica；由「游戏」页签切换。 */
+  game?: string | null;
   /** 按场景 id 保存的参数；值统一为字符串，由 Scene SDK 还原类型。 */
   sceneParams?: Record<string, Record<string, string>>;
 };

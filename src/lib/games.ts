@@ -59,8 +59,20 @@ export type GameView = {
   enabled: boolean;
   granted: string[];
   capabilities: string[];
+  /** 包内 `entry.replica` 的 `lullgame://` URL；没有自带渲染入口时缺席。 */
+  entryReplicaUrl?: string | null;
   stateSchemaVersion: number;
   instance?: GameInstanceView | null;
+};
+
+/** 壁纸直接挂载游戏包自带渲染入口时的解析结果。 */
+export type GameReplicaEntry = {
+  gameId: string;
+  name: string;
+  version: string;
+  /** `entry.replica` 的 `lullgame://` URL；旧包没有自带渲染入口时为 null。 */
+  entryUrl: string | null;
+  enabled: boolean;
 };
 
 /** 宿主硬上限的公开视图；manifest 只能收紧，不能放宽。 */

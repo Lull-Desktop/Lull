@@ -26,6 +26,7 @@ pub(crate) fn wallpaper_hash(
   mode: DisplayMode,
   sync: bool,
   scene: &str,
+  game: Option<&str>,
   canvas: (i32, i32, i32, i32),
   view: (i32, i32, i32, i32),
   params: &BTreeMap<String, String>,
@@ -47,6 +48,12 @@ pub(crate) fn wallpaper_hash(
     view.2,
     view.3,
   );
+  // `game` 与 `scene` 是两个独立参数：前端只在 game 非空时走游戏 replica 宿主，
+  // 清空游戏后直接用同一份 hash 回退到 scene，不需要重载页面。
+  if let Some(game) = game {
+    hash.push_str("&game=");
+    hash.push_str(&encode_uri_component(game));
+  }
   if !params.is_empty() {
     if let Ok(json) = serde_json::to_string(params) {
       hash.push_str("&params=");
@@ -76,6 +83,7 @@ pub(crate) fn monitor_url(
       config.display.mode,
       config.display.sync,
       &scene,
+      config.display.game_content(),
       canvas,
       (monitor.x, monitor.y, monitor.w, monitor.h),
       &params,
@@ -117,6 +125,7 @@ mod tests {
       DisplayMode::Span,
       true,
       "lull.bamboo",
+      None,
       (-2560, 0, 4480, 1440),
       (0, 0, 1920, 1080),
       &BTreeMap::new(),
@@ -133,6 +142,7 @@ mod tests {
       DisplayMode::Mirror,
       false,
       "lull.aurora",
+      None,
       (0, 0, 1920, 1080),
       (0, 0, 1920, 1080),
       &BTreeMap::new(),
@@ -145,6 +155,7 @@ mod tests {
       DisplayMode::Independent,
       true,
       "lull.bamboo",
+      None,
       (0, 0, 1920, 1080),
       (0, 0, 1920, 1080),
       &BTreeMap::new(),
@@ -161,6 +172,7 @@ mod tests {
       DisplayMode::Mirror,
       true,
       "lull.bamboo",
+      None,
       (0, 0, 1920, 1080),
       (0, 0, 1920, 1080),
       &params,
@@ -177,6 +189,36 @@ mod tests {
       url,
       "/#mode=span&sync=1&scene=lull.bamboo&canvas=-2560,0,4480,1440&view=-2560,0,2560,1440"
     );
+  }
+
+  #[test]
+  fn wallpaper_hash_carries_game_alongside_scene() {
+    let hash = wallpaper_hash(
+      DisplayMode::Mirror,
+      true,
+      "lull.bamboo",
+      Some("community.stability-probe"),
+      (0, 0, 1920, 1080),
+      (0, 0, 1920, 1080),
+      &BTreeMap::new(),
+    );
+    assert!(hash.contains("scene=lull.bamboo"));
+    assert!(hash.contains("&game=community.stability-probe"));
+    assert!(hash.contains("mode=mirror"));
+  }
+
+  #[test]
+  fn monitor_url_game_wins_over_monitor_scene_override() {
+    let mut config = WallpaperConfig::default();
+    config.display.mode = DisplayMode::Independent;
+    config.display.scene = "lull.aurora".into();
+    config.set_monitor_scene("\\\\.\\DISPLAY2", Some("lull.video".into()));
+    config
+      .display
+      .set_game(Some("community.stability-probe".into()));
+    let url = monitor_url(&config, &ok_infos(), 1).unwrap();
+    assert!(url.contains("game=community.stability-probe"));
+    assert!(url.contains("scene=lull.video"));
   }
 
   #[test]

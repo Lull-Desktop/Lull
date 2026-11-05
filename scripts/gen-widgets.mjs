@@ -63,6 +63,8 @@ const GAME_REPLICA_PERMISSIONS = [
   "allow-game-ready",
   "allow-game-report-error",
   "allow-game-detach",
+  // 壁纸直接挂载游戏自带 replica 时，只读取包入口 URL（不暴露 games_list）。
+  "allow-game-replica-entry",
 ];
 
 /** Widget 控制器：只读快照 + 发命令；写权限永远不在这一层。 */

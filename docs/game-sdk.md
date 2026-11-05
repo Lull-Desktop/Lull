@@ -127,7 +127,7 @@ my-game/
 | `license` | ✅ | SPDX 标识或许可证名 |
 | `hostApi` | ✅ | 最小宿主 API；高于当前宿主 → 明确拒绝 |
 | `entry.authority` | ✅ | Authority 入口，相对 `.html` |
-| `entry.replica` | — | 游戏自带渲染入口；P4 起**校验接受**，宿主独立 replica 入口尚未实现 |
+| `entry.replica` | — | 游戏自带渲染入口，相对 `.html`；壁纸宿主可直接加载，无需 Scene |
 | `engine.id` | — | 开放字符串（不枚举）；缺省 `custom` |
 | `engine.version` | — | 引擎版本范围（仅展示与开发者自检） |
 | `engine.adapter` | — | 适配器包名（仅元数据；宿主**不加载**） |
@@ -349,11 +349,21 @@ await game.reportError({ code: "render.context-lost", message: "WebGL 上下文�
 
 上报只用于诊断与状态展示，不会触发权威 failover；真正的崩溃由宿主心跳/窗口销毁检测。
 
-## 5. Replica 接入（Scene）
+## 5. Replica 接入（包内入口 / Scene）
 
-> **P2 已落地**：`@lull/game-sdk/scene` 的 `connectLullGameRender()`、场景 manifest
-> `game` 绑定与 `game.*` 桥消息已可用；宿主在场景 `game.ready` 后 attach replica。
-> 游戏未运行时 resolve 为 `null`，场景应回退到静态视觉。
+> **P4 已落地**：`@lull/game-sdk/scene` 的 `connectLullGameRender()`、场景 manifest
+> `game` 绑定与 `game.*` 桥消息可用；壁纸宿主也能直接加载游戏包的
+> `entry.replica`（不需要 Scene）。游戏未运行时 resolve 为 `null`，渲染入口应回退到静态视觉。
+
+宿主支持两种 replica 来源，消息协议完全相同：
+
+| 来源 | 配置 | 适用 |
+| --- | --- | --- |
+| 包内 `entry.replica` | `display.game = <id>`（设置页「设为壁纸」） | 完整的单包游戏，逻辑与渲染一起分发 |
+| Scene 绑定 | 场景 manifest 的 `game: { id, role: "replica" }` | 可换主题的视觉层；Scene 可选，不是显示游戏的必需品 |
+
+两种来源都由宿主 top-level 页执行 `game_connect`，iframe 只拿到只读的
+`game.init/snapshot/event/render/lifecycle`；提交能力始终留在 authority 窗口。
 
 ### 5.1 场景绑定
 
@@ -763,9 +773,8 @@ pnpm game:pack  ./my-game --out artifacts
 | 示例 | 阶段 | 说明 |
 | --- | --- | --- |
 | `examples/games/living-world` | P1/P2 | Canvas2D + host-tick + 场景绑定；最小闭环 |
-| `examples/games/stability-probe` | P3 | self-loop + WebGL 稳定性探针，用于 2h 长跑与 context loss 测试 |
+| `examples/games/stability-probe` | P3/P4 | **单包双入口**：self-loop authority + `replica/` 指标墙；设为壁纸即可双屏验收 |
 | `examples/scenes/living-world` | P2 | 只读 Scene 绑定：canvas 绘制植物/水位，走 `game.*` 桥 |
-| `examples/scenes/stability-probe` | P3 | 只读指标墙：展示 self-loop 的 frames/长帧/contextLost/displayId |
 | `examples/widgets/living-world-controller` | P1/P2 | 控制器 Widget：种/浇水/状态面板，走 `game.*` Widget 桥 |
 | `examples/games/canvas-demo` | P4（规划） | 原生 Canvas 适配器示例 |
 | `examples/games/phaser-demo` | P4（规划） | Phaser 适配器示例 |
@@ -781,7 +790,7 @@ pnpm games:samples:pack      # 打 .lull-game.zip + release/manifest.json
 pnpm games:samples:install   # 安装 dist 到 %APPDATA%\app.lull.desktop\games\<id>\
 ```
 
-- 校验/预算在 `scripts/lib/game-package.mjs`，按安装器当前实际 8 MiB/64 MiB/512 文件执行；
+- 校验/预算在 `scripts/lib/game-package.mjs`，按游戏包 16 MiB/128 MiB/1024 文件执行；
 - zip 根目录直接是包内容，并写入与 Rust `game_package::digest` 同算法的 `.lull-integrity.json`；
 - `release/manifest.json` 记录每个 zip 的 sha256、包摘要与体积，供发布页/目录使用；
 - 示例可提供 `build.mjs` 做 TypeScript/引擎打包，默认直接复制静态文件；

@@ -34,12 +34,16 @@ import type { SceneFrame } from "@/sdk/scene";
 
 type UseGameReplicaOptions = {
   gameId: string | null;
-  sceneId: string;
+  /** 场景绑定时是场景 id；壁纸直接挂载游戏 replica 时为 null。 */
+  sceneId: string | null;
   frame: SceneFrame;
   iframeRef: RefObject<HTMLIFrameElement | null>;
 };
 
-function renderContextFor(frame: SceneFrame): GameRenderContext {
+function renderContextFor(
+  frame: SceneFrame,
+  iframe: HTMLIFrameElement | null,
+): GameRenderContext {
   const view = frame.view ?? {
     x: 0,
     y: 0,
@@ -47,6 +51,12 @@ function renderContextFor(frame: SceneFrame): GameRenderContext {
     h: frame.viewport.h,
   };
   const canvas = frame.canvas ?? view;
+  // span 下 iframe 是整块共享画布，不是壁纸窗口：必须按 iframe 的实际 CSS 尺寸
+  // 建立 viewport，否则 Canvas 适配器会按单屏宽度分配 backing store。
+  const measuredW = iframe ? Math.round(iframe.clientWidth) : 0;
+  const measuredH = iframe ? Math.round(iframe.clientHeight) : 0;
+  const width = measuredW > 0 ? measuredW : frame.viewport.w;
+  const height = measuredH > 0 ? measuredH : frame.viewport.h;
   return {
     // displayId 由 Rust 按壁纸窗口 label 解析，这里只占位。
     protocol: 1,
@@ -55,8 +65,8 @@ function renderContextFor(frame: SceneFrame): GameRenderContext {
     canvas,
     view,
     viewport: {
-      width: frame.viewport.w,
-      height: frame.viewport.h,
+      width,
+      height,
       dpr: frame.dpr,
     },
   };
@@ -89,6 +99,7 @@ export function useGameReplica({
     [iframeRef],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 连接时读取 iframe 当前尺寸，ref 变化不应重建 connect
   const connect = useCallback(async (): Promise<void> => {
     if (!gameId || !token || !isDesktopWindow() || connectingRef.current) {
       return;
@@ -108,7 +119,7 @@ export function useGameReplica({
         request: {
           gameId,
           sceneId,
-          render: renderContextFor(frameRef.current),
+          render: renderContextFor(frameRef.current, iframeRef.current),
         },
         token,
       });

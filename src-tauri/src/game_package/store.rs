@@ -35,6 +35,8 @@ pub struct GamePackageInfo {
   pub status: String,
   pub error: Option<String>,
   pub entry_authority_url: String,
+  /// 自带渲染入口；`None` = 只能通过场景绑定显示（旧包）。
+  pub entry_replica_url: Option<String>,
   pub enabled: bool,
   pub granted: Vec<String>,
   pub capabilities: Vec<String>,
@@ -301,6 +303,7 @@ fn inspect(dir: &Path, dir_name: &str, grants: &GrantsFile) -> GamePackageInfo {
     status: "invalid".to_string(),
     error: None,
     entry_authority_url: String::new(),
+    entry_replica_url: None,
     enabled: false,
     granted: Vec::new(),
     capabilities: Vec::new(),
@@ -364,6 +367,11 @@ fn inspect(dir: &Path, dir_name: &str, grants: &GrantsFile) -> GamePackageInfo {
       None
     },
     entry_authority_url: super::protocol::entry_url(&manifest.id, &manifest.entry.authority),
+    entry_replica_url: manifest
+      .entry
+      .replica
+      .as_deref()
+      .map(|entry| super::protocol::entry_url(&manifest.id, entry)),
     enabled,
     granted,
     capabilities: manifest.capabilities,
@@ -433,14 +441,16 @@ mod tests {
   fn write_package(root: &Path, id: &str) {
     let dir = root.join(id);
     std::fs::create_dir_all(dir.join("authority")).expect("dir");
+    std::fs::create_dir_all(dir.join("replica")).expect("dir");
     std::fs::write(dir.join("authority/index.html"), b"<html></html>").expect("entry");
+    std::fs::write(dir.join("replica/index.html"), b"<html></html>").expect("replica");
     std::fs::write(
       dir.join(MANIFEST_FILE),
       format!(
         r#"{{
           "schemaVersion": 1, "type": "game", "id": "{id}", "name": "Demo",
           "version": "1.0.0", "license": "MIT", "hostApi": 1,
-          "entry": {{ "authority": "authority/index.html" }},
+          "entry": {{ "authority": "authority/index.html", "replica": "replica/index.html" }},
           "runtime": {{ "authority": "host-tick" }},
           "display": {{ "policy": "shared" }},
           "capabilities": ["game.state.read", "game.state.write", "game.command.receive"],
@@ -453,6 +463,39 @@ mod tests {
   }
 
   #[test]
+  fn installs_single_package_that_carries_replica() {
+    let zip = Path::new(env!("CARGO_MANIFEST_DIR"))
+      .join("../examples/games/release/community.stability-probe-1.0.3.lull-game.zip");
+    // 发布产物由 `pnpm games:samples:pack` 生成；缺失时跳过，不阻塞 CI。
+    if !zip.is_file() {
+      return;
+    }
+    let root = temp_root("single-package");
+    let staging = temp_root("single-package-staging");
+    let staged = install::stage(&staging, &zip).expect("stage game zip");
+    let manifest = install_from_staged(&root, &staged).expect("install game zip");
+    assert_eq!(manifest.id, "community.stability-probe");
+    assert_eq!(
+      manifest.entry.replica.as_deref(),
+      Some("replica/index.html")
+    );
+    let info = inspect(
+      &root.join("community.stability-probe"),
+      "community.stability-probe",
+      &GrantsFile::default(),
+    );
+    assert!(info
+      .entry_replica_url
+      .as_deref()
+      .is_some_and(|url| url.ends_with("/replica/index.html")));
+    assert!(root
+      .join("community.stability-probe/replica/index.html")
+      .is_file());
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&staging);
+  }
+
+  #[test]
   fn inspect_lists_ready_and_disabled_consistently() {
     let root = temp_root("inspect");
     write_package(&root, "demo.game");
@@ -462,6 +505,10 @@ mod tests {
     assert!(info
       .entry_authority_url
       .contains("/demo.game/authority/index.html"));
+    assert!(info
+      .entry_replica_url
+      .as_deref()
+      .is_some_and(|url| url.contains("/demo.game/replica/index.html")));
     let mut grants = GrantsFile::default();
     grants.games.insert(
       "demo.game".to_string(),

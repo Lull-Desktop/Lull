@@ -424,7 +424,7 @@ pnpm scenes:sdk
 | 功能槽位与 Provider | [docs/extension-slots.md](docs/extension-slots.md) · [RFC](docs/Lull%20第三方扩展体系.md) |
 | 官方扩展    | [docs/official-extensions.md](docs/official-extensions.md)                               |
 | 扩展开发模式  | [docs/extension-dev-mode.md](docs/extension-dev-mode.md)                                 |
-| 游戏运行时（P1–P3） | [Game Runtime](docs/game-runtime.md) · [Game SDK](docs/game-sdk.md) · [稳定性报告](docs/game-runtime-webview-stability.md) · [RFC](docs/rfc/RFC-Game-Runtime.md) |
+| 游戏运行时（P1–P3，P4 单包入口） | [Game Runtime](docs/game-runtime.md) · [Game SDK](docs/game-sdk.md) · [稳定性报告](docs/game-runtime-webview-stability.md) · [RFC](docs/rfc/RFC-Game-Runtime.md) |
 | 游戏示例打包 | [examples/games/README.md](examples/games/README.md)（`.lull-game.zip` + release manifest） |
 | 原生桌面宿主  | [docs/native-host.md](docs/native-host.md)                                             |
 | 媒体运行时   | [docs/media-runtime.md](docs/media-runtime.md)                                         |
@@ -441,7 +441,7 @@ pnpm scenes:sdk
 - 视频壁纸默认走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/TextureStream 共享解码是可选 `native-media` feature，依赖与验收门见 [Media Runtime](docs/media-runtime.md)。当前目标机器实测 WebView2 `CreateTextureStream` 返回 `0x80070032`，因此预览构建也自动回退。
 - 安装是本地行为。只接受单场景包，包必须声明整包摘要，同 id 覆盖也算本地手动更新；社区包内 `.lull-signature.json` 的发布者验签已落地（默认只警告，`invalid`/`mismatch`/`revoked` 阻断），在线更新和回滚还没做。
 - 扩展不是通用插件系统。静态包不执行脚本，脚本包只能通过 Scene SDK 桥读帧，两者都拿不到宿主 DOM、原生调用和 IPC。
-- Game Runtime 目前到 P3 部分 + P4 Canvas Adapter：单实例、`host-tick` / `self-loop`（experimental）、`game-authority-*` 隐藏窗口、存档与 journal、命令/事件、Widget 控制器桥与示例、Scene 只读 Replica（`game` 绑定 + `game.*` 桥）、暂停/恢复与 hidden、`games.json` 偏好（自动启动/启动恢复/上限）、租约 failover 硬化、`@lull/game-adapter-canvas`、设置页「游戏」页签与 `@lull/game-sdk`。`entry.replica` 独立入口、Phaser/Pixi/Three Adapter、开发挂载与 WebView 稳定性报告仍是后续设计，见 [Game Runtime](docs/game-runtime.md) §19。
+- Game Runtime 目前到 P3 部分 + P4 单包双入口：单实例、`host-tick` / `self-loop`（experimental）、`game-authority-*` 隐藏窗口、存档与 journal、命令/事件、Widget 控制器桥与示例、Scene 只读 Replica（`game` 绑定 + `game.*` 桥）、**游戏包自带 `entry.replica` 直接作为壁纸**、暂停/恢复与 hidden、`games.json` 偏好（自动启动/启动恢复/上限）、租约 failover 硬化、`@lull/game-adapter-canvas`、设置页「游戏」页签与 `@lull/game-sdk`。Phaser/Pixi/Three Adapter、开发挂载与 WebView 稳定性真机报告仍是后续工作，见 [Game Runtime](docs/game-runtime.md) §19。
 - 接口还在 0.x。`@lull/widget-sdk`（`0.2.0`）和 `@lull/scene-sdk`（`0.1.0`）随仓库构建，还没发到 npm，不承诺跨版本兼容，见[扩展接口的成熟度](#扩展接口的成熟度)。
 - 发布流程还没完备。安装包还没做代码签名，公开分发前要补签名和素材授权复核。
 

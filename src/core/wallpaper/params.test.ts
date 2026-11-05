@@ -18,6 +18,7 @@ test("parses full span hash with negative canvas coords", () => {
     mode: "span",
     sync: true,
     scene: "lull.bamboo",
+    game: null,
     canvas: { x: -2560, y: 0, w: 4480, h: 1440 },
     view: { x: 0, y: 0, w: 1920, h: 1080 },
     params: {},
@@ -40,6 +41,15 @@ test("duplicate keys last-wins, scene trimmed", () => {
   expect(p.scene).toBe("lull.bamboo");
   const q = parseWallpaperParams("#sync=0&sync=1");
   expect(q.sync).toBe(true);
+});
+
+test("parses game content separately from scene", () => {
+  const p = parseWallpaperParams(
+    "#mode=mirror&scene=lull.bamboo&game=community.stability-probe",
+  );
+  expect(p.scene).toBe("lull.bamboo");
+  expect(p.game).toBe("community.stability-probe");
+  expect(parseWallpaperParams("#game=%20%20").game).toBeNull();
 });
 
 test("resolveSync forces true only for span", () => {

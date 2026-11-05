@@ -21,6 +21,7 @@
     "allow-game-snapshot-get",
     "allow-game-ready",
     "allow-game-report-error",
-    "allow-game-detach"
+    "allow-game-detach",
+    "allow-game-replica-entry"
   ]
 }

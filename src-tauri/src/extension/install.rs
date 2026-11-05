@@ -7,12 +7,36 @@ use super::error::ExtensionError;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-/// 单包文件数上限。
+/// 单包文件数上限（scene / widget）。
 pub const MAX_FILES: usize = 512;
-/// 单文件上限。
+/// 单文件上限（scene / widget）。
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
-/// 整包解压后上限。
+/// 整包解压后上限（scene / widget）。
 pub const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+
+/// 游戏包单独的体积预算：Web 游戏可能携带引擎与贴图。
+pub const GAME_MAX_FILES: usize = 1024;
+pub const GAME_MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
+pub const GAME_MAX_TOTAL_BYTES: u64 = 128 * 1024 * 1024;
+
+#[derive(Clone, Copy)]
+struct Limits {
+  max_files: usize,
+  max_file_bytes: u64,
+  max_total_bytes: u64,
+}
+
+const DEFAULT_LIMITS: Limits = Limits {
+  max_files: MAX_FILES,
+  max_file_bytes: MAX_FILE_BYTES,
+  max_total_bytes: MAX_TOTAL_BYTES,
+};
+
+const GAME_LIMITS: Limits = Limits {
+  max_files: GAME_MAX_FILES,
+  max_file_bytes: GAME_MAX_FILE_BYTES,
+  max_total_bytes: GAME_MAX_TOTAL_BYTES,
+};
 
 const STAGING_PREFIX: &str = ".staging-";
 const MANIFESTS: [&str; 3] = ["catalog.json", "widget.json", "game.json"];
@@ -108,7 +132,8 @@ pub fn stage(root: &Path, source: &Path) -> Result<Staged, ExtensionError> {
   std::fs::create_dir_all(&staging)
     .map_err(|error| ExtensionError::new("io.error", format!("创建安装暂存目录失败：{error}")))?;
 
-  match stage_into(&staging, source) {
+  let limits = limits_for(source);
+  match stage_into(&staging, source, limits) {
     Ok(bundle) => Ok(Staged { staging, bundle }),
     Err(error) => {
       let _ = std::fs::remove_dir_all(&staging);
@@ -117,7 +142,7 @@ pub fn stage(root: &Path, source: &Path) -> Result<Staged, ExtensionError> {
   }
 }
 
-fn stage_into(staging: &Path, source: &Path) -> Result<PathBuf, ExtensionError> {
+fn stage_into(staging: &Path, source: &Path, limits: Limits) -> Result<PathBuf, ExtensionError> {
   let metadata = std::fs::metadata(source).map_err(|error| {
     ExtensionError::new(
       "package.not-found",
@@ -126,9 +151,9 @@ fn stage_into(staging: &Path, source: &Path) -> Result<PathBuf, ExtensionError> 
   })?;
 
   if metadata.is_dir() {
-    copy_tree(source, &staging.join("bundle"))?;
+    copy_tree(source, &staging.join("bundle"), limits)?;
   } else if is_zip(source) {
-    extract_zip(source, staging)?;
+    extract_zip(source, staging, limits)?;
   } else {
     return Err(ExtensionError::new(
       "package.unsupported",
@@ -194,8 +219,8 @@ fn manifests_at(dir: &Path) -> Vec<&'static str> {
 }
 
 /// 复制目录（拒绝符号链接，带体积与数量上限）。
-fn copy_tree(source: &Path, target: &Path) -> Result<(), ExtensionError> {
-  let mut budget = Budget::default();
+fn copy_tree(source: &Path, target: &Path, limits: Limits) -> Result<(), ExtensionError> {
+  let mut budget = Budget::new(limits);
   copy_dir(source, target, &mut budget)
 }
 
@@ -236,12 +261,12 @@ fn copy_dir(source: &Path, target: &Path, budget: &mut Budget) -> Result<(), Ext
       .metadata()
       .map_err(|error| ExtensionError::new("io.error", format!("读取文件大小失败：{error}")))?
       .len();
-    if size > MAX_FILE_BYTES {
+    if size > budget.limits.max_file_bytes {
       return Err(ExtensionError::new(
         "package.too-large",
         format!(
           "单个文件超过 {} MiB：{}",
-          MAX_FILE_BYTES / (1024 * 1024),
+          budget.limits.max_file_bytes / (1024 * 1024),
           path.display()
         ),
       ));
@@ -255,7 +280,7 @@ fn copy_dir(source: &Path, target: &Path, budget: &mut Budget) -> Result<(), Ext
 }
 
 /// 解压 zip 到暂存目录（拒绝 `..`、反斜杠、符号链接，带体积上限）。
-fn extract_zip(source: &Path, staging: &Path) -> Result<(), ExtensionError> {
+fn extract_zip(source: &Path, staging: &Path, limits: Limits) -> Result<(), ExtensionError> {
   let file = std::fs::File::open(source).map_err(|error| {
     ExtensionError::new(
       "package.not-found",
@@ -265,7 +290,7 @@ fn extract_zip(source: &Path, staging: &Path) -> Result<(), ExtensionError> {
   let mut archive = zip::ZipArchive::new(file).map_err(|error| {
     ExtensionError::new("package.unsupported", format!("解析 zip 失败：{error}"))
   })?;
-  let mut budget = Budget::default();
+  let mut budget = Budget::new(limits);
 
   for index in 0..archive.len() {
     let mut entry = archive.by_index(index).map_err(|error| {
@@ -313,12 +338,12 @@ fn extract_zip(source: &Path, staging: &Path) -> Result<(), ExtensionError> {
         .map_err(|error| ExtensionError::new("io.error", format!("创建目录失败：{error}")))?;
     }
     let size = entry.size();
-    if size > MAX_FILE_BYTES {
+    if size > budget.limits.max_file_bytes {
       return Err(ExtensionError::new(
         "package.too-large",
         format!(
           "zip 内单个文件超过 {} MiB：{}",
-          MAX_FILE_BYTES / (1024 * 1024),
+          budget.limits.max_file_bytes / (1024 * 1024),
           entry.name()
         ),
       ));
@@ -332,16 +357,19 @@ fn extract_zip(source: &Path, staging: &Path) -> Result<(), ExtensionError> {
       )
     })?;
     // 再兜一层：按上限截断读取，避免 zip 头谎报大小。
-    let copied =
-      std::io::copy(&mut (&mut entry).take(MAX_FILE_BYTES + 1), &mut output).map_err(|error| {
-        ExtensionError::new("io.error", format!("解压 {} 失败：{error}", entry.name()))
-      })?;
-    if copied > MAX_FILE_BYTES {
+    let copied = std::io::copy(
+      &mut (&mut entry).take(budget.limits.max_file_bytes + 1),
+      &mut output,
+    )
+    .map_err(|error| {
+      ExtensionError::new("io.error", format!("解压 {} 失败：{error}", entry.name()))
+    })?;
+    if copied > budget.limits.max_file_bytes {
       return Err(ExtensionError::new(
         "package.too-large",
         format!(
           "zip 内单个文件超过 {} MiB：{}",
-          MAX_FILE_BYTES / (1024 * 1024),
+          budget.limits.max_file_bytes / (1024 * 1024),
           entry.name()
         ),
       ));
@@ -350,31 +378,81 @@ fn extract_zip(source: &Path, staging: &Path) -> Result<(), ExtensionError> {
   Ok(())
 }
 
-/// 安装预算：文件数 + 累计字节。
-#[derive(Default)]
+/// 安装预算：文件数 + 累计字节；游戏包单独放宽。
 struct Budget {
+  limits: Limits,
   files: usize,
   bytes: u64,
 }
 
 impl Budget {
+  fn new(limits: Limits) -> Self {
+    Self {
+      limits,
+      files: 0,
+      bytes: 0,
+    }
+  }
+
   fn take(&mut self, size: u64) -> Result<(), ExtensionError> {
     self.files = self.files.saturating_add(1);
     self.bytes = self.bytes.saturating_add(size);
-    if self.files > MAX_FILES {
+    if self.files > self.limits.max_files {
       return Err(ExtensionError::new(
         "package.too-large",
-        format!("扩展包文件数超过上限 {MAX_FILES}"),
+        format!("扩展包文件数超过上限 {}", self.limits.max_files),
       ));
     }
-    if self.bytes > MAX_TOTAL_BYTES {
+    if self.bytes > self.limits.max_total_bytes {
       return Err(ExtensionError::new(
         "package.too-large",
-        format!("扩展包解压后超过 {} MiB", MAX_TOTAL_BYTES / (1024 * 1024)),
+        format!(
+          "扩展包解压后超过 {} MiB",
+          self.limits.max_total_bytes / (1024 * 1024)
+        ),
       ));
     }
     Ok(())
   }
+}
+
+/// 游戏包使用更宽的预算；scene / widget 保持 8 MiB / 64 MiB / 512。
+fn limits_for(source: &Path) -> Limits {
+  if has_game_manifest(source) {
+    GAME_LIMITS
+  } else {
+    DEFAULT_LIMITS
+  }
+}
+
+fn has_game_manifest(source: &Path) -> bool {
+  if source.is_dir() {
+    return dir_has_game_manifest(source);
+  }
+  let Ok(file) = std::fs::File::open(source) else {
+    return false;
+  };
+  let Ok(archive) = zip::ZipArchive::new(file) else {
+    return false;
+  };
+  let found = archive.file_names().any(|name| {
+    let trimmed = name.trim_end_matches('/');
+    trimmed == "game.json" || (trimmed.matches('/').count() == 1 && trimmed.ends_with("/game.json"))
+  });
+  found
+}
+
+fn dir_has_game_manifest(dir: &Path) -> bool {
+  if dir.join("game.json").is_file() {
+    return true;
+  }
+  let Ok(entries) = std::fs::read_dir(dir) else {
+    return false;
+  };
+  entries.filter_map(Result::ok).any(|entry| {
+    let path = entry.path();
+    path.is_dir() && path.join("game.json").is_file()
+  })
 }
 
 fn safe_component(id: &str) -> bool {
@@ -578,6 +656,36 @@ mod tests {
         assert!(!target_root.join(&manifest.id).exists());
       }
     }
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn game_packages_get_wider_budget_than_scenes() {
+    let Some(root) = temp_root("game-budget") else {
+      return;
+    };
+    let scene = root.join("scene");
+    if write_package(&scene).is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let game = root.join("game");
+    if std::fs::create_dir_all(&game).is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    if std::fs::write(game.join("game.json"), b"{}").is_err() {
+      let _ = std::fs::remove_dir_all(&root);
+      return;
+    }
+    let scene_limits = limits_for(&scene);
+    let game_limits = limits_for(&game);
+    assert_eq!(scene_limits.max_file_bytes, MAX_FILE_BYTES);
+    assert_eq!(scene_limits.max_total_bytes, MAX_TOTAL_BYTES);
+    assert_eq!(scene_limits.max_files, MAX_FILES);
+    assert_eq!(game_limits.max_file_bytes, GAME_MAX_FILE_BYTES);
+    assert_eq!(game_limits.max_total_bytes, GAME_MAX_TOTAL_BYTES);
+    assert_eq!(game_limits.max_files, GAME_MAX_FILES);
     let _ = std::fs::remove_dir_all(&root);
   }
 

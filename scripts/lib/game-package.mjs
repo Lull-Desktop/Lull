@@ -2,7 +2,7 @@
  * 游戏包（`examples/games/<name>`）的构建/打包共用校验。
  *
  * 与 Rust `game_package::manifest` / `extension::install` 的实际约束保持一致：
- * - 单文件 8 MiB、整包 64 MiB、最多 512 个文件（安装器当前实际预算）；
+ * - 单文件 16 MiB、整包 128 MiB、最多 1024 个文件（游戏包预算；引擎与贴图）；
  * - id 小写、目录名必须等于 id（安装后按 id 定位）；
  * - entry.authority / entry.replica 必须是包内相对 `.html`；
  * - 隐藏点文件不入包（摘要与安装扫描都忽略点路径）。
@@ -17,9 +17,9 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-export const MAX_FILE_BYTES = 8 * 1024 * 1024;
-export const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
-export const MAX_FILES = 512;
+export const MAX_FILE_BYTES = 16 * 1024 * 1024;
+export const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
+export const MAX_FILES = 1024;
 
 export const GAME_ID = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 export const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -281,7 +281,9 @@ export function validateGamePackage(dir, options = {}) {
     fail(`文件数 ${files.length} 超过上限 ${MAX_FILES}`);
   }
   if (bytes > MAX_TOTAL_BYTES) {
-    fail(`整包 ${(bytes / 1024 / 1024).toFixed(1)} MiB 超过上限 64 MiB`);
+    fail(
+      `整包 ${(bytes / 1024 / 1024).toFixed(1)} MiB 超过上限 ${MAX_TOTAL_BYTES / 1024 / 1024} MiB`,
+    );
   }
   if (!files.some((file) => file.name === entry.authority)) {
     fail(`entry.authority 必须位于包内：${entry.authority}`);

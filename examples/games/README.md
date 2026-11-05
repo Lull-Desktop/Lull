@@ -3,8 +3,8 @@
 ```text
 examples/games/<name>/
   game.json          # 清单（id / version / entry / runtime / capabilities）
-  authority/         # 可选：authority 入口（entry.authority）
-  replica/           # 可选：独立 replica 入口（P4，宿主入口尚未实现）
+  authority/         # authority 入口（entry.authority，隐藏/后台窗口）
+  replica/           # 可选：壁纸可见渲染入口（entry.replica）
   build.mjs          # 可选：自定义构建钩子（复制 dist 后调用）
   dist/              # pnpm games:samples:build 生成（不入库）
 ```
@@ -27,9 +27,12 @@ pnpm games:samples:install          # 安装 dist 到 %APPDATA%\app.lull.desktop
 ```text
 release/
   community.living-world-1.0.0.lull-game.zip
-  community.stability-probe-1.0.0.lull-game.zip
+  community.stability-probe-1.0.3.lull-game.zip
   manifest.json
 ```
+
+**一个包同时包含逻辑与渲染**：`entry.authority` 在隐藏/后台窗口运行，
+`entry.replica` 由壁纸宿主直接挂载；设置页「游戏 → 设为壁纸」即可，不需要另装场景。
 
 zip 结构：根目录直接是 `game.json` + 入口 + 资源，另含 `.lull-integrity.json`
 （`sha256("lull-game-package\0" + id + "\0" + version + "\0" + files…)`，与 Rust
@@ -42,15 +45,15 @@ CI：[`.github/workflows/game-examples.yml`](../../.github/workflows/game-exampl
 
 ## 校验/预算
 
-构建与打包共用 `scripts/lib/game-package.mjs`，按安装器当前实际预算执行：
+构建与打包共用 `scripts/lib/game-package.mjs`，按安装器的游戏包预算执行：
 
-- 单文件 ≤ 8 MiB、整包 ≤ 64 MiB、≤ 512 个文件；
+- 单文件 ≤ 16 MiB、整包 ≤ 128 MiB、≤ 1024 个文件；
 - id 小写且 `game.json.type = "game"`、`schemaVersion = 1`、hostApi ≤ 1；
 - `entry.authority`（及可选的 `entry.replica`）必须是包内相对 `.html` 且文件存在；
 - 跳过 `dist/`、`node_modules/` 与所有点路径（摘要不覆盖）。
 
-> 设计文档中的游戏专用 16/128 MiB/1024 文件预算尚未在 Rust 安装器落地；
-> 本脚本按实际 8/64 MiB/512 执行，避免生成安装器会拒绝的包。
+> 安装器按包内是否含 `game.json` 自动选择预算：游戏包 16/128 MiB/1024，
+> scene/widget 仍为 8/64 MiB/512。
 
 ## 自定义构建
 

@@ -832,6 +832,12 @@ pub fn extensions_remove(app: AppHandle, kind: String, id: String) -> Result<(),
           "游戏正在运行，请先停止再卸载",
         ));
       }
+      if crate::wallpaper::runtime::game_in_use(&id) {
+        return Err(ExtensionError::new(
+          "extension.in-use",
+          "该游戏正作为壁纸使用，请先切换壁纸再卸载",
+        ));
+      }
       game_package::store::remove(&app, &id)
         .map_err(|error| ExtensionError::new("extension.remove-failed", error))?;
     }

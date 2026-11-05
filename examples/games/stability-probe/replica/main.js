@@ -1,8 +1,10 @@
 /**
- * Stability Probe 指标墙（零构建只读 Replica 场景）。
+ * Stability Probe 指标墙：游戏包自带的 `entry.replica` 渲染入口。
  *
- * 用来验证 P3 的 mirror/span：两块显示器绑定同一个 scene，场景只读
- * `game.*` 消息，把 self-loop 的 frames / longFrames / contextLost / heap
+ * 一个包同时包含 authority（隐藏/后台窗口，负责 self-loop 与提交）和 replica
+ * （本页，壁纸可见渲染）。宿主直接把这个游戏设为壁纸即可，不需要另装场景。
+ *
+ * 只读 `game.*` 消息，把 self-loop 的 frames / longFrames / contextLost / heap
  * 和 replica 的 displayId 画出来。
  */
 (function () {

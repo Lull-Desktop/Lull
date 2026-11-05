@@ -10,6 +10,8 @@ export type WallpaperParams = {
   mode: DisplayMode;
   sync: boolean;
   scene: string;
+  /** 非空 = 壁纸直接渲染游戏包自带的 `entry.replica`；`scene` 仅作为清空后的回退。 */
+  game?: string | null;
   canvas: Rect | null;
   view: Rect | null;
   /** 场景参数以字符串形式随哈希传递；SDK 按 Manifest 类型还原。 */
@@ -26,6 +28,7 @@ export const DEFAULT_PARAMS: WallpaperParams = {
   mode: "mirror",
   sync: true,
   scene: DEFAULT_SCENE_ID,
+  game: null,
   canvas: null,
   view: null,
   params: {},
@@ -94,10 +97,12 @@ export function parseWallpaperParams(hash: string): WallpaperParams {
     rawSync === "0" ? false : rawSync === "1" ? true : DEFAULT_PARAMS.sync;
   const scene =
     decodeScene(fields.get("scene") ?? "").trim() || DEFAULT_PARAMS.scene;
+  const game = decodeScene(fields.get("game") ?? "").trim() || null;
   return {
     mode,
     sync,
     scene,
+    game,
     canvas: parseRect(fields.get("canvas")),
     view: parseRect(fields.get("view")),
     params: parseParams(fields.get("params")),

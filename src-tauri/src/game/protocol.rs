@@ -221,6 +221,9 @@ pub struct GameView {
   pub enabled: bool,
   pub granted: Vec<String>,
   pub capabilities: Vec<String>,
+  /// 包内 `entry.replica` 的 `lullgame://` URL；没有自带渲染入口时为 None。
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub entry_replica_url: Option<String>,
   pub state_schema_version: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub instance: Option<GameInstanceView>,

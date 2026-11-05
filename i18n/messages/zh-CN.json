@@ -502,5 +502,15 @@
   "games_last_error": "最近错误：{code} · {message}",
   "games_load_failed": "读取游戏列表失败：{reason}",
   "games_action_failed": "操作失败：{reason}",
-  "games_capabilities": "能力"
+  "games_capabilities": "能力",
+  "games_set_wallpaper": "设为壁纸",
+  "games_clear_wallpaper": "取消游戏壁纸",
+  "games_wallpaper_active": "壁纸",
+  "games_wallpaper_hint": "直接渲染游戏包自带的 entry.replica，不需要安装场景。",
+  "games_wallpaper_no_replica": "该游戏没有 entry.replica，不能直接作为壁纸",
+  "games_wallpaper_failed": "切换壁纸失败：{reason}",
+  "game_wallpaper_loading": "正在加载游戏…",
+  "game_wallpaper_error": "无法加载游戏壁纸：{reason}",
+  "game_wallpaper_missing": "{name} 没有自带渲染入口（entry.replica），只能通过场景绑定显示。",
+  "game_wallpaper_disabled": "{name} 已停用；在设置页启用后即可作为壁纸。"
 }

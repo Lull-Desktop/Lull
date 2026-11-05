@@ -502,5 +502,15 @@
   "games_last_error": "Last error: {code} · {message}",
   "games_load_failed": "Failed to load games: {reason}",
   "games_action_failed": "Action failed: {reason}",
-  "games_capabilities": "Capabilities"
+  "games_capabilities": "Capabilities",
+  "games_set_wallpaper": "Set as wallpaper",
+  "games_clear_wallpaper": "Clear game wallpaper",
+  "games_wallpaper_active": "Wallpaper",
+  "games_wallpaper_hint": "Renders the package's entry.replica directly; no scene needed.",
+  "games_wallpaper_no_replica": "This game has no entry.replica and cannot be a wallpaper",
+  "games_wallpaper_failed": "Failed to switch wallpaper: {reason}",
+  "game_wallpaper_loading": "Loading game…",
+  "game_wallpaper_error": "Failed to load game wallpaper: {reason}",
+  "game_wallpaper_missing": "{name} has no entry.replica and can only be shown through a scene binding.",
+  "game_wallpaper_disabled": "{name} is disabled; enable it in Settings to use it as a wallpaper."
 }

@@ -230,4 +230,33 @@ describe("GamesPanel", () => {
 
     expect(await screen.findByText("操作失败：磁盘不可写")).toBeTruthy();
   });
+
+  test("自带 replica 的游戏可设为壁纸并切换为取消", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [
+          gameView({
+            entryReplicaUrl:
+              "http://lullgame.localhost/community.living-world/replica/index.html",
+          }),
+        ];
+      }
+      if (command === "wallpaper_display_get") {
+        return { game: null };
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "设为壁纸" }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("wallpaper_set_game", {
+        gameId: "community.living-world",
+      });
+    });
+    expect(
+      await screen.findByRole("button", { name: "取消游戏壁纸" }),
+    ).toBeTruthy();
+  });
 });

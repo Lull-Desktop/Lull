@@ -10,6 +10,7 @@ import {
   parseWallpaperParams,
   type WallpaperParams,
 } from "@/core/wallpaper/params";
+import { GameHost } from "@/games/replica/game-host";
 import { BootVeil } from "@/scenes/boot-veil";
 import { SceneHost } from "@/scenes/host";
 
@@ -62,7 +63,12 @@ export default function WallpaperHome() {
       {/* 启动幕始终是第一个子节点：ready 从 false 变 true 时 React 复用同一个
           实例，淡出过渡不会因重挂载而重置；z-index 保证它仍盖在场景之上。 */}
       <BootVeil hidden={booted} />
-      {ready && <SceneHost params={params} onReady={handleSceneReady} />}
+      {ready &&
+        (params.game ? (
+          <GameHost params={params} onReady={handleSceneReady} />
+        ) : (
+          <SceneHost params={params} onReady={handleSceneReady} />
+        ))}
     </div>
   );
 }
