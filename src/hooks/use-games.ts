@@ -34,6 +34,7 @@ export type GamesState = {
   resume: (gameId: string) => Promise<void>;
   setBackground: (gameId: string, enabled: boolean) => Promise<void>;
   deleteSave: (gameId: string) => Promise<void>;
+  clearData: (gameId: string) => Promise<void>;
   setEnabled: (gameId: string, enabled: boolean) => Promise<void>;
 };
 
@@ -154,6 +155,29 @@ export function useGames(): GamesState {
     (gameId: string): Promise<void> => runAction("game_save_delete", gameId),
     [runAction],
   );
+  /**
+   * 清除当前游戏的全部状态和进度，并从初始值重新启动。
+   *
+   * 宿主没有单独的「reset」命令：先停止（必须，`game_save_delete` 只接受已停止
+   * 实例），删除整份存档，再启动。无论哪一步失败都刷新列表，因为前序步骤可能
+   * 已经改变了运行状态；错误在刷新后写入，避免被 refresh 的成功分支清掉。
+   */
+  const clearData = useCallback(
+    async (gameId: string): Promise<void> => {
+      let failure: string | null = null;
+      try {
+        await invoke("game_stop", { gameId });
+        await invoke("game_save_delete", { gameId });
+        await invoke("game_start", { gameId });
+      } catch (reason) {
+        failure = toGameErrorBody(reason).message;
+      }
+      await refresh();
+      if (!aliveRef.current) return;
+      setError(failure);
+    },
+    [refresh],
+  );
   // 启停用与能力授权归扩展中心；这里只借用同一个命令给「游戏」页签做启用入口。
   const setEnabled = useCallback(
     async (gameId: string, enabled: boolean): Promise<void> => {
@@ -212,6 +236,7 @@ export function useGames(): GamesState {
     resume,
     setBackground,
     deleteSave,
+    clearData,
     setEnabled,
   };
 }

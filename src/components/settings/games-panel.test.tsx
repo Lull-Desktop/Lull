@@ -86,6 +86,124 @@ describe("GamesPanel", () => {
     expect(screen.getByText("game.state.write")).toBeTruthy();
     expect(screen.getByRole("button", { name: "停止" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "立即保存" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "清除数据" })).toBeTruthy();
+  });
+
+  test("清除数据需二次确认，确认后停止、删除存档并重启", async () => {
+    let cleared = false;
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [
+          gameView({
+            instance: cleared
+              ? instanceView({ status: "running", revision: 0 })
+              : instanceView({
+                  status: "running",
+                  revision: 42,
+                  simulationTimeMs: 1_000,
+                }),
+          }),
+        ];
+      }
+      if (command === "game_stop") {
+        return instanceView({ status: "stopped" });
+      }
+      if (command === "game_save_delete") {
+        cleared = true;
+        return null;
+      }
+      if (command === "game_start") {
+        return instanceView({ status: "running", revision: 0 });
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "清除数据" }));
+
+    expect(await screen.findByText(/全部状态和进度/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "清除并重置" }));
+
+    await waitFor(() => {
+      const commands = invoke.mock.calls
+        .map(([command]) => command)
+        .filter((command) =>
+          ["game_stop", "game_save_delete", "game_start"].includes(command),
+        );
+      expect(commands).toEqual(["game_stop", "game_save_delete", "game_start"]);
+    });
+    expect(await screen.findByText("revision 0")).toBeTruthy();
+  });
+
+  test("已停止的游戏不显示清除数据", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [gameView({ instance: instanceView({ status: "stopped" }) })];
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    expect(await screen.findByText("Living World")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "清除数据" })).toBeNull();
+  });
+
+  test("取消清除数据时不调用停止、删档或重启", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [gameView({ instance: instanceView({ status: "running" }) })];
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "清除数据" }));
+    expect(await screen.findByText(/全部状态和进度/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/全部状态和进度/)).toBeNull();
+    });
+    const commands = invoke.mock.calls.map(([command]) => command);
+    expect(commands).not.toContain("game_stop");
+    expect(commands).not.toContain("game_save_delete");
+    expect(commands).not.toContain("game_start");
+  });
+
+  test("清除后重启失败时展示错误并刷新为停止状态", async () => {
+    let cleared = false;
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [
+          gameView({
+            instance: cleared
+              ? instanceView({ status: "stopped" })
+              : instanceView({ status: "running" }),
+          }),
+        ];
+      }
+      if (command === "game_stop") {
+        return instanceView({ status: "stopped" });
+      }
+      if (command === "game_save_delete") {
+        cleared = true;
+        return null;
+      }
+      if (command === "game_start") {
+        return Promise.reject({
+          code: "authority.not_ready",
+          message: "重启失败",
+        });
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: "清除数据" }));
+    fireEvent.click(await screen.findByRole("button", { name: "清除并重置" }));
+
+    expect(await screen.findByText("操作失败：重启失败")).toBeTruthy();
+    expect(await screen.findByText("已停止")).toBeTruthy();
   });
 
   test("未运行时点击启动调用 game_start 并刷新列表", async () => {

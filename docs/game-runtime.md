@@ -583,7 +583,8 @@ manifest 可以**收紧**上限，不能放宽硬上限；放宽只能由宿主�
 ### 8.7 卸载、删除与导出
 
 - 卸载游戏包：若实例在运行，先停止；停止失败则拒绝卸载。**默认保留 `game-data/<gameId>/`**；设置页提供"同时删除存档"勾选，走 `game_save_delete`。
-- `game_save_delete` 要求实例已停止，删除整个 `instanceId` 目录；命令需二次确认（前端对话框）。
+- `game_save_delete` 要求实例已停止，删除整个 `game-data/<gameId>/`（含所有 instance 目录、备份与 metadata）；命令需二次确认（前端对话框）。
+- 设置页「清除数据」是前端编排：`game_stop` → `game_save_delete` → `game_start`。只在运行中显示，需二次确认；会停止游戏、删除全部存档并以初始状态重新启动（新的 `instanceId`，`revision` / `simulationTimeMs` 归零），控制器与壁纸副本会短暂断开后重新接入。
 - 导出/导入存档：P5，不在首期范围。
 
 ## 9. 协议总览
@@ -620,7 +621,7 @@ manifest 可以**收紧**上限，不能放宽硬上限；放宽只能由宿主�
 | `game_set_background` | `gameId, enabled` | `GameInstanceView` | 后台运行（tickMs×4）/ 回到前台（P3） |
 | `game_runtime_diagnostics` | — | `GameRuntimeDiagnostics` | 只读运行时计数（稳定性报告用） |
 | `game_flush` | `gameId` | `GameInstanceView` | 立即落盘（"立即保存"） |
-| `game_save_delete` | `gameId` | `()` | 删除实例存档（需已停止） |
+| `game_save_delete` | `gameId` | `()` | 删除整份游戏存档（需已停止）；设置页「清除数据」在运行中组合 stop → delete → start |
 
 **角色参与（authority / wallpaper / widget / settings）**
 
@@ -1122,7 +1123,7 @@ Widget 桥协议保持不变（`WIDGET_PROTOCOL = 1`），新增方法：
 | --- | --- | --- |
 | 读状态 / 发命令 | ✅ | ✅ |
 | 启动 / 停止 / 暂停 | ❌ | ✅ |
-| 删除存档 / 打开目录 | ❌ | ✅ |
+| 清除数据 / 删除存档 / 打开目录 | ❌ | ✅ |
 | 修改授权 | ❌ | ✅ |
 | 写权威状态 | ❌ | ❌（只有 Authority 能写） |
 
@@ -1301,7 +1302,7 @@ frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 现有页签是 `preferences / extensions / about`（见 `src/app/(control)/setting/page.tsx`），新增 `games`：
 
 - 列表：名称、版本、运行状态、revision、存档大小、最近更新时间。
-- 操作：启动 / 停止 / 暂停 / 恢复 / 后台运行 / 回到前台 / 立即保存 / 打开存档目录 / 删除存档（二次确认）。
+- 操作：启动 / 停止 / 暂停 / 恢复 / 后台运行 / 回到前台 / 立即保存 / 清除数据（运行中，二次确认，停止 → 删除存档 → 重启） / 打开存档目录 / 删除存档（二次确认）。
 - 授权：按能力勾选（`game.*`），与扩展中心的授权入口共用一套数据。
 - 诊断：最近错误、authority epoch、replica 数量、包校验状态。
 - 壁纸：包内有 `entry.replica` 的游戏提供「设为壁纸 / 取消游戏壁纸」，写入 `display.game`；同时同步覆盖每块屏的逐屏游戏（含其它模式留下的旧值），避免切回 independent 时旧游戏复活。壁纸页签选择场景会自动退出游戏壁纸；逐屏游戏与切换提示见 §15.1.1。

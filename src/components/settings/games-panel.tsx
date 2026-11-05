@@ -15,6 +15,7 @@ import {
   Pause,
   Play,
   Power,
+  RotateCcw,
   Save,
   Square,
   Sun,
@@ -52,6 +53,14 @@ const ACTIVE_STATUSES: readonly GameStatus[] = [
 
 /** 控制器开关只在这些"运行中"状态出现；与 Rust `InstanceStatus::accepts_controller` 一致。 */
 const CONTROLLER_STATUSES: readonly GameStatus[] = [
+  "running",
+  "hidden",
+  "suspended",
+  "background",
+];
+
+/** 只在稳定运行态允许「清除数据」；重置会停止并重新启动游戏。 */
+const CLEARABLE_STATUSES: readonly GameStatus[] = [
   "running",
   "hidden",
   "suspended",
@@ -152,6 +161,7 @@ function GameCard({
   onStop,
   onFlush,
   onDelete,
+  onClearData,
   onEnable,
   onSuspend,
   onResume,
@@ -169,6 +179,7 @@ function GameCard({
   onStop: () => void;
   onFlush: () => void;
   onDelete: () => void;
+  onClearData: () => void;
   onEnable: () => void;
   onSuspend: () => void;
   onResume: () => void;
@@ -188,6 +199,7 @@ function GameCard({
     status === "hidden" ||
     status === "background";
   const canDelete = status === "stopped" || status === "interrupted";
+  const canClear = status !== null && CLEARABLE_STATUSES.includes(status);
   const packageIssue = packageStatusLabel(game.status);
   const startBlockedReason = !game.enabled
     ? m.games_package_disabled()
@@ -378,6 +390,20 @@ function GameCard({
               {m.games_save_now()}
             </Button>
           )}
+          {canClear && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={pending}
+              onClick={onClearData}
+              data-testid={`game-clear-data-${game.id}`}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {m.games_clear_data()}
+            </Button>
+          )}
           {canDelete && (
             <Button
               type="button"
@@ -524,6 +550,7 @@ export function GamesPanel() {
     resume,
     setBackground,
     deleteSave,
+    clearData,
     setEnabled,
     saveConfig,
   } = useGames();
@@ -632,6 +659,17 @@ export function GamesPanel() {
     });
     if (!confirmed) return;
     await run(game.id, deleteSave);
+  };
+
+  const requestClearData = async (game: GameView): Promise<void> => {
+    const confirmed = await confirm({
+      title: m.games_clear_data(),
+      description: m.games_clear_data_confirm({ name: game.name }),
+      confirmLabel: m.games_clear_data_confirm_action(),
+      danger: true,
+    });
+    if (!confirmed) return;
+    await run(game.id, clearData);
   };
 
   return (
@@ -794,6 +832,7 @@ export function GamesPanel() {
                 onStop={() => void run(game.id, stop)}
                 onFlush={() => void run(game.id, flush)}
                 onDelete={() => void requestDelete(game)}
+                onClearData={() => void requestClearData(game)}
                 onEnable={() => void run(game.id, (id) => setEnabled(id, true))}
                 onSuspend={() => void run(game.id, suspend)}
                 onResume={() => void run(game.id, resume)}

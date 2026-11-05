@@ -135,7 +135,12 @@ pub fn save(app: &AppHandle, instance: &mut GameInstance, force_backup: bool) ->
 
 pub fn delete(app: &AppHandle, game_id: &str) -> GameResult<()> {
   let root = data_root(app).map_err(|error| GameError::new(codes::IO_ERROR, error))?;
-  let dir = game_dir(&root, game_id);
+  delete_at(&root, game_id)
+}
+
+/// 删除一个游戏的全部存档（所有 instance、备份与 metadata），保留其他游戏。
+pub fn delete_at(root: &Path, game_id: &str) -> GameResult<()> {
+  let dir = game_dir(root, game_id);
   if dir.exists() {
     std::fs::remove_dir_all(&dir)
       .map_err(|error| GameError::new(codes::IO_ERROR, format!("删除存档失败：{error}")))?;
@@ -493,6 +498,30 @@ mod tests {
       serde_json::from_str(&std::fs::read_to_string(dir.join(METADATA_FILE)).expect("read"))
         .expect("parse");
     assert_eq!(metadata.status, "interrupted");
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn delete_at_removes_all_instances_and_keeps_other_games() {
+    let root = temp_root("delete-game");
+    let mut first = instance();
+    first.instance_id = "0192f3a0000000000000000000000002".into();
+    save_at(&root, &mut first, true).expect("save first");
+    let mut second = instance();
+    second.instance_id = "0192f3a0000000000000000000000003".into();
+    save_at(&root, &mut second, true).expect("save second");
+
+    let mut other = instance();
+    other.game_id = "other.game".into();
+    other.instance_id = "0192f3a0000000000000000000000004".into();
+    save_at(&root, &mut other, false).expect("save other");
+
+    assert!(root.join("demo.game").is_dir());
+    assert!(root.join("other.game").is_dir());
+    delete_at(&root, "demo.game").expect("delete game data");
+    assert!(!root.join("demo.game").exists());
+    assert!(root.join("other.game").is_dir());
+
     let _ = std::fs::remove_dir_all(&root);
   }
 }
