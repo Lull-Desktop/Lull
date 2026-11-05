@@ -159,7 +159,7 @@ lull.exe（Rust）
 ### 4.3 一次命令提交的时序
 
 ```text
-Controller Widget ──postMessage──► Widget 宿主壳 ──game_command_send──► Game Host
+Controller（包内页面 / 外部 Widget）──postMessage──► 宿主壳 ──game_command_send──► Game Host
                                                                           │ 校验：
                                                                           │ 角色/能力/类型/大小
                                                                           │ requestId 去重
@@ -258,7 +258,7 @@ src/app/(games)/game-authority/page.tsx
 | 包 | 入口 | 用途 | 阶段 |
 | --- | --- | --- | --- |
 | `@lull/game-sdk` | `.` | 游戏 authority 客户端、context / 快照 / 事件（replica 部分 P2） | P1 |
-| `@lull/game-sdk/widget` | `./widget` | Controller Widget 客户端 | P1 |
+| `@lull/game-sdk/widget` | `./widget` | 外部 Controller Widget 客户端（可选载体） | P1 |
 | `@lull/game-sdk/scene` | `./scene` | 只读渲染桥（场景绑定与包内 replica 共用客户端） | P2/P4 |
 | `@lull/game-sdk/testing` | `./testing` | 内存传输与样例消息 | P1 |
 | `@lull/game-adapter-canvas` | — | 原生 Canvas2D 适配器 | P4 已落地 |
@@ -1025,11 +1025,11 @@ if (game) {
 }
 ```
 
-## 14. Controller Widget 接入
+## 14. Controller 接入
 
-### 14.1 能力
+### 14.1 能力（外部 Widget 载体）
 
-Widget 能力表新增三项（声明在 `widget.json`，宿主授权后生效）：
+外部 Widget 控制器在 `widget.json` 声明三项能力（宿主授权后生效）：
 
 | 能力 | 用途 |
 | --- | --- |
@@ -1248,7 +1248,7 @@ frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 | 游戏 authority iframe | 不可信 | 只能 postMessage | 直接 IPC / 文件 / 窗口 |
 | 壁纸宿主页（顶层帧） | 宿主代码 | 调只读 `game_*`、转发 | 不暴露 token 给 iframe |
 | 场景 iframe（游戏 replica） | 不可信 | 渲染、postMessage | 提交、发命令、读宿主 |
-| Controller Widget iframe | 不可信 | 读状态、发命令 | 写状态、管理实例、删存档 |
+| Controller iframe（包内 / 外部 Widget） | 不可信 | 读状态、发命令 | 写状态、管理实例、删存档 |
 | 游戏包资源 | 不可信静态文件 | 被 `lullgame://` 只读服务 | 访问宿主文件系统 |
 
 ### 16.2 威胁与缓解

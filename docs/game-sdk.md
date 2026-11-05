@@ -191,7 +191,7 @@ my-game/
 
 `game.authority.claim`、`game.instance.manage`、`game.storage.raw`、`game.window`。
 
-### Controller Widget 能力
+### 外部 Controller Widget 能力（可选）
 
 Widget 包（`widget.json`）声明以下能力，用户授权后生效：
 

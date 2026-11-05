@@ -38,7 +38,7 @@ pnpm games:samples:install pixi-demo
 "controllers": [
   {
     "id": "ambient",
-    "label": "Ambient Embers · PixiJS 控制台",
+    "label": "Ambient 控制台",
     "entry": "controllers/ambient/index.html",
     "commands": ["embers.pulse", "embers.reseed"],
     "window": { "width": 360, "height": 460 }

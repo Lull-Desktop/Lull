@@ -334,6 +334,7 @@ fn open_package_window(
     "gameId": manifest.id,
     "instanceId": instance_id,
     "controllerId": controller.id,
+    "label": controller.label,
     "entryUrl": crate::game_package::protocol::entry_url(&manifest.id, entry),
     "token": token,
     "limits": limits,
@@ -500,7 +501,7 @@ mod tests {
   fn controllers() -> serde_json::Value {
     serde_json::json!([
       { "id": "panel", "entry": "controllers/panel/index.html" },
-      { "id": "remote", "widgetId": "lull-ambient-controller" }
+      { "id": "remote", "widgetId": "example-ambient-controller" }
     ])
   }
 
@@ -525,7 +526,10 @@ mod tests {
     assert_eq!(all.len(), 2);
     let one = select_targets(&manifest, Some("remote")).expect("remote");
     assert_eq!(one.len(), 1);
-    assert_eq!(one[0].widget_id.as_deref(), Some("lull-ambient-controller"));
+    assert_eq!(
+      one[0].widget_id.as_deref(),
+      Some("example-ambient-controller")
+    );
     assert_eq!(
       select_targets(&manifest, Some("missing"))
         .err()
@@ -540,7 +544,7 @@ mod tests {
       { "id": "panel", "entry": "controllers/panel/index.html" },
       {
         "id": "remote",
-        "widgetId": "lull-ambient-controller",
+        "widgetId": "example-ambient-controller",
         "autoOpen": false
       }
     ]);

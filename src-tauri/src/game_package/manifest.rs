@@ -981,7 +981,7 @@ mod tests {
       },
       {
         "id": "remote",
-        "widgetId": "lull-living-world-controller",
+        "widgetId": "example-legacy-controller",
         "commands": []
       }
     ])
@@ -1055,8 +1055,8 @@ mod tests {
 
     let mut value = default_manifest_value();
     value["controllers"] = serde_json::json!([
-      { "id": "a", "widgetId": "lull-ambient-controller" },
-      { "id": "b", "widgetId": "lull-ambient-controller" }
+      { "id": "a", "widgetId": "example-ambient-controller" },
+      { "id": "b", "widgetId": "example-ambient-controller" }
     ]);
     assert!(parse(value).is_err());
 
@@ -1072,13 +1072,13 @@ mod tests {
   #[test]
   fn legacy_single_controller_is_normalized() {
     let mut value = default_manifest_value();
-    value["controller"] = serde_json::json!({ "widgetId": "lull-living-world-controller" });
+    value["controller"] = serde_json::json!({ "widgetId": "example-legacy-controller" });
     let manifest = parse(value).expect("legacy accepted");
     assert_eq!(manifest.controllers.len(), 1);
     assert_eq!(manifest.controllers[0].id, "default");
     assert_eq!(
       manifest.controllers[0].widget_id.as_deref(),
-      Some("lull-living-world-controller")
+      Some("example-legacy-controller")
     );
 
     let mut value = default_manifest_value();
