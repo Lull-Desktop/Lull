@@ -520,6 +520,47 @@ mod tests {
   }
 
   #[test]
+  fn engine_demo_controllers_are_game_scoped_and_distinct() {
+    use std::collections::HashSet;
+    use std::path::Path;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/games");
+    let mut controller_ids = HashSet::new();
+    let mut labels = HashSet::new();
+    let mut window_labels = HashSet::new();
+
+    for name in ["phaser-demo", "pixi-demo", "three-demo"] {
+      let dir = root.join(name);
+      let manifest = GameManifest::from_dir(&dir).expect("demo game.json");
+      assert_eq!(manifest.controllers.len(), 1, "{name} controller count");
+      let controller = &manifest.controllers[0];
+      assert!(
+        controller_ids.insert(controller.id.clone()),
+        "{name} 的 controller id 与其它示例重复"
+      );
+      let label = controller
+        .label
+        .as_deref()
+        .unwrap_or(controller.id.as_str());
+      assert!(
+        labels.insert(label.to_string()),
+        "{name} 的 controller label 与其它示例重复"
+      );
+      let entry = controller
+        .entry
+        .as_deref()
+        .expect("package controller entry");
+      assert!(dir.join(entry).is_file(), "{name} 控制器入口不存在：{entry}");
+      let window_label = label_for(&manifest.id, &controller.id);
+      assert!(
+        window_labels.insert(window_label.clone()),
+        "{name} 的控制器窗口 label 与其它示例重复"
+      );
+      assert!(window_label.contains(&controller.id));
+    }
+  }
+
+  #[test]
   fn select_targets_resolves_all_or_one() {
     let manifest = manifest(controllers());
     let all = select_targets(&manifest, None).expect("all");

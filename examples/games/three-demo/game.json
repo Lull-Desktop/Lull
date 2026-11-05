@@ -3,7 +3,7 @@
   "type": "game",
   "id": "community.three-demo",
   "name": "Ambient Embers · Three.js",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Three.js 单包示例：authority 用 host-tick 推进世界参数，replica 用 Three.js 渲染，适配器驱动 rAF、DPI 与生命周期。",
   "author": "Lull",
   "license": "MIT",
@@ -65,9 +65,9 @@
   },
   "controllers": [
     {
-      "id": "ambient",
-      "label": "Ambient 控制台",
-      "entry": "controllers/ambient/index.html",
+      "id": "ambient-three",
+      "label": "Three.js 控制台",
+      "entry": "controllers/ambient-three/index.html",
       "commands": ["embers.pulse", "embers.reseed"],
       "window": {
         "width": 360,

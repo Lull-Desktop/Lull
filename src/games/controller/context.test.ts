@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { isGameControllerContext } from "./game-controller-shell";
+import {
+  controllerIdentityLabel,
+  isGameControllerContext,
+} from "./game-controller-shell";
 
 function context(overrides: Record<string, unknown> = {}) {
   return {
@@ -48,5 +51,15 @@ describe("game controller context", () => {
     ).toBe(false);
     const { controllerId: _controllerId, ...withoutId } = context();
     expect(isGameControllerContext(withoutId)).toBe(false);
+  });
+
+  test("controller identity includes game and short instance id", () => {
+    const label = controllerIdentityLabel({
+      gameId: "community.phaser-demo",
+      controllerId: "ambient-phaser",
+      instanceId: "0192f3a0000000000000000000000001",
+    });
+    expect(label).toContain("community.phaser-demo");
+    expect(label).toContain("0192f3a0…0001");
   });
 });

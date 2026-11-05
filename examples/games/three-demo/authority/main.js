@@ -1,8 +1,9 @@
 /**
  * Ambient Embers Authority（零构建示例）。
  *
- * 三个引擎示例共用同一份权威逻辑：只由宿主 tick 驱动，不自己开定时器，
- * 直接实现 docs/game-runtime.md 的 v1 协议（正式游戏建议使用 @lull/game-sdk）。
+ * 与其它两个引擎示例玩法一致，但使用独立的初始 seed 与火星数量；
+ * 只由宿主 tick 驱动，不自己开定时器，直接实现 docs/game-runtime.md 的
+ * v1 协议（正式游戏建议使用 @lull/game-sdk）。
  *
  * 状态只描述"世界参数"（火星布局、相位、亮度），
  * 具体动画由 replica 在本地按相位插值，因此 1s tick 也不会看起来卡顿。
@@ -11,7 +12,8 @@
   "use strict";
 
   var PROTOCOL = 1;
-  var EMBER_COUNT = 18;
+  var INITIAL_SEED = 33;
+  var EMBER_COUNT = 14;
   var context = null;
   var state = createInitialState();
   var sequence = 0;
@@ -50,8 +52,8 @@
       phase: 0,
       intensity: 0.5,
       pulse: 0,
-      seed: 0,
-      embers: layout(0),
+      seed: INITIAL_SEED,
+      embers: layout(INITIAL_SEED),
       lastSettledMs: 0,
     };
   }

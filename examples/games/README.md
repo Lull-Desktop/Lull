@@ -29,9 +29,9 @@ pnpm games:samples:install          # 安装 dist 到 %APPDATA%\app.lull.desktop
 release/
   community.living-world-1.2.0.lull-game.zip
   community.stability-probe-1.0.3.lull-game.zip
-  community.phaser-demo-1.1.0.lull-game.zip
-  community.pixi-demo-1.1.0.lull-game.zip
-  community.three-demo-1.1.0.lull-game.zip
+  community.phaser-demo-1.2.0.lull-game.zip
+  community.pixi-demo-1.2.0.lull-game.zip
+  community.three-demo-1.2.0.lull-game.zip
   manifest.json
 ```
 
@@ -43,11 +43,13 @@ release/
 | 示例 | 引擎 | 适配器 | 包大小（replica 产物） |
 | --- | --- | --- | --- |
 | `phaser-demo` | Phaser 3.90 | `@lull/game-adapter-phaser` | 1.2 MiB |
-| `pixi-demo` | PixiJS 8.22 | `@lull/game-adapter-pixi` | 547 KiB |
-| `three-demo` | Three.js r186 | `@lull/game-adapter-three` | 537 KiB |
+| `pixi-demo` | PixiJS 8.22 | `@lull/game-adapter-pixi` | 565 KiB |
+| `three-demo` | Three.js r186 | `@lull/game-adapter-three` | 556 KiB |
 
-三者共用同一份 host-tick authority（火星布局 + `phase` + `intensity`），
-replica 各自用引擎渲染；都演示了"权威下发世界参数、replica 本地插值"的写法。
+三者玩法与 host-tick authority 结构一致（火星布局 + `phase` + `intensity`），
+replica 各自用引擎渲染；但各自有独立的控制器 id / label、初始 seed、火星数量和
+渲染色相，方便同时运行多个示例时从界面和数据上区分。都演示了"权威下发世界参数、
+replica 本地插值"的写法。
 `pixi-demo` 必须先 `import "pixi.js/unsafe-eval"` —— LULL 的游戏 CSP 不允许
 `unsafe-eval`，该入口用 polyfill 替代内部的 `new Function`。
 
@@ -82,9 +84,13 @@ replica 各自用引擎渲染；都演示了"权威下发世界参数、replica 
 | 控制器示例 | 载体 | 服务的游戏 | 命令 |
 | --- | --- | --- | --- |
 | [`examples/games/living-world/controllers/panel`](living-world/controllers/panel) | 包内 | `community.living-world` | `plant.seed` / `plant.water` |
-| [`examples/games/phaser-demo/controllers/ambient`](phaser-demo/controllers/ambient) | 包内 | `community.phaser-demo` | `embers.pulse` / `embers.reseed` |
-| [`examples/games/pixi-demo/controllers/ambient`](pixi-demo/controllers/ambient) | 包内 | `community.pixi-demo` | `embers.pulse` / `embers.reseed` |
-| [`examples/games/three-demo/controllers/ambient`](three-demo/controllers/ambient) | 包内 | `community.three-demo` | `embers.pulse` / `embers.reseed` |
+| [`examples/games/phaser-demo/controllers/ambient-phaser`](phaser-demo/controllers/ambient-phaser) | 包内 | `community.phaser-demo` | `embers.pulse` / `embers.reseed` |
+| [`examples/games/pixi-demo/controllers/ambient-pixi`](pixi-demo/controllers/ambient-pixi) | 包内 | `community.pixi-demo` | `embers.pulse` / `embers.reseed` |
+| [`examples/games/three-demo/controllers/ambient-three`](three-demo/controllers/ambient-three) | 包内 | `community.three-demo` | `embers.pulse` / `embers.reseed` |
+
+> 控制器 id 与命令名都只在**游戏包内**唯一；宿主窗口 label 带 gameId hash，
+> 不同游戏复用同一个 id/命令名也不会共享 binding、token 或事件。三个示例改用
+> 独立 id/label 只是为了让多控制器窗口更容易区分。
 
 zip 结构：根目录直接是 `game.json` + 入口 + 资源，另含 `.lull-integrity.json`
 （`sha256("lull-game-package\0" + id + "\0" + version + "\0" + files…)`，与 Rust

@@ -18,6 +18,7 @@ import {
   isDesktopWindow,
   minimizeWindow,
 } from "@/core/window/controls";
+import { listenGameEvent } from "@/games/bridge/game-events";
 import { useFlowTheme } from "@/hooks/use-flow-theme";
 import type { FlowTheme, FlowThemeId } from "@/lib/flow-theme";
 import styles from "./widget-plugin-shell.module.css";
@@ -278,7 +279,7 @@ export function WidgetPluginShell() {
       type: string,
       key: "snapshot" | "event",
     ): void => {
-      void listen<unknown>(eventName, (event) => {
+      void listenGameEvent<unknown>(eventName, (event) => {
         send({ v: PROTOCOL_VERSION, type, [key]: event.payload });
       })
         .then((unlisten) => {

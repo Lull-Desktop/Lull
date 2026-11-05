@@ -24,9 +24,9 @@ body[data-engine="pixi"] {
 }
 
 body[data-engine="three"] {
-  --accent: #356fa8;
-  --accent-strong: #285680;
-  --accent-soft: #e4eff9;
+  --accent: #b45309;
+  --accent-strong: #92400e;
+  --accent-soft: #fef3c7;
 }
 
 * {
@@ -101,6 +101,20 @@ body {
   color: var(--muted);
   font-size: 10px;
   line-height: 1.5;
+}
+
+.identity {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, menlo, monospace;
+  font-size: 9px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.identity code {
+  color: var(--accent-strong);
+  font: inherit;
 }
 
 .stats {

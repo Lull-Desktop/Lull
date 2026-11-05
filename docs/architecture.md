@@ -242,7 +242,7 @@ lib.rs
 | `wallpaper_monitors` | — | `MonitorView[]` | `wallpaper::runtime` |
 | `wallpaper_set_monitor_visible` | `device,visible` | `()` | `wallpaper::runtime` |
 | `wallpaper_display_get` | — | `DisplayConfig` | `wallpaper::runtime` |
-| `wallpaper_set_display` | `mode?,sync?,scene?` | `()` | `wallpaper::runtime`（显式选场景会清空 `display.game`） |
+| `wallpaper_set_display` | `mode?,sync?,scene?` | `()` | `wallpaper::runtime`（显式选场景会清空 `display.game`；切到 independent 且带全局游戏时，主屏保留游戏、其它屏回退 `display.scene`） |
 | `wallpaper_set_game` | `gameId: string \| null` | `()` | `wallpaper::runtime`（全局游戏；同步覆盖逐屏游戏，`null` 清空全部游戏） |
 | `wallpaper_set_monitor_scene` | `device,scene` | `()` | `wallpaper::runtime`（仅 independent；同时清掉该屏游戏覆盖） |
 | `wallpaper_set_monitor_game` | `device,gameId` | `()` | `wallpaper::runtime`（仅 independent；每屏独立选择游戏） |
@@ -285,6 +285,10 @@ lib.rs
 | `games-changed` | Rust（安装 / 启停 / 失败 / 授权变化） | 设置页「游戏」页签、扩展中心 |
 | `game:snapshot` / `game:event` / `game:render` | Rust（`game::manager`） | 游戏 authority / replica / controller 窗口（定向投递） |
 | `game:lifecycle` / `game:command` / `game:command-result` / `game:tick` | Rust（`game::manager`） | authority、replica、controller（按窗口角色定向） |
+
+游戏事件由 Rust `emit_to(label)` 定向投递；前端监听必须带同一窗口 target
+（项目封装为 `listenGameEvent`），否则 Tauri 默认的 `Any` 监听会收到所有游戏的
+定向事件。详见 [Game Runtime §10.1.1](game-runtime.md)。
 
 ### 4.3 Widget 上下文注入
 
@@ -409,6 +413,8 @@ Game Runtime（P1–P3）路径：
 ```
 
 `LULL_GAMES_DIR` / `LULL_GAME_DATA_DIR` 可覆盖。存档与包目录分离：卸载包默认保留存档。
+每个游戏的状态都在自己的 `<gameId>/<instanceId>/` 下，不同 gameId 不会互相读取；
+即使实例 id 相同，路径里的 gameId 仍保证隔离。
 协议、命令与 P1–P3 边界见 [Game Runtime](game-runtime.md)。
 
 ## 6. 原生 C ABI

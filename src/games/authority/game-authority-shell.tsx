@@ -9,8 +9,11 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  isGameEventForGame,
+  listenGameEvent,
+} from "@/games/bridge/game-events";
 import {
   type GameCommitResult,
   type GameConnectResult,
@@ -305,7 +308,14 @@ export function GameAuthorityShell() {
     const stops: Array<() => void> = [];
     let disposed = false;
     for (const [event, forward] of subscriptions) {
-      void listen<unknown>(event, (payload) => {
+      void listenGameEvent<unknown>(event, (payload) => {
+        // snapshot/lifecycle 带 gameId，可做第二层过滤；command/tick 只靠窗口 target。
+        if (
+          (event === "game:snapshot" || event === "game:lifecycle") &&
+          !isGameEventForGame(payload.payload, context.gameId)
+        ) {
+          return;
+        }
         send(forward(payload.payload));
         if (event === "game:lifecycle") {
           const state = (payload.payload as { state?: unknown } | null)?.state;

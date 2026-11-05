@@ -8,9 +8,12 @@
  * 只允许在壁纸窗顶层帧使用（token 由 Rust 注入到顶层帧，沙箱 iframe 读不到）。
  */
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { type RefObject, useCallback, useEffect, useRef } from "react";
 import { isDesktopWindow } from "@/core/window/controls";
+import {
+  isGameEventForGame,
+  listenGameEvent,
+} from "@/games/bridge/game-events";
 import type {
   GameConnectResult,
   GameContext,
@@ -171,7 +174,7 @@ export function useGameReplica({
       event: string,
       handler: (payload: T) => void,
     ): void => {
-      void listen<T>(event, (payload) => {
+      void listenGameEvent<T>(event, (payload) => {
         if (!disposed) handler(payload.payload);
       })
         .then((unlisten) => {
@@ -184,17 +187,20 @@ export function useGameReplica({
     };
 
     register<GameSnapshot>("game:snapshot", (snapshot) => {
+      if (!isGameEventForGame(snapshot, gameId)) return;
       snapshotRef.current = snapshot;
       if (readyRef.current) post(sceneGameSnapshotMessage(snapshot));
     });
     register<GameEvent>("game:event", (event) => {
+      if (!isGameEventForGame(event, gameId)) return;
       if (readyRef.current) post(sceneGameEventMessage(event));
     });
     register<GameRenderState>("game:render", (renderState) => {
+      if (!isGameEventForGame(renderState, gameId)) return;
       if (readyRef.current) post(sceneGameRenderMessage(renderState));
     });
     register<GameLifecycleEvent>("game:lifecycle", (event) => {
-      if (event.gameId !== gameId) return;
+      if (!isGameEventForGame(event, gameId)) return;
       if (event.state === "stopped" || event.state === "failed") {
         contextRef.current = null;
         snapshotRef.current = null;

@@ -51,6 +51,8 @@
   "wallpaper_group_scenes": "Scenes",
   "wallpaper_group_games": "Games",
   "wallpaper_game_disabled_suffix": " (unavailable)",
+  "wallpaper_game_used_elsewhere": " (in use on another display)",
+  "wallpaper_games_exclusive_hint": "A game can be used on only one display; video and image wallpapers can repeat.",
   "wallpaper_game_unavailable": "The current wallpaper game is unavailable. Choose another option.",
   "wallpaper_game_switch_title": "Switch wallpaper type",
   "wallpaper_game_switch_description": "{name} is running. Stop it, or keep it running in the background?",

@@ -1,5 +1,5 @@
 /**
- * Ambient Embers 包内控制器（零构建示例）。
+ * Ambient Embers · Three.js 包内控制器（零构建示例）。
  *
  * 与 living-world/controllers/panel 一样直接实现宿主壳的 v1 协议：
  * 发 `ready` 等 `init`，之后用 `command.send` 发命令、接收 `snapshot` /
@@ -10,6 +10,7 @@
   "use strict";
 
   var PROTOCOL = 1;
+  var INITIAL_SEED = 33;
   var COMMAND_TIMEOUT_MS = 8000;
   var MAX_LOG_LINES = 24;
 
@@ -21,10 +22,13 @@
   var connected = false;
 
   var statusEl = document.getElementById("status");
+  var gameIdEl = document.getElementById("game-id");
+  var instanceIdEl = document.getElementById("instance-id");
+  var revisionEl = document.getElementById("revision");
   var intensityEl = document.getElementById("intensity");
   var phaseEl = document.getElementById("phase");
   var embersEl = document.getElementById("embers");
-  var revisionEl = document.getElementById("revision");
+  var seedEl = document.getElementById("seed");
   var pulseButton = document.getElementById("pulse");
   var reseedButton = document.getElementById("reseed");
   var logEl = document.getElementById("log");
@@ -36,7 +40,7 @@
       phase: 0,
       intensity: 0.5,
       pulse: 0,
-      seed: 0,
+      seed: INITIAL_SEED,
       embers: [],
       lastSettledMs: 0,
     };
@@ -131,8 +135,25 @@
     }
     if (phaseEl) phaseEl.textContent = Math.round(state.phase) + "s";
     if (embersEl) embersEl.textContent = String(state.embers.length);
+    if (seedEl) seedEl.textContent = String(state.seed);
     if (revisionEl) {
       revisionEl.textContent = context ? String(context.revision) : "--";
+    }
+  }
+
+  function renderIdentity() {
+    if (!context) return;
+    if (gameIdEl) {
+      gameIdEl.textContent = context.gameId;
+      gameIdEl.title = context.gameId;
+    }
+    if (instanceIdEl) {
+      var instanceId = String(context.instanceId || "");
+      instanceIdEl.textContent =
+        instanceId.length > 12
+          ? instanceId.slice(0, 8) + "…" + instanceId.slice(-4)
+          : instanceId;
+      instanceIdEl.title = instanceId;
     }
   }
 
@@ -215,9 +236,10 @@
       if (snapshot && typeof snapshot.revision === "number") {
         context.revision = snapshot.revision;
       }
+      renderIdentity();
       render();
       setStatus("已连接", "ready");
-      log("已连接 · " + context.controllerId);
+      log("已连接 · " + context.gameId + " · " + context.controllerId);
       updateButtons();
       return;
     }

@@ -601,4 +601,41 @@ mod tests {
     )
     .is_none());
   }
+
+  #[test]
+  fn command_dedup_and_controller_registry_are_scoped_by_game() {
+    let mut manager = GameManager::default();
+    remember_command(&mut manager, "demo.one", "req-1", &result("req-1"), 1_000);
+    assert!(recorded_command(&manager, "demo.one", "req-1", 1_100).is_some());
+    assert!(recorded_command(&manager, "demo.two", "req-1", 1_100).is_none());
+
+    for (game_id, label) in [
+      ("demo.one", "game-controller-one-ambient"),
+      ("demo.two", "game-controller-two-ambient"),
+    ] {
+      manager.controllers.insert(
+        label.to_string(),
+        ControllerEntry {
+          game_id: game_id.to_string(),
+          controller_id: "ambient".to_string(),
+          kind: GameControllerKind::Package,
+          instance_id: None,
+          window_label: label.to_string(),
+          allowed_events: None,
+          connected_at_ms: 1_000,
+        },
+      );
+    }
+
+    assert_eq!(
+      controller_labels(&manager, "demo.one"),
+      vec!["game-controller-one-ambient".to_string()]
+    );
+    assert_eq!(
+      controller_labels(&manager, "demo.two"),
+      vec!["game-controller-two-ambient".to_string()]
+    );
+    assert_eq!(counts(&manager, "demo.one").1, 1);
+    assert_eq!(counts(&manager, "demo.two").1, 1);
+  }
 }

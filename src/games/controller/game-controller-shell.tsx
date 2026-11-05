@@ -8,9 +8,12 @@
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  isGameEventForGame,
+  listenGameEvent,
+} from "@/games/bridge/game-events";
 import {
   type GameConnectResult,
   type GameContext,
@@ -94,6 +97,20 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 控制器窗口身份：游戏 + 实例短号，多游戏同时打开时可直接区分。 */
+export function controllerIdentityLabel(
+  context: Pick<
+    GameControllerContext,
+    "gameId" | "controllerId" | "instanceId"
+  >,
+): string {
+  const instance =
+    context.instanceId.length > 12
+      ? `${context.instanceId.slice(0, 8)}…${context.instanceId.slice(-4)}`
+      : context.instanceId;
+  return `${context.gameId} · ${instance}`;
 }
 
 function gameBridgeError(code: string, message: string): CodedError {
@@ -253,7 +270,8 @@ export function GameControllerShell() {
     const stops: Array<() => void> = [];
     let disposed = false;
     for (const [event, forward] of subscriptions) {
-      void listen<unknown>(event, (payload) => {
+      void listenGameEvent<unknown>(event, (payload) => {
+        if (!isGameEventForGame(payload.payload, context.gameId)) return;
         send(forward(payload.payload));
         if (event === "game:lifecycle") {
           const state = (payload.payload as { state?: unknown } | null)?.state;
@@ -371,10 +389,22 @@ export function GameControllerShell() {
         data-tauri-drag-region="deep"
         className="flex h-9 shrink-0 items-center justify-between border-b border-[#d8d2c4] px-3 text-[11px]"
       >
-        <span className="truncate font-medium" data-tauri-drag-region="deep">
-          {context.label ?? context.controllerId}
+        <span
+          className="flex min-w-0 flex-1 flex-col leading-tight"
+          data-tauri-drag-region="deep"
+        >
+          <span className="truncate font-medium">
+            {context.label ?? context.controllerId}
+          </span>
+          <span
+            className="truncate text-[10px] text-[#8a8578]"
+            data-testid="game-controller-identity"
+            title={`${context.gameId} · ${context.controllerId} · ${context.instanceId}`}
+          >
+            {controllerIdentityLabel(context)}
+          </span>
         </span>
-        <span className="flex items-center gap-2">
+        <span className="flex shrink-0 items-center gap-2">
           <span className="text-[#8a8578]">
             {connected ? "已连接" : "未连接"}
           </span>

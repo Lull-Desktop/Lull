@@ -426,6 +426,34 @@ mod tests {
   }
 
   #[test]
+  fn same_instance_id_in_two_games_keeps_state_isolated() {
+    let root = temp_root("game-isolation");
+    let mut first = instance();
+    first.game_id = "demo.one".into();
+    first.instance_id = "0192f3a0000000000000000000000001".into();
+    first.state = json!({ "seed": 11 });
+    first.dirty = true;
+    save_at(&root, &mut first, false).expect("save first");
+
+    let mut second = instance();
+    second.game_id = "demo.two".into();
+    second.instance_id = "0192f3a0000000000000000000000001".into();
+    second.state = json!({ "seed": 22 });
+    second.dirty = true;
+    save_at(&root, &mut second, false).expect("save second");
+
+    let loaded_first = load_at(&root, "demo.one", 1)
+      .expect("load first")
+      .expect("first exists");
+    let loaded_second = load_at(&root, "demo.two", 1)
+      .expect("load second")
+      .expect("second exists");
+    assert_eq!(loaded_first.state["seed"], 11);
+    assert_eq!(loaded_second.state["seed"], 22);
+    let _ = std::fs::remove_dir_all(root);
+  }
+
+  #[test]
   fn save_then_load_roundtrip() {
     let root = temp_root("roundtrip");
     let mut instance = instance();

@@ -20,6 +20,8 @@ type WorldState = {
 const MAX_EMBERS = 32;
 const SPREAD_X = 8;
 const SPREAD_Y = 4.6;
+/** 即便加载旧存档（旧 seed 相同），三个示例也不共享同一套色相。 */
+const HUE_SHIFT = 240;
 
 const canvas = document.getElementById("stage") as HTMLCanvasElement | null;
 const hint = document.getElementById("hint");
@@ -125,7 +127,7 @@ if (!game || !canvas) {
           (ember.size - 0.5) * 1.4,
         );
         color.setHSL(
-          ember.hue / 360,
+          ((ember.hue + HUE_SHIFT) % 360) / 360,
           0.55,
           0.45 + (state.intensity ?? 0.5) * 0.25,
         );

@@ -18,6 +18,8 @@ type WorldState = {
 };
 
 const REGISTRY_KEY = "lull.world";
+/** 即便加载旧存档（旧 seed 相同），三个示例也不共享同一套色相。 */
+const HUE_SHIFT = 0;
 
 class EmberScene extends Phaser.Scene {
   private graphics!: Phaser.GameObjects.Graphics;
@@ -46,7 +48,7 @@ class EmberScene extends Phaser.Scene {
       const y = ember.y * height;
       const radius = 3 + ember.size * 16 * (0.65 + intensity * 0.7);
       const color = Phaser.Display.Color.HSVToRGB(
-        ember.hue / 360,
+        ((ember.hue + HUE_SHIFT) % 360) / 360,
         0.52,
         0.55 + intensity * 0.4,
       ).color;

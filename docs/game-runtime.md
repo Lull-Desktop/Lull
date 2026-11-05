@@ -654,7 +654,7 @@ ACL 只表示"该窗口可以调用这条命令"，角色、能力与提交校�
 | `game:tick` | authority 窗口 | `{ simulationTimeMs, deltaMs, wallClockMs }` | host-tick 模式 |
 | `games-changed` | 广播 | `()` | 设置页/扩展中心/托盘刷新列表 |
 
-事件只走**已订阅窗口**（Rust 侧维护订阅表，按实例与窗口 label 投递），不做全局广播，避免游戏数据泄漏到无关窗口。
+事件只走**已订阅窗口**（Rust 侧维护订阅表，按实例与窗口 label 投递），不做全局广播，避免游戏数据泄漏到无关窗口。Rust 用 `emit_to(label)` 定向投递；前端 `listen` 必须同时把当前窗口 label 作为 target，原因见 §10.1.1。
 
 ### 9.4 错误体
 
@@ -702,6 +702,28 @@ type GameErrorBody = {
 
 任何消息里的 `role` 字段只用于协议完整性检查，**不参与授权判定**。控制器窗口的
 `gameId / controllerId` 一律取自宿主写入的 binding，页面传参只用于一致性校验。
+
+#### 10.1.1 前端监听必须带窗口 target
+
+Tauri JS `listen(event, handler)` 默认注册 `{ kind: "Any" }`。`emit_to(label)` 的
+定向过滤只检查**监听器注册的 target**，`Any` 监听器无条件匹配；因此所有注册了
+同名事件的窗口都会收到每个 `emit_to` 事件。多游戏同时运行时，authority 会收到
+其它游戏的 `game:tick` / `game:command`，replica/controller 会收到其它游戏的
+`game:snapshot` / `game:event`，表现为状态串台。
+
+游戏事件统一通过 `src/games/bridge/game-events.ts` 的 `listenGameEvent` 注册：
+
+```ts
+listenGameEvent("game:snapshot", handler); // 自动带 { target: { kind: "AnyLabel", label } }
+```
+
+- 浏览器预览/单测没有 Tauri 内部对象时才退回默认监听；Tauri 内取不到窗口 label
+  会拒绝注册并报错，绝不退回全局监听。
+- snapshot / event / render / lifecycle 还应检查载荷 `gameId`，作为第二层防护。
+- `game:command` / `game:tick` 载荷不含 `gameId`，只能依赖窗口 target；这两类
+  监听绝不能省略 target。
+- 新增针对 `emit_to` 的监听点也必须传 target；`games-changed`、`media:event` 等
+  全局广播事件不受此限制。
 
 ### 10.2 校验流水线（`game_command_send`）
 
@@ -880,7 +902,7 @@ type GameRenderContext = {
 - `mirror`：`canvas = view`，每屏按视口渲染完整世界。
 - `span`：`canvas` 是虚拟桌面并集、`view` 是本屏矩形；replica 用 `view` 对画布做裁剪，**不重新计算游戏坐标**（复用 `core/wallpaper/params.ts` 的 `canvasTransform` 语义）。
 - 游戏世界逻辑坐标不依赖某个显示器的 DPR；DPR 只影响渲染采样。
-- 壁纸 `independent` 模式：每屏可独立选择场景或游戏；同一游戏在多个屏仍共享一个实例，不同游戏各自实例（受 `maxRunning` 限制）。`display.policy` 仍是 `shared`，区别只在“每屏选哪个内容源”。
+- 壁纸 `independent` 模式：每屏可独立选择场景或游戏；底层仍支持同一游戏实例被多屏 attach，但壁纸库的逐屏下拉只允许一台显示器选中同一游戏，视频/图片等场景可重复。不同游戏各自实例（受 `maxRunning` 限制）。`display.policy` 仍是 `shared`，区别只在“每屏选哪个内容源”。
 
 ### 12.4 显示模式矩阵
 
@@ -888,7 +910,7 @@ type GameRenderContext = {
 | --- | --- | --- | --- |
 | `mirror` | `shared` | 每屏一个 replica，整幅渲染 | 一个 |
 | `span` | `shared` | 每屏一个 replica，按 canvas/view 裁剪 | 一个 |
-| `independent` | `shared` | 每屏一个 replica；可各自选场景或不同游戏，同一游戏共享实例 | 每个游戏一个 |
+| `independent` | `shared` | 每屏一个 replica；可各自选场景或不同游戏，同一游戏在壁纸库 UI 中最多一台屏选中 | 每个游戏一个 |
 | 任意 | `per-monitor` | 启动时拒绝（`game.unsupported_display_policy`） | — |
 
 ### 12.5 重建与热插拔
@@ -1079,11 +1101,15 @@ Widget 桥协议保持不变（`WIDGET_PROTOCOL = 1`），新增方法：
 
 | 字段 | 规则 |
 | --- | --- |
-| `id` | 唯一，`^[a-z][a-z0-9-]{0,31}$`；窗口 label 与 binding 的槽位标识 |
+| `id` | 同一游戏内唯一，`^[a-z][a-z0-9-]{0,31}$`；窗口 label 与 binding 的槽位标识 |
 | `entry` / `widgetId` | 二选一：包内页面（`controllers/` 下的 `.html`）或外部 Widget |
 | `commands` / `events` | 可选子集；缺省 = 全部声明；`[]` = 只读 |
 | `window` | 宽 240–1600、高 200–1200；`resizable` / `alwaysOnTop` 默认 false |
 | `autoOpen` | 默认 true；仅在 `controllerFollowsGame` 开启时随启动自动打开 |
+
+不同游戏可以复用同一个 controller id 或命令名：窗口 label 为
+`game-controller-<fnv1a32(gameId)>-<id>`，binding、token、命令和事件都按游戏隔离。
+`examples/games` 的三个引擎示例仍使用不同 id/label，方便多控制器窗口同时打开时分辨。
 
 旧的单数 `controller: { widgetId }` 仍接受，归一化为 `controllers=[{id:"default",…}]`；
 两者同时声明会被清单校验拒绝。
@@ -1156,9 +1182,11 @@ Widget 桥协议保持不变（`WIDGET_PROTOCOL = 1`），新增方法：
 
 - 壁纸选择：`display.game = <id>`（独立字段，不写进 `display.scene`）。`wallpaper_set_game` 校验包内存在 `entry.replica` 后热更所有壁纸窗；选择场景会自动清空 `display.game`。
 - 逐屏游戏：independent 模式新增 `monitors[<device>].game`。每块屏可在「壁纸类型」下拉里独立选择游戏（`wallpaper_set_monitor_game`），选择场景会用 `wallpaper_set_monitor_scene` 清掉该屏游戏；mirror/span 忽略逐屏游戏，只认 `display.game`。
+- 进入独立模式：若当前有全局游戏，`wallpaper_set_display` 会把游戏固定到主屏（`primary: true`），所有其它显示器的逐屏场景写为 `display.scene` 并清掉游戏（含已关闭/离线条目），再应用模式。主屏画面保持，副屏回退到选中游戏前的壁纸；`display.game` 保留，切回复制/跨屏时仍恢复全局游戏。
+- 逐屏互斥：独立模式的每屏下拉会禁用其它显示器当前生效的游戏并标注，避免同一游戏同时出现在多块屏；视频/图片等场景不互斥，可以重复。
 - URL 协议：壁纸 hash 同时携带 `scene=` 与可选的 `game=`；`monitor_url` 按 `effective_game(device)` 解析，前端只在 `game` 非空时挂 `GameReplicaHost`，清空后立即回退到场景，不重载页面。
 - 信任边界：两个入口同包同源，但 authority 的提交能力来自窗口角色 + token，replica 永远拿不到 token；副本 iframe 的 `allow-scripts` 不包含 `allow-same-origin`。
-- `display.policy` 仍是 `shared`：同一游戏实例可被多块屏 attach，但 independent 下不同屏可以各自激活不同游戏；`wallpaper::runtime::active_games()` 取全局 + 逐屏游戏的并集，托盘控制器按游戏分组。
+- `display.policy` 仍是 `shared`：同一游戏实例仍可被多块屏 attach（mirror/span 或旧配置），但 independent 的新选择受逐屏互斥约束；`wallpaper::runtime::active_games()` 取全局 + 逐屏游戏的并集，托盘控制器按游戏分组。
 - 切换游戏：壁纸库下拉切换时若旧游戏仍有运行实例，会提示「停止游戏 / 后台继续运行 / 取消」；停止调用 `game_stop`，后台继续调用 `game_set_background(enabled=true)`，确认后才写新壁纸。
 
 ### 15.2 校验规则（`game_package::manifest`）

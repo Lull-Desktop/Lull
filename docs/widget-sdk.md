@@ -233,7 +233,7 @@ await media.noise.tracks.setVolume("track-id", 0.4);
 
 ### 游戏控制器（P1）
 
-声明 `game.state.read` 与 `game.command.send`（需要事件流时再加 `game.event.read`）。宿主壳新增四个桥方法：`game.connect` / `game.snapshot` / `game.command` / `game.disconnect`，并把 Tauri 的 `game:snapshot` / `game:event` / `game:lifecycle` 转发成同名 `game.*` 宿主消息。
+声明 `game.state.read` 与 `game.command.send`（需要事件流时再加 `game.event.read`）。宿主壳新增四个桥方法：`game.connect` / `game.snapshot` / `game.command` / `game.disconnect`，并把 Tauri 的 `game:snapshot` / `game:event` / `game:lifecycle` 转发成同名 `game.*` 宿主消息。宿主壳按当前 Widget 窗口 label 定向订阅这些事件，多个游戏的控制器同时打开时不会互相串台。
 
 ```ts
 import { connectLullWidget } from "@lull/widget-sdk";

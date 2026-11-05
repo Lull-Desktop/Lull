@@ -552,11 +552,15 @@ Controller 是独立窗口，有且只有两种载体，都由游戏 `game.json.
 
 | 字段 | 规则 |
 | --- | --- |
-| `id` | 唯一，`^[a-z][a-z0-9-]{0,31}$` |
+| `id` | 同一游戏内唯一，`^[a-z][a-z0-9-]{0,31}$` |
 | `entry` / `widgetId` | 二选一；`entry` 必须在 `controllers/` 下且文件存在 |
 | `commands` / `events` | 可选子集；缺省 = 全部声明；`[]` = 只读 |
 | `window` | 宽 240–1600、高 200–1200；`resizable` / `alwaysOnTop` 默认 false |
 | `autoOpen` | 默认 true；`controllerFollowsGame` 开启时随启动自动打开 |
+
+不同游戏可复用同一个 controller id 或命令名：宿主窗口 label 带 `gameId` hash，
+binding、token 与事件都按游戏隔离。示例游戏仍使用不同的 id/label 以便在多个
+控制器窗口同时打开时直接区分。
 
 ### 6.2 包内控制器（`@lull/game-sdk/controller`）
 
@@ -921,7 +925,7 @@ node scripts/install-game-examples.mjs my-game # 安装 dist 到用户游戏目�
 | --- | --- | --- |
 | `examples/games/living-world` | P1/P2/P4 | Canvas2D + host-tick；**包内 replica 可直接作壁纸**，场景绑定保留为可选主题；自带包内控制器 `controllers/panel` |
 | `examples/games/stability-probe` | P3/P4 | **单包双入口**：self-loop authority + `replica/` 指标墙；设为壁纸即可双屏验收 |
-| `examples/games/phaser-demo` | P4 | Phaser 3 单包示例：适配器接 `loop.sleep/wake` 与 `scale.resize`；自带包内控制器 `controllers/ambient` |
+| `examples/games/phaser-demo` | P4 | Phaser 3 单包示例：适配器接 `loop.sleep/wake` 与 `scale.resize`；自带包内控制器 `controllers/ambient-phaser` |
 | `examples/games/pixi-demo` | P4 | PixiJS 8 单包示例：`resolution = dpr`，适配器接 ticker；自带包内控制器 |
 | `examples/games/three-demo` | P4 | Three.js 单包示例：适配器自驱 rAF，`setPixelRatio` + 相机 aspect 跟随；自带包内控制器 |
 | `examples/scenes/living-world` | P2 | 只读 Scene 绑定：canvas 绘制植物/水位，走 `game.*` 桥 |

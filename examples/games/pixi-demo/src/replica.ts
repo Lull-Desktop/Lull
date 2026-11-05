@@ -44,6 +44,8 @@ function hslToRgb(hue: number, saturation: number, lightness: number): number {
   return (channel(r) << 16) | (channel(g) << 8) | channel(b);
 }
 
+/** 即便加载旧存档（旧 seed 相同），三个示例也不共享同一套色相。 */
+const HUE_SHIFT = 120;
 const world: WorldState = { intensity: 0.5, embers: [] };
 const stage = document.getElementById("stage");
 const hint = document.getElementById("hint");
@@ -83,7 +85,11 @@ if (!game) {
           const x = (ember.x + drift) * width;
           const y = ember.y * height;
           const radius = 3 + ember.size * 16 * (0.65 + intensity * 0.7);
-          const color = hslToRgb(ember.hue, 0.55, 0.35 + intensity * 0.3);
+          const color = hslToRgb(
+            (ember.hue + HUE_SHIFT) % 360,
+            0.55,
+            0.35 + intensity * 0.3,
+          );
           graphics
             .circle(x, y, radius * 3.2)
             .fill({ color, alpha: 0.1 + intensity * 0.14 });

@@ -182,6 +182,55 @@ describe("WallpaperPanel game sources", () => {
     });
   });
 
+  test("独立模式下，其他显示器正在使用的游戏不可重复选择", async () => {
+    const secondary = {
+      ...monitor,
+      device: "\\\\.\\DISPLAY2",
+      index: 1,
+      x: -2560,
+      primary: false,
+      game: null,
+    };
+    const primary = {
+      ...monitor,
+      device: "\\\\.\\DISPLAY1",
+      index: 0,
+      x: 0,
+      primary: true,
+      game: "community.living-world",
+    };
+    mockDisplayWithGames(
+      { ...display, mode: "independent" },
+      [game(), game({ id: "community.other", name: "Other Living World" })],
+      [secondary, primary],
+    );
+    render(<WallpaperPanel />);
+
+    expect(
+      await screen.findByText(m.wallpaper_games_exclusive_hint()),
+    ).toBeDefined();
+
+    const trigger = await screen.findByRole("combobox", {
+      name: m.wallpaper_monitor_scene_aria({ index: "1" }),
+    });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+
+    const usedOption = await screen.findByRole("option", {
+      name: `Living World${m.wallpaper_game_used_elsewhere()}`,
+    });
+    expect(usedOption.getAttribute("data-disabled")).not.toBeNull();
+
+    const otherGame = await screen.findByRole("option", {
+      name: "Other Living World",
+    });
+    expect(otherGame.getAttribute("data-disabled")).toBeNull();
+
+    const sceneOption = await screen.findByRole("option", {
+      name: "参数演示",
+    });
+    expect(sceneOption.getAttribute("data-disabled")).toBeNull();
+  });
+
   test("独立模式每台显示器可选择各自的游戏", async () => {
     mockDisplayWithGames(
       { ...display, mode: "independent" },

@@ -7,7 +7,7 @@ pixi-demo/
   game.json              entry.authority + entry.replica
   authority/             零构建：host-tick 推进世界参数并提交
   replica/index.html     壁纸入口，加载构建产物 replica/main.js
-  controllers/ambient/   包内控制器（零构建，直接实现宿主壳 v1 协议）
+  controllers/ambient-pixi/ 包内控制器（零构建，直接实现宿主壳 v1 协议）
   src/replica.ts         PixiJS 渲染源码（构建时打包）
   build.mjs              pnpm games:samples:build 的构建钩子
 ```
@@ -37,9 +37,9 @@ pnpm games:samples:install pixi-demo
 ```json
 "controllers": [
   {
-    "id": "ambient",
-    "label": "Ambient 控制台",
-    "entry": "controllers/ambient/index.html",
+    "id": "ambient-pixi",
+    "label": "Pixi 控制台",
+    "entry": "controllers/ambient-pixi/index.html",
     "commands": ["embers.pulse", "embers.reseed"],
     "window": { "width": 360, "height": 460 }
   }
@@ -50,6 +50,10 @@ UI 随游戏包分发，宿主用 `/game-controller` 壳 + sandbox iframe 承载
 运行中实例的操作区会出现该控制器的开关；打开后它读取快照、发命令给权威。
 `games.json.controllerFollowsGame` 默认开启，显式启动游戏时会自动打开 `autoOpen` 控制器，
 停止时回收该游戏全部控制器窗口。托盘「设置 ▸ 游戏控制器」列出所有运行中游戏的控制器。
+
+本示例使用独立的 controller id、初始 `seed=22`、22 个火星和青绿/粉紫色相；与
+Phaser / Three.js 示例同时运行时，控制器窗口、状态和事件都按游戏隔离。控制器
+标题栏会显示 `gameId · controllerId · instanceId`，可直接确认它连接的是哪个实例。
 
 ## 注意
 

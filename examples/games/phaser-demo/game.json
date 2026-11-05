@@ -3,7 +3,7 @@
   "type": "game",
   "id": "community.phaser-demo",
   "name": "Ambient Embers · Phaser",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Phaser 3 单包示例：authority 用 host-tick 推进世界参数，replica 用 Phaser 渲染，适配器对齐 LULL 生命周期。",
   "author": "Lull",
   "license": "MIT",
@@ -65,9 +65,9 @@
   },
   "controllers": [
     {
-      "id": "ambient",
-      "label": "Ambient 控制台",
-      "entry": "controllers/ambient/index.html",
+      "id": "ambient-phaser",
+      "label": "Phaser 控制台",
+      "entry": "controllers/ambient-phaser/index.html",
       "commands": ["embers.pulse", "embers.reseed"],
       "window": {
         "width": 360,

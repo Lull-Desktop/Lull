@@ -51,6 +51,8 @@
   "wallpaper_group_scenes": "场景",
   "wallpaper_group_games": "游戏",
   "wallpaper_game_disabled_suffix": "（不可用）",
+  "wallpaper_game_used_elsewhere": "（已在其他显示器使用）",
+  "wallpaper_games_exclusive_hint": "同一游戏只能在一台显示器上使用；视频和图片可以重复。",
   "wallpaper_game_unavailable": "当前壁纸游戏不可用，请重新选择。",
   "wallpaper_game_switch_title": "切换壁纸类型",
   "wallpaper_game_switch_description": "{name} 正在运行。切换后要停止游戏，还是让它在后台继续运行？",

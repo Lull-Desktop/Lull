@@ -89,19 +89,24 @@ function gameSelectable(game: GameView): boolean {
   return game.enabled && game.status === "ready";
 }
 
-function gameOptionLabel(game: GameView): string {
-  return gameSelectable(game)
-    ? game.name
-    : `${game.name}${m.wallpaper_game_disabled_suffix()}`;
+function gameOptionLabel(game: GameView, usedElsewhere: boolean): string {
+  if (!gameSelectable(game)) {
+    return `${game.name}${m.wallpaper_game_disabled_suffix()}`;
+  }
+  return usedElsewhere
+    ? `${game.name}${m.wallpaper_game_used_elsewhere()}`
+    : game.name;
 }
 
 /** 场景与游戏共用一个下拉：前缀区分 id，避免两类 id 同名时选错。 */
 function WallpaperContentOptions({
   scenes,
   games,
+  usedGames,
 }: {
   scenes: readonly SceneCatalogEntry[];
   games: readonly GameView[];
+  usedGames?: ReadonlySet<string>;
 }) {
   return (
     <>
@@ -121,15 +126,18 @@ function WallpaperContentOptions({
           <SelectSeparator />
           <SelectGroup>
             <SelectLabel>{m.wallpaper_group_games()}</SelectLabel>
-            {games.map((game) => (
-              <SelectItem
-                key={`${GAME_PREFIX}${game.id}`}
-                value={`${GAME_PREFIX}${game.id}`}
-                disabled={!gameSelectable(game)}
-              >
-                {gameOptionLabel(game)}
-              </SelectItem>
-            ))}
+            {games.map((game) => {
+              const usedElsewhere = usedGames?.has(game.id) ?? false;
+              return (
+                <SelectItem
+                  key={`${GAME_PREFIX}${game.id}`}
+                  value={`${GAME_PREFIX}${game.id}`}
+                  disabled={!gameSelectable(game) || usedElsewhere}
+                >
+                  {gameOptionLabel(game, usedElsewhere)}
+                </SelectItem>
+              );
+            })}
           </SelectGroup>
         </>
       )}
@@ -443,6 +451,17 @@ export function WallpaperPanel() {
       : `${SCENE_PREFIX}${monitor.scene}`;
   };
 
+  // 同一游戏只允许在一台显示器上实际生效；视频/图片等场景不参与互斥。
+  const gamesUsedByOtherMonitors = (device: string): ReadonlySet<string> => {
+    const used = new Set<string>();
+    for (const monitor of sortedMonitors ?? []) {
+      if (monitor.device !== device && monitor.game) {
+        used.add(monitor.game);
+      }
+    }
+    return used;
+  };
+
   // 旧配置可能指向已删除的场景（lull.aurora / lull.dusk / 旧内容包）。
   // 目录加载完成后回退到默认竹影并写回宿主，保证下一次启动也稳定。
   const normalizedSceneRef = useRef<string | null>(null);
@@ -680,6 +699,7 @@ export function WallpaperPanel() {
                           <WallpaperContentOptions
                             scenes={sceneOptions}
                             games={wallpaperGames}
+                            usedGames={gamesUsedByOtherMonitors(monitor.device)}
                           />
                         </SelectContent>
                       </Select>
@@ -720,6 +740,11 @@ export function WallpaperPanel() {
                 </div>
               );
             })}
+            {display?.mode === "independent" && sortedMonitors.length > 1 && (
+              <p className="text-xs text-muted-foreground">
+                {m.wallpaper_games_exclusive_hint()}
+              </p>
+            )}
           </div>
         )}
         <p className="text-xs text-muted-foreground">

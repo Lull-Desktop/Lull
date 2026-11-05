@@ -130,6 +130,20 @@ pub(crate) fn emit_changed(app: &AppHandle) {
   let _ = app.emit("wallpaper-changed", ());
 }
 
+/// 当前主屏 device；取不到主屏标记时退回 native 枚举的第一台。
+fn primary_device() -> Option<String> {
+  let host = ffi::host().ok()?;
+  let monitors: Vec<_> = topology::monitor_infos(host)
+    .into_iter()
+    .filter_map(Result::ok)
+    .collect();
+  monitors
+    .iter()
+    .find(|monitor| monitor.primary)
+    .or_else(|| monitors.first())
+    .map(|monitor| monitor.device.clone())
+}
+
 /// 壁纸启用策略：
 /// - `LULL_WALLPAPER=0` / `--no-wallpaper` 显式关闭；
 /// - `LULL_WALLPAPER=1` / `--wallpaper` 显式开启；
@@ -350,6 +364,9 @@ pub fn wallpaper_display_get() -> Result<crate::config::DisplayConfig, String> {
 }
 
 /// 部分更新全局显示配置（None = 不改）。写盘失败回滚；随后热更所有壁纸窗。
+///
+/// 从复制/跨屏切到独立且当前有全局游戏时，把游戏固定到主屏，其余显示器回退到
+/// `display.scene`；模式和逐屏覆盖在同一次写盘里提交，避免中间态多屏同时显示游戏。
 #[tauri::command]
 pub async fn wallpaper_set_display(
   app: AppHandle,
@@ -364,7 +381,19 @@ pub async fn wallpaper_set_display(
     let changed =
       mode.is_some_and(|next| next != old.mode) || sync.is_some_and(|next| next != old.sync);
     let scene_selected = scene.is_some();
+    let entering_independent = old.mode != DisplayMode::Independent
+      && mode == Some(DisplayMode::Independent)
+      && old.game.is_some()
+      && !scene_selected;
     config.data.display.apply_patch(mode, sync, scene);
+    if entering_independent {
+      match primary_device() {
+        Some(primary) => {
+          config.data.preserve_game_on_primary(&primary);
+        }
+        None => ffi::wlog("切换到独立模式：未找到主屏，跳过游戏壁纸迁移"),
+      }
+    }
     // 显式选全局场景 = 退出所有游戏壁纸；逐屏游戏也一起清掉，避免切回 independent 复活。
     if scene_selected {
       config.data.set_game_all(None);

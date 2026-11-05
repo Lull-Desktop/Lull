@@ -3,21 +3,25 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ambient Embers · PixiJS 控制器</title>
+    <title>Three.js 火星控制器</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
-  <body data-engine="pixi">
+  <body data-engine="three">
     <main class="app">
       <header class="head">
         <div>
-          <p class="eyebrow">AMBIENT EMBERS · PIXIJS</p>
-          <h1 class="title">Ambient 控制台</h1>
+          <p class="eyebrow">AMBIENT EMBERS · THREE.JS</p>
+          <h1 class="title">Three.js 控制台</h1>
         </div>
         <span class="badge" id="status" data-state="connecting">连接中</span>
       </header>
 
       <p class="hint">
-        包内控制器：UI 随游戏包分发，只通过宿主壳桥读取快照、发送命令。
+        仅操作 community.three-demo；其它游戏实例的状态、seed 与命令互不影响。
+      </p>
+
+      <p class="identity" aria-label="实例身份">
+        <code id="game-id">--</code> · <code id="instance-id">--</code> · r<span id="revision">--</span>
       </p>
 
       <section class="stats" aria-label="世界状态">
@@ -37,9 +41,9 @@
           <span class="unit">embers</span>
         </div>
         <div class="stat">
-          <span class="label">revision</span>
-          <strong id="revision">--</strong>
-          <span class="unit">state</span>
+          <span class="label">seed</span>
+          <strong id="seed">--</strong>
+          <span class="unit">layout</span>
         </div>
       </section>
 

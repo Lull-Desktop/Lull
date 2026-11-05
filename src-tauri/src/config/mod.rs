@@ -300,6 +300,38 @@ impl WallpaperConfig {
     }
   }
 
+  /// 切换到独立模式且当前有全局游戏时，把游戏固定到主屏，其余屏回退到
+  /// `display.scene`。这样主屏画面不变，副屏不会同时显示同一个游戏。
+  ///
+  /// 只改逐屏覆盖，`display.game` 保留：切回复制/跨屏时仍能恢复全局游戏。
+  /// 包括已经离线的显示器条目也一并重置，避免下次接入时旧游戏复活。
+  pub fn preserve_game_on_primary(&mut self, primary: &str) -> bool {
+    if primary.is_empty() {
+      return false;
+    }
+    let Some(game) = self.display.game.clone() else {
+      return false;
+    };
+    if self.display.scene.is_empty() {
+      self.display.scene = DEFAULT_SCENE_ID.to_string();
+    }
+    let fallback = self.display.scene.clone();
+    for (device, monitor) in &mut self.monitors {
+      if device == primary {
+        monitor.scene = None;
+        monitor.game = Some(game.clone());
+      } else {
+        monitor.scene = Some(fallback.clone());
+        monitor.game = None;
+      }
+    }
+    // 主屏可能还没有逐屏记录（首次切换、刚热插拔）。
+    let primary_monitor = self.monitors.entry(primary.to_string()).or_default();
+    primary_monitor.scene = None;
+    primary_monitor.game = Some(game);
+    true
+  }
+
   /// 该屏**实际渲染**的游戏，与 `wallpaper::protocol::monitor_url` 同一套解析：
   /// - mirror / span：只认全局游戏，忽略每屏覆盖；
   /// - independent：每屏游戏优先；只有场景覆盖时表示“这块屏不要游戏”；
@@ -389,9 +421,10 @@ impl WallpaperConfig {
     if self.display.game.is_none() && self.display.scene == scene {
       return true;
     }
-    self.monitors.keys().any(|device| {
-      self.effective_game(device).is_none() && self.effective_scene(device) == scene
-    })
+    self
+      .monitors
+      .keys()
+      .any(|device| self.effective_game(device).is_none() && self.effective_scene(device) == scene)
   }
 }
 
@@ -755,20 +788,17 @@ mod tests {
     c.set_monitor_game(D1, Some("community.local".into()));
 
     // mirror / span 忽略逐屏游戏，只看全局。
-    assert_eq!(
-      c.effective_game(D1).as_deref(),
-      Some("community.global")
-    );
+    assert_eq!(c.effective_game(D1).as_deref(), Some("community.global"));
     c.display.mode = DisplayMode::Independent;
     assert_eq!(c.effective_game(D1).as_deref(), Some("community.local"));
-    assert_eq!(
-      c.effective_game(D2).as_deref(),
-      Some("community.global")
-    );
+    assert_eq!(c.effective_game(D2).as_deref(), Some("community.global"));
 
     // 显式选场景会清掉该屏游戏，并在 independent 下压过全局游戏。
     c.set_monitor_scene(D2, Some("lull.video".into()));
-    assert!(c.monitors.get(D2).is_some_and(|monitor| monitor.game.is_none()));
+    assert!(c
+      .monitors
+      .get(D2)
+      .is_some_and(|monitor| monitor.game.is_none()));
     assert_eq!(c.effective_game(D2), None);
     assert_eq!(c.effective_scene(D2), "lull.video");
     assert!(c.game_in_use("community.global"));
@@ -801,14 +831,8 @@ mod tests {
     c.set_monitor_game(D1, Some("community.one".into()));
     c.set_monitor_game(D2, Some("community.two".into()));
     c.set_game_all(Some("community.three".into()));
-    assert_eq!(
-      c.effective_game(D1).as_deref(),
-      Some("community.three")
-    );
-    assert_eq!(
-      c.effective_game(D2).as_deref(),
-      Some("community.three")
-    );
+    assert_eq!(c.effective_game(D1).as_deref(), Some("community.three"));
+    assert_eq!(c.effective_game(D2).as_deref(), Some("community.three"));
 
     c.set_game_all(None);
     assert_eq!(c.effective_game(D1), None);
@@ -822,15 +846,14 @@ mod tests {
     c.set_monitor_game(D1, Some("community.old".into()));
     c.set_game_all(Some("community.new".into()));
     assert_eq!(
-      c.monitors.get(D1).and_then(|monitor| monitor.game.as_deref()),
+      c.monitors
+        .get(D1)
+        .and_then(|monitor| monitor.game.as_deref()),
       Some("community.new")
     );
 
     c.display.mode = DisplayMode::Independent;
-    assert_eq!(
-      c.effective_game(D1).as_deref(),
-      Some("community.new")
-    );
+    assert_eq!(c.effective_game(D1).as_deref(), Some("community.new"));
   }
 
   #[test]
@@ -842,7 +865,10 @@ mod tests {
     c.save(&path).unwrap();
     let loaded = WallpaperConfig::load_outcome(&path).config;
     assert_eq!(
-      loaded.monitors.get(D2).and_then(|monitor| monitor.game.clone()),
+      loaded
+        .monitors
+        .get(D2)
+        .and_then(|monitor| monitor.game.clone()),
       Some("community.local".into())
     );
 
@@ -851,7 +877,109 @@ mod tests {
     let default_path = temp_path("monitor_game_default");
     WallpaperConfig::default().save(&default_path).unwrap();
     let raw = std::fs::read_to_string(&default_path).unwrap();
-    assert!(!raw.contains("\"game\""), "无游戏时不应落盘 game 字段: {raw}");
+    assert!(
+      !raw.contains("\"game\""),
+      "无游戏时不应落盘 game 字段: {raw}"
+    );
+  }
+
+  #[test]
+  fn independent_transition_keeps_game_on_primary_and_resets_other_monitors() {
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Independent;
+    c.display.scene = "lull.video".into();
+    c.display.game = Some("community.one".into());
+    c.monitors.insert(
+      D1.to_string(),
+      MonitorConfig {
+        enabled: true,
+        scene: Some("lull.aurora".into()),
+        game: Some("community.old".into()),
+      },
+    );
+    c.monitors.insert(
+      D2.to_string(),
+      MonitorConfig {
+        enabled: false,
+        scene: Some("lull.bamboo".into()),
+        game: Some("community.two".into()),
+      },
+    );
+    c.monitors.insert(
+      D9.to_string(),
+      MonitorConfig {
+        enabled: false,
+        scene: Some("lull.aurora".into()),
+        game: Some("community.offline".into()),
+      },
+    );
+
+    assert!(c.preserve_game_on_primary(D1));
+
+    assert_eq!(c.display.game.as_deref(), Some("community.one"));
+    assert_eq!(c.effective_game(D1).as_deref(), Some("community.one"));
+    assert_eq!(c.effective_scene(D1), "lull.video");
+    let primary = c.monitors.get(D1).unwrap();
+    assert!(primary.scene.is_none());
+    assert_eq!(primary.game.as_deref(), Some("community.one"));
+
+    assert_eq!(c.effective_game(D2), None);
+    assert_eq!(c.effective_scene(D2), "lull.video");
+    assert!(!c.monitors.get(D2).unwrap().enabled);
+    assert_eq!(
+      c.monitors.get(D2).unwrap().scene.as_deref(),
+      Some("lull.video")
+    );
+    assert_eq!(c.monitors.get(D2).unwrap().game, None);
+
+    // 离线显示器也要清掉旧游戏，避免重新接入时复活。
+    assert_eq!(c.effective_game(D9), None);
+    assert_eq!(c.effective_scene(D9), "lull.video");
+    assert_eq!(c.monitors.get(D9).unwrap().game, None);
+    assert!(!c.game_in_use("community.two"));
+    assert!(!c.game_in_use("community.offline"));
+    assert!(c.game_in_use("community.one"));
+    assert_eq!(c.active_games(), vec!["community.one".to_string()]);
+    assert!(c.scene_in_use("lull.video"));
+    assert!(!c.scene_in_use("lull.aurora"));
+  }
+
+  #[test]
+  fn independent_transition_is_noop_without_global_game() {
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Independent;
+    c.set_monitor_game(D1, Some("community.local".into()));
+    c.set_monitor_scene(D2, Some("lull.aurora".into()));
+
+    assert!(!c.preserve_game_on_primary(D1));
+    assert_eq!(c.effective_game(D1).as_deref(), Some("community.local"));
+    assert_eq!(c.effective_scene(D2), "lull.aurora");
+    assert!(c.game_in_use("community.local"));
+  }
+
+  #[test]
+  fn independent_transition_inserts_primary_and_uses_default_scene_when_empty() {
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Independent;
+    c.display.scene = String::new();
+    c.display.game = Some("community.one".into());
+    c.set_monitor_game(D1, Some("community.two".into()));
+
+    assert!(c.preserve_game_on_primary(D9));
+
+    assert_eq!(c.effective_game(D9).as_deref(), Some("community.one"));
+    assert_eq!(c.effective_scene(D9), DEFAULT_SCENE_ID);
+    assert_eq!(c.effective_game(D1), None);
+    assert_eq!(c.effective_scene(D1), DEFAULT_SCENE_ID);
+    assert_eq!(
+      c.monitors.get(D1).unwrap().scene.as_deref(),
+      Some(DEFAULT_SCENE_ID)
+    );
+    assert_eq!(
+      c.monitors.get(D9).unwrap().game.as_deref(),
+      Some("community.one")
+    );
+    assert_eq!(c.active_games(), vec!["community.one".to_string()]);
   }
 
   #[test]
