@@ -24,6 +24,20 @@ fn now_ms() -> u64 {
 }
 
 #[derive(Debug, Clone)]
+pub struct GameControllerInfo {
+  pub id: String,
+  pub kind: manifest::GameControllerKind,
+  pub label: Option<String>,
+  pub widget_id: Option<String>,
+  pub entry: Option<String>,
+  /// Widget：已安装；包内：`entry` 文件存在。
+  pub installed: bool,
+  /// Widget：授权账本已启用；包内：跟随游戏 enabled。
+  pub enabled: bool,
+  pub auto_open: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct GamePackageInfo {
   pub id: String,
   pub name: String,
@@ -42,6 +56,8 @@ pub struct GamePackageInfo {
   pub capabilities: Vec<String>,
   pub network: Vec<String>,
   pub state_schema_version: u32,
+  /// 清单声明的控制器窗口；Widget 载体的 `installed`/`enabled` 由 `list()` 补齐。
+  pub controllers: Vec<GameControllerInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -288,6 +304,23 @@ pub fn list(app: &AppHandle) -> Vec<GamePackageInfo> {
     }
     items.push(inspect(&path, dir_name, &grants));
   }
+  for item in &mut items {
+    for controller in &mut item.controllers {
+      if controller.kind != manifest::GameControllerKind::Widget {
+        continue;
+      }
+      let Some(widget_id) = controller.widget_id.as_deref() else {
+        continue;
+      };
+      if let Ok(widget) = crate::widget_package::store::find(app, widget_id) {
+        controller.installed = true;
+        controller.enabled = crate::widget_package::store::is_enabled(app, widget_id);
+        if controller.label.is_none() {
+          controller.label = Some(widget.name);
+        }
+      }
+    }
+  }
   items.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
   items
 }
@@ -309,6 +342,7 @@ fn inspect(dir: &Path, dir_name: &str, grants: &GrantsFile) -> GamePackageInfo {
     capabilities: Vec::new(),
     network: Vec::new(),
     state_schema_version: 0,
+    controllers: Vec::new(),
   };
   let manifest = match GameManifest::load(dir, dir_name) {
     Ok(manifest) => manifest,
@@ -351,6 +385,32 @@ fn inspect(dir: &Path, dir_name: &str, grants: &GrantsFile) -> GamePackageInfo {
   } else {
     Vec::new()
   };
+  let controllers = manifest
+    .controllers
+    .iter()
+    .map(|controller| {
+      let (installed, controller_enabled) = match controller.kind() {
+        manifest::GameControllerKind::Package => {
+          let installed = controller
+            .entry
+            .as_deref()
+            .is_some_and(|entry| dir.join(entry).is_file());
+          (installed, installed && enabled)
+        }
+        manifest::GameControllerKind::Widget => (false, false),
+      };
+      GameControllerInfo {
+        id: controller.id.clone(),
+        kind: controller.kind(),
+        label: controller.label.clone(),
+        widget_id: controller.widget_id.clone(),
+        entry: controller.entry.clone(),
+        installed,
+        enabled: controller_enabled,
+        auto_open: controller.auto_open,
+      }
+    })
+    .collect();
   GamePackageInfo {
     id: manifest.id.clone(),
     name: manifest.name,
@@ -377,6 +437,7 @@ fn inspect(dir: &Path, dir_name: &str, grants: &GrantsFile) -> GamePackageInfo {
     capabilities: manifest.capabilities,
     network: manifest.network,
     state_schema_version: manifest.state.schema_version,
+    controllers,
   }
 }
 
@@ -392,6 +453,16 @@ pub fn install_from_staged(root: &Path, staged: &install::Staged) -> Result<Game
   if let Some(replica) = &manifest.entry.replica {
     if !staged.bundle().join(replica).is_file() {
       return Err(format!("entry.replica 指向的文件不存在：{replica}"));
+    }
+  }
+  for controller in &manifest.controllers {
+    if let Some(entry) = &controller.entry {
+      if !staged.bundle().join(entry).is_file() {
+        return Err(format!(
+          "controllers.{}.entry 指向的文件不存在：{entry}",
+          controller.id
+        ));
+      }
     }
   }
   match digest::check(staged.bundle(), &manifest.id, &manifest.version) {
@@ -498,7 +569,7 @@ mod tests {
   #[test]
   fn installs_living_world_package_with_authority_and_replica() {
     let zip = Path::new(env!("CARGO_MANIFEST_DIR"))
-      .join("../examples/games/release/community.living-world-1.1.2.lull-game.zip");
+      .join("../examples/games/release/community.living-world-1.2.0.lull-game.zip");
     if !zip.is_file() {
       return;
     }
@@ -507,12 +578,19 @@ mod tests {
     let staged = install::stage(&staging, &zip).expect("stage living-world zip");
     let manifest = install_from_staged(&root, &staged).expect("install living-world zip");
     assert_eq!(manifest.id, "community.living-world");
-    assert_eq!(manifest.version, "1.1.2");
+    assert_eq!(manifest.version, "1.2.0");
     assert_eq!(manifest.entry.authority, "authority/index.html");
     assert_eq!(
       manifest.entry.replica.as_deref(),
       Some("replica/index.html")
     );
+    assert_eq!(manifest.controllers.len(), 1);
+    assert_eq!(manifest.controllers[0].id, "panel");
+    assert_eq!(
+      manifest.controllers[0].entry.as_deref(),
+      Some("controllers/panel/index.html")
+    );
+    assert!(manifest.controllers[0].widget_id.is_none());
     let info = inspect(
       &root.join("community.living-world"),
       "community.living-world",
@@ -522,11 +600,23 @@ mod tests {
       .entry_replica_url
       .as_deref()
       .is_some_and(|url| url.ends_with("/replica/index.html")));
+    assert_eq!(info.controllers.len(), 1);
+    // 包内控制器随包安装：entry 存在即 installed（游戏未启用时 enabled=false）。
+    let panel = info
+      .controllers
+      .iter()
+      .find(|controller| controller.id == "panel")
+      .expect("panel controller declared");
+    assert!(panel.installed);
+    assert!(!panel.enabled);
     assert!(root
       .join("community.living-world/authority/main.js")
       .is_file());
     assert!(root
       .join("community.living-world/replica/main.js")
+      .is_file());
+    assert!(root
+      .join("community.living-world/controllers/panel/index.html")
       .is_file());
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&staging);

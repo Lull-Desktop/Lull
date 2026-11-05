@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ambient Embers · Three.js</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 30% 20%, #0d1730 0%, transparent 55%),
+          radial-gradient(circle at 75% 80%, #1b1030 0%, transparent 60%), #04050a;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #hint {
+        position: fixed;
+        left: 16px;
+        bottom: 14px;
+        color: rgba(214, 228, 255, 0.55);
+        font: 12px/1.5 system-ui, sans-serif;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="hint">Three.js · 加载中…</div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

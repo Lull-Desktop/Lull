@@ -21,7 +21,6 @@ import { build } from "esbuild";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sdkRoot = join(root, "packages", "widget-sdk");
 const mediaSdkRoot = join(root, "packages", "media-sdk");
-const gameSdkRoot = join(root, "packages", "game-sdk");
 
 /**
  * 把 `@lull/widget-sdk` 及其子路径解析到包产物（dist），未构建时回落到 TS 源码。
@@ -69,28 +68,6 @@ const resolveMediaSdk = {
   },
 };
 
-/** 游戏控制器示例：解析 @lull/game-sdk 到构建产物（未构建时回落源码）。 */
-const resolveGameSdk = {
-  name: "resolve-game-sdk",
-  setup(pluginBuild) {
-    pluginBuild.onResolve({ filter: /^@lull\/game-sdk(\/.*)?$/ }, (args) => {
-      const sub = args.path
-        .slice("@lull/game-sdk".length)
-        .replace(/^\//, "");
-      const name = sub === "" ? "index" : sub;
-      const dist = join(gameSdkRoot, "dist", `${name}.js`);
-      if (existsSync(dist)) return { path: dist };
-      const src = join(gameSdkRoot, "src", `${name}.ts`);
-      if (existsSync(src)) return { path: src };
-      return {
-        errors: [
-          { text: `找不到 @lull/game-sdk/${name}：先执行 pnpm game:sdk` },
-        ],
-      };
-    });
-  },
-};
-
 const SAMPLES = [
   { dir: "pomodoro-js", entry: "src/main.ts", jsx: false },
   { dir: "pomodoro-react", entry: "src/main.tsx", jsx: true },
@@ -98,8 +75,6 @@ const SAMPLES = [
   { dir: "liquid-pomodoro", entry: "src/main.tsx", jsx: true },
   // 最小第三方播放器 Provider，用于验证 Slot 替换与互斥。
   { dir: "mini-player", entry: "src/main.ts", jsx: false },
-  // 游戏控制器：验证 game.* Widget 桥与 living-world 命令/事件。
-  { dir: "living-world-controller", entry: "src/main.ts", jsx: false },
 ];
 
 async function buildSample(sample) {
@@ -127,7 +102,7 @@ async function buildSample(sample) {
     legalComments: "none",
     logLevel: "silent",
     write: false,
-    plugins: [resolveWidgetSdk, resolveMediaSdk, resolveGameSdk],
+    plugins: [resolveWidgetSdk, resolveMediaSdk],
     define: { "process.env.NODE_ENV": '"production"' },
   });
   // 某些 Windows 安全策略会拒绝 esbuild 子进程写仓库目录；让 esbuild 只在

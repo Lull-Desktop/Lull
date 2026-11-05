@@ -22,9 +22,32 @@ export const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 export const MAX_FILES = 1024;
 
 export const GAME_ID = /^[a-z0-9][a-z0-9._-]{2,63}$/;
+/** Widget id 的规则比游戏更窄：小写字母开头、只允许小写数字与连字符、2–32 字符。 */
+export const WIDGET_ID = /^[a-z][a-z0-9-]{1,31}$/;
+/** 控制器槽位 id：小写字母开头、1–32 字符、只允许小写数字与连字符。 */
+export const CONTROLLER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 export const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const ENTRY = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9][A-Za-z0-9._/-]*\.html$/;
 const COMMAND_KEY = /^[a-z][a-z0-9._-]{0,63}$/;
+const CONTROLLER_KEYS = new Set([
+  "id",
+  "label",
+  "entry",
+  "widgetId",
+  "commands",
+  "events",
+  "window",
+  "autoOpen",
+]);
+const CONTROLLER_WINDOW_KEYS = new Set([
+  "width",
+  "height",
+  "minWidth",
+  "minHeight",
+  "resizable",
+  "alwaysOnTop",
+]);
+export const MAX_CONTROLLERS = 8;
 const PACKAGE_CAPABILITIES = new Set([
   "game.state.read",
   "game.state.write",
@@ -52,6 +75,8 @@ const TOP_LEVEL_KEYS = new Set([
   "commands",
   "events",
   "state",
+  "controller",
+  "controllers",
   "network",
 ]);
 const RENDER_MODES = new Set(["canvas2d", "webgl", "webgpu", "dom", "custom"]);
@@ -113,6 +138,101 @@ function validateEntry(entry, label) {
   if (entry === undefined || entry === null) return;
   if (typeof entry !== "string" || !ENTRY.test(entry)) {
     fail(`${label} 必须是包内相对 .html：${String(entry)}`);
+  }
+}
+
+function validateController(controller, options) {
+  const { label, dir, commandKeys, eventKeys } = options;
+  if (typeof controller !== "object" || controller === null || Array.isArray(controller)) {
+    fail(`${label} 必须是对象`);
+  }
+  rejectUnknown(controller, CONTROLLER_KEYS, label);
+  if (!CONTROLLER_ID.test(controller.id ?? "")) {
+    fail(`${label}.id 非法：${controller.id}`);
+  }
+  const hasEntry = controller.entry !== undefined;
+  const hasWidget = controller.widgetId !== undefined;
+  if (hasEntry === hasWidget) {
+    fail(`${label} 必须且只能声明 entry 或 widgetId 之一`);
+  }
+  if (hasEntry) {
+    if (
+      typeof controller.entry !== "string" ||
+      !ENTRY.test(controller.entry) ||
+      !controller.entry.startsWith("controllers/")
+    ) {
+      fail(`${label}.entry 必须是 controllers/ 下的包内相对 .html`);
+    }
+    if (!existsSync(join(dir, controller.entry))) {
+      fail(`${label}.entry 不存在：${controller.entry}`);
+    }
+  }
+  if (hasWidget && !WIDGET_ID.test(controller.widgetId ?? "")) {
+    fail(`${label}.widgetId 非法：${controller.widgetId}`);
+  }
+  if (
+    controller.label !== undefined &&
+    (typeof controller.label !== "string" ||
+      controller.label.trim() === "" ||
+      controller.label.length > 64)
+  ) {
+    fail(`${label}.label 必须是 1-64 字符`);
+  }
+  for (const section of ["commands", "events"]) {
+    const value = controller[section];
+    if (value === undefined) continue;
+    if (!Array.isArray(value)) fail(`${label}.${section} 必须是数组`);
+    const declared = section === "commands" ? commandKeys : eventKeys;
+    const seen = new Set();
+    for (const entry of value) {
+      if (typeof entry !== "string" || !COMMAND_KEY.test(entry)) {
+        fail(`${label}.${section} 含非法键：${entry}`);
+      }
+      if (!declared.has(entry)) {
+        fail(`${label}.${section} 含未声明项：${entry}`);
+      }
+      if (seen.has(entry)) fail(`${label}.${section} 重复：${entry}`);
+      seen.add(entry);
+    }
+  }
+  if (controller.autoOpen !== undefined && typeof controller.autoOpen !== "boolean") {
+    fail(`${label}.autoOpen 必须是布尔值`);
+  }
+  if (controller.window !== undefined) {
+    const window = controller.window;
+    if (typeof window !== "object" || window === null || Array.isArray(window)) {
+      fail(`${label}.window 必须是对象`);
+    }
+    rejectUnknown(window, CONTROLLER_WINDOW_KEYS, `${label}.window`);
+    const width = window.width ?? 360;
+    const height = window.height ?? 420;
+    if (!Number.isFinite(width) || width < 240 || width > 1600) {
+      fail(`${label}.window.width 必须在 240–1600 之间`);
+    }
+    if (!Number.isFinite(height) || height < 200 || height > 1200) {
+      fail(`${label}.window.height 必须在 200–1200 之间`);
+    }
+    if (
+      window.minWidth !== undefined &&
+      (!Number.isFinite(window.minWidth) ||
+        window.minWidth < 240 ||
+        window.minWidth > width)
+    ) {
+      fail(`${label}.window.minWidth 必须在 240 到 width 之间`);
+    }
+    if (
+      window.minHeight !== undefined &&
+      (!Number.isFinite(window.minHeight) ||
+        window.minHeight < 200 ||
+        window.minHeight > height)
+    ) {
+      fail(`${label}.window.minHeight 必须在 200 到 height 之间`);
+    }
+    for (const key of ["resizable", "alwaysOnTop"]) {
+      if (window[key] !== undefined && typeof window[key] !== "boolean") {
+        fail(`${label}.window.${key} 必须是布尔值`);
+      }
+    }
   }
 }
 
@@ -240,6 +360,11 @@ export function validateGamePackage(dir, options = {}) {
     }
   }
 
+  // Rust 侧 `commands` 没有 serde 默认值：缺字段会在安装/启动时被判为 invalid，
+  // 无命令的游戏必须显式写 `"commands": {}`。
+  if (!Object.hasOwn(manifest, "commands")) {
+    fail('缺少 commands：无命令时也必须写 "commands": {}');
+  }
   for (const section of ["commands", "events"]) {
     const value = manifest[section] ?? {};
     if (typeof value !== "object" || Array.isArray(value)) {
@@ -253,10 +378,64 @@ export function validateGamePackage(dir, options = {}) {
     }
   }
 
+  const commandKeys = new Set(Object.keys(manifest.commands ?? {}));
+  const eventKeys = new Set(Object.keys(manifest.events ?? {}));
+
+  // 控制器窗口：包内页面（entry）或外部 Widget（widgetId）二选一；与 Rust
+  // `GameManifest::validate` 的规则保持一致。
+  if (manifest.controllers !== undefined) {
+    if (!Array.isArray(manifest.controllers) || manifest.controllers.length === 0) {
+      fail("controllers 必须是非空数组");
+    }
+    if (manifest.controllers.length > MAX_CONTROLLERS) {
+      fail(`controllers 最多声明 ${MAX_CONTROLLERS} 个`);
+    }
+    if (manifest.controller !== undefined) {
+      fail("controller 与 controllers 不能同时声明");
+    }
+    const ids = new Set();
+    const widgets = new Set();
+    manifest.controllers.forEach((controller, index) => {
+      validateController(controller, {
+        label: `controllers[${index}]`,
+        dir,
+        commandKeys,
+        eventKeys,
+      });
+      if (ids.has(controller.id)) fail(`controllers.id 重复：${controller.id}`);
+      ids.add(controller.id);
+      if (controller.widgetId !== undefined) {
+        if (widgets.has(controller.widgetId)) {
+          fail(`同一个游戏不能重复声明控制器 Widget：${controller.widgetId}`);
+        }
+        widgets.add(controller.widgetId);
+      }
+    });
+  }
+
+  // 旧的单数 controller：仅 widgetId / label，归一化由 Rust 完成。
+  if (manifest.controller !== undefined) {
+    const controller = manifest.controller;
+    if (typeof controller !== "object" || Array.isArray(controller)) {
+      fail("controller 必须是对象");
+    }
+    rejectUnknown(controller, new Set(["widgetId", "label"]), "controller");
+    if (!WIDGET_ID.test(controller.widgetId ?? "")) {
+      fail(`controller.widgetId 非法：${controller.widgetId}`);
+    }
+    if (
+      controller.label !== undefined &&
+      (typeof controller.label !== "string" ||
+        controller.label.trim() === "" ||
+        controller.label.length > 64)
+    ) {
+      fail("controller.label 必须是 1-64 字符");
+    }
+  }
+
   const state = manifest.state ?? {};
   if (typeof state !== "object" || Array.isArray(state)) fail("state 必须是对象");
-  rejectUnknown(state, new Set(["schemaVersion", "maxSizeBytes"]), "state");
-  if (!Number.isInteger(state.schemaVersion) || state.schemaVersion < 1) {
+  rejectUnknown(state, new Set(["schemaVersion", "maxSizeBytes"]), "state");  if (!Number.isInteger(state.schemaVersion) || state.schemaVersion < 1) {
     fail("state.schemaVersion 必须是正整数");
   }
   if (

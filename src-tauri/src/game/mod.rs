@@ -5,6 +5,7 @@
 pub mod api;
 pub mod authority;
 pub mod config;
+pub mod controller;
 pub mod error;
 pub mod instance;
 pub mod journal;

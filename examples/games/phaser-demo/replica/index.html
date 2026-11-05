@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ambient Embers · Phaser</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 30% 20%, #121a33 0%, transparent 55%),
+          radial-gradient(circle at 75% 80%, #1a1230 0%, transparent 60%), #05060a;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+      }
+      #stage canvas {
+        display: block;
+        width: 100% !important;
+        height: 100% !important;
+      }
+      #hint {
+        position: fixed;
+        left: 16px;
+        bottom: 14px;
+        color: rgba(214, 228, 255, 0.55);
+        font: 12px/1.5 system-ui, sans-serif;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="hint">Phaser · 加载中…</div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

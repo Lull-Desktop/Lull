@@ -1,0 +1,219 @@
+:root {
+  color-scheme: light;
+  --accent: #b45309;
+  --accent-strong: #92400e;
+  --accent-soft: #fef3c7;
+  --bg: #f6f3ec;
+  --panel: #fffdf8;
+  --text: #2b2a26;
+  --muted: #8a8578;
+  --line: #ded6c6;
+  --ok: #4f6b58;
+  --error: #a03d32;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+body[data-engine="pixi"] {
+  --accent: #b23a68;
+  --accent-strong: #8c2a50;
+  --accent-soft: #fce7ef;
+}
+
+body[data-engine="three"] {
+  --accent: #356fa8;
+  --accent-strong: #285680;
+  --accent-soft: #e4eff9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.eyebrow {
+  margin: 0 0 2px;
+  color: var(--accent);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.badge {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.badge[data-state="ready"] {
+  border-color: #c5d7cb;
+  background: #eef6f0;
+  color: var(--ok);
+}
+
+.badge[data-state="error"] {
+  border-color: #e4c7c1;
+  background: #fbf0ee;
+  color: var(--error);
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.label {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.stat strong {
+  overflow: hidden;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  flex: 1;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fffdf8;
+}
+
+button.secondary {
+  border-color: var(--accent);
+  background: transparent;
+  color: var(--accent-strong);
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.feed {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.feed-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.log {
+  min-height: 54px;
+  flex: 1;
+  margin: 0;
+  padding: 6px 8px;
+  overflow-y: auto;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  background: rgba(255, 253, 248, 0.7);
+  color: #6c685d;
+  font-family: ui-monospace, SFMono-Regular, menlo, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  list-style: none;
+}
+
+.log:empty::before {
+  color: var(--muted);
+  content: "等待事件…";
+}
+
+.log li {
+  padding: 2px 0;
+}
+
+.error {
+  min-height: 14px;
+  margin: 0;
+  color: var(--error);
+  font-size: 11px;
+}

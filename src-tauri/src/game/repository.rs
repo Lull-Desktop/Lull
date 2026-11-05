@@ -379,6 +379,7 @@ mod tests {
         tick_ms: 1_000,
       },
       commands: BTreeSet::new(),
+      capabilities: BTreeSet::new(),
       events: BTreeSet::new(),
       state_schema_version: 1,
       authority_entry_url: "http://lullgame.localhost/demo/authority/index.html".into(),

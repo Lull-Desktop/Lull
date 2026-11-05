@@ -1,6 +1,6 @@
 # Game SDK
 
-> 状态：**P1–P3 已落地，P4 Canvas2D Adapter 已落地｜Experimental**；其余引擎 Adapter 与独立 replica 入口仍为设计（P4）。
+> 状态：**P1–P3 已落地，P4 四类渲染适配器已落地｜Experimental**；控制器支持每游戏多窗口（包内页面或 Widget），其余引擎矩阵的真机长跑仍待补。
 > SDK 实现：[`packages/game-sdk`](../packages/game-sdk/README.md)｜宿主设计：[Game Runtime 设计](./game-runtime.md)。
 > 面向第三方游戏作者：包结构 → `game.json` → 角色 API → 场景/Widget 接入 → 引擎适配 → 安全边界。
 
@@ -12,7 +12,7 @@
 Game Package
   ├─ authority 入口   逻辑权威：接收命令、推进模拟、提交状态        （必需）
   ├─ replica 入口     可选：游戏自带的渲染器                         （P4）
-  └─ Controller Widget 操作与状态面板（独立的 Widget 包）             （推荐）
+  └─ controllers[]   控制器窗口：包内页面或独立 Widget 包            （0–8 个）
 ```
 
 运行位置：
@@ -21,7 +21,7 @@ Game Package
 | --- | --- | --- | --- |
 | Authority | 隐藏窗口 `game-authority-<hex>` 内的沙箱 iframe | 读快照、收命令/tick、提交状态与事件 | 写文件、建窗、读宿主配置、绕过 Host 提交 |
 | Replica | 壁纸窗口里的场景 iframe（或 P4 的独立 replica iframe） | 读快照/事件/渲染态、绘制 | 提交状态、发命令、访问宿主 |
-| Controller | 普通 Widget 窗口内的沙箱 iframe | 读快照/事件、发命令 | 写状态、启停实例、删存档 |
+| Controller | `game-controller-<hash>-<id>`（包内 UI）或 `widget-<id>` 窗口内的沙箱 iframe | 读快照/事件、发命令 | 写状态、启停实例、删存档 |
 
 一个游戏实例只有一个 Authority；多个显示器各自一个 Replica，但消费**同一份**权威状态。Authority 与显示器解耦，显示器热插拔不会重启游戏。
 
@@ -36,6 +36,10 @@ my-game/
   replica/                  # 可选（P4 独立渲染路径）
     index.html
     main.js
+  controllers/              # 可选（包内控制器 UI，见 §6）
+    panel/
+      index.html
+      main.js
   assets/                   # 图片、音频、字体、数据
   LICENSE                   # 建议
   README.md                 # 建议
@@ -46,7 +50,7 @@ my-game/
 - 所有资源使用相对路径；入口必须是包内 `.html`，禁止 `..`、绝对路径、反斜杠。
 - 游戏包由 `lullgame://<id>/...` 只读服务；不能用 `file://`、不能引用宿主资源。
 - 发布时只分发构建产物（`dist/` 内容即包根）；`games/` 目录不是新的 Scene/Widget 目录，不要混用。
-- 游戏包与 Scene 包、Widget 包**彼此独立**：一个游戏可以有多个视觉 Scene，也可以有多个 Controller Widget。
+- 游戏包与 Scene 包、Widget 包**彼此独立**：一个游戏可以有多个视觉 Scene，也可以声明多个控制器（包内页面或 Widget 载体）。
 
 ## 2. game.json
 
@@ -109,6 +113,16 @@ my-game/
 
   "state": { "schemaVersion": 1, "maxSizeBytes": 1048576 },
 
+  "controllers": [
+    {
+      "id": "panel",
+      "label": "Living World 控制台",
+      "entry": "controllers/panel/index.html",
+      "commands": ["plant.seed", "plant.water"],
+      "window": { "width": 380, "height": 520 }
+    }
+  ],
+
   "network": []
 }
 ```
@@ -144,6 +158,9 @@ my-game/
 | `events` | — | 允许发布的事件类型；发布未声明类型会被拒绝 |
 | `state.schemaVersion` | ✅ | 存档结构版本，游戏自己维护 |
 | `state.maxSizeBytes` | — | 单次提交上限，默认 1 MiB，硬上限 8 MiB（只能收紧） |
+| `controller.widgetId` | — | 旧版单数声明（deprecated）：归一化为 `controllers=[{id:"default",…}]` |
+| `controller.label` | — | 同上 |
+| `controllers` | — | 0–8 个控制器窗口；`entry`（包内页面）或 `widgetId`（外部 Widget）二选一，见 §6 |
 | `network` | — | `https://` / `wss://` 源列表；需要 `game.network` 能力且被授权才生效 |
 
 **未知字段一律拒绝。** manifest 严格是为了让拼写错误在安装时暴露，而不是运行到一半才失效。
@@ -359,7 +376,7 @@ await game.reportError({ code: "render.context-lost", message: "WebGL 上下文�
 
 | 来源 | 配置 | 适用 |
 | --- | --- | --- |
-| 包内 `entry.replica` | `display.game = <id>`（设置页「设为壁纸」） | 完整的单包游戏，逻辑与渲染一起分发 |
+| 包内 `entry.replica` | `display.game = <id>`；independent 下也可写 `monitors[<device>].game`（设置页 / 壁纸库「壁纸类型」） | 完整的单包游戏，逻辑与渲染一起分发 |
 | Scene 绑定 | 场景 manifest 的 `game: { id, role: "replica" }` | 可换主题的视觉层；Scene 可选，不是显示游戏的必需品 |
 
 两种来源都由宿主 top-level 页执行 `game_connect`，iframe 只拿到只读的
@@ -504,17 +521,79 @@ lastRevision = event.revision;
 
 Replica **只能读**：没有 `commitState`、没有 `publishEvent`、没有命令发送。SDK 不导出写接口；即使手写 postMessage，宿主壳也不会转发写请求。
 
-## 6. Controller Widget
+## 6. Controller 窗口
 
-Controller 是普通 Widget 包，声明 `game.*` 能力，用 `@lull/game-sdk/widget` 连接游戏。
+Controller 是独立窗口，有且只有两种载体，都由游戏 `game.json.controllers[]` 声明：
 
-### 6.1 widget.json
+| 载体 | UI 位置 | 页面宿主 | 授权 |
+| --- | --- | --- | --- |
+| 包内（`entry`） | 游戏包 `controllers/<slot>/` | 宿主壳 `/game-controller` + sandbox iframe | 清单 `commands` / `events` scope + 窗口 token |
+| 外部 Widget（`widgetId`） | 独立 Widget 包 | 既有 `/embed` 壳 + sandbox iframe | Widget 能力账本 + 清单 scope |
+
+示例游戏统一使用包内载体；`widgetId` 保留给需要复用独立 Widget UI 的第三方游戏。
+
+同一游戏最多 8 个；一个 Widget 同一时刻只服务一个游戏。只有实例处于
+`running / hidden / suspended / background` 时才能打开/连接控制器；停止或失败时
+宿主先广播 `lifecycle(stopped|failed)`，再销毁该游戏全部控制器窗口。
+
+### 6.1 声明
+
+```jsonc
+"controllers": [
+  {
+    "id": "panel",
+    "label": "控制台",
+    "entry": "controllers/panel/index.html",
+    "commands": ["plant.seed"],
+    "window": { "width": 380, "height": 520 }
+  }
+]
+```
+
+| 字段 | 规则 |
+| --- | --- |
+| `id` | 唯一，`^[a-z][a-z0-9-]{0,31}$` |
+| `entry` / `widgetId` | 二选一；`entry` 必须在 `controllers/` 下且文件存在 |
+| `commands` / `events` | 可选子集；缺省 = 全部声明；`[]` = 只读 |
+| `window` | 宽 240–1600、高 200–1200；`resizable` / `alwaysOnTop` 默认 false |
+| `autoOpen` | 默认 true；`controllerFollowsGame` 开启时随启动自动打开 |
+
+### 6.2 包内控制器（`@lull/game-sdk/controller`）
+
+页面由宿主壳加载，只通过 postMessage 桥通信；页面本身拿不到 Tauri IPC 与窗口 token。
+
+```ts
+import { connectLullGameController } from "@lull/game-sdk/controller";
+
+const game = await connectLullGameController();
+console.log(game.context.controllerId);          // "panel"
+
+game.onSnapshot((snapshot) => render(snapshot.state));
+game.onEvent("world.changed", () => render(game.snapshot?.state));
+game.onLifecycle((event) => {
+  if (event.state === "stopped" || event.state === "failed") showOffline();
+});
+
+const result = await game.command("plant.seed", { seedId: crypto.randomUUID() });
+if (!result.ok) showError(result.error);
+```
+
+- 宿主负责 `game_connect`；SDK 只等 `init`（含 `context` 与首份快照），失败时抛
+  `init-error`（例如 `game.controller_not_active`）。
+- `command()` 走 `command.send`，宿主按清单 scope 与实例状态校验后转给 Authority。
+- `getSnapshot()` 无缓存时向宿主取一次；游戏停止后窗口由宿主销毁。
+- 零构建页面也可以直接实现同一条壳协议，见
+  `examples/games/living-world/controllers/panel`。
+
+### 6.3 外部 Widget 控制器（`@lull/game-sdk/widget`）
+
+外部 Widget 控制器仍是受支持的载体（示例游戏不默认分发）：
 
 ```json
 {
   "schemaVersion": 2,
   "type": "widget",
-  "id": "community-living-world-controller",
+  "id": "example.game-controller",
   "name": "Living World 控制器",
   "version": "1.0.0",
   "license": "MIT",
@@ -534,17 +613,16 @@ Controller 是普通 Widget 包，声明 `game.*` 能力，用 `@lull/game-sdk/w
 }
 ```
 
-### 6.2 使用
-
 ```ts
 import { connectLullWidget } from "@lull/widget-sdk";
 import { connectLullGameWidget } from "@lull/game-sdk/widget";
 
 const widget = await connectLullWidget();
-const game = await connectLullGameWidget(widget, { gameId: "community.living-world" });
+// 宿主打开控制器时已写入目标游戏，通常无需传 gameId：
+const game = await connectLullGameWidget(widget);
 
 const snapshot = await game.getSnapshot<LivingWorldState>();
-renderStatus(snapshot);                      // 未运行时为 null
+renderStatus(snapshot);
 
 game.onSnapshot((next) => renderStatus(next.state));
 game.onEvent("world.changed", () => refreshFromSnapshot());
@@ -555,16 +633,19 @@ document.querySelector("#plant")!.addEventListener("click", async () => {
 });
 ```
 
-- `game.command` 生成 `requestId`，宿主按预期 revision 校验并路由给 Authority；返回权威结果或超时错误。
-- `expectedRevision` 可选：面板编辑类操作可以传当前 revision，避免"基于过期画面"的误操作。
-- Widget 未运行时仍可连接：`context.instanceId` 为 `null`，`getSnapshot()` 返回 `null`；`command` 返回 `game.instance_not_running`。控制器应据此显示"游戏未运行"，而不是报错弹窗。
-- 多个 Widget 可以同时连接同一实例，状态一致；它们都不是 Authority。
+- **目标游戏**：`gameId` 可省略——宿主在打开控制器时写入 binding；已有 binding 时
+  传了不同的 gameId 会得到 `game.controller_target_mismatch`。手动从扩展中心打开
+  （没有 binding）必须显式传 `{ gameId }`，且该游戏清单确实声明了这个 Widget。
+- 控制器只在游戏运行中可连接：未运行时 `game.connect` 返回
+  `game.controller_not_active`，页面应提示"先启动游戏"。
+- `game.command` 生成 `requestId`，宿主按清单 scope、实例状态与 revision 校验后路由给 Authority。
+- 多个控制器可以同时连接同一实例，状态一致；它们都不是 Authority。
 
 `LullGameWidgetClient` 暴露：`context`、`getSnapshot()`、`onSnapshot()`、`onEvent()`、`onLifecycle()`、`command()`、`destroy()`。
 
-### 6.3 与 Scene 的职责划分
+### 6.4 与 Scene 的职责划分
 
-| 关注点 | Scene（Replica） | Controller Widget |
+| 关注点 | Scene（Replica） | Controller 窗口 |
 | --- | --- | --- |
 | 画面 | 世界渲染、视觉主题 | 按钮、状态、列表 |
 | 输入 | 不接收指针/键盘 | 用户操作入口 |
@@ -572,9 +653,24 @@ document.querySelector("#plant")!.addEventListener("click", async () => {
 | 命令 | ❌ | ✅ |
 | 游戏时间 | 只用来对齐动画相位 | 只用来展示 |
 
+### 6.5 打开入口与自动跟随
+
+| 入口 | 行为 |
+| --- | --- |
+| 设置页「游戏」卡片 | 只在**运行中**实例的操作区显示每个控制器的开关；未安装/未启用置灰，游戏未运行时不渲染控制器行 |
+| 托盘 | 「设置 ▸ 游戏控制器」列出全部运行中游戏的控制器，壁纸激活的游戏排前；多显示器同一游戏去重，多游戏按游戏分组 |
+| `games.json.controllerFollowsGame`（默认开） | 显式启动游戏时自动打开 `autoOpen` 控制器；停止时回收该游戏全部控制器 |
+| 游戏侧 | Authority 调 `game_controller_request({controllerId, action})` 打开/关闭自己的控制器 |
+
+```bash
+# 包内控制器随游戏包安装；Widget 载体由脚本额外安装（已安装的不覆盖）
+pnpm games:samples:install
+```
+
 ## 7. 引擎与 Adapter
 
-> **P4 状态**：`@lull/game-adapter-canvas` 已落地；Phaser / PixiJS / Three.js Adapter 仍为设计。
+> **P4 状态**：`@lull/game-adapter-canvas`、`-phaser`、`-pixi`、`-three` 均已落地，
+> 并有对应单包示例（`examples/games/{phaser,pixi,three}-demo`）。
 
 ### 7.1 定位
 
@@ -604,15 +700,33 @@ interface LullEngineAdapter<TEngine = unknown> {
 - `applySnapshot` / `applyEvent` / `applyRenderState` 只把权威状态**应用到渲染器**，不代表引擎可以修改权威状态。
 - Adapter 不承载游戏规则（例如"植物怎么长"不属于 Phaser Adapter）。
 - Authority 入口通常不需要 adapter：它不渲染，只计算。
+- 实际发布的四个包提供的是更薄的绑定器 `create{Canvas,Phaser,Pixi,Three}GameAdapter`：
+  它们内部完成"订阅 + 尺寸/DPI + 生命周期 + 销毁"，把上表的 `initialize/resize/setVisibility/destroy`
+  收敛成 `create` 与 `applySnapshot` 两个回调；`applyEvent` / `setVisibility` 未单独暴露——
+  事件可按需在 `applySnapshot` 之外用 `LullGameRenderClient.onEvent` 自行订阅。
 
 ### 7.3 包名（P4）
 
 ```text
-@lull/game-adapter-canvas    # 已落地：原生 Canvas2D
-@lull/game-adapter-phaser    # 设计
-@lull/game-adapter-pixi      # 设计
-@lull/game-adapter-three     # 设计
+@lull/game-adapter-canvas    # 原生 Canvas2D
+@lull/game-adapter-phaser    # Phaser.Game（loop/scale）
+@lull/game-adapter-pixi      # PIXI.Application（ticker/renderer）
+@lull/game-adapter-three     # THREE.WebGLRenderer（自驱 rAF）
 ```
+
+四个包都是**零运行时依赖**：不 import 引擎类型，用结构化类型接收引擎实例，
+版本由你的游戏包决定；宿主同样不加载它们。
+
+四者的共同行为：
+
+| 行为 | canvas | phaser | pixi | three |
+| --- | --- | --- | --- | --- |
+| 尺寸来自 `render.viewport` | ✅ 每帧 | ✅ 轮询 500ms | ✅ 轮询 500ms | ✅ 每帧 |
+| 设备像素比 | ✅ backing store | ⚠️ Phaser 3 以 CSS 像素为基准 | ✅ `resolution = dpr` | ✅ `setPixelRatio` |
+| `suspended`/`stopped`/`failed` | 停帧 | `game.loop.sleep()` | `app.ticker.stop()` | 停 rAF |
+| `resumed`/`running` | 恢复 | `game.loop.wake()` | `app.ticker.start()` | 恢复 rAF |
+| 快照 / 渲染态 | `draw(frame)` | `applySnapshot` | `applySnapshot` | `applySnapshot` |
+| `destroy()` | 取消 rAF + 退订 | `game.destroy(true)` | `app.destroy()` | `renderer.dispose()` |
 
 Canvas 适配器用法（游戏包自己 import 并打包，宿主不加载）：
 
@@ -632,8 +746,39 @@ if (game) {
 }
 ```
 
-它只做 dpr/backing store、rAF 节流、暂停/恢复与快照/渲染态分发；不写状态、不发命令。
-Canvas2D 之外仍按 §7.2 的 `LullEngineAdapter` 结构自行接入。
+引擎适配器形状一致，只是把 `draw` 换成 `create` + `applySnapshot`：
+
+```ts
+import { Application } from "pixi.js";
+import { createPixiGameAdapter } from "@lull/game-adapter-pixi";
+
+const adapter = createPixiGameAdapter<Application>({
+  game,
+  create: async ({ width, height, dpr }) => {
+    const app = new Application();
+    await app.init({ width, height, resolution: dpr, autoDensity: true });
+    document.getElementById("stage")?.appendChild(app.canvas);
+    return app;
+  },
+  applySnapshot: (app, snapshot) => world.apply(snapshot.state),
+});
+await adapter.start();
+```
+
+Phaser 用 `create: ({ width, height }) => new Phaser.Game({ parent: "stage", width, height, ... })`，
+Three.js 用 `create: ({ width, height, dpr }) => ({ renderer, scene, camera })` 并在需要时传
+`onFrame` / `maxFps`。它不写状态、不发命令、不创建窗口；引擎生命周期与 LULL 生命周期的对齐
+由适配器负责，游戏规则仍在你自己的场景里。
+
+**引擎在 LULL 的 CSP 下必须注意**（游戏包 CSP 不允许 `unsafe-eval`、不允许外连）：
+
+| 引擎 | 约束 | 处理 |
+| --- | --- | --- |
+| PixiJS 8 | 默认用 `new Function` 生成 uniform/shader 同步代码，初始化即抛 `not allow unsafe-eval` | 在 `new Application()` 之前 `import "pixi.js/unsafe-eval"`（polyfill 入口，不再需要 eval） |
+| Phaser 3 | Scale Manager 以 CSS 像素为基准，不读 `devicePixelRatio` | 接受 CSS 分辨率；需要更锐利时改用 PixiJS/Three.js 或自行处理渲染尺寸 |
+| Three.js | 没有主循环，相机 aspect 需跟随 canvas | 用适配器自驱 rAF，在 `onFrame` 里按 canvas 尺寸更新 `camera.aspect` |
+| 全部 | 不能从 CDN 拉引擎 | 引擎必须打进包内（示例由 esbuild 打包成单个 `replica/main.js`） |
+
 
 ### 7.4 渲染模式
 
@@ -745,9 +890,11 @@ Lull 的游戏定位是 Ambient Game（见 [Ambient Game 需求澄清](<./Lull A
 ### 10.1 本地开发
 
 1. 在 `examples/games/<name>/` 建包（或在任意目录）。
-2. 扩展中心开启开发模式，把目录挂载为 `game` 开发包；宿主跳过摘要锁与签名，但仍校验清单、授权与沙箱。
+2. 用 `pnpm games:samples:build <name>` + `pnpm games:samples:install <name>` 安装到用户游戏目录
+   （开发模式挂载 `game` 包、跳过摘要锁的能力尚未实现，见 P5 待办）。
 3. 用任意静态服务器调试页面（浏览器里 `connectLullGame()` 会抛 `not-connected`，这是预期行为）；真正联调用宿主。
-4. `.lull-dev.json` 可指向 Vite dev server（仅 debug 构建生效），authority/replica 入口都走它。
+4. 包内 `.lull-dev.json` 的 Vite dev server 目前只对 widget 生效，对 `authority`/`replica` 入口
+   尚未接入（P5）；游戏包请先走构建 + 安装。
 
 ### 10.2 构建
 
@@ -755,12 +902,12 @@ Lull 的游戏定位是 Ambient Game（见 [Ambient Game 需求澄清](<./Lull A
 - 入口必须是相对 `.html`；HTML 内的 `<script>` 由资源协议注入 nonce，不要自带 nonce。
 - TypeScript 项目直接依赖 `@lull/game-sdk`（P1 起随仓库 `packages/game-sdk` 提供，后续可发布 npm）。
 
-### 10.3 打包与安装（P5 完整化）
+### 10.3 打包与安装
 
 ```powershell
-# 目标形态；P5 提供脚本
-pnpm game:hash  --bundle ./my-game     # 写 .lull-integrity.json
-pnpm game:pack  ./my-game --out artifacts
+node scripts/build-game-examples.mjs my-game   # 校验 + 生成 dist（可带 build.mjs 打 TS/引擎）
+node scripts/pack-game.mjs                     # 写 .lull-integrity.json 并打 .lull-game.zip
+node scripts/install-game-examples.mjs my-game # 安装 dist 到用户游戏目录
 ```
 
 - 发布物是 `.zip` 或目录，安装到 `%APPDATA%\app.lull.desktop\games\<id>\`。
@@ -772,14 +919,15 @@ pnpm game:pack  ./my-game --out artifacts
 
 | 示例 | 阶段 | 说明 |
 | --- | --- | --- |
-| `examples/games/living-world` | P1/P2/P4 | Canvas2D + host-tick；**包内 replica 可直接作壁纸**，场景绑定保留为可选主题 |
+| `examples/games/living-world` | P1/P2/P4 | Canvas2D + host-tick；**包内 replica 可直接作壁纸**，场景绑定保留为可选主题；自带包内控制器 `controllers/panel` |
 | `examples/games/stability-probe` | P3/P4 | **单包双入口**：self-loop authority + `replica/` 指标墙；设为壁纸即可双屏验收 |
+| `examples/games/phaser-demo` | P4 | Phaser 3 单包示例：适配器接 `loop.sleep/wake` 与 `scale.resize`；自带包内控制器 `controllers/ambient` |
+| `examples/games/pixi-demo` | P4 | PixiJS 8 单包示例：`resolution = dpr`，适配器接 ticker；自带包内控制器 |
+| `examples/games/three-demo` | P4 | Three.js 单包示例：适配器自驱 rAF，`setPixelRatio` + 相机 aspect 跟随；自带包内控制器 |
 | `examples/scenes/living-world` | P2 | 只读 Scene 绑定：canvas 绘制植物/水位，走 `game.*` 桥 |
-| `examples/widgets/living-world-controller` | P1/P2 | 控制器 Widget：种/浇水/状态面板，走 `game.*` Widget 桥 |
-| `examples/games/canvas-demo` | P4（规划） | 原生 Canvas 适配器示例 |
-| `examples/games/phaser-demo` | P4（规划） | Phaser 适配器示例 |
-| `examples/games/pixi-demo` | P4（规划） | PixiJS 适配器示例 |
-| `examples/games/three-demo` | P4（规划） | Three.js 适配器示例 |
+
+> `@lull/game-adapter-canvas` 没有独立示例包：它由 4 项单测与
+> `src/games/replica/adapter-compat.test.ts` 的编译期契约覆盖，用法见 §7.3。
 
 ### 10.5 示例打包
 
@@ -835,13 +983,14 @@ pnpm games:samples:install   # 安装 dist 到 %APPDATA%\app.lull.desktop\games\
 A：Game SDK 依赖宿主壳注入上下文与 postMessage 桥。浏览器预览只适合调 UI；`connectLullGame()` 会明确抛 `not-connected`。
 
 **Q：为什么控制器拿到的 snapshot 是 null？**
-A：游戏没运行，或当前游戏没有实例。控制器应把 `null` 当作正常状态处理。
+A：只有"游戏已运行但刚启动/尚未提交"时才可能；游戏停止后控制器窗口会被宿主销毁，
+连接阶段则直接返回 `game.controller_not_active`，应提示"先启动游戏"。
 
 **Q：能不能让每个显示器显示不同的世界？**
 A：首期不能。`display.policy` 只支持 `shared`；壁纸 `independent` 模式只切场景，不切游戏世界。
 
 **Q：能不能在壁纸区域直接接收鼠标点击？**
-A：不能。游戏操作入口是 Controller Widget 与设置页；壁纸区域是桌面层，不承担输入职责。
+A：不能。游戏操作入口是 Controller 窗口（包内 UI 或 Widget）与设置页；壁纸区域是桌面层，不承担输入职责。
 
 **Q：能不能自己开一个窗口或读一个本地文件？**
 A：不能。游戏包只能通过 `lullgame://` 读自己的资源，所有宿主能力都必须经 Game SDK。

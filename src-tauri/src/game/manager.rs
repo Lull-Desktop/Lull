@@ -3,7 +3,7 @@
 //! 只在这里持有全局可变状态；窗口/磁盘细节在 `authority` 与 `repository`。
 //! 读锁时间尽量短：需要写盘或发事件时先在锁内取数据，再在锁外执行。
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
@@ -22,6 +22,7 @@ use super::protocol::{
 };
 use super::repository;
 use super::{authority, lifecycle};
+use crate::game_package::manifest::GameControllerKind;
 
 pub const EVENT_SNAPSHOT: &str = "game:snapshot";
 pub const EVENT_GAME_EVENT: &str = "game:event";
@@ -49,12 +50,29 @@ pub struct ReplicaEntry {
   pub ready: bool,
 }
 
+/// 控制器窗口 ↔ 目标游戏的绑定；窗口存在即绑定存在，由宿主写入。
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // instance_id/connected_at_ms 留给 P2 诊断。
+pub struct ControllerBinding {
+  pub game_id: String,
+  pub controller_id: String,
+  pub kind: GameControllerKind,
+  pub window_label: String,
+  /// `None` = 允许全部声明命令；`Some(空)` = 只读控制器。
+  pub allowed_commands: Option<BTreeSet<String>>,
+  /// `None` = 订阅全部声明事件。
+  pub allowed_events: Option<BTreeSet<String>>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // kind/controller_id 供诊断与后续 UI 使用；connected_at_ms 用于诊断。
 pub struct ControllerEntry {
   pub game_id: String,
+  pub controller_id: String,
+  pub kind: GameControllerKind,
   pub instance_id: Option<String>,
   pub window_label: String,
+  /// 运行期投递事件时按此过滤；与 binding 一致。
+  pub allowed_events: Option<BTreeSet<String>>,
   pub connected_at_ms: u64,
 }
 
@@ -101,6 +119,8 @@ pub struct GameManager {
   pub pending: HashMap<String, PendingCommand>,
   pub records: VecDeque<CommandRecord>,
   pub buckets: HashMap<String, Bucket>,
+  /// 控制器窗口 label → 绑定；窗口存在即绑定存在，`game_connect` 不再信任页面传参。
+  pub controller_bindings: HashMap<String, ControllerBinding>,
   /// ticker 启动时刻，用于诊断 uptime；0 表示尚未启动。
   pub started_at_ms: u64,
 }
@@ -163,12 +183,41 @@ pub fn counts(manager: &GameManager, game_id: &str) -> (usize, usize) {
   )
 }
 
+/// 控制器窗口的绑定（短锁；调用方不得再持有 manager 锁）。
+#[must_use]
+pub fn binding_for(label: &str) -> Option<ControllerBinding> {
+  manager().controller_bindings.get(label).cloned()
+}
+
+#[must_use]
+pub fn bindings_for_game(game_id: &str) -> Vec<ControllerBinding> {
+  manager()
+    .controller_bindings
+    .values()
+    .filter(|binding| binding.game_id == game_id)
+    .cloned()
+    .collect()
+}
+
+/// 实例处于"运行中"（可打开控制器）的游戏集合；托盘/前端入口共用。
+#[must_use]
+pub fn active_controller_games() -> BTreeSet<String> {
+  manager()
+    .instances
+    .iter()
+    .filter(|(_, instance)| instance.status.accepts_controller())
+    .map(|(game_id, _)| game_id.clone())
+    .collect()
+}
+
 fn emit<T: Serialize + Clone>(app: &AppHandle, label: &str, event: &str, payload: T) {
   let _ = app.emit_to(label, event, payload);
 }
 
 pub fn emit_games_changed(app: &AppHandle) {
   let _ = app.emit(EVENT_GAMES_CHANGED, ());
+  // 托盘控制器入口跟随"壁纸激活 + 运行中"的游戏，启停后需要重建菜单。
+  crate::tray::refresh_async(app);
 }
 
 pub fn emit_snapshot(app: &AppHandle, snapshot: &GameSnapshot) {
@@ -187,15 +236,34 @@ pub fn emit_events(app: &AppHandle, game_id: &str, events: &[GameEvent]) {
   if events.is_empty() {
     return;
   }
-  let labels = {
+  let targets: Vec<(String, Option<BTreeSet<String>>)> = {
     let manager = manager();
-    let mut labels = replica_labels(&manager, game_id);
-    labels.extend(controller_labels(&manager, game_id));
-    labels
+    let mut targets = replica_labels(&manager, game_id)
+      .into_iter()
+      .map(|label| (label, None))
+      .collect::<Vec<_>>();
+    targets.extend(
+      manager
+        .controllers
+        .values()
+        .filter(|controller| controller.game_id == game_id)
+        .map(|controller| {
+          (
+            controller.window_label.clone(),
+            controller.allowed_events.clone(),
+          )
+        }),
+    );
+    targets
   };
-  for label in labels {
+  for (label, allowed) in targets {
     for event in events {
-      emit(app, &label, EVENT_GAME_EVENT, event.clone());
+      if allowed
+        .as_ref()
+        .map_or(true, |kinds| kinds.contains(&event.kind))
+      {
+        emit(app, &label, EVENT_GAME_EVENT, event.clone());
+      }
     }
   }
 }
@@ -223,6 +291,13 @@ pub fn emit_lifecycle(app: &AppHandle, lifecycle: &GameLifecycle) {
   };
   for label in labels {
     emit(app, &label, EVENT_LIFECYCLE, lifecycle.clone());
+  }
+}
+
+/// 停止流程专用：参与者已从表里删除后，仍按事先采集的 label 广播收尾事件。
+pub fn emit_lifecycle_to(app: &AppHandle, labels: &[String], lifecycle: &GameLifecycle) {
+  for label in labels {
+    emit(app, label, EVENT_LIFECYCLE, lifecycle.clone());
   }
 }
 
@@ -402,15 +477,17 @@ fn tick_once(app: &AppHandle) {
     let app = app.clone();
     thread::spawn(move || lifecycle::failover(&app, &game_id));
   }
+  // 兜底：实例失败/消失后控制器窗口不应残留（覆盖没有显式 close 的路径）。
+  super::controller::close_orphaned(app);
 }
 
 /// 窗口销毁：移除参与者；权威窗销毁触发停止收尾或 failover。
 pub fn on_window_destroyed(app: &AppHandle, label: &str) {
   permissions::revoke_window_token(label);
-  let mut failover_game: Option<String> = None;
-  let mut failures: Vec<GameLifecycle> = Vec::new();
-  {
+  let (failover_game, failures, binding_removed) = {
     let mut manager = manager();
+    let mut failover_game: Option<String> = None;
+    let mut failures: Vec<GameLifecycle> = Vec::new();
     manager.replicas.remove(label);
     manager.controllers.remove(label);
     let authority_instance = permissions::authority_instance_id(label).map(str::to_string);
@@ -439,9 +516,14 @@ pub fn on_window_destroyed(app: &AppHandle, label: &str) {
         }
       }
     }
-  }
+    let binding_removed = manager.controller_bindings.remove(label).is_some();
+    (failover_game, failures, binding_removed)
+  };
   for failure in failures {
     emit_lifecycle(app, &failure);
+    emit_games_changed(app);
+  }
+  if binding_removed {
     emit_games_changed(app);
   }
   if let Some(game_id) = failover_game {

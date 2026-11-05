@@ -3,7 +3,7 @@
   "type": "game",
   "id": "community.living-world",
   "name": "Living World",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "低频交互式桌面生态游戏：植物随时间生长，用户通过控制器浇水/种植；单包包含 authority 与可见 replica。",
   "author": "Lull",
   "license": "MIT",
@@ -14,7 +14,7 @@
   },
   "engine": {
     "id": "vanilla-js",
-    "version": "1.1.2",
+    "version": "1.2.0",
     "renderMode": "canvas2d"
   },
   "runtime": {
@@ -38,7 +38,8 @@
   ],
   "commands": {
     "plant.seed": { "description": "种下一颗种子", "idempotent": true, "timeoutMs": 3000 },
-    "plant.water": { "description": "浇水", "idempotent": true, "timeoutMs": 3000 }
+    "plant.water": { "description": "浇水", "idempotent": true, "timeoutMs": 3000 },
+    "world.inspect": { "description": "只读诊断命令，不开放给示例控制器", "idempotent": true, "timeoutMs": 3000 }
   },
   "events": {
     "world.changed": { "description": "世界状态变化" },
@@ -48,5 +49,17 @@
     "schemaVersion": 1,
     "maxSizeBytes": 262144
   },
+  "controllers": [
+    {
+      "id": "panel",
+      "label": "Living World 控制台",
+      "entry": "controllers/panel/index.html",
+      "commands": ["plant.seed", "plant.water"],
+      "window": {
+        "width": 380,
+        "height": 520
+      }
+    }
+  ],
   "network": []
 }

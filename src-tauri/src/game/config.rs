@@ -32,6 +32,8 @@ pub struct GamesConfig {
   pub max_running: u32,
   /// 恢复/暂停补算离线时间的上限，clamp 1h..=30d。
   pub offline_max_ms: u64,
+  /// 启动游戏时自动打开清单声明的控制器，停止时只关自动打开的那个（默认开）。
+  pub controller_follows_game: bool,
 }
 
 impl Default for GamesConfig {
@@ -42,6 +44,7 @@ impl Default for GamesConfig {
       resume_on_launch: false,
       max_running: DEFAULT_MAX_RUNNING,
       offline_max_ms: DEFAULT_OFFLINE_MAX_MS,
+      controller_follows_game: true,
     }
   }
 }
@@ -114,6 +117,11 @@ pub fn resume_on_launch(app: &AppHandle) -> bool {
   load(app).resume_on_launch
 }
 
+#[must_use]
+pub fn controller_follows_game(app: &AppHandle) -> bool {
+  load(app).controller_follows_game
+}
+
 fn write_atomic(path: &Path, bytes: &[u8]) -> GameResult<()> {
   let temp = path.with_extension("tmp");
   std::fs::write(&temp, bytes)
@@ -138,6 +146,7 @@ mod tests {
     assert!(!config.resume_on_launch);
     assert_eq!(config.max_running, MAX_RUNNING_MAX);
     assert_eq!(config.offline_max_ms, DEFAULT_OFFLINE_MAX_MS);
+    assert!(config.controller_follows_game);
   }
 
   #[test]
@@ -148,6 +157,7 @@ mod tests {
       resume_on_launch: true,
       max_running: 0,
       offline_max_ms: 1,
+      controller_follows_game: false,
     }
     .sanitized();
     assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);

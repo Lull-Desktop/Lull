@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::error::GameErrorBody;
+use crate::game_package::manifest::GameControllerKind;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const HOST_API: u32 = 1;
@@ -99,6 +100,9 @@ pub struct GameContext {
   pub simulation_time_ms: u64,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub render: Option<GameRenderContext>,
+  /// Controller 角色才有：宿主声明的控制器槽位 id。
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub controller_id: Option<String>,
   pub limits: GameLimits,
   pub locale: String,
 }
@@ -225,8 +229,33 @@ pub struct GameView {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub entry_replica_url: Option<String>,
   pub state_schema_version: u32,
+  /// 清单声明的控制器窗口（含安装/启用与运行态）；未声明时为空数组。
+  pub controllers: Vec<GameControllerView>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub instance: Option<GameInstanceView>,
+}
+
+/// 设置页/托盘展示控制器所需的全部信息。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameControllerView {
+  /// 清单里的槽位 id（旧单数声明归一化为 `default`）。
+  pub id: String,
+  /// `package` = 包内页面；`widget` = 外部 Widget。
+  pub kind: GameControllerKind,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub label: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub widget_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub entry: Option<String>,
+  pub installed: bool,
+  pub enabled: bool,
+  pub auto_open: bool,
+  /// 控制器窗口当前是否存在（binding 存在）。
+  pub window_open: bool,
+  /// 控制器是否已连接（ControllerEntry 存在）。
+  pub connected: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -239,6 +268,21 @@ pub struct GameConnectRequest {
   pub scene_id: Option<String>,
   #[serde(default)]
   pub render: Option<GameRenderContext>,
+}
+
+/// 游戏侧（Authority）请求打开/关闭自己的控制器窗口。
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GameControllerAction {
+  Open,
+  Close,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameControllerRequest {
+  pub controller_id: String,
+  pub action: GameControllerAction,
 }
 
 #[derive(Debug, Clone, Deserialize)]

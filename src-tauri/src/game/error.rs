@@ -105,6 +105,17 @@ pub mod codes {
   pub const COMMAND_RATE_LIMITED: &str = "command.rate_limited";
   pub const PERMISSION_DENIED: &str = "permission.denied";
   pub const PERMISSION_REVOKED: &str = "permission.revoked";
+  pub const CONTROLLER_NOT_DECLARED: &str = "game.controller_not_declared";
+  pub const CONTROLLER_NOT_INSTALLED: &str = "game.controller_not_installed";
+  pub const CONTROLLER_DISABLED: &str = "game.controller_disabled";
+  pub const CONTROLLER_UNKNOWN: &str = "game.controller_unknown";
+  pub const CONTROLLER_NOT_ACTIVE: &str = "game.controller_not_active";
+  pub const CONTROLLER_IN_USE: &str = "game.controller_in_use";
+  pub const CONTROLLER_TARGET_MISMATCH: &str = "game.controller_target_mismatch";
+  pub const CONTROLLER_NOT_TARGETED: &str = "game.controller_not_targeted";
+  pub const CONTROLLER_READ_ONLY: &str = "game.controller_read_only";
+  pub const COMMAND_NOT_ALLOWED: &str = "game.command_not_allowed";
+  pub const COMMAND_NOT_GRANTED: &str = "game.command_not_granted";
   pub const PROTOCOL_UNSUPPORTED: &str = "protocol.unsupported";
   pub const REPLICA_LIMIT_REACHED: &str = "replica.limit_reached";
   pub const REPLICA_NOT_ATTACHED: &str = "replica.not_attached";

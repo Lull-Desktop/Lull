@@ -44,7 +44,18 @@ pub(crate) fn game_in_use(game_id: &str) -> bool {
   let Ok(state) = config() else {
     return false;
   };
-  state.data.display.game_content() == Some(game_id)
+  state.data.game_in_use(game_id)
+}
+
+/// 当前"壁纸激活"的游戏集合（去重、排序）；壁纸子系统未启动时为空。
+///
+/// mirror/span 取全局游戏；independent 还会并上每块屏的逐屏游戏，
+/// 因此多显示器可以同时激活不同游戏（受 `games.json.maxRunning` 限制）。
+pub(crate) fn active_games() -> Vec<String> {
+  let Ok(state) = config() else {
+    return Vec::new();
+  };
+  state.data.active_games()
 }
 
 /// 当前仍解析到视频场景的显示器设备名。
@@ -55,15 +66,13 @@ pub(crate) fn video_devices() -> BTreeSet<String> {
   let Ok(state) = config() else {
     return BTreeSet::new();
   };
-  // 游戏直接渲染时没有任何屏幕在放视频场景；残留的每屏 scene 不能让它误判。
-  if state.data.display.game.is_some() {
-    return BTreeSet::new();
-  }
   snapshot_targets()
     .into_iter()
     .filter(|(_, _, device)| {
-      // 必须与 monitor_url 用同一套解析：mirror/span 下每屏覆盖不生效。
-      state.data.effective_scene(device) == crate::media::video::VIDEO_SCENE
+      // 必须与 monitor_url 用同一套解析：mirror/span 下每屏覆盖不生效；
+      // 该屏直接渲染游戏时，残留的 scene 不能让它误判成视频屏。
+      state.data.effective_game(device).is_none()
+        && state.data.effective_scene(device) == crate::media::video::VIDEO_SCENE
     })
     .map(|(_, _, device)| device)
     .collect()
@@ -266,6 +275,8 @@ pub struct MonitorView {
   pub enabled: bool,
   /// 生效场景（每屏覆盖 → 全局回退）；UI 据此渲染每行场景选中态。
   pub scene: String,
+  /// 生效游戏（independent 下每屏覆盖优先；没有游戏时为 null）。
+  pub game: Option<String>,
 }
 
 #[tauri::command]
@@ -280,8 +291,9 @@ pub fn wallpaper_monitors() -> Result<Vec<MonitorView>, String> {
         let monitor = result.ok()?;
         Some(MonitorView {
           enabled: config.data.monitor_enabled(&monitor.device),
-          // 生效场景：mirror/span 用全局，independent 才看每屏覆盖。
+          // 生效场景/游戏：mirror/span 用全局，independent 才看每屏覆盖。
           scene: config.data.effective_scene(&monitor.device),
+          game: config.data.effective_game(&monitor.device),
           device: monitor.device,
           index,
           x: monitor.x,
@@ -348,11 +360,18 @@ pub async fn wallpaper_set_display(
   let layout_changed = {
     let mut config = config()?;
     let old = config.data.display.clone();
+    let old_monitors = config.data.monitors.clone();
     let changed =
       mode.is_some_and(|next| next != old.mode) || sync.is_some_and(|next| next != old.sync);
+    let scene_selected = scene.is_some();
     config.data.display.apply_patch(mode, sync, scene);
+    // 显式选全局场景 = 退出所有游戏壁纸；逐屏游戏也一起清掉，避免切回 independent 复活。
+    if scene_selected {
+      config.data.set_game_all(None);
+    }
     if let Err(error) = config.data.save(&config.path) {
       config.data.display = old;
+      config.data.monitors = old_monitors;
       return Err(format!("保存配置失败: {error}"));
     }
     changed
@@ -362,11 +381,17 @@ pub async fn wallpaper_set_display(
   } else {
     crate::media::video::lifecycle::on_display_config_changed();
   }
-  windows::reapply_display(&app)
+  let result = windows::reapply_display(&app);
+  // 选场景会清空游戏壁纸：托盘控制器入口要跟着切走。
+  crate::tray::refresh_async(&app);
+  result
 }
 
 /// 切换壁纸内容源：`game_id` 非空 = 直接渲染该游戏包自带的 `entry.replica`；
 /// 传 null = 回到 `display.scene`。选中场景的命令会清掉游戏壁纸。
+///
+/// 这是“全局设为游戏”的入口：无论当前模式都会同步覆盖每块屏的逐屏游戏，
+/// 让所有显示器都切到同一个游戏；传 null 时清空所有逐屏游戏，回到场景。
 #[tauri::command]
 pub async fn wallpaper_set_game(app: AppHandle, game_id: Option<String>) -> Result<(), String> {
   {
@@ -381,15 +406,57 @@ pub async fn wallpaper_set_game(app: AppHandle, game_id: Option<String>) -> Resu
         return Err(format!("{id} 没有 entry.replica，只能通过场景显示"));
       }
     }
-    let old = config.data.display.game.clone();
-    config.data.display.set_game(game_id);
+    let old_display = config.data.display.clone();
+    let old_monitors = config.data.monitors.clone();
+    config.data.set_game_all(game_id);
     if let Err(error) = config.data.save(&config.path) {
-      config.data.display.game = old;
+      config.data.display = old_display;
+      config.data.monitors = old_monitors;
       return Err(format!("保存配置失败：{error}"));
     }
   }
   crate::media::video::lifecycle::on_display_config_changed();
-  windows::reapply_display(&app)
+  let result = windows::reapply_display(&app);
+  crate::tray::refresh_async(&app);
+  result
+}
+
+/// 逐屏游戏覆盖（仅 independent 模式消费）。显式选场景会通过
+/// `wallpaper_set_monitor_scene` 清掉该屏游戏；这里只负责设置游戏。
+#[tauri::command]
+pub async fn wallpaper_set_monitor_game(
+  app: AppHandle,
+  device: String,
+  game_id: String,
+) -> Result<(), String> {
+  {
+    let mut config = config()?;
+    if !crate::game_package::manifest::valid_id(&game_id) {
+      return Err(format!("游戏 id 非法：{game_id}"));
+    }
+    let manifest = crate::game_package::store::find(&app, &game_id)
+      .map_err(|error| format!("无法作为壁纸的游戏包：{error}"))?;
+    if manifest.entry.replica.is_none() {
+      return Err(format!("{game_id} 没有 entry.replica，只能通过场景显示"));
+    }
+    let old = config.data.monitors.get(&device).cloned();
+    config.data.set_monitor_game(&device, Some(game_id));
+    if let Err(error) = config.data.save(&config.path) {
+      match old {
+        Some(monitor) => {
+          config.data.monitors.insert(device, monitor);
+        }
+        None => {
+          config.data.monitors.remove(&device);
+        }
+      }
+      return Err(format!("保存配置失败：{error}"));
+    }
+  }
+  crate::media::video::lifecycle::on_display_config_changed();
+  let result = windows::reapply_display(&app);
+  crate::tray::refresh_async(&app);
+  result
 }
 
 /// 覆盖某个场景的参数；空 map = 恢复 Manifest 默认值。写盘失败回滚。
@@ -416,7 +483,8 @@ pub async fn wallpaper_set_scene_params(
   windows::reapply_display(&app)
 }
 
-/// 每屏场景覆盖（仅 independent 模式消费）。
+/// 每屏场景覆盖（仅 independent 模式消费）。选场景会清掉该屏游戏覆盖，
+/// 但不影响全局游戏与其它显示器。
 #[tauri::command]
 pub async fn wallpaper_set_monitor_scene(
   app: AppHandle,
@@ -425,23 +493,25 @@ pub async fn wallpaper_set_monitor_scene(
 ) -> Result<(), String> {
   {
     let mut config = config()?;
-    let old = config
-      .data
-      .monitors
-      .get(&device)
-      .and_then(|monitor| monitor.scene.clone());
-    let old_game = config.data.display.game.clone();
+    let old = config.data.monitors.get(&device).cloned();
     config.data.set_monitor_scene(&device, Some(scene));
-    // 显式给某块屏选场景 = 退出游戏壁纸，避免“选了场景但画面仍是游戏”。
-    config.data.display.set_game(None);
     if let Err(error) = config.data.save(&config.path) {
-      config.data.set_monitor_scene(&device, old);
-      config.data.display.set_game(old_game);
+      match old {
+        Some(monitor) => {
+          config.data.monitors.insert(device, monitor);
+        }
+        None => {
+          config.data.monitors.remove(&device);
+        }
+      }
       return Err(format!("保存配置失败: {error}"));
     }
   }
   crate::media::video::lifecycle::on_display_config_changed();
-  windows::reapply_display(&app)
+  let result = windows::reapply_display(&app);
+  // 每屏选场景可能退出该屏游戏；托盘只跟壁纸激活游戏。
+  crate::tray::refresh_async(&app);
+  result
 }
 
 /// 总开关：临时显隐全部壁纸层（ShowWindow；窗口保持挂载，不重挂不闪），并持久化。

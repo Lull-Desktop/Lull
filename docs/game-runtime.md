@@ -1,8 +1,8 @@
 # Game Runtime 设计
 
-> 状态：**v0.5.2 —— P1–P3 部分落地（含 background 策略），P4 单包双入口与 Canvas2D Adapter 已落地；Phaser/Pixi/Three Adapter 仍为设计**。
+> 状态：**v0.5.4 —— P1–P3 部分落地（含 background 策略），P4 单包双入口与四类渲染适配器（Canvas2D / Phaser / PixiJS / Three.js）已落地；控制器已支持每游戏多窗口、包内 UI 与激活门禁；真机长跑与多屏目视验收待补**。
 > 基线：[RFC `LULL-RFC-GAME-001`](./rfc/RFC-Game-Runtime.md)（Proposed）｜代码基线：`0.2.2`。
-> 实现：`src-tauri/src/game/`、`src-tauri/src/game_package/`、`packages/game-sdk/`（含 `./scene`）、`src/games/`（authority / bridge / replica）、`examples/games/living-world/`、`examples/scenes/living-world/`；未覆盖项见 §19。
+> 实现：`src-tauri/src/game/`、`src-tauri/src/game_package/`、`packages/game-sdk/`（含 `./scene`、`./widget`、`./controller`）、`src/games/`（authority / controller / bridge / replica）、`examples/games/living-world/`、`examples/scenes/living-world/`；未覆盖项见 §19。
 > 范围：Lull 宿主侧 —— 游戏包、实例与权威、状态仓储、命令/事件协议、多屏渲染副本、权限与窗口接线、阶段计划与验收。
 > 第三方开发者契约见 [Game SDK](./game-sdk.md)；本文的设计章节仍描述目标形态，未落地部分不要当成既有能力。
 
@@ -35,7 +35,7 @@ Game Runtime 服务的是 **Ambient Game（环境式桌面游戏）**，不是�
 | D1 | 包管理与运行时分离：`game_package`（清单/协议/存储/授权）+ `game`（实例/权威/状态/副本） | 与 `widget_package` / `wallpaper` 的现有分层一致，避免包校验代码混进运行时 |
 | D2 | Authority 是独立隐藏窗口 `game-authority-<hex>`，**不与任何显示器绑定** | Explorer 重启、壁纸重建、显示器热插拔不会顺带重启游戏逻辑 |
 | D3 | Replica 不自建窗口，寄生在既有 `wallpaper-<index>` 窗口里 | 复用 `SceneFrame` 的 canvas/view/viewport/dpr 与桌面挂载，不新增 Win32 表面 |
-| D4 | Controller 就是普通 `widget-<id>` 窗口 | 复用 Widget 包、授权、桥与关闭即隐藏的既有语义 |
+| D4 | Controller 是独立窗口：包内页面（`/game-controller` 壳 + iframe）或普通 `widget-<id>` 窗口，每个游戏可声明 1–8 个 | 复用既有 Widget 授权与桥，同时让游戏包自带 UI；窗口存在即绑定，只有运行中的游戏可打开 |
 | D5 | Authority 分 `host-tick`（P1）与 `self-loop`（P3）两种执行模式；P1–P2 只支持 host-tick，P3 起 self-loop 为 experimental | 先避开 RFC 自认最高风险的"隐藏 WebView 自循环 + WebGL"部分 |
 | D6 | 身份只由宿主认定：窗口 label + 宿主注入 token；消息里的 `role` 一律不可信 | RFC §12.2 的硬约束 |
 | D7 | Host 是状态提交的最终裁决者：校验 `instanceId / authorityId / epoch / lease / baseRevision / token`，拒绝即失败，**没有最后写入者获胜** | RFC §4.3、§4.4 |
@@ -133,10 +133,14 @@ lull.exe（Rust）
  │    └─ 场景 iframe（sandbox=allow-scripts）           ← Scene SDK + Game SDK（只读副本）
  ├─ 游戏权威窗 × M（game-authority-<instanceIdHex>）   ← 隐藏、无任务栏、Host 壳 + 游戏 iframe
  │    └─ authority iframe（sandbox=allow-scripts）      ← Game SDK authority（提交状态）
- └─ 控制器 Widget × K（widget-<id>）                    ← Widget SDK + Game SDK widget（发命令）
+ ├─ 包内控制器窗 × K（game-controller-<hash>-<id>）     ← 可见、Host 壳 + 游戏包控制器 iframe
+ │    └─ controller iframe（sandbox=allow-scripts）      ← Game SDK controller（读写状态、发命令）
+ └─ 外部控制器 Widget × L（可选，widget-<id>）          ← Widget SDK + Game SDK widget（发命令）
 ```
 
 - `M` = 同时运行的游戏实例数，默认上限 3（`games.json.maxRunning`）。
+- `K + L` = 当前运行中的游戏声明的控制器窗口（每游戏最多 8 个；同一 Widget 同一时刻只服务一个游戏）。
+- 示例游戏都使用包内控制器（`controllers[].entry`）；`widgetId` 是保留给第三方的可选载体。
 - 权威窗照 `media-engine` 的建窗方式：非主线程、`visible(false)`、`skip_taskbar(true)`、`decorations(false)`、`resizable(false)`。
 - 所有 WebView 继续复用 `src-tauri/src/webview.rs` 的 Chromium 参数（关闭后台定时器节流 / occluded / backgrounding）。这是隐藏权威窗能跑的基础，但**不是充分条件**：WebGL 上下文与 GPU 行为仍必须单独验证（见 §21）。
 - Authority 窗的页面是宿主壳 `/game-authority`，而不是直接加载游戏页面。这样游戏代码始终处在不透明源 iframe 里，Tauri IPC 只落在宿主壳。
@@ -148,7 +152,7 @@ lull.exe（Rust）
 | 设置页「游戏」页签点击"启动" | 调 `game_start(gameId)` | 显式操作 |
 | 场景绑定自动启动 | 壁纸窗发现当前 scene 绑定该游戏且实例未运行时，调 `game_auto_start` | `games.json.autoStartWithWallpaper = true`（P2 起，默认开） |
 | 应用启动恢复 | 上次非正常退出（`metadata.status = "running"`）→ 标记 `interrupted`，不自动启动 | `resumeOnLaunch = false` |
-| 控制器 Widget 打开 | **不**自动启动游戏；只显示"未运行"状态 | — |
+| 控制器窗口打开 | **不**自动启动游戏；只有实例 `running/hidden/suspended/background` 时才允许打开 | — |
 
 自动启动只放宽"谁来触发 `game_start`"，**不会**绕过能力授权、包校验或单实例规则。
 
@@ -258,7 +262,9 @@ src/app/(games)/game-authority/page.tsx
 | `@lull/game-sdk/scene` | `./scene` | 只读渲染桥（场景绑定与包内 replica 共用客户端） | P2/P4 |
 | `@lull/game-sdk/testing` | `./testing` | 内存传输与样例消息 | P1 |
 | `@lull/game-adapter-canvas` | — | 原生 Canvas2D 适配器 | P4 已落地 |
-| `@lull/game-adapter-phaser/-pixi/-three` | — | 第三方引擎适配器 | P4 设计 |
+| `@lull/game-adapter-phaser` | — | Phaser 3 适配器（`loop.sleep/wake` + `scale.resize`） | P4 已落地 |
+| `@lull/game-adapter-pixi` | — | PixiJS 8 适配器（ticker + `renderer.resize`） | P4 已落地 |
+| `@lull/game-adapter-three` | — | Three.js 适配器（自驱 rAF + `setPixelRatio`） | P4 已落地 |
 
 SDK 与现有 `packages/*-sdk` 一样用 `tsc` 构建 `dist` + `.d.ts`，包 license 为 Apache-2.0，新增 `game:sdk` / `game:sdk:check` 脚本并纳入 `pnpm check`。
 
@@ -604,7 +610,10 @@ manifest 可以**收紧**上限，不能放宽硬上限；放宽只能由宿主�
 | `games_list` | — | `GameView[]` | 已安装游戏 + 运行状态 + 存档摘要 + `entryReplicaUrl` |
 | `game_replica_entry` | `gameId` | `GameReplicaEntry` | 壁纸窗专用：读取包内 `entry.replica` URL；不需要运行时 token |
 | `game_start` | `gameId` | `GameInstanceView` | 启动实例（幂等：已运行返回现状） |
-| `games_config_get` / `games_config_set` | `config`（set） | `GamesConfig` | 读取/写入 `games.json`（autoStart / maxRunning / offlineMaxMs） |
+| `game_open_controller` | `gameId, controllerId?` | `()` | 打开并绑定控制器窗口；缺省 `controllerId` = 全部声明控制器；要求实例处于运行中 |
+| `game_close_controller` | `gameId, controllerId?` | `()` | 关闭控制器窗口；缺省 = 全部 |
+| `game_controller_request` | `{ controllerId, action: "open" \| "close" }` | `()` | Authority 专用：游戏请求打开/关闭**自己**的控制器窗口 |
+| `games_config_get` / `games_config_set` | `config`（set） | `GamesConfig` | 读取/写入 `games.json`（autoStart / maxRunning / offlineMaxMs / controllerFollowsGame） |
 | `game_auto_start` | `gameId` | `GameInstanceView \| null` | 壁纸窗专用：按 `autoStartWithWallpaper` 启动场景绑定或设为壁纸的游戏 |
 | `game_stop` | `gameId` | `GameInstanceView` | 停止并落盘 |
 | `game_suspend` / `game_resume` | `gameId` | `GameInstanceView` | 暂停 / 恢复（P2；恢复时下发 offlineMs） |
@@ -617,9 +626,9 @@ manifest 可以**收紧**上限，不能放宽硬上限；放宽只能由宿主�
 
 | 命令 | 可调用窗口 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| `game_connect` | authority / wallpaper / widget | 按角色 + 包授权 | 注册参与者，返回 `GameContext`（replica 附带渲染上下文与 `replicaId`） |
-| `game_snapshot_get` | authority / wallpaper / widget | `game.state.read` | 取当前完整快照（断档恢复用） |
-| `game_command_send` | widget / settings | Widget 需 `game.command.send`；settings 免 | 发送命令，等待 authority 结果或超时 |
+| `game_connect` | authority / wallpaper / widget / controller | 按角色 + 包授权；控制器先查宿主 binding | 注册参与者，返回 `GameContext`（replica 附带渲染上下文与 `replicaId`，controller 附带 `controllerId`） |
+| `game_snapshot_get` | authority / wallpaper / widget / controller | `game.state.read` | 取当前完整快照（断档恢复用） |
+| `game_command_send` | widget / controller / settings | Widget 需 `game.command.send`；包内控制器按清单 scope；settings 免 | 发送命令，等待 authority 结果或超时 |
 | `game_state_commit` | authority | `game.state.write` | 提交权威状态 |
 | `game_event_publish` | authority | `game.event.publish` | 发非状态事件 |
 | `game_render_state_publish` | authority | `game.render.publish` | 发渲染态（不落盘） |
@@ -686,26 +695,30 @@ type GameErrorBody = {
 | --- | --- | --- |
 | `game-authority-<hex>` | authority | `authorityToken`（注入） |
 | `wallpaper-<index>` | replica | `gameToken`（顶层帧注入） |
-| `widget-<id>` | controller | Widget 桥 token + 授权账本 |
+| `game-controller-<hash>-<id>` | controller | 窗口 token（建窗时签发）+ 宿主 binding |
+| `widget-<id>` | controller | Widget 桥 token + 授权账本 + 宿主 binding |
 | `settings` | manager | 无 token（宿主控制面） |
 
-任何消息里的 `role` 字段只用于协议完整性检查，**不参与授权判定**。
+任何消息里的 `role` 字段只用于协议完整性检查，**不参与授权判定**。控制器窗口的
+`gameId / controllerId` 一律取自宿主写入的 binding，页面传参只用于一致性校验。
 
 ### 10.2 校验流水线（`game_command_send`）
 
 ```text
 1. 窗口角色 = controller/manager
-2. Controller 走 Widget 授权账本校验 `game.command.send`；`settings`（宿主控制面）免授权账本
+2. 控制器先查宿主 binding（窗口存在即存在）；Widget 再走授权账本校验 `game.command.send`
 3. requestId 格式合法、非重复（重复 → 返回已记录结果）
 4. 命令类型在 manifest.commands 中出现
-5. payload 大小 ≤ 32 KiB
-6. **P1 只做类型声明与大小校验**；按 `commands.<type>.schema` 做参数 JSON Schema 校验延后到 P2
-7. expectedRevision（可选）与当前 revision 一致，否则 state.revision_conflict
-7. 发送方/实例限流
-8. 实例 running / background，否则 game.instance_not_running
-9. 生成 GameCommandEnvelope，定向发给 authority 窗口，登记 pending（requestId → 发起窗口）
-10. 等待 game_command_result / 超时
-11. 定点回传 game:command-result（只给发起窗口），记录幂等结果
+5. 命令类型在该控制器的 allowedCommands 内（清单未声明 = 全部；[] = 只读）
+6. 游戏声明并授权了 game.command.receive
+7. payload 大小 ≤ 32 KiB
+8. **P1 只做类型声明与大小校验**；按 `commands.<type>.schema` 做参数 JSON Schema 校验延后到 P2
+9. expectedRevision（可选）与当前 revision 一致，否则 state.revision_conflict
+10. 发送方/实例限流
+11. 实例 running / background，否则 game.instance_not_running
+12. 生成 GameCommandEnvelope，定向发给 authority 窗口，登记 pending（requestId → 发起窗口）
+13. 等待 game_command_result / 超时
+14. 定点回传 game:command-result（只给发起窗口），记录幂等结果
 ```
 
 ### 10.3 权威侧
@@ -713,6 +726,9 @@ type GameErrorBody = {
 - 权威壳页把 `game:command` 转给游戏 iframe；游戏通过 Game SDK `onCommand` 处理。
 - 游戏处理完后通过 `game_command_result(requestId, ok, result?, error?)` 回传；也可以先提交状态再回传。
 - 权威不主动发命令结果，只应答；Host 对未应答的 requestId 在 TTL 后标记超时。
+- **实现约束**：`game_command_send` 必须在阻塞线程上等待回执（`spawn_blocking`），不能占住主线程。
+  authority 的 `state.commit` / `game_command_result` 回复也走主线程 IPC，同步等待会把它们
+  一起卡到命令超时（表现为命令总是 timeout、状态却已经改变）。
 
 ### 10.4 结果与状态的关系
 
@@ -863,7 +879,7 @@ type GameRenderContext = {
 - `mirror`：`canvas = view`，每屏按视口渲染完整世界。
 - `span`：`canvas` 是虚拟桌面并集、`view` 是本屏矩形；replica 用 `view` 对画布做裁剪，**不重新计算游戏坐标**（复用 `core/wallpaper/params.ts` 的 `canvasTransform` 语义）。
 - 游戏世界逻辑坐标不依赖某个显示器的 DPR；DPR 只影响渲染采样。
-- 壁纸 `independent` 模式：只影响场景选择，**游戏世界仍是共享实例**；各屏按 viewport 渲染同一状态。这是产品语义，必须写进文档与 UI 提示。
+- 壁纸 `independent` 模式：每屏可独立选择场景或游戏；同一游戏在多个屏仍共享一个实例，不同游戏各自实例（受 `maxRunning` 限制）。`display.policy` 仍是 `shared`，区别只在“每屏选哪个内容源”。
 
 ### 12.4 显示模式矩阵
 
@@ -871,7 +887,7 @@ type GameRenderContext = {
 | --- | --- | --- | --- |
 | `mirror` | `shared` | 每屏一个 replica，整幅渲染 | 一个 |
 | `span` | `shared` | 每屏一个 replica，按 canvas/view 裁剪 | 一个 |
-| `independent` | `shared` | 每屏一个 replica，各自视口渲染同一世界 | 一个 |
+| `independent` | `shared` | 每屏一个 replica；可各自选场景或不同游戏，同一游戏共享实例 | 每个游戏一个 |
 | 任意 | `per-monitor` | 启动时拒绝（`game.unsupported_display_policy`） | — |
 
 ### 12.5 重建与热插拔
@@ -1031,26 +1047,78 @@ Widget 桥协议保持不变（`WIDGET_PROTOCOL = 1`），新增方法：
 
 | 方法 | 参数 | 返回 |
 | --- | --- | --- |
-| `game.connect` | `{ gameId }` | `GameWidgetContext` |
+| `game.connect` | `{ gameId? }` | `GameWidgetContext` |
 | `game.snapshot` | `{}` | `GameSnapshot \| null` |
 | `game.command` | `{ requestId, type, payload, expectedRevision? }` | `GameCommandResult` |
 | `game.disconnect` | `{}` | `{ disconnected: boolean }` |
 
+`game.connect` 的 `gameId` 可省略：宿主打开控制器时写入 `controller_bindings`
+（窗口 label → `{gameId, controllerId, kind, allowedCommands, allowedEvents}`），
+页面不需要也不应该自己猜游戏 id。已有 binding 时传了不同的 gameId 直接
+`game.controller_target_mismatch`；没有 binding（例如从扩展中心手动打开 Widget）
+必须显式传 gameId，且该游戏清单确实声明了这个 Widget，否则 `game.controller_not_declared`。
+
 宿主壳收到方法后：先查 Widget 上下文的能力清单，再调对应 `game_*` 命令；Rust 再按窗口 label + 授权账本二次校验。`game.event` 事件由宿主壳监听 Tauri `game:event` 后转发给 iframe。
+
+### 14.2.1 声明、打开入口与激活门禁
+
+游戏清单用 `controllers[]` 声明 0–8 个控制器窗口：
+
+```json
+"controllers": [
+  {
+    "id": "panel",
+    "label": "Living World 控制台",
+    "entry": "controllers/panel/index.html",
+    "commands": ["plant.seed", "plant.water"],
+    "window": { "width": 380, "height": 520 }
+  }
+]
+```
+
+| 字段 | 规则 |
+| --- | --- |
+| `id` | 唯一，`^[a-z][a-z0-9-]{0,31}$`；窗口 label 与 binding 的槽位标识 |
+| `entry` / `widgetId` | 二选一：包内页面（`controllers/` 下的 `.html`）或外部 Widget |
+| `commands` / `events` | 可选子集；缺省 = 全部声明；`[]` = 只读 |
+| `window` | 宽 240–1600、高 200–1200；`resizable` / `alwaysOnTop` 默认 false |
+| `autoOpen` | 默认 true；仅在 `controllerFollowsGame` 开启时随启动自动打开 |
+
+旧的单数 `controller: { widgetId }` 仍接受，归一化为 `controllers=[{id:"default",…}]`；
+两者同时声明会被清单校验拒绝。
+
+**激活门禁**：控制器只在实例 `running | hidden | suspended | background` 时可用。
+`game_open_controller`、`game_connect`、`game_controller_request`、设置页开关与托盘入口
+共用 `InstanceStatus::accepts_controller()`；停止/失败时先广播 `lifecycle(stopped|failed)`，
+再销毁该游戏全部控制器窗口（不再保留"手动打开"的窗口）。
+
+| 入口 | 行为 |
+| --- | --- |
+| `games_list` 的 `GameView.controllers[]` | `{id, kind, label, widgetId, entry, installed, enabled, autoOpen, windowOpen, connected}` |
+| 设置页 | 只在运行中实例操作区显示每个控制器的开关；游戏未运行时不渲染控制器行 |
+| 托盘 | 「设置 ▸ 游戏控制器」列出全部运行中游戏的控制器，壁纸激活的游戏排前；多显示器同一游戏去重，多游戏按游戏分组 |
+| `games.json.controllerFollowsGame`（默认开） | `game_start` 后打开 `autoOpen` 控制器；`game_stop` 回收该游戏全部控制器 |
+| 游戏侧 | Authority 调 `game_controller_request({controllerId, action})` 打开/关闭自己的控制器 |
+
+错误码：`game.controller_not_declared` / `not_installed` / `disabled` / `unknown` /
+`not_active` / `in_use` / `target_mismatch` / `not_targeted` / `read_only`。
+安装脚本 `pnpm games:samples:install` 只安装游戏包；示例控制器全部是包内页面，
+随游戏包一起安装。第三方游戏仍可声明 `widgetId` 载体。
 
 ### 14.3 时序
 
 ```text
-Widget 打开 → connectLullGameWidget(widget, { gameId })
-  → 桥 game.connect → game_connect → 返回 context（实例可能未运行）
-  → game.snapshot → GameSnapshot | null
-  → 用户操作 → game.command → 宿主校验 → 权威执行 → 结果原路返回
-  → 游戏提交 → game:event / game:snapshot → 宿主壳 → Widget
+设置页/托盘/游戏 → game_open_controller / game_controller_request
+  → 校验实例 accepts_controller + 载体可用 → 写 binding → 建窗
+控制器页 ready → 壳 game_connect(token) → 查 binding + 校验激活 → init{context, snapshot}
+  → 用户操作 → command.send → game_command_send（binding scope + 实例状态）→ authority
+  → 游戏提交 → game:snapshot / game:event / game:lifecycle → 壳 → iframe
+停止/失败 → 先广播 lifecycle(stopped|failed) → 销毁该游戏全部控制器窗口（删 binding）
 ```
 
 ### 14.4 与设置页控制面的区别
 
-| 能力 | Controller Widget | 设置页 / 扩展中心 |
+| 能力 | Controller 窗口 | 设置页 / 扩展中心 |
 | --- | --- | --- |
 | 读状态 / 发命令 | ✅ | ✅ |
 | 启动 / 停止 / 暂停 | ❌ | ✅ |
@@ -1086,9 +1154,11 @@ Widget 打开 → connectLullGameWidget(widget, { gameId })
 | `entry.replica` | 壁纸窗内的 `sandbox="allow-scripts"` iframe | 只读快照/事件/渲染态；没有 Tauri IPC 与提交入口 |
 
 - 壁纸选择：`display.game = <id>`（独立字段，不写进 `display.scene`）。`wallpaper_set_game` 校验包内存在 `entry.replica` 后热更所有壁纸窗；选择场景会自动清空 `display.game`。
-- URL 协议：壁纸 hash 同时携带 `scene=` 与可选的 `game=`；前端只在 `game` 非空时挂 `GameReplicaHost`，清空后立即回退到场景，不重载页面。
+- 逐屏游戏：independent 模式新增 `monitors[<device>].game`。每块屏可在「壁纸类型」下拉里独立选择游戏（`wallpaper_set_monitor_game`），选择场景会用 `wallpaper_set_monitor_scene` 清掉该屏游戏；mirror/span 忽略逐屏游戏，只认 `display.game`。
+- URL 协议：壁纸 hash 同时携带 `scene=` 与可选的 `game=`；`monitor_url` 按 `effective_game(device)` 解析，前端只在 `game` 非空时挂 `GameReplicaHost`，清空后立即回退到场景，不重载页面。
 - 信任边界：两个入口同包同源，但 authority 的提交能力来自窗口角色 + token，replica 永远拿不到 token；副本 iframe 的 `allow-scripts` 不包含 `allow-same-origin`。
-- `display.policy` 仍是 `shared`：mirror/span 下两块屏渲染同一个游戏世界；游戏壁纸不提供“每屏不同游戏”的 independent 语义。
+- `display.policy` 仍是 `shared`：同一游戏实例可被多块屏 attach，但 independent 下不同屏可以各自激活不同游戏；`wallpaper::runtime::active_games()` 取全局 + 逐屏游戏的并集，托盘控制器按游戏分组。
+- 切换游戏：壁纸库下拉切换时若旧游戏仍有运行实例，会提示「停止游戏 / 后台继续运行 / 取消」；停止调用 `game_stop`，后台继续调用 `game_set_background(enabled=true)`，确认后才写新壁纸。
 
 ### 15.2 校验规则（`game_package::manifest`）
 
@@ -1234,7 +1304,9 @@ frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 - 操作：启动 / 停止 / 暂停 / 恢复 / 后台运行 / 回到前台 / 立即保存 / 打开存档目录 / 删除存档（二次确认）。
 - 授权：按能力勾选（`game.*`），与扩展中心的授权入口共用一套数据。
 - 诊断：最近错误、authority epoch、replica 数量、包校验状态。
-- 壁纸：包内有 `entry.replica` 的游戏提供「设为壁纸 / 取消游戏壁纸」，写入 `display.game`；壁纸页签选择场景会自动退出游戏壁纸。
+- 壁纸：包内有 `entry.replica` 的游戏提供「设为壁纸 / 取消游戏壁纸」，写入 `display.game`；同时同步覆盖每块屏的逐屏游戏（含其它模式留下的旧值），避免切回 independent 时旧游戏复活。壁纸页签选择场景会自动退出游戏壁纸；逐屏游戏与切换提示见 §15.1.1。
+- 控制器：只在**运行中**实例的操作区显示每个控制器的开关（包内 / 扩展徽章 + 已连接状态）；未安装/未启用置灰，游戏未运行时不渲染控制器行。运行中同时显示已连接控制器数量。
+- 偏好：`controllerFollowsGame` 开关（默认开）——显式启动游戏时自动打开 `autoOpen` 控制器；停止时回收该游戏全部控制器窗口。
 - 空态：没有安装游戏时引导到扩展中心；没有运行实例时说明"启动后由壁纸场景或控制器接入"。
 - 文案全部走 `i18n/messages/{zh-CN,en-US}.json`，键前缀 `games_*` / `settings_tab_games`；风格与现有设置卡片一致。
 
@@ -1326,9 +1398,9 @@ frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 
 ### P1 · Game Host 与 Host-authoritative（RFC Phase 1）
 
-**目标**：单实例、单权威、无 replica 的闭环；设置页可启动/停止；控制器 Widget 可读状态、发命令；存档可恢复。
+**目标**：单实例、单权威、无 replica 的闭环；设置页可启动/停止；控制器窗口可读状态、发命令；存档可恢复。
 
-**改动**：`game_package` 全套；`game` 的 manager/instance/authority/lease/state/repository/command/event/snapshot/permissions/lifecycle/error；`lullgame://`；`game-authority` 路由与壳；16 条命令与 8 个事件；`@lull/game-sdk`（authority + widget + testing）；设置页 games 页签与 i18n；Extension Center `Kind::Game`；`examples/games/living-world`（authority）；`examples/widgets/living-world-controller`（控制器 Widget）；Rust/前端测试；`gen-widgets.mjs` / `build.rs` / `lib.rs` / `tsconfig` / `package.json` 接线。
+**改动**：`game_package` 全套；`game` 的 manager/instance/authority/lease/state/repository/command/event/snapshot/permissions/lifecycle/error；`lullgame://`；`game-authority` 路由与壳；16 条命令与 8 个事件；`@lull/game-sdk`（authority + controller + testing）；设置页 games 页签与 i18n；Extension Center `Kind::Game`；`examples/games/living-world`（authority + 包内控制器）；Rust/前端测试；`gen-widgets.mjs` / `build.rs` / `lib.rs` / `tsconfig` / `package.json` 接线。
 
 **退出标准**：RFC §16 Phase 1 五条验收全过；`game_state_commit` 的 epoch/lease/revision 拒绝用例齐全；重复 requestId 不重复执行；两个控制器看到同一份状态；停止后重启恢复到同一 revision 的存档。
 
@@ -1339,19 +1411,21 @@ P1 明确**未覆盖**、留给后续阶段：
 - Render Replica 与 Scene 绑定（P2）：`game_connect` 的 replica 分支已就绪，但壁纸窗尚未接入 `game.*` 场景桥；`@lull/game-sdk` 当前没有 `./scene` 入口。
 - 暂停 / hidden / background 状态机（P2/P3）：暂停/恢复、hidden 自动停 tick 与 `game_set_background` 后台降频均已开放。
 - `self-loop` 权威、崩溃检测硬化、journal（P3）：**self-loop 已放行**（提交限流 4 次/秒），租约过期的 failover、稳定 60s 后重试计数复位、`resumeOnLaunch`、提交 journal 与稳定性工具链已落地；见 [稳定性报告](./game-runtime-webview-stability.md)（真机长跑待执行，暂不转正）。
-- `entry.replica` 独立副本与 Phaser/PixiJS/Three.js Adapter（P4）：包内 replica 入口、`GameReplicaHost`、壁纸内容源选择与 Canvas2D Adapter 已落地；引擎 Adapter 仍待完成。
-- 游戏开发挂载（dev mode）、官方游戏、控制器 Widget 示例、在线目录与签名 UI（P5）。
+- `entry.replica` 独立副本与 Phaser/PixiJS/Three.js Adapter（P4）：包内 replica 入口、`GameReplicaHost`、壁纸内容源选择与四类适配器均已落地；缺引擎矩阵真机验收（见 P4 状态）。
+- 游戏开发挂载（dev mode）、官方游戏、在线目录与签名 UI（P5）。
 - 扩展中心的游戏详情/逐能力开关 UI：命令已支持 `kind="game"`，设置页当前只提供整体启用/停用。
+
+> 控制器产品链路（声明、设置页/托盘入口、目标注入、自动跟随）已在 P2 补齐，见 §14.2.1 与 P2 实现状态。
 
 ### P2 · 多屏 Render Replica（RFC Phase 2）
 
 **目标**：一个游戏世界、多屏独立渲染；场景绑定；重建/热插拔不丢状态。
 
-**改动**：`game::replica`、`game:snapshot/event/render/lifecycle` 投递、`game_connect` 渲染上下文、`game_package` 的 scene 绑定校验；`src/sdk/scene/manifest.ts` 增加 `game` 字段与校验并把 `SCENE_HOST_API` 升到 2；`scene-bridge.ts` 追加 `game.*`、`external-scene.tsx` 挂 `useGameReplica`；`@lull/game-sdk/scene`；`examples/scenes/living-world`、`examples/widgets/living-world-controller`；暂停/恢复（`game_suspend` / `game_resume`）与 hidden 自动停 tick；`games.json`（autoStart / maxRunning / offlineMaxMs）与 `game_auto_start` 自动启动、设置页偏好。
+**改动**：`game::replica`、`game:snapshot/event/render/lifecycle` 投递、`game_connect` 渲染上下文、`game_package` 的 scene 绑定校验；`src/sdk/scene/manifest.ts` 增加 `game` 字段与校验并把 `SCENE_HOST_API` 升到 2；`scene-bridge.ts` 追加 `game.*`、`external-scene.tsx` 挂 `useGameReplica`；`@lull/game-sdk/scene`；`examples/scenes/living-world`、`examples/games/living-world/controllers/panel`；暂停/恢复（`game_suspend` / `game_resume`）与 hidden 自动停 tick；`games.json`（autoStart / maxRunning / offlineMaxMs）与 `game_auto_start` 自动启动、设置页偏好。
 
 **退出标准**：RFC §16 Phase 2 四条验收全过；双屏 mirror/span 目视一致；任意一屏重建不影响实例；新 replica 加入后快照恢复一致；`independent` 壁纸模式下世界仍共享（有测试/文档说明）。
 
-**P2 实现状态**：场景绑定、`game_connect` replica、快照/事件/渲染态/生命周期转发、`useGameReplica`（含场景尺寸/DPI 变化重新 attach、实例停止后低频重试）、`@lull/game-sdk/scene`、`examples/scenes/living-world`、`examples/widgets/living-world-controller`、`games.json`（autoStart / maxRunning / offlineMaxMs）与随壁纸自动启动、暂停/恢复与 hidden 自动停 tick 已落地。尚未覆盖：多显示器真机目视验收。
+**P2 实现状态**：场景绑定、`game_connect` replica、快照/事件/渲染态/生命周期转发、`useGameReplica`（含场景尺寸/DPI 变化重新 attach、实例停止后低频重试）、`@lull/game-sdk/scene`、`examples/scenes/living-world`、`examples/games/living-world/controllers/panel`、`games.json`（autoStart / maxRunning / offlineMaxMs）与随壁纸自动启动、暂停/恢复与 hidden 自动停 tick 已落地。**控制器已升级为多窗口 + 包内 UI**：`game.json.controllers[]`（1–8 个，`entry` 或 `widgetId` 二选一）、`GameView.controllers[]`、设置页运行中操作区的开关、托盘「设置 ▸ 游戏控制器」列出全部运行中游戏（壁纸激活的游戏排前）、`game_open_controller` / `game_close_controller`、`game_controller_request`（游戏侧）、`@lull/game-sdk/controller` 与 `/game-controller` 宿主壳；激活门禁统一为 `InstanceStatus::accepts_controller()`，停止/失败回收该游戏全部控制器窗口。示例见 `examples/games/{living-world,phaser-demo,pixi-demo,three-demo}/controllers/`（全部为包内页面，示例不再使用控制器 Widget）。尚未覆盖：多显示器真机目视验收。
 
 ### P3 · Engine-authoritative（RFC Phase 3）
 
@@ -1371,7 +1445,20 @@ P1 明确**未覆盖**、留给后续阶段：
 
 **退出标准**：RFC §16 Phase 4 四条验收全过；宿主 `cargo tree` 不出现任何引擎依赖；同一游戏包不同入口（authority/replica）可分别使用；引擎生命周期与 LULL 生命周期对齐。
 
-**P4 实现状态**：`@lull/game-adapter-canvas` 已落地（dpr/backing store、rAF 节流、暂停/恢复、快照/渲染态，4 项单测 + 与 `LullGameRenderClient` 的编译期契约测试）。**单包双入口已打通**：`GameView.entryReplicaUrl` / `game_replica_entry`、`GameReplicaHost`（不依赖 Scene）、`display.game` + `wallpaper_set_game` + 壁纸 hash `game=`、游戏包 16/128 MiB/1024 预算、`examples/games/stability-probe` 指标墙迁入 `replica/`；`examples/games/living-world` 1.1.2 也补齐 authority + replica，并修复首份空快照导致 tick 崩溃的问题。尚未完成：Phaser/PixiJS/Three.js Adapter 与对应示例。
+**P4 实现状态**：四个适配器全部落地，都是**零运行时依赖**（结构化类型接收引擎实例，宿主与 `cargo tree` 均不受影响）：
+
+- `@lull/game-adapter-canvas`：dpr/backing store、rAF 节流、暂停/恢复、快照/渲染态（4 项单测 + 与 `LullGameRenderClient` 的编译期契约测试）。
+- `@lull/game-adapter-phaser`：`render.viewport` → `scale.resize`，`suspended/stopped/failed` → `game.loop.sleep()`，`destroy` → `game.destroy(true)`（5 项单测）。
+- `@lull/game-adapter-pixi`：`Application.init/resize`（`resolution = dpr`）→ ticker 停/起，`destroy` → `app.destroy()`（5 项单测）。
+- `@lull/game-adapter-three`：自驱 rAF 并按 `maxFps` 节流、`setPixelRatio(dpr)` + `setSize(w,h,false)`、`destroy` → `renderer.dispose()`，渲染连续抛错时停帧（6 项单测）。
+
+**单包双入口已打通**：`GameView.entryReplicaUrl` / `game_replica_entry`、`GameReplicaHost`（不依赖 Scene）、`display.game` + `wallpaper_set_game` + 壁纸 hash `game=`、游戏包 16/128 MiB/1024 预算、`examples/games/stability-probe` 指标墙迁入 `replica/`；`examples/games/living-world` 1.1.3 也补齐 authority + replica，并修复首份空快照导致 tick 崩溃的问题。
+
+**新增三个引擎示例包**（每个都是"一个 zip = 逻辑 + 渲染"）：`examples/games/{phaser,pixi,three}-demo`，共用同一份 host-tick authority，replica 分别用 Phaser 3.90 / PixiJS 8.22 / Three.js r186 渲染；打包后分别为 1.2 MiB / 568 KiB / 537 KiB，远低于 16 MiB 单文件预算。构建走 `build.mjs` + esbuild（`write: false` 后由 Node 落盘），产物只有 `replica/main.js`，源码目录不留构建垃圾。
+
+**真机冒烟（双屏 mirror）**：两块显示器同时「设为壁纸」后，三个示例各挂 2 个 replica，共享同一 authority revision（host-tick 每秒提交，`replicas: 2`、`lastTickAgeMs < 1s`），Phaser / PixiJS / Three.js 画面均正常，两屏构图一致；截图留在本地 `artifacts/engine-demos/`（gitignored）。
+
+尚未完成：Phaser v4 / WebGPU 渲染路径的矩阵验收；`examples/games/canvas-demo` 仍无独立示例（仅单测与契约测试覆盖）；引擎包在 8 副本 × 多屏下的压测未执行；上述冒烟不替代 T3/T4 的正式验收。
 
 ### P5 · 社区游戏生态（RFC Phase 5）
 
@@ -1497,6 +1584,17 @@ P1 明确**未覆盖**、留给后续阶段：
 | `command.timeout` | 5–8s 未回结果 | 重试（注意幂等） |
 | `command.rate_limited` | 命令过快 | 降频 |
 | `command.duplicate` | requestId 冲突且结果不可复用 | 换 requestId |
+| `game.command_not_allowed` | 命令不在该控制器 scope 内 | 清单 `commands` 放行 |
+| `game.command_not_granted` | 游戏未声明/授权 `game.command.receive` | 补能力并重新启用 |
+| `game.controller_not_declared` | 游戏没有声明该控制器 | 补 `controllers[]` |
+| `game.controller_not_installed` | 载体不可用（Widget 未装 / entry 缺失） | 安装或修包 |
+| `game.controller_disabled` | 载体未启用 | 扩展中心启用 |
+| `game.controller_unknown` | 声明的控制器 id 不存在 | 检查 `controllerId` |
+| `game.controller_not_active` | 游戏未运行 | 先启动游戏 |
+| `game.controller_in_use` | 共享 Widget 正被另一游戏使用 | 先关闭另一游戏的控制器 |
+| `game.controller_target_mismatch` | 页面传了与 binding 不同的 gameId | 不要传或传正确值 |
+| `game.controller_not_targeted` | 手动打开且未指定目标游戏 | 从设置页/托盘打开 |
+| `game.controller_read_only` | 只读控制器发送命令 | 清单 `commands` 放行 |
 | `permission.denied` | 角色/能力不允许 | 提示授权或拒绝 |
 | `permission.revoked` | 运行中授权被撤 | 重启游戏 |
 | `protocol.unsupported` | 协议版本不支持 | 升级 |
@@ -1525,13 +1623,23 @@ game_auto_start(gameId: string): Promise<GameInstanceView | null>;
 // 壁纸窗专用：包内自带渲染入口（不经过 Scene 目录）
 game_replica_entry(gameId: string): Promise<GameReplicaEntry>;
 
+// ---- 控制器窗口（设置页/托盘/Host 控制面）
+game_open_controller(gameId: string, controllerId?: string): Promise<void>;
+game_close_controller(gameId: string, controllerId?: string): Promise<void>;
+// ---- 游戏侧（authority）：只能操作自己声明的控制器
+game_controller_request(request: {
+  controllerId: string;
+  action: "open" | "close";
+}): Promise<void>;
+
 // ---- 参与者
 game_connect(request?: {
   gameId?: string;
   sceneId?: string;
   render?: GameRenderContext;
 }): Promise<GameConnectResult>;   // { context: GameContext | null; replicaId: string | null }
-                                 // 实例未运行 / 无绑定 → context=null（正常态，不抛错）
+                                 // replica：实例未运行 → context=null（正常态）
+                                 // controller：无 binding/未运行 → 抛 game.controller_* 错误
 
 game_snapshot_get(): Promise<GameSnapshot | null>;
 game_command_send(request: {

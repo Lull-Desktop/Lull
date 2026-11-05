@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { GameSwitchDialog } from "@/components/library/game-switch-dialog";
 import { SceneParamFields } from "@/components/scene-params";
 import { MediaPanel } from "@/components/settings/media-panel";
 import { Badge } from "@/components/ui/badge";
@@ -28,16 +29,21 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { DEFAULT_SCENE_ID } from "@/core/wallpaper/params";
+import { useGames } from "@/hooks/use-games";
 import { useSceneCatalog } from "@/hooks/use-scene-catalog";
 import { localizeError } from "@/i18n/errors";
 import { useLocale } from "@/i18n/locale";
+import type { GameView } from "@/lib/games";
 import { m } from "@/paraglide/messages";
 import { type SceneCatalogEntry, sceneSupportsParams } from "@/sdk/scene";
 
@@ -54,7 +60,82 @@ type MonitorView = {
   enabled: boolean;
   /** 生效场景（每屏覆盖 → 全局回退）。 */
   scene: string;
+  /** 生效游戏（independent 下每屏覆盖优先；null = 使用场景）。 */
+  game?: string | null;
 };
+
+const GAME_PREFIX = "game:";
+const SCENE_PREFIX = "scene:";
+
+type ContentChoice = { kind: "game" | "scene"; id: string };
+
+function parseContentValue(value: string): ContentChoice | null {
+  if (value.startsWith(GAME_PREFIX)) {
+    return { kind: "game", id: value.slice(GAME_PREFIX.length) };
+  }
+  if (value.startsWith(SCENE_PREFIX)) {
+    return { kind: "scene", id: value.slice(SCENE_PREFIX.length) };
+  }
+  return null;
+}
+
+/** 运行中的实例才需要询问“停止还是后台继续”；已停止/失败不打扰用户。 */
+function instanceRunning(game: GameView | undefined): boolean {
+  const status = game?.instance?.status;
+  return status === "running" || status === "hidden" || status === "background";
+}
+
+function gameSelectable(game: GameView): boolean {
+  return game.enabled && game.status === "ready";
+}
+
+function gameOptionLabel(game: GameView): string {
+  return gameSelectable(game)
+    ? game.name
+    : `${game.name}${m.wallpaper_game_disabled_suffix()}`;
+}
+
+/** 场景与游戏共用一个下拉：前缀区分 id，避免两类 id 同名时选错。 */
+function WallpaperContentOptions({
+  scenes,
+  games,
+}: {
+  scenes: readonly SceneCatalogEntry[];
+  games: readonly GameView[];
+}) {
+  return (
+    <>
+      <SelectGroup>
+        <SelectLabel>{m.wallpaper_group_scenes()}</SelectLabel>
+        {scenes.map(({ manifest }) => (
+          <SelectItem
+            key={`${SCENE_PREFIX}${manifest.id}`}
+            value={`${SCENE_PREFIX}${manifest.id}`}
+          >
+            {manifest.name}
+          </SelectItem>
+        ))}
+      </SelectGroup>
+      {games.length > 0 && (
+        <>
+          <SelectSeparator />
+          <SelectGroup>
+            <SelectLabel>{m.wallpaper_group_games()}</SelectLabel>
+            {games.map((game) => (
+              <SelectItem
+                key={`${GAME_PREFIX}${game.id}`}
+                value={`${GAME_PREFIX}${game.id}`}
+                disabled={!gameSelectable(game)}
+              >
+                {gameOptionLabel(game)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </>
+      )}
+    </>
+  );
+}
 
 function sceneSourceLabel(source: SceneCatalogEntry["source"]): string {
   if (source === "builtin") return m.wallpaper_source_builtin();
@@ -104,6 +185,13 @@ export function WallpaperPanel() {
   );
   const [monitors, setMonitors] = useState<MonitorView[] | null>(null);
   const [display, setDisplay] = useState<DisplayConfig | null>(null);
+  const { games, loading: gamesLoading, refresh: refreshGames } = useGames();
+  const [pendingSwitch, setPendingSwitch] = useState<{
+    gameId: string;
+    gameName: string;
+    apply: () => Promise<void>;
+  } | null>(null);
+  const [switchBusy, setSwitchBusy] = useState(false);
   // 订阅语言：整块面板的文案都跟着界面语言走。
   useLocale();
   const [wallpaperStatus, setWallpaperStatus] =
@@ -165,6 +253,95 @@ export function WallpaperPanel() {
     [monitors],
   );
 
+  const gameById = useMemo(
+    () => new Map(games.map((game) => [game.id, game])),
+    [games],
+  );
+  // 只有带 entry.replica 的包才能直接当壁纸；停用的仍展示但不可选。
+  const wallpaperGames = useMemo(
+    () => games.filter((game) => Boolean(game.entryReplicaUrl)),
+    [games],
+  );
+
+  const requestContentSwitch = useCallback(
+    (oldGameId: string | null, apply: () => Promise<void>): void => {
+      const oldGame = oldGameId ? gameById.get(oldGameId) : undefined;
+      if (!oldGameId || !oldGame || !instanceRunning(oldGame)) {
+        void apply();
+        return;
+      }
+      setPendingSwitch({ gameId: oldGameId, gameName: oldGame.name, apply });
+    },
+    [gameById],
+  );
+
+  const resolveGameSwitch = useCallback(
+    async (choice: "stop" | "background" | "cancel"): Promise<void> => {
+      if (!pendingSwitch || switchBusy) return;
+      if (choice === "cancel") {
+        setPendingSwitch(null);
+        return;
+      }
+      const { gameId, apply } = pendingSwitch;
+      setSwitchBusy(true);
+      try {
+        if (choice === "stop") {
+          await invoke("game_stop", { gameId });
+        } else {
+          await invoke("game_set_background", { gameId, enabled: true });
+        }
+        setPendingSwitch(null);
+        await apply();
+        await refreshGames();
+      } catch (error: unknown) {
+        setPendingSwitch(null);
+        setWallpaperError(localizeError(error));
+      } finally {
+        setSwitchBusy(false);
+      }
+    },
+    [pendingSwitch, refreshGames, switchBusy],
+  );
+
+  const selectContent = useCallback(
+    (device: string | null, value: string): void => {
+      const choice = parseContentValue(value);
+      if (!choice || !display) return;
+      const monitor = device
+        ? sortedMonitors?.find((item) => item.device === device)
+        : undefined;
+      if (device && !monitor) return;
+      const currentGame = device
+        ? (monitor?.game ?? null)
+        : (display.game ?? null);
+      const currentScene = device ? monitor?.scene : display.scene;
+      if (choice.kind === "game") {
+        if (choice.id === currentGame) return;
+        const apply = device
+          ? () =>
+              runWallpaperCommand("wallpaper_set_monitor_game", {
+                device,
+                gameId: choice.id,
+              })
+          : () =>
+              runWallpaperCommand("wallpaper_set_game", { gameId: choice.id });
+        requestContentSwitch(currentGame, apply);
+        return;
+      }
+      if (!currentGame && choice.id === currentScene) return;
+      const apply = device
+        ? () =>
+            runWallpaperCommand("wallpaper_set_monitor_scene", {
+              device,
+              scene: choice.id,
+            })
+        : () =>
+            runWallpaperCommand("wallpaper_set_display", { scene: choice.id });
+      requestContentSwitch(currentGame, apply);
+    },
+    [display, requestContentSwitch, runWallpaperCommand, sortedMonitors],
+  );
+
   const toggleWallpaper = useCallback((on: boolean): void => {
     invoke<boolean>("wallpaper_set_visible", { visible: on })
       .then((v) => {
@@ -192,16 +369,6 @@ export function WallpaperPanel() {
   const updateDisplay = useCallback(
     (patch: Partial<DisplayConfig>): void => {
       void runWallpaperCommand("wallpaper_set_display", patch);
-    },
-    [runWallpaperCommand],
-  );
-
-  const updateMonitorScene = useCallback(
-    (device: string, scene: string): void => {
-      void runWallpaperCommand("wallpaper_set_monitor_scene", {
-        device,
-        scene,
-      });
     },
     [runWallpaperCommand],
   );
@@ -261,6 +428,21 @@ export function WallpaperPanel() {
       ? display.scene
       : defaultSceneId;
 
+  const currentGlobalGame = display?.game
+    ? gameById.get(display.game)
+    : undefined;
+  const globalContentValue =
+    display?.game && currentGlobalGame?.entryReplicaUrl
+      ? `${GAME_PREFIX}${display.game}`
+      : `${SCENE_PREFIX}${selectedSceneId}`;
+
+  const monitorContentValue = (monitor: MonitorView): string => {
+    const game = monitor.game ? gameById.get(monitor.game) : undefined;
+    return monitor.game && game?.entryReplicaUrl
+      ? `${GAME_PREFIX}${monitor.game}`
+      : `${SCENE_PREFIX}${monitor.scene}`;
+  };
+
   // 旧配置可能指向已删除的场景（lull.aurora / lull.dusk / 旧内容包）。
   // 目录加载完成后回退到默认竹影并写回宿主，保证下一次启动也稳定。
   const normalizedSceneRef = useRef<string | null>(null);
@@ -285,6 +467,13 @@ export function WallpaperPanel() {
   const activeScene = sceneOptions.find(
     (entry) => entry.manifest.id === selectedSceneId,
   );
+  // 视频面板只在场景真的顶上时出现：游戏壁纸优先，逐屏游戏屏也不算视频场景。
+  const showMediaPanel =
+    display?.mode === "independent"
+      ? (sortedMonitors?.some(
+          (monitor) => !monitor.game && monitor.scene === "lull.video",
+        ) ?? false)
+      : !display?.game && activeScene?.manifest.id === "lull.video";
 
   return (
     <Card className="flex max-h-full min-h-0 w-full flex-col">
@@ -359,33 +548,40 @@ export function WallpaperPanel() {
                 {m.wallpaper_scene_global()}
               </Label>
               <Select
-                value={selectedSceneId}
-                onValueChange={(v) => updateDisplay({ scene: v })}
+                value={globalContentValue}
+                onValueChange={(v) => selectContent(null, v)}
               >
                 <SelectTrigger
                   size="sm"
                   aria-label={m.wallpaper_scene_global()}
-                  className="w-32"
+                  className="w-44"
                 >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {sceneOptions.map(({ manifest }) => (
-                    <SelectItem key={manifest.id} value={manifest.id}>
-                      {manifest.name}
-                    </SelectItem>
-                  ))}
+                  <WallpaperContentOptions
+                    scenes={sceneOptions}
+                    games={wallpaperGames}
+                  />
                 </SelectContent>
               </Select>
             </div>
-            {activeScene && (
+            {!gamesLoading &&
+              display.game &&
+              !currentGlobalGame?.entryReplicaUrl && (
+                <p className="text-xs text-destructive">
+                  {m.wallpaper_game_unavailable()}
+                </p>
+              )}
+            {!display.game && activeScene && (
               <p className="text-xs text-muted-foreground">
                 {activeScene.manifest.description} · v
                 {activeScene.manifest.version} · {activeScene.manifest.license}{" "}
                 · {sceneSourceLabel(activeScene.source)}
               </p>
             )}
-            {activeScene?.manifest.params &&
+            {!display.game &&
+              activeScene?.manifest.params &&
               activeScene.manifest.params.length > 0 &&
               sceneSupportsParams(activeScene.manifest) && (
                 <div className="space-y-2">
@@ -407,7 +603,8 @@ export function WallpaperPanel() {
                   />
                 </div>
               )}
-            {activeScene?.manifest.params &&
+            {!display.game &&
+              activeScene?.manifest.params &&
               activeScene.manifest.params.length > 0 &&
               !sceneSupportsParams(activeScene.manifest) && (
                 <p className="text-xs text-destructive">
@@ -416,10 +613,7 @@ export function WallpaperPanel() {
               )}
           </>
         )}
-        {activeScene?.manifest.id === "lull.video" ||
-        sortedMonitors?.some((monitor) => monitor.scene === "lull.video") ? (
-          <MediaPanel />
-        ) : null}
+        {showMediaPanel ? <MediaPanel /> : null}
         {sceneCatalogError && (
           <p className="text-xs text-muted-foreground">
             {m.wallpaper_catalog_error({ reason: sceneCatalogError })}
@@ -470,26 +664,23 @@ export function WallpaperPanel() {
                     </div>
                     {display?.mode === "independent" && (
                       <Select
-                        value={monitor.scene}
-                        onValueChange={(v) =>
-                          updateMonitorScene(monitor.device, v)
-                        }
+                        value={monitorContentValue(monitor)}
+                        onValueChange={(v) => selectContent(monitor.device, v)}
                       >
                         <SelectTrigger
                           size="sm"
                           aria-label={m.wallpaper_monitor_scene_aria({
                             index: String(i + 1),
                           })}
-                          className="w-28"
+                          className="w-40"
                         >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {sceneOptions.map(({ manifest }) => (
-                            <SelectItem key={manifest.id} value={manifest.id}>
-                              {manifest.name}
-                            </SelectItem>
-                          ))}
+                          <WallpaperContentOptions
+                            scenes={sceneOptions}
+                            games={wallpaperGames}
+                          />
                         </SelectContent>
                       </Select>
                     )}
@@ -505,6 +696,15 @@ export function WallpaperPanel() {
                     />
                   </div>
                   {display?.mode === "independent" &&
+                    !gamesLoading &&
+                    monitor.game &&
+                    !gameById.get(monitor.game)?.entryReplicaUrl && (
+                      <p className="text-xs text-destructive">
+                        {m.wallpaper_game_unavailable()}
+                      </p>
+                    )}
+                  {display?.mode === "independent" &&
+                    !monitor.game &&
                     monitorScene?.manifest.params &&
                     monitorScene.manifest.params.length > 0 &&
                     sceneSupportsParams(monitorScene.manifest) && (
@@ -526,6 +726,13 @@ export function WallpaperPanel() {
           {wallpaperError || statusText(wallpaperStatus)}
         </p>
       </CardContent>
+      <GameSwitchDialog
+        gameName={pendingSwitch?.gameName ?? null}
+        busy={switchBusy}
+        onChoose={(choice) => {
+          void resolveGameSwitch(choice);
+        }}
+      />
     </Card>
   );
 }

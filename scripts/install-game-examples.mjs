@@ -3,6 +3,9 @@
  * 把 `examples/games/<name>/dist` 安装到 Lull 用户游戏目录：
  *   %APPDATA%\app.lull.desktop\games\<id>\
  *
+ * 所有示例控制器都使用包内载体（`controllers[].entry`），随游戏包一起安装，
+ * 不再需要额外安装 Widget；运行时仍支持第三方游戏声明 `widgetId`。
+ *
  * 用法：
  *   node scripts/install-game-examples.mjs
  *   node scripts/install-game-examples.mjs living-world
@@ -46,6 +49,8 @@ for (const name of readdirSync(examplesDir)) {
     process.exitCode = 1;
   }
 }
+
 console.log(
-  `[games:install] 已安装 ${installed} 个游戏；回到设置页「游戏」刷新并在扩展中心启用`,
+  `[games:install] 已安装 ${installed} 个游戏；包内控制器随游戏包安装，` +
+    "回到设置页「游戏」启用游戏后即可打开控制器",
 );

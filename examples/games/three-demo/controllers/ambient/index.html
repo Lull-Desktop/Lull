@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ambient Embers · Three.js 控制器</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body data-engine="three">
+    <main class="app">
+      <header class="head">
+        <div>
+          <p class="eyebrow">AMBIENT EMBERS · THREE.JS</p>
+          <h1 class="title">Ambient 控制台</h1>
+        </div>
+        <span class="badge" id="status" data-state="connecting">连接中</span>
+      </header>
+
+      <p class="hint">
+        包内控制器：UI 随游戏包分发，只通过宿主壳桥读取快照、发送命令。
+      </p>
+
+      <section class="stats" aria-label="世界状态">
+        <div class="stat">
+          <span class="label">亮度</span>
+          <strong id="intensity">--</strong>
+          <span class="unit">intensity</span>
+        </div>
+        <div class="stat">
+          <span class="label">相位</span>
+          <strong id="phase">--</strong>
+          <span class="unit">world clock</span>
+        </div>
+        <div class="stat">
+          <span class="label">火星</span>
+          <strong id="embers">--</strong>
+          <span class="unit">embers</span>
+        </div>
+        <div class="stat">
+          <span class="label">revision</span>
+          <strong id="revision">--</strong>
+          <span class="unit">state</span>
+        </div>
+      </section>
+
+      <section class="actions" aria-label="命令">
+        <button type="button" id="pulse" class="primary" disabled>脉冲</button>
+        <button type="button" id="reseed" class="secondary" disabled>
+          重排火星
+        </button>
+      </section>
+
+      <section class="feed">
+        <p class="feed-label">事件</p>
+        <ul class="log" id="log" aria-label="事件日志" aria-live="polite"></ul>
+      </section>
+
+      <p class="error" id="error" role="alert"></p>
+    </main>
+    <script src="./main.js"></script>
+  </body>
+</html>

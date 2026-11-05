@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { GameView } from "@/lib/games";
+import { m } from "@/paraglide/messages";
 import type { SceneCatalogEntry, SceneManifest } from "@/sdk/scene";
 import { WallpaperPanel } from "./wallpaper-panel";
 
@@ -20,6 +22,61 @@ vi.mock("@/hooks/use-scene-catalog", () => ({
     issues: [],
   }),
 }));
+
+function game(overrides: Partial<GameView> = {}): GameView {
+  return {
+    id: "community.living-world",
+    name: "Living World",
+    version: "1.2.0",
+    status: "ready",
+    enabled: true,
+    granted: ["game.state.read", "game.state.write"],
+    capabilities: ["game.state.read", "game.state.write"],
+    entryReplicaUrl:
+      "http://lullgame.localhost/community.living-world/replica/index.html",
+    stateSchemaVersion: 1,
+    controllers: [],
+    ...overrides,
+  };
+}
+
+function runningInstance(): NonNullable<GameView["instance"]> {
+  return {
+    gameId: "community.living-world",
+    instanceId: "instance-1",
+    authorityEpoch: 1,
+    revision: 4,
+    simulationTimeMs: 12_000,
+    status: "running",
+    lastError: null,
+    replicas: 1,
+    controllers: 0,
+    updatedAt: 1,
+  };
+}
+
+function mockDisplayWithGames(
+  display: Record<string, unknown>,
+  games: GameView[],
+  monitors: Array<Record<string, unknown>> = [],
+): void {
+  invoke.mockImplementation(async (command: string) => {
+    switch (command) {
+      case "wallpaper_get_visible":
+        return true;
+      case "wallpaper_monitors":
+        return monitors;
+      case "wallpaper_display_get":
+        return display;
+      case "games_list":
+        return games;
+      case "games_config_get":
+        return undefined;
+      default:
+        return undefined;
+    }
+  });
+}
 
 function manifest(): SceneManifest {
   return {
@@ -76,6 +133,144 @@ beforeEach(() => {
       "http://lullcontent.localhost/demo.param-scene/scenes/param-demo/index.html",
     component: null,
   };
+});
+
+describe("WallpaperPanel game sources", () => {
+  const display = {
+    mode: "mirror",
+    sync: true,
+    scene: "demo.param-scene",
+    sceneParams: {},
+  };
+  const monitor = {
+    device: "\\\\.\\DISPLAY1",
+    index: 0,
+    x: 0,
+    y: 0,
+    w: 1920,
+    h: 1080,
+    dpi: 96,
+    primary: true,
+    enabled: true,
+    scene: "demo.param-scene",
+    game: null,
+  };
+
+  async function choose(
+    triggerName: string,
+    optionName: string,
+  ): Promise<void> {
+    const trigger = await screen.findByRole("combobox", {
+      name: triggerName,
+    });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const option = await screen.findByRole("option", { name: optionName });
+    fireEvent.keyDown(option, { key: "ArrowDown" });
+    fireEvent.keyDown(option, { key: "Enter" });
+  }
+
+  test("复制模式的壁纸类型下拉列出游戏，选中即设为壁纸", async () => {
+    mockDisplayWithGames(display, [game()]);
+    render(<WallpaperPanel />);
+
+    await choose(m.wallpaper_scene_global(), "Living World");
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("wallpaper_set_game", {
+        gameId: "community.living-world",
+      });
+    });
+  });
+
+  test("独立模式每台显示器可选择各自的游戏", async () => {
+    mockDisplayWithGames(
+      { ...display, mode: "independent" },
+      [game()],
+      [monitor],
+    );
+    render(<WallpaperPanel />);
+
+    await choose(
+      m.wallpaper_monitor_scene_aria({ index: "1" }),
+      "Living World",
+    );
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("wallpaper_set_monitor_game", {
+        device: "\\\\.\\DISPLAY1",
+        gameId: "community.living-world",
+      });
+    });
+  });
+
+  test("切换正在运行的游戏时可选择停止，再应用新壁纸", async () => {
+    mockDisplayWithGames({ ...display, game: "community.living-world" }, [
+      game({ instance: runningInstance() }),
+    ]);
+    render(<WallpaperPanel />);
+
+    await choose(m.wallpaper_scene_global(), "参数演示");
+
+    expect(await screen.findByTestId("wallpaper-game-switch")).toBeDefined();
+    fireEvent.click(
+      screen.getByRole("button", { name: m.wallpaper_game_switch_stop() }),
+    );
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("game_stop", {
+        gameId: "community.living-world",
+      });
+      expect(invoke).toHaveBeenCalledWith("wallpaper_set_display", {
+        scene: "demo.param-scene",
+      });
+    });
+  });
+
+  test("切换正在运行的游戏时可选择后台继续", async () => {
+    mockDisplayWithGames({ ...display, game: "community.living-world" }, [
+      game({ instance: runningInstance() }),
+    ]);
+    render(<WallpaperPanel />);
+
+    await choose(m.wallpaper_scene_global(), "参数演示");
+
+    expect(await screen.findByTestId("wallpaper-game-switch")).toBeDefined();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: m.wallpaper_game_switch_background(),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("game_set_background", {
+        gameId: "community.living-world",
+        enabled: true,
+      });
+      expect(invoke).toHaveBeenCalledWith("wallpaper_set_display", {
+        scene: "demo.param-scene",
+      });
+    });
+  });
+
+  test("取消切换时保留旧壁纸且不停游戏", async () => {
+    mockDisplayWithGames({ ...display, game: "community.living-world" }, [
+      game({ instance: runningInstance() }),
+    ]);
+    render(<WallpaperPanel />);
+
+    await choose(m.wallpaper_scene_global(), "参数演示");
+    expect(await screen.findByTestId("wallpaper-game-switch")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: m.dialog_cancel() }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("wallpaper-game-switch")).toBeNull();
+    });
+    expect(invoke).not.toHaveBeenCalledWith("game_stop", expect.anything());
+    expect(invoke).not.toHaveBeenCalledWith(
+      "wallpaper_set_display",
+      expect.anything(),
+    );
+  });
 });
 
 describe("WallpaperPanel external params", () => {

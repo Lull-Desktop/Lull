@@ -35,6 +35,7 @@ import { Switch } from "@/components/ui/switch";
 import { useGames } from "@/hooks/use-games";
 import { useLocale } from "@/i18n/locale";
 import type { GameStatus, GameView } from "@/lib/games";
+import { toGameErrorBody } from "@/lib/games";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 
@@ -47,6 +48,14 @@ const ACTIVE_STATUSES: readonly GameStatus[] = [
   "suspended",
   "background",
   "stopping",
+];
+
+/** 控制器开关只在这些"运行中"状态出现；与 Rust `InstanceStatus::accepts_controller` 一致。 */
+const CONTROLLER_STATUSES: readonly GameStatus[] = [
+  "running",
+  "hidden",
+  "suspended",
+  "background",
 ];
 
 function statusLabel(status: GameStatus | null): string {
@@ -148,6 +157,8 @@ function GameCard({
   onResume,
   onBackground,
   onForeground,
+  controllerPendingKey,
+  onToggleController,
   wallpaperActive,
   onSetWallpaper,
 }: {
@@ -163,6 +174,8 @@ function GameCard({
   onResume: () => void;
   onBackground: () => void;
   onForeground: () => void;
+  controllerPendingKey: string | null;
+  onToggleController: (controllerId: string, open: boolean) => void;
   wallpaperActive: boolean;
   onSetWallpaper: () => void;
 }) {
@@ -381,6 +394,65 @@ function GameCard({
         </div>
       </div>
 
+      {instance &&
+        status !== null &&
+        CONTROLLER_STATUSES.includes(status) &&
+        (game.controllers ?? []).length > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-2 rounded-lg border border-border/60 bg-card/40 px-2.5 py-2 text-[11px]"
+            data-testid={`game-controllers-${game.id}`}
+          >
+            <span className="text-muted-foreground">
+              {m.games_controller()}
+            </span>
+            {(game.controllers ?? []).map((controller) => {
+              const key = `${game.id}:${controller.id}`;
+              const unavailable = !controller.installed || !controller.enabled;
+              const busy = controllerPendingKey === key;
+              return (
+                <span
+                  key={controller.id}
+                  className="flex items-center gap-1.5"
+                  data-testid={`game-controller-${game.id}-${controller.id}`}
+                >
+                  <Switch
+                    size="sm"
+                    checked={controller.windowOpen}
+                    disabled={unavailable || busy}
+                    aria-label={controller.label ?? controller.id}
+                    title={
+                      unavailable
+                        ? controller.installed
+                          ? m.games_controller_disabled()
+                          : m.games_controller_missing()
+                        : undefined
+                    }
+                    onCheckedChange={(checked) =>
+                      onToggleController(controller.id, checked)
+                    }
+                  />
+                  <span className="max-w-40 truncate text-ink-soft">
+                    {controller.label ?? controller.id}
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="px-1 py-0 text-[10px] text-muted-foreground"
+                  >
+                    {controller.kind === "package"
+                      ? m.games_controller_kind_package()
+                      : m.games_controller_kind_widget()}
+                  </Badge>
+                  {controller.connected && (
+                    <span className="text-bamboo">
+                      {m.games_controller_connected()}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
       {instance && (
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
           <span>
@@ -392,6 +464,11 @@ function GameCard({
             })}
           </span>
           <span>{m.games_replicas({ count: String(instance.replicas) })}</span>
+          {instance.controllers > 0 && (
+            <span>
+              {m.games_controllers({ count: String(instance.controllers) })}
+            </span>
+          )}
         </div>
       )}
 
@@ -439,6 +516,7 @@ export function GamesPanel() {
     config,
     loading,
     error,
+    refresh,
     start,
     stop,
     flush,
@@ -459,6 +537,31 @@ export function GamesPanel() {
     null,
   );
   const [wallpaperError, setWallpaperError] = useState("");
+  const [controllerError, setControllerError] = useState("");
+  const [controllerPendingKey, setControllerPendingKey] = useState<
+    string | null
+  >(null);
+
+  const toggleController = async (
+    gameId: string,
+    controllerId: string,
+    open: boolean,
+  ): Promise<void> => {
+    const key = `${gameId}:${controllerId}`;
+    setControllerPendingKey(key);
+    try {
+      await invoke(open ? "game_open_controller" : "game_close_controller", {
+        gameId,
+        controllerId,
+      });
+      setControllerError("");
+      await refresh();
+    } catch (reason) {
+      setControllerError(toGameErrorBody(reason).message);
+    } finally {
+      setControllerPendingKey(null);
+    }
+  };
 
   const refreshWallpaper = useCallback((): void => {
     invoke<{ game?: string | null }>("wallpaper_display_get")
@@ -599,6 +702,24 @@ export function GamesPanel() {
                 }}
               />
             </div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {m.games_controller_follows()}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {m.games_controller_follows_hint()}
+                </p>
+              </div>
+              <Switch
+                size="sm"
+                checked={config.controllerFollowsGame}
+                aria-label={m.games_controller_follows()}
+                onCheckedChange={(checked) => {
+                  void saveConfig({ controllerFollowsGame: checked });
+                }}
+              />
+            </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs text-ink-soft">
                 {m.games_max_running()}
@@ -635,6 +756,12 @@ export function GamesPanel() {
           {wallpaperError && (
             <p className="text-xs text-destructive" role="alert">
               {m.games_wallpaper_failed({ reason: wallpaperError })}
+            </p>
+          )}
+
+          {controllerError && (
+            <p className="text-xs text-destructive" role="alert">
+              {m.games_controller_open_failed({ reason: controllerError })}
             </p>
           )}
 
@@ -675,6 +802,10 @@ export function GamesPanel() {
                 }
                 onForeground={() =>
                   void run(game.id, (id) => setBackground(id, false))
+                }
+                controllerPendingKey={controllerPendingKey}
+                onToggleController={(controllerId, open) =>
+                  void toggleController(game.id, controllerId, open)
                 }
               />
             );

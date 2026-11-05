@@ -79,6 +79,18 @@ impl InstanceStatus {
     matches!(self, Self::Running | Self::Background)
   }
 
+  /// 只有"运行中"的实例才允许打开/连接自己的控制器窗口。
+  ///
+  /// 与前端开关的可见范围一致：`starting/ready/stopping/stopped/failed` 一律拒绝，
+  /// 避免出现"游戏还没就绪控制器就先连上"的空上下文。
+  #[must_use]
+  pub fn accepts_controller(self) -> bool {
+    matches!(
+      self,
+      Self::Running | Self::Hidden | Self::Suspended | Self::Background
+    )
+  }
+
   #[must_use]
   pub fn accepts_commits(self) -> bool {
     matches!(self, Self::Ready | Self::Running | Self::Background)
@@ -94,6 +106,7 @@ impl InstanceStatus {
 #[derive(Debug, Clone)]
 pub struct InstanceSpec {
   pub limits: GameLimits,
+  pub capabilities: BTreeSet<String>,
   pub commands: BTreeSet<String>,
   pub events: BTreeSet<String>,
   pub state_schema_version: u32,
@@ -389,6 +402,7 @@ mod tests {
         tick_ms: 1_000,
       },
       commands: BTreeSet::from(["plant.seed".to_string()]),
+      capabilities: BTreeSet::from(["game.command.receive".to_string()]),
       events: BTreeSet::new(),
       state_schema_version: 1,
       authority_entry_url: "http://lullgame.localhost/demo/authority/index.html".into(),
@@ -427,6 +441,14 @@ mod tests {
     assert!(!InstanceStatus::Suspended.accepts_commands());
     assert!(InstanceStatus::Stopping.is_active());
     assert!(!InstanceStatus::Stopped.is_active());
+    assert!(InstanceStatus::Running.accepts_controller());
+    assert!(InstanceStatus::Hidden.accepts_controller());
+    assert!(InstanceStatus::Suspended.accepts_controller());
+    assert!(InstanceStatus::Background.accepts_controller());
+    assert!(!InstanceStatus::Starting.accepts_controller());
+    assert!(!InstanceStatus::Ready.accepts_controller());
+    assert!(!InstanceStatus::Stopping.accepts_controller());
+    assert!(!InstanceStatus::Failed.accepts_controller());
   }
 
   #[test]

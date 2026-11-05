@@ -27,7 +27,7 @@ import {
 /** 只用到的 Widget 桥方法；字段与 `@lull/widget-sdk` 的 `WidgetBridgeMethods` 一致。 */
 export type GameWidgetBridgeMethods = {
   "game.connect": {
-    params: { gameId: string };
+    params: { gameId?: string };
     result: unknown;
   };
   "game.snapshot": {
@@ -63,7 +63,12 @@ export type GameWidgetHost = {
 };
 
 export type ConnectLullGameWidgetOptions = {
-  gameId: string;
+  /**
+   * 目标游戏 id。
+   * - 从设置页/托盘打开控制器时由宿主注入目标，可省略；
+   * - 手动打开（扩展中心）或一个控制器服务多个游戏时显式传入。
+   */
+  gameId?: string;
   /** 连接 / 取快照的超时；默认 10s。 */
   timeoutMs?: number;
 };
@@ -107,23 +112,23 @@ export type LullGameWidgetClient = {
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 /**
- * 连接 Controller Widget 与指定游戏。
+ * 连接 Controller Widget 与目标游戏。
  *
  * ```ts
  * const widget = await connectLullWidget();
- * const game = await connectLullGameWidget(widget, {
- *   gameId: "community.living-world",
- * });
+ * // 从设置页/托盘打开时，宿主已记录目标游戏，无需再传 gameId：
+ * const game = await connectLullGameWidget(widget);
  * ```
+ *
+ * 手动打开（扩展中心）的控制器需要显式传 `gameId`；否则宿主会拒绝并在
+ * 设置页提示从「游戏」页签打开。
  */
 export async function connectLullGameWidget(
   host: GameWidgetHost,
-  options: ConnectLullGameWidgetOptions,
+  options: ConnectLullGameWidgetOptions = {},
 ): Promise<LullGameWidgetClient> {
-  const gameId = options.gameId.trim();
-  if (!gameId) {
-    throw new LullGameError("bad-init", "gameId 不能为空。");
-  }
+  const gameId = (options.gameId ?? "").trim();
+  const connectParams = gameId ? { gameId } : {};
   if (
     !host.has("game.state.read") &&
     !host.has("game.command.send") &&
@@ -225,7 +230,7 @@ export async function connectLullGameWidget(
   let connectResult: unknown;
   try {
     connectResult = await withBridgeTimeout(
-      host.request("game.connect", { gameId }),
+      host.request("game.connect", connectParams),
       timeoutMs,
       "game.connect",
     );

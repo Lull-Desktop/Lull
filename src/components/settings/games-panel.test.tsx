@@ -43,6 +43,7 @@ function gameView(overrides: Partial<GameView> = {}): GameView {
     granted: ["game.state.read", "game.state.write"],
     capabilities: ["game.state.read", "game.state.write", "game.event.publish"],
     stateSchemaVersion: 1,
+    controllers: [],
     instance: null,
     ...overrides,
   };
@@ -155,6 +156,7 @@ describe("GamesPanel", () => {
           resumeOnLaunch: false,
           maxRunning: 2,
           offlineMaxMs: 604_800_000,
+          controllerFollowsGame: true,
         },
       });
     });
@@ -258,5 +260,145 @@ describe("GamesPanel", () => {
     expect(
       await screen.findByRole("button", { name: "取消游戏壁纸" }),
     ).toBeTruthy();
+  });
+
+  test("运行中实例展示控制器开关，打开调用 game_open_controller", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [
+          gameView({
+            instance: instanceView({ status: "running" }),
+            controllers: [
+              {
+                id: "panel",
+                kind: "package",
+                label: "世界控制台",
+                entry: "controllers/panel/index.html",
+                installed: true,
+                enabled: true,
+                autoOpen: true,
+                windowOpen: false,
+                connected: false,
+              },
+            ],
+          }),
+        ];
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    const toggle = await screen.findByRole("switch", { name: "世界控制台" });
+    expect(
+      screen.getByTestId("game-controllers-community.living-world"),
+    ).toBeTruthy();
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("game_open_controller", {
+        gameId: "community.living-world",
+        controllerId: "panel",
+      });
+    });
+  });
+
+  test("已打开的控制器再次切换调用 game_close_controller", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [
+          gameView({
+            instance: instanceView({ status: "running" }),
+            controllers: [
+              {
+                id: "remote",
+                kind: "widget",
+                label: "Remote",
+                widgetId: "lull-ambient-controller",
+                installed: true,
+                enabled: true,
+                autoOpen: true,
+                windowOpen: true,
+                connected: true,
+              },
+            ],
+          }),
+        ];
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    const toggle = await screen.findByRole("switch", { name: "Remote" });
+    expect((toggle as HTMLButtonElement).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(screen.getByText("已连接")).toBeTruthy();
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("game_close_controller", {
+        gameId: "community.living-world",
+        controllerId: "remote",
+      });
+    });
+  });
+
+  test("游戏未运行时控制器开关不出现", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [
+          gameView({
+            controllers: [
+              {
+                id: "panel",
+                kind: "package",
+                installed: true,
+                enabled: true,
+                autoOpen: true,
+                windowOpen: false,
+                connected: false,
+              },
+            ],
+          }),
+        ];
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    await screen.findByText("Living World");
+    expect(
+      screen.queryByTestId("game-controllers-community.living-world"),
+    ).toBeNull();
+  });
+
+  test("控制器不可用时开关置灰", async () => {
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "games_list") {
+        return [
+          gameView({
+            instance: instanceView({ status: "running" }),
+            controllers: [
+              {
+                id: "ambient",
+                kind: "widget",
+                label: "Ambient",
+                widgetId: "lull-ambient-controller",
+                installed: false,
+                enabled: false,
+                autoOpen: true,
+                windowOpen: false,
+                connected: false,
+              },
+            ],
+          }),
+        ];
+      }
+      return null;
+    });
+
+    render(<GamesPanel />);
+    const toggle = await screen.findByRole("switch", { name: "Ambient" });
+    expect((toggle as HTMLButtonElement).disabled).toBe(true);
   });
 });

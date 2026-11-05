@@ -5,6 +5,7 @@ examples/games/<name>/
   game.json          # 清单（id / version / entry / runtime / capabilities）
   authority/         # authority 入口（entry.authority，隐藏/后台窗口）
   replica/           # 可选：壁纸可见渲染入口（entry.replica）
+  controllers/       # 可选：包内控制器页面（controllers[].entry）
   build.mjs          # 可选：自定义构建钩子（复制 dist 后调用）
   dist/              # pnpm games:samples:build 生成（不入库）
 ```
@@ -26,13 +27,64 @@ pnpm games:samples:install          # 安装 dist 到 %APPDATA%\app.lull.desktop
 
 ```text
 release/
-  community.living-world-1.1.2.lull-game.zip
+  community.living-world-1.2.0.lull-game.zip
   community.stability-probe-1.0.3.lull-game.zip
+  community.phaser-demo-1.1.0.lull-game.zip
+  community.pixi-demo-1.1.0.lull-game.zip
+  community.three-demo-1.1.0.lull-game.zip
   manifest.json
 ```
 
 **一个包同时包含逻辑与渲染**：`entry.authority` 在隐藏/后台窗口运行，
 `entry.replica` 由壁纸宿主直接挂载；设置页「游戏 → 设为壁纸」即可，不需要另装场景。
+
+## 引擎示例（P4）
+
+| 示例 | 引擎 | 适配器 | 包大小（replica 产物） |
+| --- | --- | --- | --- |
+| `phaser-demo` | Phaser 3.90 | `@lull/game-adapter-phaser` | 1.2 MiB |
+| `pixi-demo` | PixiJS 8.22 | `@lull/game-adapter-pixi` | 547 KiB |
+| `three-demo` | Three.js r186 | `@lull/game-adapter-three` | 537 KiB |
+
+三者共用同一份 host-tick authority（火星布局 + `phase` + `intensity`），
+replica 各自用引擎渲染；都演示了"权威下发世界参数、replica 本地插值"的写法。
+`pixi-demo` 必须先 `import "pixi.js/unsafe-eval"` —— LULL 的游戏 CSP 不允许
+`unsafe-eval`，该入口用 polyfill 替代内部的 `new Function`。
+
+## 控制器（游戏输入）
+
+游戏清单用 `controllers[]` 声明 0–8 个控制器窗口。示例统一使用**包内页面**：
+
+```json
+"controllers": [
+  {
+    "id": "panel",
+    "label": "Living World 控制台",
+    "entry": "controllers/panel/index.html",
+    "commands": ["plant.seed", "plant.water"],
+    "window": { "width": 380, "height": 520 }
+  }
+]
+```
+
+- **包内载体**（`entry`）：UI 随游戏包分发，宿主用 `/game-controller` 壳 + sandbox
+  iframe 承载；页面用 `@lull/game-sdk/controller`（或直接实现壳协议）。
+- 运行时仍支持 `widgetId` 载体（UI 在独立 Widget 包），但示例不再分发控制器 Widget；
+  第三方游戏需要时仍可按 `docs/game-sdk.md` §6.3 声明。
+- 只有**运行中**的游戏能打开/连接控制器：停止/失败时宿主先广播
+  `lifecycle(stopped|failed)`，再销毁该游戏全部控制器窗口。
+- 设置页只在运行中实例的操作区显示开关；托盘「设置 ▸ 游戏控制器」列出所有运行中
+  游戏的控制器，壁纸激活的游戏排前。
+- `games.json.controllerFollowsGame`（默认开）：显式启动游戏时自动打开 `autoOpen` 控制器，
+  停止时回收该游戏全部控制器窗口。
+- `pnpm games:samples:install` 只安装游戏包；包内控制器随包安装，不需要额外装 Widget。
+
+| 控制器示例 | 载体 | 服务的游戏 | 命令 |
+| --- | --- | --- | --- |
+| [`examples/games/living-world/controllers/panel`](living-world/controllers/panel) | 包内 | `community.living-world` | `plant.seed` / `plant.water` |
+| [`examples/games/phaser-demo/controllers/ambient`](phaser-demo/controllers/ambient) | 包内 | `community.phaser-demo` | `embers.pulse` / `embers.reseed` |
+| [`examples/games/pixi-demo/controllers/ambient`](pixi-demo/controllers/ambient) | 包内 | `community.pixi-demo` | `embers.pulse` / `embers.reseed` |
+| [`examples/games/three-demo/controllers/ambient`](three-demo/controllers/ambient) | 包内 | `community.three-demo` | `embers.pulse` / `embers.reseed` |
 
 zip 结构：根目录直接是 `game.json` + 入口 + 资源，另含 `.lull-integrity.json`
 （`sha256("lull-game-package\0" + id + "\0" + version + "\0" + files…)`，与 Rust
@@ -65,5 +117,7 @@ export default async function build({ sourceDir, distDir }) {
 }
 ```
 
-默认行为是直接复制静态文件；`build.mjs` 本身不会进入 dist，当前 `living-world` /
-`stability-probe` 均为零构建。
+默认行为是直接复制静态文件；`build.mjs` 本身不会进入 dist。
+`living-world` / `stability-probe` 为零构建；`phaser-demo` / `pixi-demo` / `three-demo`
+用 `build.mjs` + esbuild 把 `src/replica.ts` 与引擎依赖打成单个 `replica/main.js`
+（esbuild 以 `write: false` 返回内存产物、由 Node 落盘，`dist/src` 会被清理）。

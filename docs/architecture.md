@@ -121,7 +121,7 @@ examples/scenes/* ──► 内容包样例（静态 CSS / Scene SDK 脚本场�
 
 ```text
 lib.rs
- ├─ tray.rs ───────────────► window_host + widget_package（菜单项：设置子菜单含各内置窗口 / 功能槽位 / 已启用扩展）
+ ├─ tray.rs ───────────────► window_host + widget_package + extension（设置子菜单含各内置窗口 / 游戏控制器 / 除游戏外的扩展）
  ├─ window_host
  │    ├─ mod.rs（窗口工厂 / 上下文注入 / IPC）
  │    ├─ spec.rs（WidgetSpec 结构 + 查询；静态描述由 build.rs 生成）
@@ -243,8 +243,9 @@ lib.rs
 | `wallpaper_set_monitor_visible` | `device,visible` | `()` | `wallpaper::runtime` |
 | `wallpaper_display_get` | — | `DisplayConfig` | `wallpaper::runtime` |
 | `wallpaper_set_display` | `mode?,sync?,scene?` | `()` | `wallpaper::runtime`（显式选场景会清空 `display.game`） |
-| `wallpaper_set_game` | `gameId: string \| null` | `()` | `wallpaper::runtime`（切换游戏自带 replica / 回到场景） |
-| `wallpaper_set_monitor_scene` | `device,scene` | `()` | `wallpaper::runtime` |
+| `wallpaper_set_game` | `gameId: string \| null` | `()` | `wallpaper::runtime`（全局游戏；同步覆盖逐屏游戏，`null` 清空全部游戏） |
+| `wallpaper_set_monitor_scene` | `device,scene` | `()` | `wallpaper::runtime`（仅 independent；同时清掉该屏游戏覆盖） |
+| `wallpaper_set_monitor_game` | `device,gameId` | `()` | `wallpaper::runtime`（仅 independent；每屏独立选择游戏） |
 | `media_capabilities` | — | `MediaCapabilities` | `media::video::commands` |
 | `media_assets` / `media_asset_pick` / `media_asset_pick_many` / `media_asset_remove` | `id` | `MediaAsset[]` / `MediaAsset \| null` / `MediaAssetImportResult` / `()` | `media::video`（settings/backdrop） |
 | `media_asset_url` / `media_asset_rename` / `media_asset_prune` | `id` / `id,name` | `string \| null` / `MediaAsset` / `number` | `media::video`（settings/backdrop） |
@@ -318,6 +319,7 @@ lib.rs
   - 游戏权威窗口 `game-authority-*`（隐藏）：只拿 `core:event` listen/unlisten +
     `allow-game-connect/snapshot-get/state-commit/event-publish/render-state-publish/command-result/ready/heartbeat/report-error/detach`；
     没有窗口、文件、包管理命令；authority token 只在宿主壳里，游戏 iframe 拿不到；
+  - 包内控制器窗口 `game-controller-*`：`core:event` listen/unlisten + 拖拽/显示/销毁窗口帧权限 + `allow-game-connect/snapshot-get/command-send/report-error/detach`（能力由宿主 binding + 清单 scope 二次校验），**没有** `core:default`、包管理与壁纸命令。
   - 第三方窗口 `widget-*`：只有 `core:window` 的展示/隐藏/最小化/拖拽权限 + `core:event` 的 listen/unlisten（主题跟随）+ `allow-widget-state-*` + `allow-widget-package-notify` + `allow-widget-package-ready` + `allow-widget-set-transparent` + `allow-game-connect/snapshot-get/command-send/report-error/detach`（控制器桥，能力由授权账本二次校验），**没有 `core:default`**、**没有 event.emit**，不能调用包管理、壁纸或偏好命令。
 - 构建期 `tauri-build` 会校验 capability 引用的权限是否存在；权限名或命令改名漏同步会直接编译失败。
 - `media-engine` 是隐藏的受信 WebView，不是 Widget；它只拿到引擎命令事件与上报命令，不能反向读曲库或控制窗口。
@@ -483,4 +485,4 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
 9. **视频壁纸的边界**：默认构建走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/WebView2 TextureStream 共享解码在可选 `native-media` feature 下实现，但本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，运行时自动回退。能力探测、构建依赖与验收门见 [Media Runtime](media-runtime.md)。不要把 HTML 回退描述成“单解码器”，也不要把“feature 已实现”描述成“原生已交付”。
 10. **音乐资料库/播放的边界**：P2 已把播放、队列、白噪音迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。P3 已补歌单/喜欢/历史、M3U 导入导出与独立 `library` 资料库窗口（含队列视图）；N2 已把 Noise 从 `playback` 迁到独立 `media::noise`，引入 Asset/Track/Session 与旧 5 层兼容门面，Session/Track 不持久化；N3 已补 Noise 本地文件导入（受管复制 + SHA-256 + 缺失检测）、分类/标签/收藏/搜索与白噪音库窗口功能页签，文件轨道通过 `<audio>` 接入 `noiseBus`；N3.5 补分类/标签独立 CRUD（内置只读、层级循环保护、删除分类不删素材）；N4 补 Preset 保存/加载/导入导出、收藏与缺失轨道映射，加载替换 Session 但不自动播放；N5/P5 补 Widget 媒体桥、Rust bridge token、8 个 Noise capability、redacted snapshot、React hooks、`noise-mixer` 示例；N6 把白噪音窗口迁到 `NoiseSession` 动态轨道，支持内置泡泡 + 本地轨列表、Preset 选择/加载、播放/暂停，关闭窗口不停止 Session；P4 补元数据编辑与重扫保护、标签实体/多标签、艺术家/专辑合并拆分、智能歌单；P6 补 `.lrc/.txt/.srt` sidecar 歌词与组织数据备份/恢复，在线元数据、文件监听、缩略图未开始；随机播放已拆成 `playback::shuffle` 的 Profile / Strategy / Engine 三层：内置与用户配置可保存/切换，Strategy 用硬近期窗口 + softmax/均匀混合，Engine 管轮次袋与上一首历史；播放器只读写 Profile。详见 [Smart Shuffle](smart-shuffle.md)。`media_call` 对 `settings/player/noise/library/noise-library` 与带 token 的 `widget-*` 开放，`media_connect` 返回快照并通过 `media:event` 推送。多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md)、[Widget SDK](widget-sdk.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
-11. **Game Runtime 已到 P3 部分 + P4 单包双入口**：[Game Runtime 设计](game-runtime.md) 与 [Game SDK](game-sdk.md) 的 P1–P3 及 Canvas2D Adapter 已实现：`game-authority-*` 隐藏窗口、24 条命令、`lullgame://`、`games/` 与 `game-data/` 目录、`game.json` 包格式、Widget 控制器桥与示例、Scene 只读 Replica（`game` 绑定 + `game.*` 桥）、**游戏包自带 `entry.replica` 直接作为壁纸（`GameReplicaHost` + `display.game` + `wallpaper_set_game`）**、暂停/恢复与 hidden/background、`games.json` 偏好（自动启动/启动恢复/上限）、`self-loop` authority（experimental）、租约 failover 硬化、提交 journal、稳定性诊断命令/探针与 `@lull/game-adapter-canvas`。Phaser/Pixi/Three Adapter、开发挂载与 WebView 稳定性真机报告**尚未完成**，不要按设计文档假设这些能力已可调用；实现边界见设计文档 §19。
+11. **Game Runtime 已到 P3 部分 + P4 单包双入口与四类渲染适配器**：[Game Runtime 设计](game-runtime.md) 与 [Game SDK](game-sdk.md) 的 P1–P3 及 `@lull/game-adapter-{canvas,phaser,pixi,three}` 已实现：`game-authority-*` 隐藏窗口、27 条命令、`lullgame://`、`games/` 与 `game-data/` 目录、`game.json` 包格式（`controllers[]`：包内页面或 Widget，1–8 个；仅运行中实例可打开/连接）、Widget 控制器桥与示例、**`/game-controller` 宿主壳 + `@lull/game-sdk/controller` 包内控制器**、**设置页运行中实例操作区开关 + 托盘「设置 ▸ 游戏控制器」列出全部运行中游戏（壁纸激活排前）**、Scene 只读 Replica（`game` 绑定 + `game.*` 桥）、**游戏包自带 `entry.replica` 直接作为壁纸（`GameReplicaHost` + `display.game` + `wallpaper_set_game`）**、暂停/恢复与 hidden/background、`games.json` 偏好（自动启动/启动恢复/上限/控制器跟随）、`self-loop` authority（experimental）、租约 failover 硬化、提交 journal、稳定性诊断命令/探针，以及 `examples/games/{phaser,pixi,three}-demo` 三个"一个 zip = 逻辑 + 渲染"的引擎示例。**尚未完成**：游戏开发挂载（`.lull-dev.json` 对游戏包）、扩展中心的游戏详情/逐能力开关、引擎矩阵的真机长跑与 WebView 稳定性报告，不要按设计文档假设这些能力已可调用；实现边界见设计文档 §19。

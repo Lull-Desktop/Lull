@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "type": "game",
+  "id": "community.three-demo",
+  "name": "Ambient Embers · Three.js",
+  "version": "1.1.0",
+  "description": "Three.js 单包示例：authority 用 host-tick 推进世界参数，replica 用 Three.js 渲染，适配器驱动 rAF、DPI 与生命周期。",
+  "author": "Lull",
+  "license": "MIT",
+  "hostApi": 1,
+  "entry": {
+    "authority": "authority/index.html",
+    "replica": "replica/index.html"
+  },
+  "engine": {
+    "id": "three",
+    "version": "0.186.1",
+    "adapter": "@lull/game-adapter-three",
+    "renderMode": "webgl"
+  },
+  "runtime": {
+    "authority": "host-tick",
+    "tickMs": 1000,
+    "maxReplicas": 2
+  },
+  "display": {
+    "policy": "shared",
+    "modes": [
+      "mirror",
+      "span"
+    ]
+  },
+  "commands": {
+    "embers.pulse": {
+      "description": "让火星更亮一段时间",
+      "idempotent": true,
+      "timeoutMs": 3000
+    },
+    "embers.reseed": {
+      "description": "重排火星布局",
+      "idempotent": true,
+      "timeoutMs": 3000
+    }
+  },
+  "capabilities": [
+    "game.state.read",
+    "game.state.write",
+    "game.event.publish",
+    "game.command.receive"
+  ],
+  "events": {
+    "world.settled": {
+      "description": "离线结算完成"
+    },
+    "embers.pulsed": {
+      "description": "收到脉冲命令"
+    },
+    "embers.reseeded": {
+      "description": "火星布局已重排"
+    }
+  },
+  "state": {
+    "schemaVersion": 1,
+    "maxSizeBytes": 65536
+  },
+  "controllers": [
+    {
+      "id": "ambient",
+      "label": "Ambient Embers · Three.js 控制台",
+      "entry": "controllers/ambient/index.html",
+      "commands": ["embers.pulse", "embers.reseed"],
+      "window": {
+        "width": 360,
+        "height": 460
+      }
+    }
+  ]
+}

@@ -11,19 +11,22 @@ use tauri::{AppHandle, Emitter, Manager, Window};
 
 use super::authority;
 use super::config::{self, GamesConfig};
+use super::controller;
 use super::error::{codes, GameError, GameErrorBody, GameResult};
 use super::instance::{now_ms, GameInstance};
 use super::manager::{self, manager};
 use super::permissions::{self, WindowRole};
 use super::protocol::{
   GameCommandEnvelope, GameCommandResult, GameCommandResultRequest, GameCommandSendRequest,
-  GameCommitResult, GameConnectRequest, GameConnectResult, GameContext, GameEventDraft,
-  GameInstanceView, GameLimits, GameRenderContext, GameRenderPublishRequest,
-  GameReportErrorRequest, GameRole, GameSnapshot, GameStateUpdate, GameView, HOST_API,
-  MAX_COMMAND_PAYLOAD_BYTES, PROTOCOL_VERSION,
+  GameCommitResult, GameConnectRequest, GameConnectResult, GameContext, GameControllerAction,
+  GameControllerRequest, GameControllerView, GameEventDraft, GameInstanceView, GameLimits,
+  GameRenderContext, GameRenderPublishRequest, GameReportErrorRequest, GameRole, GameSnapshot,
+  GameStateUpdate, GameView, HOST_API, MAX_COMMAND_PAYLOAD_BYTES, PROTOCOL_VERSION,
 };
 use super::{journal, lifecycle, repository, state};
+use crate::game_package::manifest::GameControllerKind;
 use crate::game_package::store;
+use crate::widget_package;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,6 +103,7 @@ fn context_for(
   instance: Option<&GameInstance>,
   render: Option<GameRenderContext>,
   locale: String,
+  controller_id: Option<String>,
 ) -> GameContext {
   let limits = instance.map_or_else(default_limits, |instance| instance.spec.limits);
   GameContext {
@@ -113,6 +117,7 @@ fn context_for(
     revision: instance.map_or(0, |instance| instance.revision),
     simulation_time_ms: instance.map_or(0, |instance| instance.simulation_time_ms),
     render,
+    controller_id,
     limits,
     locale,
   }
@@ -126,6 +131,77 @@ fn instance_or_error(game_id: &str) -> GameResult<GameInstance> {
       format!("游戏 {game_id} 没有活动实例"),
     )
   })
+}
+
+/// 解析控制器窗口的目标绑定。
+///
+/// 正常路径：宿主打开控制器时已写入 binding，这里只做 token/授权校验。
+/// 手动路径（扩展中心直接打开的 Widget）：必须显式指定游戏，且该游戏清单
+/// 确实声明了这个 Widget；否则任何带 `game.state.read` 的 Widget 都能控制任意游戏。
+fn resolve_controller_binding(
+  app: &AppHandle,
+  label: &str,
+  token: Option<&str>,
+  requested_game: Option<&str>,
+) -> GameResult<manager::ControllerBinding> {
+  if let Some(binding) = manager::binding_for(label) {
+    permissions::require_controller(app, label, token, "game.state.read")?;
+    return Ok(binding);
+  }
+  let widget_id = permissions::widget_id(label).ok_or_else(|| {
+    GameError::new(
+      codes::CONTROLLER_NOT_TARGETED,
+      "控制器没有目标游戏：请从设置页「游戏」或托盘打开控制器",
+    )
+  })?;
+  permissions::require_widget_controller(app, label, token, "game.state.read")?;
+  let game_id = requested_game.ok_or_else(|| {
+    GameError::new(
+      codes::CONTROLLER_NOT_TARGETED,
+      "控制器没有目标游戏：请在 game.connect 里显式指定 gameId",
+    )
+  })?;
+  let manifest = store::find(app, game_id).map_err(|error| {
+    GameError::new(
+      codes::PACKAGE_NOT_FOUND,
+      format!("找不到游戏 {game_id}：{error}"),
+    )
+  })?;
+  let controller = manifest
+    .controllers
+    .iter()
+    .find(|controller| {
+      controller.kind() == GameControllerKind::Widget
+        && controller.widget_id.as_deref() == Some(widget_id)
+    })
+    .cloned()
+    .ok_or_else(|| {
+      GameError::new(
+        codes::CONTROLLER_NOT_DECLARED,
+        format!("游戏 {game_id} 没有声明控制器 Widget {widget_id}"),
+      )
+    })?;
+  let binding = manager::ControllerBinding {
+    game_id: game_id.to_string(),
+    controller_id: controller.id.clone(),
+    kind: GameControllerKind::Widget,
+    window_label: label.to_string(),
+    allowed_commands: controller
+      .commands
+      .as_ref()
+      .map(|commands| commands.iter().cloned().collect()),
+    allowed_events: controller
+      .events
+      .as_ref()
+      .map(|events| events.iter().cloned().collect()),
+  };
+  {
+    let mut guard = manager();
+    guard
+      .controller_bindings
+      .insert(label.to_string(), binding.clone());
+  }
+  Ok(binding)
 }
 
 /// 参与者连接：authority / wallpaper replica / widget controller。
@@ -151,6 +227,7 @@ pub fn game_connect(
           Some(&instance),
           None,
           locale,
+          None,
         )),
         replica_id: None,
       })
@@ -227,6 +304,7 @@ pub fn game_connect(
         Some(&instance),
         Some(render),
         locale,
+        None,
       );
       let _ = app.emit_to(&label, manager::EVENT_SNAPSHOT, instance.snapshot());
       Ok(GameConnectResult {
@@ -235,30 +313,62 @@ pub fn game_connect(
       })
     }
     WindowRole::Controller => {
-      let widget_id =
-        permissions::require_widget_controller(&app, &label, token.as_deref(), "game.state.read")?;
-      let game_id = request
-        .game_id
-        .as_deref()
-        .ok_or_else(|| GameError::new(codes::PERMISSION_DENIED, "controller 缺少 gameId"))?;
+      let binding = resolve_controller_binding(
+        &app,
+        &label,
+        token.as_deref(),
+        request.game_id.as_deref(),
+      )?;
+      let game_id = binding.game_id.clone();
+      if let Some(requested) = request.game_id.as_deref() {
+        if requested != game_id {
+          return Err(GameError::new(
+            codes::CONTROLLER_TARGET_MISMATCH,
+            format!("控制器已绑定游戏 {game_id}，不能连接到 {requested}"),
+          ));
+        }
+      }
       let instance = {
-        let manager = manager();
-        manager.instances.get(game_id).cloned()
+        let guard = manager();
+        guard.instances.get(&game_id).cloned().ok_or_else(|| {
+          GameError::new(
+            codes::CONTROLLER_NOT_ACTIVE,
+            "游戏未运行：控制器只在游戏运行中可用",
+          )
+        })?
       };
+      if !instance.status.accepts_controller() {
+        return Err(GameError::new(
+          codes::CONTROLLER_NOT_ACTIVE,
+          format!(
+            "游戏当前状态 {} 不接受控制器，请启动游戏后再打开控制器",
+            instance.status.as_str()
+          ),
+        ));
+      }
       let resumed = {
-        let mut manager = manager();
-        manager.controllers.insert(
+        let mut guard = manager();
+        if let Some(existing) = guard.controllers.get(&label) {
+          if existing.game_id != game_id {
+            return Err(GameError::new(
+              codes::CONTROLLER_IN_USE,
+              "控制器已连接到其它游戏，请先关闭窗口",
+            ));
+          }
+        }
+        guard.controllers.insert(
           label.clone(),
           manager::ControllerEntry {
-            game_id: game_id.to_string(),
-            instance_id: instance
-              .as_ref()
-              .map(|instance| instance.instance_id.clone()),
+            game_id: game_id.clone(),
+            controller_id: binding.controller_id.clone(),
+            kind: binding.kind,
+            instance_id: Some(instance.instance_id.clone()),
             window_label: label.clone(),
+            allowed_events: binding.allowed_events.clone(),
             connected_at_ms: now_ms(),
           },
         );
-        manager.instances.get_mut(game_id).and_then(|instance| {
+        guard.instances.get_mut(&game_id).and_then(|instance| {
           let offline = instance.mark_participant(now_ms())?;
           Some(instance.lifecycle("resumed", Some("hidden"), Some(offline.min(offline_cap))))
         })
@@ -267,15 +377,15 @@ pub fn game_connect(
         manager::emit_lifecycle(&app, &lifecycle);
         manager::emit_games_changed(&app);
       }
-      let instance = manager().instances.get(game_id).cloned();
-      let _ = widget_id;
+      let instance = manager().instances.get(&game_id).cloned();
       Ok(GameConnectResult {
         context: Some(context_for(
           GameRole::Controller,
-          game_id,
+          &game_id,
           instance.as_ref(),
           None,
           locale,
+          Some(binding.controller_id),
         )),
         replica_id: None,
       })
@@ -320,15 +430,18 @@ pub fn game_snapshot_get(
       )
     }
     WindowRole::Controller => {
-      let _ =
-        permissions::require_widget_controller(&app, &label, token.as_deref(), "game.state.read")?;
+      let binding = permissions::require_controller(
+        &app,
+        &label,
+        token.as_deref(),
+        "game.state.read",
+      )?;
       let game_id = {
-        let manager = manager();
-        manager
+        let guard = manager();
+        guard
           .controllers
           .get(&label)
-          .map(|controller| controller.game_id.clone())
-          .ok_or_else(|| GameError::new(codes::PERMISSION_DENIED, "controller 未连接"))?
+          .map_or_else(|| binding.game_id.clone(), |controller| controller.game_id.clone())
       };
       Ok(
         instance_or_error(&game_id)
@@ -568,8 +681,12 @@ pub fn game_report_error(
       Ok(())
     }
     WindowRole::Controller => {
-      let _ =
-        permissions::require_widget_controller(&app, &label, token.as_deref(), "game.state.read")?;
+      let _ = permissions::require_controller(
+        &app,
+        &label,
+        token.as_deref(),
+        "game.state.read",
+      )?;
       Ok(())
     }
     _ => Err(GameError::new(
@@ -617,7 +734,7 @@ pub fn game_detach(window: Window, token: Option<String>) -> Result<(), GameErro
 }
 
 #[tauri::command]
-pub fn game_command_send(
+pub async fn game_command_send(
   app: AppHandle,
   window: Window,
   request: GameCommandSendRequest,
@@ -630,16 +747,20 @@ pub fn game_command_send(
       "只有 Controller Widget 可以发送命令",
     ));
   }
-  let _ =
-    permissions::require_widget_controller(&app, &label, token.as_deref(), "game.command.send")?;
-  let game_id = {
-    let manager = manager();
-    manager
-      .controllers
-      .get(&label)
-      .map(|controller| controller.game_id.clone())
-      .ok_or_else(|| GameError::new(codes::PERMISSION_DENIED, "controller 未连接"))?
-  };
+  let binding =
+    permissions::require_controller(&app, &label, token.as_deref(), "game.command.send")?;
+  if let Some(allowed) = &binding.allowed_commands {
+    if !allowed.contains(&request.kind) {
+      return Err(GameError::new(
+        codes::COMMAND_NOT_ALLOWED,
+        format!(
+          "控制器 {} 不能发送命令 {}（未在清单中声明）",
+          binding.controller_id, request.kind
+        ),
+      ));
+    }
+  }
+  let game_id = binding.game_id.clone();
   let now = now_ms();
   let pending_key = format!("{game_id}:{}", request.request_id);
   let (instance_id, timeout_ms, envelope) = {
@@ -652,6 +773,12 @@ pub fn game_command_send(
       return Err(GameError::new(
         codes::INSTANCE_NOT_RUNNING,
         format!("实例当前状态 {} 不接受命令", instance.status.as_str()),
+      ));
+    }
+    if !instance.spec.capabilities.contains("game.command.receive") {
+      return Err(GameError::new(
+        codes::COMMAND_NOT_GRANTED,
+        "游戏未声明或未授权 game.command.receive，不能接收命令",
       ));
     }
     if !instance.spec.commands.contains(&request.kind) {
@@ -719,7 +846,14 @@ pub fn game_command_send(
     );
   }
   authority::send_command(&app, &instance_id, &envelope);
-  match receiver.recv_timeout(Duration::from_millis(timeout_ms)) {
+  // 必须在阻塞线程里等：同步命令会占住主线程，authority 的 commit/result 回执
+  // 也要走主线程 IPC，会一起被卡到超时。
+  let waited = tauri::async_runtime::spawn_blocking(move || {
+    receiver.recv_timeout(Duration::from_millis(timeout_ms))
+  })
+  .await
+  .map_err(|error| GameError::new(codes::IO_ERROR, format!("命令等待任务失败：{error}")))?;
+  match waited {
     Ok(result) => Ok(result),
     Err(_) => {
       let mut manager = manager();
@@ -741,6 +875,30 @@ pub fn games_list(app: AppHandle) -> Vec<GameView> {
     .into_iter()
     .map(|package| {
       let instance = manager::instance_view(&manager_guard, &package.id);
+      let controllers = package
+        .controllers
+        .into_iter()
+        .map(|controller| {
+          let window_label = match controller.kind {
+            GameControllerKind::Widget => widget_package::label_for_id(
+              controller.widget_id.as_deref().unwrap_or_default(),
+            ),
+            GameControllerKind::Package => controller::label_for(&package.id, &controller.id),
+          };
+          GameControllerView {
+            id: controller.id,
+            kind: controller.kind,
+            label: controller.label,
+            widget_id: controller.widget_id,
+            entry: controller.entry,
+            installed: controller.installed,
+            enabled: controller.enabled,
+            auto_open: controller.auto_open,
+            window_open: manager_guard.controller_bindings.contains_key(&window_label),
+            connected: manager_guard.controllers.contains_key(&window_label),
+          }
+        })
+        .collect::<Vec<_>>();
       GameView {
         id: package.id,
         name: package.name,
@@ -755,6 +913,7 @@ pub fn games_list(app: AppHandle) -> Vec<GameView> {
         capabilities: package.capabilities,
         entry_replica_url: package.entry_replica_url,
         state_schema_version: package.state_schema_version,
+        controllers,
         instance,
       }
     })
@@ -797,6 +956,66 @@ pub async fn game_start(app: AppHandle, game_id: String) -> Result<GameInstanceV
   tauri::async_runtime::spawn_blocking(move || lifecycle::start(&app, &game_id))
     .await
     .map_err(|error| GameError::new(codes::IO_ERROR, format!("启动任务失败：{error}")))?
+}
+
+/// 设置页/托盘：打开游戏声明的控制器窗口并绑定目标游戏。
+#[tauri::command]
+pub async fn game_open_controller(
+  app: AppHandle,
+  game_id: String,
+  controller_id: Option<String>,
+) -> Result<(), GameError> {
+  controller::open(
+    &app,
+    &game_id,
+    controller_id.as_deref(),
+    controller::OpenSource::Host,
+  )
+  .await?;
+  Ok(())
+}
+
+/// 设置页/托盘：关闭控制器窗口（`controllerId` 缺省 = 全部）。
+#[tauri::command]
+pub fn game_close_controller(
+  app: AppHandle,
+  game_id: String,
+  controller_id: Option<String>,
+) -> Result<(), GameError> {
+  controller::close(&app, &game_id, controller_id.as_deref());
+  Ok(())
+}
+
+/// 游戏侧：Authority 请求打开/关闭自己的控制器窗口。
+#[tauri::command]
+pub async fn game_controller_request(
+  window: Window,
+  token: Option<String>,
+  request: GameControllerRequest,
+) -> Result<(), GameError> {
+  if permissions::role_of(window.label()) != WindowRole::Authority {
+    return Err(GameError::new(
+      codes::PERMISSION_DENIED,
+      "只有游戏 Authority 可以请求控制器窗口",
+    ));
+  }
+  let app = window.app_handle().clone();
+  let game_id = verify_authority(&window, token.as_deref())?;
+  match request.action {
+    GameControllerAction::Open => {
+      controller::open(
+        &app,
+        &game_id,
+        Some(&request.controller_id),
+        controller::OpenSource::Game,
+      )
+      .await?;
+    }
+    GameControllerAction::Close => {
+      controller::close(&app, &game_id, Some(&request.controller_id));
+    }
+  }
+  Ok(())
 }
 
 /// 壁纸窗专用：按 `games.json.autoStartWithWallpaper` 自动启动壁纸绑定的游戏。
@@ -987,10 +1206,12 @@ mod tests {
       None,
       None,
       "zh-CN".into(),
+      Some("panel".into()),
     );
     assert_eq!(context.authority_epoch, 0);
     assert_eq!(context.revision, 0);
     assert!(context.instance_id.is_none());
+    assert_eq!(context.controller_id.as_deref(), Some("panel"));
     assert_eq!(context.limits.max_replicas, 8);
   }
 }

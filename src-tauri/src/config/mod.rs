@@ -5,7 +5,7 @@
 //! - 写盘失败必须回滚调用方的内存状态（由命令层负责）；
 //! - 不读取、不迁移旧版 `wallpaper.json`；版本不匹配时回退默认值并记录警告。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::media::video::config::MediaConfig;
@@ -24,6 +24,10 @@ pub struct MonitorConfig {
   /// 每屏场景覆盖（仅 independent 模式消费；None = 跟随全局）。
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub scene: Option<String>,
+  /// 每屏游戏覆盖（仅 independent 模式消费；None = 跟随全局）。
+  /// 与场景覆盖同时存在时游戏优先；显式选场景会清掉该屏游戏。
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub game: Option<String>,
 }
 
 impl Default for MonitorConfig {
@@ -31,6 +35,7 @@ impl Default for MonitorConfig {
     Self {
       enabled: true,
       scene: None,
+      game: None,
     }
   }
 }
@@ -88,6 +93,7 @@ pub struct DisplayConfig {
   #[serde(default = "default_scene")]
   pub scene: String,
   /// 非空时壁纸直接渲染该游戏包的 `entry.replica`；`scene` 保留为清空游戏后的回退。
+  /// mirror / span 下这是唯一内容源；independent 下作为未逐屏覆盖的显示器的回退。
   /// 与 `scene` 是两个独立字段：游戏 id 永远不会写进 `scene`。
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub game: Option<String>,
@@ -271,8 +277,77 @@ impl WallpaperConfig {
   }
 
   /// 记录该显示器的场景覆盖（None = 移除覆盖、跟随全局）。
+  /// 显式选场景同时清掉该屏的游戏覆盖，保证“选了什么就显示什么”。
   pub fn set_monitor_scene(&mut self, device: &str, scene: Option<String>) {
-    self.monitors.entry(device.to_string()).or_default().scene = scene;
+    let monitor = self.monitors.entry(device.to_string()).or_default();
+    monitor.scene = scene;
+    monitor.game = None;
+  }
+
+  /// 记录该显示器的游戏覆盖（None = 移除覆盖、回退到全局/场景）。
+  pub fn set_monitor_game(&mut self, device: &str, game: Option<String>) {
+    self.monitors.entry(device.to_string()).or_default().game = game;
+  }
+
+  /// 全局设置游戏：同步覆盖每屏的逐屏游戏。
+  ///
+  /// 显式“设为壁纸 / 取消游戏壁纸”是全局动作；如果只改 `display.game`，旧逐屏游戏
+  /// 会在切回 independent 时复活，和用户刚做的选择矛盾。
+  pub fn set_game_all(&mut self, game: Option<String>) {
+    self.display.set_game(game.clone());
+    for monitor in self.monitors.values_mut() {
+      monitor.game = game.clone();
+    }
+  }
+
+  /// 该屏**实际渲染**的游戏，与 `wallpaper::protocol::monitor_url` 同一套解析：
+  /// - mirror / span：只认全局游戏，忽略每屏覆盖；
+  /// - independent：每屏游戏优先；只有场景覆盖时表示“这块屏不要游戏”；
+  /// - 都没有时回退到全局游戏。
+  #[must_use]
+  pub fn effective_game(&self, device: &str) -> Option<String> {
+    if self.display.mode != DisplayMode::Independent {
+      return self.display.game.clone();
+    }
+    if let Some(monitor) = self.monitors.get(device) {
+      if monitor.game.is_some() {
+        return monitor.game.clone();
+      }
+      if monitor.scene.is_some() {
+        return None;
+      }
+    }
+    self.display.game.clone()
+  }
+
+  /// 当前“壁纸激活”的游戏集合：全局游戏 + independent 下逐屏游戏，去重排序。
+  #[must_use]
+  pub fn active_games(&self) -> Vec<String> {
+    let mut games: BTreeSet<String> = BTreeSet::new();
+    if let Some(game) = &self.display.game {
+      games.insert(game.clone());
+    }
+    if self.display.mode == DisplayMode::Independent {
+      for monitor in self.monitors.values() {
+        if let Some(game) = &monitor.game {
+          games.insert(game.clone());
+        }
+      }
+    }
+    games.into_iter().collect()
+  }
+
+  /// 某个游戏是否仍被任何显示器实际使用（含全局与 independent 逐屏覆盖）。
+  #[must_use]
+  pub fn game_in_use(&self, game_id: &str) -> bool {
+    if self.display.game.as_deref() == Some(game_id) {
+      return true;
+    }
+    self.display.mode == DisplayMode::Independent
+      && self
+        .monitors
+        .values()
+        .any(|monitor| monitor.game.as_deref() == Some(game_id))
   }
 
   /// 该屏生效的场景：每屏覆盖 → 全局回退。
@@ -304,18 +379,19 @@ impl WallpaperConfig {
   ///
   /// 不能用 `resolved_scene`：mirror/span 下每屏覆盖被忽略，残留的 monitor.scene
   /// 不应阻止卸载场景（否则切换了全局壁纸也卸载不掉）。
+  /// independent 下逐屏游戏会让该屏的场景不参与画面，同样不算“在用”。
   pub fn scene_in_use(&self, scene: &str) -> bool {
-    // 游戏直接渲染时场景不参与画面，卸载场景不会影响当前壁纸。
-    if self.display.game.is_some() {
-      return false;
+    if self.display.mode != DisplayMode::Independent {
+      // 全局游戏直接渲染时场景不参与任何画面。
+      return self.display.game.is_none() && self.display.scene == scene;
     }
-    if self.display.scene == scene {
+    // 全局场景仍是未覆盖显示器的回退；只有全局有游戏时它才完全退场。
+    if self.display.game.is_none() && self.display.scene == scene {
       return true;
     }
-    self
-      .monitors
-      .keys()
-      .any(|device| self.effective_scene(device) == scene)
+    self.monitors.keys().any(|device| {
+      self.effective_game(device).is_none() && self.effective_scene(device) == scene
+    })
   }
 }
 
@@ -606,6 +682,19 @@ mod tests {
   }
 
   #[test]
+  fn scene_in_use_skips_monitor_that_renders_a_game() {
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Independent;
+    c.display.scene = "lull.aurora".into();
+    c.set_monitor_scene(D2, Some("lull.video".into()));
+    assert!(c.scene_in_use("lull.video"));
+
+    // 同一块屏再选游戏：游戏优先，残留的 scene 不再算“在用”。
+    c.set_monitor_game(D2, Some("community.two".into()));
+    assert!(!c.scene_in_use("lull.video"));
+  }
+
+  #[test]
   fn scene_params_roundtrip_and_empty_resets_defaults() {
     let path = temp_path("scene_params");
     let mut c = WallpaperConfig::default();
@@ -657,6 +746,112 @@ mod tests {
   fn game_field_is_omitted_when_unset() {
     let json = serde_json::to_string(&DisplayConfig::default()).unwrap();
     assert!(!json.contains("\"game\""));
+  }
+
+  #[test]
+  fn monitor_game_follows_mode_and_scene_override() {
+    let mut c = WallpaperConfig::default();
+    c.display.set_game(Some("community.global".into()));
+    c.set_monitor_game(D1, Some("community.local".into()));
+
+    // mirror / span 忽略逐屏游戏，只看全局。
+    assert_eq!(
+      c.effective_game(D1).as_deref(),
+      Some("community.global")
+    );
+    c.display.mode = DisplayMode::Independent;
+    assert_eq!(c.effective_game(D1).as_deref(), Some("community.local"));
+    assert_eq!(
+      c.effective_game(D2).as_deref(),
+      Some("community.global")
+    );
+
+    // 显式选场景会清掉该屏游戏，并在 independent 下压过全局游戏。
+    c.set_monitor_scene(D2, Some("lull.video".into()));
+    assert!(c.monitors.get(D2).is_some_and(|monitor| monitor.game.is_none()));
+    assert_eq!(c.effective_game(D2), None);
+    assert_eq!(c.effective_scene(D2), "lull.video");
+    assert!(c.game_in_use("community.global"));
+    assert!(c.game_in_use("community.local"));
+  }
+
+  #[test]
+  fn monitor_game_is_ignored_outside_independent_mode() {
+    let mut c = WallpaperConfig::default();
+    c.display.set_game(Some("community.global".into()));
+    c.set_monitor_game(D1, Some("community.local".into()));
+    assert!(c.game_in_use("community.global"));
+    assert!(!c.game_in_use("community.local"));
+    assert_eq!(c.active_games(), vec!["community.global".to_string()]);
+
+    c.display.mode = DisplayMode::Independent;
+    assert_eq!(
+      c.active_games(),
+      vec![
+        "community.global".to_string(),
+        "community.local".to_string()
+      ]
+    );
+  }
+
+  #[test]
+  fn global_game_sets_every_monitor_in_independent_mode() {
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Independent;
+    c.set_monitor_game(D1, Some("community.one".into()));
+    c.set_monitor_game(D2, Some("community.two".into()));
+    c.set_game_all(Some("community.three".into()));
+    assert_eq!(
+      c.effective_game(D1).as_deref(),
+      Some("community.three")
+    );
+    assert_eq!(
+      c.effective_game(D2).as_deref(),
+      Some("community.three")
+    );
+
+    c.set_game_all(None);
+    assert_eq!(c.effective_game(D1), None);
+    assert_eq!(c.effective_game(D2), None);
+    assert!(c.active_games().is_empty());
+  }
+
+  #[test]
+  fn global_game_clears_stale_monitor_games_outside_independent_mode() {
+    let mut c = WallpaperConfig::default();
+    c.set_monitor_game(D1, Some("community.old".into()));
+    c.set_game_all(Some("community.new".into()));
+    assert_eq!(
+      c.monitors.get(D1).and_then(|monitor| monitor.game.as_deref()),
+      Some("community.new")
+    );
+
+    c.display.mode = DisplayMode::Independent;
+    assert_eq!(
+      c.effective_game(D1).as_deref(),
+      Some("community.new")
+    );
+  }
+
+  #[test]
+  fn monitor_game_roundtrips_and_omits_none() {
+    let path = temp_path("monitor_game");
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Independent;
+    c.set_monitor_game(D2, Some("community.local".into()));
+    c.save(&path).unwrap();
+    let loaded = WallpaperConfig::load_outcome(&path).config;
+    assert_eq!(
+      loaded.monitors.get(D2).and_then(|monitor| monitor.game.clone()),
+      Some("community.local".into())
+    );
+
+    let raw = std::fs::read_to_string(&path).unwrap();
+    assert!(raw.contains("\"game\": \"community.local\""), "{raw}");
+    let default_path = temp_path("monitor_game_default");
+    WallpaperConfig::default().save(&default_path).unwrap();
+    let raw = std::fs::read_to_string(&default_path).unwrap();
+    assert!(!raw.contains("\"game\""), "无游戏时不应落盘 game 字段: {raw}");
   }
 
   #[test]

@@ -495,7 +495,7 @@ test("independent shows per-row scene dropdowns; selecting invokes command", asy
   });
   renderWallpaperLibrary();
   const trigger = await screen.findByRole("combobox", {
-    name: "显示器 2 场景",
+    name: "显示器 2 壁纸",
   });
   fireEvent.keyDown(trigger, { key: "Enter" });
   const option = await screen.findByRole("option", { name: "媒体" });

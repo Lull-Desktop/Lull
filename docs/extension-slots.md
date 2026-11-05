@@ -360,7 +360,7 @@ type SlotInfo = {
 
 - 每个 Slot 一项，label 用 Slot 名称；点击 `extensions_slot_activate`。
 - 不再把官方 `player` / `noise` 当普通扩展直接列。
-- 「扩展」子菜单只列非 Provider 的已启用 Widget。
+- 「扩展」子菜单列出非 Provider 的工具与壁纸；游戏不进入该菜单，控制器在「设置 ▸ 游戏控制器」。
 - 安装/启用/停用/卸载导致 Slot 可用性变化时重建；`active`/`visible` 变化不重建。
 
 ### 8.3 设置 → 偏好 → 通用卡片 → 窗口

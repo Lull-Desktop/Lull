@@ -248,7 +248,7 @@ await game.command("plant.seed", { seedId: "seed-1" });
 
 - 控制器只能读状态、发命令；写状态、启停实例、删除存档属于 Authority / 设置页（宿主控制面），Widget 拿不到。
 - 未运行时 `context.instanceId` 为 `null`，`command` 返回 `game.instance_not_running`；控制器应按"未运行"展示，而不是弹错误。
-- 完整示例：[`examples/widgets/living-world-controller`](../examples/widgets/living-world-controller)；完整 API 与能力语义见 [Game SDK](./game-sdk.md) §6。
+- 完整 API 与能力语义见 [Game SDK](./game-sdk.md) §6；示例游戏现统一使用包内控制器，`widgetId` 载体保留给需要复用独立 Widget UI 的第三方游戏。
 
 React：
 

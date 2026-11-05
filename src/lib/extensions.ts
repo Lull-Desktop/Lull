@@ -6,14 +6,15 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 
-export type ExtensionKind = "scene" | "widget";
+export type ExtensionKind = "scene" | "widget" | "game";
 
 export type ExtensionStatus =
   | "ready"
   | "unverified"
   | "tampered"
   | "invalid"
-  | "needs-review";
+  | "needs-review"
+  | "disabled";
 
 export type ExtensionWindowInfo = {
   width: number;

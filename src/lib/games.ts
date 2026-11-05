@@ -45,6 +45,27 @@ export type GameInstanceView = {
   updatedAt: number;
 };
 
+/** 控制器窗口的载体：包内页面或外部 Widget。 */
+export type GameControllerKind = "package" | "widget";
+
+/** 游戏声明的控制器窗口（含安装/启用与运行态）。 */
+export type GameControllerView = {
+  /** 清单里的槽位 id；旧单数声明归一化为 `default`。 */
+  id: string;
+  kind: GameControllerKind;
+  /** 清单/Widget 提供的展示名；缺省时回退到 id。 */
+  label?: string | null;
+  widgetId?: string | null;
+  entry?: string | null;
+  installed: boolean;
+  enabled: boolean;
+  autoOpen: boolean;
+  /** 控制器窗口当前是否存在。 */
+  windowOpen: boolean;
+  /** 控制器是否已连接。 */
+  connected: boolean;
+};
+
 /** 已安装游戏的宿主视图（设置页与扩展中心共用）。 */
 export type GameView = {
   id: string;
@@ -62,6 +83,8 @@ export type GameView = {
   /** 包内 `entry.replica` 的 `lullgame://` URL；没有自带渲染入口时缺席。 */
   entryReplicaUrl?: string | null;
   stateSchemaVersion: number;
+  /** 清单声明的控制器窗口；未声明时为空数组。 */
+  controllers: GameControllerView[];
   instance?: GameInstanceView | null;
 };
 
@@ -117,6 +140,8 @@ export type GameContext = {
   revision: number;
   simulationTimeMs: number;
   render?: GameRenderContext | null;
+  /** Controller 角色才有：宿主声明的控制器槽位 id。 */
+  controllerId?: string | null;
   limits: GameLimits;
   locale: string;
 };
@@ -204,6 +229,8 @@ export type GamesConfig = {
   resumeOnLaunch: boolean;
   maxRunning: number;
   offlineMaxMs: number;
+  /** 启动游戏时自动打开清单声明的控制器（默认开）。 */
+  controllerFollowsGame: boolean;
 };
 
 export const GAMES_CONFIG_DEFAULT: GamesConfig = {
@@ -212,6 +239,7 @@ export const GAMES_CONFIG_DEFAULT: GamesConfig = {
   resumeOnLaunch: false,
   maxRunning: 3,
   offlineMaxMs: 7 * 24 * 3_600 * 1_000,
+  controllerFollowsGame: true,
 };
 
 const OFFLINE_MIN_MS = 3_600_000;
@@ -247,6 +275,10 @@ export function normalizeGamesConfig(value: unknown): GamesConfig {
         : GAMES_CONFIG_DEFAULT.resumeOnLaunch,
     maxRunning,
     offlineMaxMs,
+    controllerFollowsGame:
+      typeof record.controllerFollowsGame === "boolean"
+        ? record.controllerFollowsGame
+        : GAMES_CONFIG_DEFAULT.controllerFollowsGame,
   };
 }
 

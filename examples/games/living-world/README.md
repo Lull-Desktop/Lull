@@ -4,14 +4,18 @@ P1/P4 的最小可运行示例：一个零构建的**单包完整游戏**，同�
 
 - 包名：`community.living-world`
 - 入口：`authority/index.html`（隐藏窗口，host-tick 提交）、`replica/index.html`（壁纸可见渲染）
+- 控制器：`panel`（包内页面 `controllers/panel/index.html`）
 - 模式：`host-tick`（宿主每 1s 发 tick，游戏不自己跑循环）
 - 存档：`{ simulationMs, water, bloom, plants[], lastSettledMs }`
 
 ## 运行
 
-1. 把整个目录（或 `community.living-world-1.1.2.lull-game.zip`）通过扩展中心安装为游戏，或在设置页游戏页签里启用。
+1. 把整个目录（或 `community.living-world-1.2.0.lull-game.zip`）通过扩展中心安装为游戏，或在设置页游戏页签里启用。
+   也可以直接 `pnpm games:samples:install`：控制器 UI 随游戏包一起安装，不需要额外装 Widget。
 2. 设置页「游戏」点「设为壁纸」：壁纸宿主直接加载包内 `replica/index.html`，不需要安装场景。
-3. 启动游戏后，隐藏的 `game-authority-*` 窗口会加载 `authority/index.html`；植物随时间生长，可通过控制器 Widget 或设置页操作。
+3. 启动游戏后，隐藏的 `game-authority-*` 窗口会加载 `authority/index.html`；植物随时间生长。
+   运行中实例的操作区会出现 `panel` 控制器开关，打开包内控制台即可种/浇水；
+   托盘「设置 ▸ 游戏控制器」会列出所有运行中游戏的控制器。
 4. 也可以继续安装 `examples/scenes/living-world`，把场景当作可选主题；场景与包内 replica 共用同一套 `game.*` 只读桥。
 
 ## 说明

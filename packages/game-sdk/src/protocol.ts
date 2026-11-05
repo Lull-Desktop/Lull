@@ -76,6 +76,8 @@ export type GameContext = {
   simulationTimeMs: number;
   /** Authority 不渲染；Replica / Controller 也只有在宿主提供时才有。 */
   render?: GameRenderContext | null;
+  /** Controller 角色才有：宿主声明的控制器槽位 id。 */
+  controllerId?: string | null;
   limits: GameLimits;
   locale: string;
 };
@@ -222,6 +224,14 @@ export type GameReportErrorRequest = {
   message: string;
 };
 
+/** Controller 发命令的线上参数（与 Rust `GameCommandSendRequest` 一致）。 */
+export type GameCommandSendRequest = {
+  requestId: string;
+  type: string;
+  payload?: unknown;
+  expectedRevision?: number;
+};
+
 export type GameConnectResult = {
   /** 实例未运行时为 null（正常态，不抛错）。 */
   context: GameContext | null;
@@ -285,6 +295,46 @@ export type GameRequestMessage<M extends GameBridgeMethod = GameBridgeMethod> =
   };
 
 export type GameClientMessage = GameReadyMessage | GameRequestMessage;
+
+/** 包内控制器 iframe → 宿主壳的方法表；与 `/game-controller` 壳的请求路由对应。 */
+export type GameControllerBridgeMethods = {
+  "snapshot.get": {
+    params: Record<string, never>;
+    result: GameSnapshot | null;
+  };
+  "command.send": {
+    params: GameCommandSendRequest;
+    result: GameCommandResult;
+  };
+  "error.report": {
+    params: GameReportErrorRequest;
+    result: null;
+  };
+  disconnect: {
+    params: Record<string, never>;
+    result: { disconnected: boolean };
+  };
+};
+
+export type GameControllerBridgeMethod = keyof GameControllerBridgeMethods;
+export type GameControllerBridgeParams<M extends GameControllerBridgeMethod> =
+  GameControllerBridgeMethods[M]["params"];
+export type GameControllerBridgeResult<M extends GameControllerBridgeMethod> =
+  GameControllerBridgeMethods[M]["result"];
+
+export type GameControllerRequestMessage<
+  M extends GameControllerBridgeMethod = GameControllerBridgeMethod,
+> = {
+  v: typeof GAME_PROTOCOL;
+  type: "request";
+  id: number;
+  method: M;
+  params: GameControllerBridgeParams<M>;
+};
+
+export type GameControllerClientMessage =
+  | GameReadyMessage
+  | GameControllerRequestMessage;
 
 // ---------------------------------------------------------------------------
 // 宿主壳 → iframe

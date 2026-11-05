@@ -22,22 +22,43 @@ const CAPABILITY_META: Record<
   "widget.media": { label: m.ext_cap_media, level: "hint" },
   "widget.network": { label: m.ext_cap_network, level: "required" },
   "widget.chrome": { label: m.ext_cap_chrome, level: "required" },
-  "media.noise.library.read": { label: m.ext_cap_noise_library_read, level: "basic" },
-  "media.noise.session.read": { label: m.ext_cap_noise_session_read, level: "required" },
+  "media.noise.library.read": {
+    label: m.ext_cap_noise_library_read,
+    level: "basic",
+  },
+  "media.noise.session.read": {
+    label: m.ext_cap_noise_session_read,
+    level: "required",
+  },
   "media.noise.session.control": {
     label: m.ext_cap_noise_session_control,
     level: "required",
   },
-  "media.noise.tracks.read": { label: m.ext_cap_noise_tracks_read, level: "basic" },
-  "media.noise.tracks.write": { label: m.ext_cap_noise_tracks_write, level: "required" },
-  "media.noise.volume.write": { label: m.ext_cap_noise_volume_write, level: "hint" },
-  "media.noise.presets.read": { label: m.ext_cap_noise_presets_read, level: "basic" },
+  "media.noise.tracks.read": {
+    label: m.ext_cap_noise_tracks_read,
+    level: "basic",
+  },
+  "media.noise.tracks.write": {
+    label: m.ext_cap_noise_tracks_write,
+    level: "required",
+  },
+  "media.noise.volume.write": {
+    label: m.ext_cap_noise_volume_write,
+    level: "hint",
+  },
+  "media.noise.presets.read": {
+    label: m.ext_cap_noise_presets_read,
+    level: "basic",
+  },
   "media.noise.presets.write": {
     label: m.ext_cap_noise_presets_write,
     level: "required",
   },
   "media.player.read": { label: m.ext_cap_player_read, level: "basic" },
-  "media.player.control": { label: m.ext_cap_player_control, level: "required" },
+  "media.player.control": {
+    label: m.ext_cap_player_control,
+    level: "required",
+  },
   "media.player.volume.write": {
     label: m.ext_cap_player_volume_write,
     level: "hint",
@@ -85,7 +106,14 @@ export function capabilityLevel(capability: string): string {
 }
 
 export function kindLabel(kind: string): string {
-  return kind === "widget" ? m.ext_kind_widget() : m.ext_kind_scene();
+  switch (kind) {
+    case "widget":
+      return m.ext_kind_widget();
+    case "game":
+      return m.ext_kind_game();
+    default:
+      return m.ext_kind_scene();
+  }
 }
 
 export function statusLabel(status: string): string {
@@ -100,6 +128,8 @@ export function statusLabel(status: string): string {
       return m.ext_status_invalid();
     case "needs-review":
       return m.ext_status_needs_review();
+    case "disabled":
+      return m.ext_state_disabled();
     default:
       return status;
   }

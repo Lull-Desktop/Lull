@@ -110,8 +110,8 @@
 
 | 术语 | 含义 |
 | --- | --- |
-| **扩展（extension）** | 用户可安装的内容或工具的总称，`kind = scene \| widget` |
-| **包（package）** | 一个目录 + 一份根清单（`catalog.json` 或 `widget.json`） |
+| **扩展（extension）** | 用户可安装的内容或工具的总称，`kind = scene \| widget \| game` |
+| **包（package）** | 一个目录 + 一份根清单（`catalog.json` / `widget.json` / `game.json`） |
 | **适配器（adapter）** | 某一 kind 的校验、摘要、安装落点、运行时入口 |
 | **安装管线（pipeline）** | 与 kind 无关的解压、限流、staging、原子落地、事件 |
 | **已安装** | 文件通过校验并写入安装目录 |
@@ -172,13 +172,13 @@
 
 ```text
 扩展
-管理壁纸内容与工具扩展。安装不会自动运行；启用时才授予权限。
+管理壁纸内容、工具与游戏扩展。安装不会自动运行；启用时才授予权限。
 ┌──────────────────────────────────────────────────────────────┐
 │ 仅允许已验签的扩展                                      [关] │
 │ 开启后，未验签或签名无效的扩展不能安装或启用。               │
 │                                                              │
-│ 已安装 3 个（工具 2 / 壁纸 1）    [从文件安装][打开目录][刷新]│
-│ [ 全部 ] [ 工具 ] [ 壁纸 ]            ← 过滤 chip            │
+│ 已安装 4 个（工具 2 / 壁纸 1 / 游戏 1） [从文件安装][打开目录][刷新]│
+│ [ 全部 ] [ 工具 ] [ 壁纸 ] [ 游戏 ] ← 过滤 chip（仅设置页）    │
 │ 把 .zip 或解压后的文件夹拖到这里；拖不动就点「从文件安装」。 │
 │ ┌────────────── 列表内部滚动（只有这里滚动）───────────────┐ │
 │ │ 示例工具 1.2.0 · demo.tool      工具 专注计时 · Lull · MIT │ │
@@ -203,9 +203,9 @@
 | --- | --- | --- |
 | `icon` | 清单可选字段 | 缺失时用 kind 默认图标 |
 | `name` / `version` | 清单 | 直接展示 |
-| `kind` | 适配器 | 工具 / 壁纸 |
-| `status` | 扫描结果 | `ready` / `unverified` / `tampered` / `invalid` / `needs-review` |
-| `enabled` / `running` | 授权账本 / 窗口表 | 仅 widget |
+| `kind` | 适配器 | 工具 / 壁纸 / 游戏 |
+| `status` | 扫描结果 | `ready` / `unverified` / `tampered` / `invalid` / `needs-review` / `disabled`（游戏未启用） |
+| `enabled` / `running` | 授权账本 / 窗口表 | 仅 widget / game |
 | `verified` | 摘要复核 | `declared` / `computed` / `none` |
 | `dev` | 开发注册表 | 开发包徽章，禁止与正式包混排误导 |
 | 作者 / 许可 | 清单 | 缺失时显示“未声明” |
@@ -526,9 +526,9 @@ v1 在 scene 被引用时**拒绝卸载并提示先切换场景**，不做自动
 ### 8.1 返回结构
 
 ```ts
-type ExtensionKind = "scene" | "widget";
+type ExtensionKind = "scene" | "widget" | "game";
 
-type ExtensionStatus = "ready" | "unverified" | "tampered" | "invalid" | "needs-review";
+type ExtensionStatus = "ready" | "unverified" | "tampered" | "invalid" | "needs-review" | "disabled";
 
 type ExtensionError = {
   code: string;      // 稳定错误码，见 8.3
@@ -666,7 +666,7 @@ export type ExtensionPreview = {
 | `slot.rollback-failed` | 新实现失败且旧实现无法恢复 |
 | `manifest.provides-multiple` | `provides` 多于 1 条 |
 | `manifest.provider-capability-missing` | 已知 Slot 缺少必需能力 |
-| `extension.unsupported-kind` | `kind` 不是 scene / widget |
+| `extension.unsupported-kind` | `kind` 不是 scene / widget / game |
 | `extension.open-failed` | 创建/唤醒窗口失败 |
 | `extension.update-failed` | 启用/停用/权限/关闭失败 |
 | `extension.remove-failed` | 卸载失败 |
@@ -806,8 +806,11 @@ export type ExtensionPreview = {
 
 ### 11.2 托盘
 
-- 托盘菜单增加「扩展」子菜单，只列已启用 widget，点击直接打开。
-- 没有已启用扩展时省略该子菜单。
+- 托盘菜单增加「扩展」子菜单，列出除**游戏**外的扩展组件：
+  - 工具（widget）点击直接打开；停用工具保留并置灰。
+  - 壁纸（scene）显示为「壁纸 · 名称」，点击打开壁纸库；应用场景/切换游戏统一走壁纸库的确认流程。
+  - 游戏由「设置 ▸ 游戏控制器」/ 游戏页管理，不进入该子菜单。
+- 规则在 `tray.rs` 内独立实现，不读取设置页的分类筛选状态；没有可展示扩展时省略子菜单。
 - `extensions-changed` 时重建菜单；重建失败保留旧菜单并记日志，不影响托盘退出。
 - 实现：`app.tray_by_id("main-tray")` + `set_menu`；菜单构建集中在 `tray.rs`。
 
@@ -875,7 +878,8 @@ Scene 不建窗。中心里的“查看壁纸设置”切到「壁纸」页签�
 - [ ] 卸载删除文件、授权、状态，并广播事件；scene 被引用时安全回退。
 - [ ] 摘要不符的包不加载、不建窗，卡片可诊断。
 - [ ] 开发模式：添加目录、打开、改文件、重载生效；关闭开发模式后窗口消失。
-- [ ] 托盘「扩展」子菜单随启用状态增删。
+- [ ] 托盘「扩展」子菜单包含非游戏组件（工具 / 壁纸），且始终不含游戏。
+- [ ] 扩展页「工具 / 壁纸 / 游戏」分类过滤互不串类，计数随分类更新；过滤只影响设置页列表。
 - [ ] 旧版已安装包不卸载也能继续用。
 - [ ] 功能槽位：同 Slot 只运行一个实现；切换失败回滚；关闭窗口不让出 Slot。
 - [ ] 卸载当前 Provider 清理 Runtime 并回退/清空 Selected；重启不自动播放。

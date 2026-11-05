@@ -1,8 +1,12 @@
 //! 系统托盘：创建菜单，并统一设置窗口的创建、复用、显示与切换逻辑。
+use std::collections::BTreeSet;
+
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
+use crate::extension::ExtensionCategory;
+use crate::game_package::manifest::{GameController, GameControllerKind};
 use crate::window_host::{self, WidgetSpec, ALL_WIDGETS, SETTINGS};
 
 pub fn show_settings(app: &AppHandle) {
@@ -24,6 +28,10 @@ pub fn toggle_settings(app: &AppHandle) {
 ///
 /// 扩展启用/停用/安装/卸载后由 `extension::emit_changed` 调用；失败时保留旧菜单。
 pub fn refresh(app: &AppHandle) {
+  // 托盘尚未创建（启动早期/测试）时不用白建菜单。
+  if app.tray_by_id("main-tray").is_none() {
+    return;
+  }
   let Ok(menu) = build_menu(app) else {
     eprintln!("[tray] 重建菜单失败，保留旧菜单");
     return;
@@ -36,6 +44,14 @@ pub fn refresh(app: &AppHandle) {
     if let Err(error) = tray.set_tooltip(Some(crate::i18n::t("tray_tooltip"))) {
       eprintln!("[tray] 设置提示语失败：{error}");
     }
+  }
+}
+
+/// 从任意线程安全地重建托盘菜单（游戏启停、壁纸切换游戏时调用）。
+pub fn refresh_async(app: &AppHandle) {
+  let target = app.clone();
+  if let Err(error) = app.run_on_main_thread(move || refresh(&target)) {
+    eprintln!("[tray] 派发菜单刷新失败：{error}");
   }
 }
 
@@ -62,6 +78,129 @@ fn window_entries() -> impl Iterator<Item = &'static WidgetSpec> {
     .filter(|spec| spec.kind != SETTINGS.kind)
 }
 
+#[derive(Debug, Clone)]
+struct TrayController {
+  game_id: String,
+  game_name: String,
+  controller_id: String,
+  label: String,
+}
+
+/// 托盘控制器条目列出全部运行中的游戏；壁纸激活的排在最前。
+/// 设置子菜单是控制器管理入口，不能因为游戏没绑壁纸就消失。多显示器同一游戏去重。
+fn controller_games(wallpaper: &[String], active: &BTreeSet<String>) -> Vec<String> {
+  let mut games: Vec<String> = active.iter().cloned().collect();
+  games.sort_by(|left, right| {
+    let left_wallpaper = wallpaper.contains(left);
+    let right_wallpaper = wallpaper.contains(right);
+    right_wallpaper
+      .cmp(&left_wallpaper)
+      .then_with(|| left.cmp(right))
+  });
+  games
+}
+
+fn controller_available(app: &AppHandle, game_id: &str, controller: &GameController) -> bool {
+  match controller.kind() {
+    GameControllerKind::Widget => controller.widget_id.as_deref().is_some_and(|id| {
+      crate::widget_package::store::find(app, id).is_ok()
+        && crate::widget_package::store::is_enabled(app, id)
+    }),
+    GameControllerKind::Package => controller.entry.as_deref().is_some_and(|entry| {
+      crate::game_package::store::package_dir(app, game_id)
+        .map(|dir| dir.join(entry).is_file())
+        .unwrap_or(false)
+    }),
+  }
+}
+
+fn tray_controllers(app: &AppHandle) -> Vec<TrayController> {
+  let wallpaper = crate::wallpaper::runtime::active_games();
+  let active = crate::game::manager::active_controller_games();
+  let mut entries = Vec::new();
+  for game_id in controller_games(&wallpaper, &active) {
+    let Ok(manifest) = crate::game_package::store::find(app, &game_id) else {
+      continue;
+    };
+    for controller in &manifest.controllers {
+      if !controller_available(app, &game_id, controller) {
+        continue;
+      }
+      entries.push(TrayController {
+        game_id: game_id.clone(),
+        game_name: manifest.name.clone(),
+        controller_id: controller.id.clone(),
+        label: controller
+          .label
+          .clone()
+          .unwrap_or_else(|| controller.id.clone()),
+      });
+    }
+  }
+  entries
+}
+
+fn controller_item_id(game_id: &str, controller_id: &str) -> String {
+  format!("open-game-controller|{game_id}|{controller_id}")
+}
+
+/// 在「设置」子菜单里挂一个统一的「游戏控制器」子菜单：
+/// 列出全部运行中游戏的控制器，壁纸激活的游戏排在前；单游戏时直接列控制器，
+/// 多游戏时先按游戏分组。没有可打开的控制器时省略。
+fn append_controller_menu(app: &AppHandle, menu: &Submenu<Wry>) -> tauri::Result<()> {
+  let controllers = tray_controllers(app);
+  if controllers.is_empty() {
+    return Ok(());
+  }
+  menu.append(&PredefinedMenuItem::separator(app)?)?;
+  let root = Submenu::with_id(
+    app,
+    "game-controllers",
+    crate::i18n::t("tray_game_controller"),
+    true,
+  )?;
+  let mut games: Vec<&str> = controllers
+    .iter()
+    .map(|entry| entry.game_id.as_str())
+    .collect();
+  games.sort_unstable();
+  games.dedup();
+  if games.len() <= 1 {
+    for entry in &controllers {
+      root.append(&MenuItem::with_id(
+        app,
+        controller_item_id(&entry.game_id, &entry.controller_id),
+        entry.label.clone(),
+        true,
+        None::<&str>,
+      )?)?;
+    }
+    menu.append(&root)?;
+    return Ok(());
+  }
+  // 多游戏（逐屏不同游戏 / 多个运行实例）时按游戏分组，菜单里仍只出现运行中的游戏。
+  for game_id in games {
+    let game_name = controllers
+      .iter()
+      .find(|entry| entry.game_id == game_id)
+      .map(|entry| entry.game_name.clone())
+      .unwrap_or_else(|| game_id.to_string());
+    let submenu = Submenu::with_id(app, format!("game-controllers-{game_id}"), game_name, true)?;
+    for entry in controllers.iter().filter(|entry| entry.game_id == game_id) {
+      submenu.append(&MenuItem::with_id(
+        app,
+        controller_item_id(&entry.game_id, &entry.controller_id),
+        entry.label.clone(),
+        true,
+        None::<&str>,
+      )?)?;
+    }
+    root.append(&submenu)?;
+  }
+  menu.append(&root)?;
+  Ok(())
+}
+
 /// 构建「设置」子菜单：显示/隐藏设置 + 分隔线 + 各窗口入口。
 ///
 /// 窗口入口不再平铺在一级菜单里，托盘右键的层级保持为
@@ -69,6 +208,9 @@ fn window_entries() -> impl Iterator<Item = &'static WidgetSpec> {
 fn build_settings_menu(app: &AppHandle, toggle: &MenuItem<Wry>) -> tauri::Result<Submenu<Wry>> {
   let menu = Submenu::with_id(app, "settings", crate::i18n::t("tray_settings"), true)?;
   menu.append(toggle)?;
+
+  // 控制器入口列出全部运行中游戏，壁纸激活的排前；放在窗口入口前更显眼。
+  append_controller_menu(app, &menu)?;
 
   let windows = window_entries()
     .map(|spec| {
@@ -82,13 +224,93 @@ fn build_settings_menu(app: &AppHandle, toggle: &MenuItem<Wry>) -> tauri::Result
     })
     .collect::<tauri::Result<Vec<_>>>()?;
   if !windows.is_empty() {
-    // 分隔线把「显隐设置」与「打开各窗口」分成两组，避免误点。
+    // 分隔线把「控制器 / 显隐设置」与「打开各窗口」分成两组，避免误点。
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     for item in &windows {
       menu.append(item)?;
     }
   }
+
   Ok(menu)
+}
+
+/// 托盘「扩展」子菜单里的可执行项：工具直接开窗，壁纸打开壁纸库。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrayExtensionKind {
+  Tool,
+  Scene,
+}
+
+#[derive(Debug, Clone)]
+struct TrayExtension {
+  id: String,
+  name: String,
+  kind: TrayExtensionKind,
+  enabled: bool,
+}
+
+/// 托盘「扩展」子菜单的入选规则：除游戏外的扩展都保留。
+///
+/// - 工具（widget）：第三方、非 Provider；停用的仍显示但菜单项置灰。
+/// - 壁纸（scene）：显示为壁纸库入口；不做启用过滤。
+/// - 游戏：由游戏页 / 「设置 ▸ 游戏控制器」管理，不进入扩展菜单。
+/// 这条规则只作用于托盘，和设置页的分类筛选互不共享状态。
+fn tray_extension_allowed(
+  category: Option<ExtensionCategory>,
+  origin: &str,
+  is_provider: bool,
+) -> bool {
+  match category {
+    Some(ExtensionCategory::Game) | None => false,
+    Some(ExtensionCategory::Wallpaper) => true,
+    Some(ExtensionCategory::Tool) => origin != "bundled" && !is_provider,
+  }
+}
+
+/// 统一扩展列表 → 托盘扩展菜单条目；游戏在这里被类别规则排除。
+fn tray_extensions(app: &AppHandle) -> Vec<TrayExtension> {
+  crate::extension::extensions_list(app.clone())
+    .into_iter()
+    .filter_map(|item| {
+      let category = item.category()?;
+      // 坏掉的场景不提供快捷入口；仍可在扩展中心查看诊断。
+      if category == ExtensionCategory::Wallpaper
+        && matches!(item.status.as_str(), "invalid" | "tampered")
+      {
+        return None;
+      }
+      if !tray_extension_allowed(
+        Some(category),
+        &item.origin,
+        crate::extension::slots::defs::slot_for_provides(&item.provides).is_some(),
+      ) {
+        return None;
+      }
+      let (kind, enabled) = match category {
+        ExtensionCategory::Tool => (TrayExtensionKind::Tool, item.enabled == Some(true)),
+        ExtensionCategory::Wallpaper => (TrayExtensionKind::Scene, true),
+        ExtensionCategory::Game => return None,
+      };
+      Some(TrayExtension {
+        id: item.id,
+        name: item.name,
+        kind,
+        enabled,
+      })
+    })
+    .collect()
+}
+
+fn tray_extension_label(item: &TrayExtension) -> String {
+  match item.kind {
+    TrayExtensionKind::Scene => {
+      format!("{} · {}", crate::i18n::t("ext_kind_scene"), item.name)
+    }
+    TrayExtensionKind::Tool if !item.enabled => {
+      format!("{} · {}", item.name, crate::i18n::t("ext_state_disabled"))
+    }
+    _ => item.name.clone(),
+  }
 }
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -153,27 +375,29 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     )?);
   }
 
-  let enabled = packages
-    .into_iter()
-    .filter(|package| {
-      package.enabled
-        && package.origin != "bundled"
-        && crate::extension::slots::defs::slot_for_provides(&package.provides).is_none()
-    })
-    .collect::<Vec<_>>();
+  let enabled = tray_extensions(app);
   let submenu = if enabled.is_empty() {
     None
   } else {
     let menu = Submenu::with_id(app, "extensions", crate::i18n::t("tray_extensions"), true)?;
-    for package in &enabled {
-      let item = MenuItem::with_id(
+    let mut last_kind: Option<TrayExtensionKind> = None;
+    for item in &enabled {
+      if last_kind.is_some_and(|kind| kind != item.kind) {
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+      }
+      last_kind = Some(item.kind);
+      let id = match item.kind {
+        TrayExtensionKind::Tool => format!("ext-tool-{}", item.id),
+        TrayExtensionKind::Scene => format!("ext-scene-{}", item.id),
+      };
+      let entry = MenuItem::with_id(
         app,
-        format!("ext-{}", package.id),
-        &package.name,
-        true,
+        id,
+        tray_extension_label(item),
+        item.enabled,
         None::<&str>,
       )?;
-      menu.append(&item)?;
+      menu.append(&entry)?;
     }
     Some(menu)
   };
@@ -217,6 +441,44 @@ pub fn init(app: &tauri::App) -> tauri::Result<()> {
           });
           return;
         }
+        if let Some(rest) = id.strip_prefix("open-game-controller|") {
+          let mut parts = rest.splitn(2, '|');
+          let (Some(game_id), Some(controller_id)) = (parts.next(), parts.next()) else {
+            return;
+          };
+          let app = app.clone();
+          let game_id = game_id.to_string();
+          let controller_id = controller_id.to_string();
+          tauri::async_runtime::spawn(async move {
+            if let Err(error) = crate::game::controller::open(
+              &app,
+              &game_id,
+              Some(&controller_id),
+              crate::game::controller::OpenSource::Host,
+            )
+            .await
+            {
+              eprintln!("[tray] 打开控制器失败：{}", error.message);
+            }
+          });
+          return;
+        }
+        if let Some(plugin_id) = id.strip_prefix("ext-tool-") {
+          let app = app.clone();
+          let plugin_id = plugin_id.to_string();
+          tauri::async_runtime::spawn(async move {
+            let _ = crate::widget_package::open(app, plugin_id).await;
+          });
+          return;
+        }
+        if id.starts_with("ext-scene-") {
+          // 壁纸条目打开壁纸库：切换场景/游戏要经过壁纸库的确认流程。
+          if let Some(spec) = window_host::find("backdrop") {
+            window_host::open_async(app, spec);
+          }
+          return;
+        }
+        // 兼容旧版本重建前的 ext-<id> 菜单项。
         if let Some(plugin_id) = id.strip_prefix("ext-") {
           let app = app.clone();
           let plugin_id = plugin_id.to_string();
@@ -292,5 +554,69 @@ mod tests {
       assert_ne!(label, key, "{} 的文案键没有命中", spec.kind);
       assert!(!label.trim().is_empty(), "{} 的展示名为空", spec.kind);
     }
+  }
+
+  #[test]
+  fn tray_extensions_keep_everything_except_games() {
+    use crate::extension::ExtensionCategory::{Game, Tool, Wallpaper};
+
+    // 工具：第三方、非 Provider 进入「扩展」菜单；停用项仍保留（菜单项置灰）。
+    assert!(tray_extension_allowed(Some(Tool), "user", false));
+    assert!(tray_extension_allowed(Some(Tool), "dev", false));
+    assert!(!tray_extension_allowed(Some(Tool), "bundled", false));
+    assert!(!tray_extension_allowed(Some(Tool), "user", true));
+
+    // 壁纸不按启用状态过滤（scene 没有启用位），保留为壁纸库入口。
+    assert!(tray_extension_allowed(Some(Wallpaper), "user", false));
+    assert!(tray_extension_allowed(Some(Wallpaper), "bundled", false));
+
+    // 游戏与未知 kind 一律排除。
+    assert!(!tray_extension_allowed(Some(Game), "user", false));
+    assert!(!tray_extension_allowed(None, "user", false));
+  }
+
+  #[test]
+  fn disabled_tools_are_labeled_but_remain_visible() {
+    let item = TrayExtension {
+      id: "community-pomodoro".into(),
+      name: "番茄钟".into(),
+      kind: TrayExtensionKind::Tool,
+      enabled: false,
+    };
+    assert!(tray_extension_label(&item).starts_with("番茄钟 · "));
+  }
+
+  fn active(ids: &[&str]) -> BTreeSet<String> {
+    ids.iter().map(|id| (*id).to_string()).collect()
+  }
+
+  #[test]
+  fn tray_controllers_list_all_running_with_wallpaper_first() {
+    let wallpaper = vec!["a".to_string()];
+    // 壁纸激活的游戏排在其它运行中游戏之前。
+    assert_eq!(
+      controller_games(&wallpaper, &active(&["a", "b"])),
+      vec!["a".to_string(), "b".to_string()]
+    );
+    // 壁纸游戏未运行 → 其它运行中的游戏仍可在设置子菜单打开控制器。
+    assert_eq!(
+      controller_games(&wallpaper, &active(&["b"])),
+      vec!["b".to_string()]
+    );
+    // 没有绑定壁纸 → 全部运行中的游戏。
+    assert_eq!(
+      controller_games(&[], &active(&["b", "a"])),
+      vec!["a".to_string(), "b".to_string()]
+    );
+    // 没有运行实例 → 不显示控制器。
+    assert!(controller_games(&["a".to_string()], &active(&[])).is_empty());
+    // 多显示器/多游戏：两个都在壁纸里时按 id 排序并去重。
+    assert_eq!(
+      controller_games(
+        &["b".to_string(), "a".to_string(), "b".to_string()],
+        &active(&["a", "b"])
+      ),
+      vec!["a".to_string(), "b".to_string()]
+    );
   }
 }

@@ -48,7 +48,6 @@ import {
   applySlotProvider,
   closeExtension,
   type ExtensionInfo,
-  type ExtensionKind,
   getDevState,
   inspectExtension,
   installExtension,
@@ -68,6 +67,14 @@ import {
   toExtensionFailure,
 } from "@/lib/extensions";
 import { m } from "@/paraglide/messages";
+import {
+  categoryLabel,
+  countExtensions,
+  EXTENSION_CATEGORIES,
+  type ExtensionFilter,
+  filterExtensions,
+  kindForCategory,
+} from "./categories";
 import { ExtensionDetailSheet } from "./extension-detail-sheet";
 import {
   capabilityLabel,
@@ -89,8 +96,6 @@ function removeLabel(item: ExtensionInfo, pending: boolean): string {
   }
   return item.dev ? m.ext_action_remove() : m.ext_action_uninstall();
 }
-
-type Filter = "all" | ExtensionKind;
 
 function statusVariant(
   item: ExtensionInfo,
@@ -138,7 +143,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
     issues: slotIssues,
     refresh: refreshSlots,
   } = useExtensionSlots();
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<ExtensionFilter>("all");
   const [preview, setPreview] = useState<PickedExtension | null>(null);
   const [enableTarget, setEnableTarget] = useState<ExtensionInfo | null>(null);
   const [detail, setDetail] = useState<ExtensionInfo | null>(null);
@@ -152,19 +157,11 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   const [trustPolicy, setTrustPolicyState] = useState<TrustPolicy | null>(null);
   const [trustMsg, setTrustMsg] = useState("");
 
-  const visibleItems = useMemo(() => {
-    const list = items ?? [];
-    return filter === "all"
-      ? list
-      : list.filter((item) => item.kind === filter);
-  }, [filter, items]);
-
-  const widgetCount = (items ?? []).filter(
-    (item) => item.kind === "widget",
-  ).length;
-  const sceneCount = (items ?? []).filter(
-    (item) => item.kind === "scene",
-  ).length;
+  const visibleItems = useMemo(
+    () => filterExtensions(items ?? [], filter),
+    [filter, items],
+  );
+  const counts = useMemo(() => countExtensions(items ?? []), [items]);
   const installedPreview = preview
     ? (items ?? []).find(
         (item) =>
@@ -482,7 +479,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   );
 
   const openDir = useCallback((): void => {
-    const kind: ExtensionKind = filter === "scene" ? "scene" : "widget";
+    const kind = filter === "all" ? "widget" : kindForCategory(filter);
     openExtensionsDir(kind)
       .then((path) => setMessage(m.ext_toast_open_dir({ path })))
       .catch((error: unknown) => {
@@ -536,9 +533,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
             {items === null
               ? m.ext_loading()
               : m.ext_installed_count({
-                  count: String(items.length),
-                  widgets: String(widgetCount),
-                  scenes: String(sceneCount),
+                  count: String(counts.all),
+                  widgets: String(counts.tool),
+                  scenes: String(counts.wallpaper),
+                  games: String(counts.game),
                 })}
           </p>
           <div className="flex flex-wrap items-center gap-2">
@@ -577,13 +575,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
 
         <fieldset className="m-0 flex shrink-0 items-center gap-2 border-0 p-0">
           <legend className="sr-only">{m.ext_type_legend()}</legend>
-          {(
-            [
-              ["all", m.ext_filter_all],
-              ["widget", m.ext_filter_widget],
-              ["scene", m.ext_filter_scene],
-            ] as const
-          ).map(([value, label]) => (
+          {(["all", ...EXTENSION_CATEGORIES] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -595,7 +587,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   : "border-border/70 text-muted-foreground hover:border-bamboo/60"
               }`}
             >
-              {label()}
+              {value === "all" ? m.ext_filter_all() : categoryLabel(value)}
             </button>
           ))}
         </fieldset>
@@ -628,6 +620,15 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
           {items?.length === 0 && (
             <p className="rounded-lg border border-dashed border-border/70 p-4 text-xs text-muted-foreground">
               {m.ext_empty()}
+            </p>
+          )}
+
+          {items !== null && items.length > 0 && visibleItems.length === 0 && (
+            <p
+              className="rounded-lg border border-dashed border-border/70 p-4 text-xs text-muted-foreground"
+              data-testid="extensions-filter-empty"
+            >
+              {m.ext_empty_filter()}
             </p>
           )}
 
@@ -703,6 +704,13 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                                 ? item.visible
                                   ? m.ext_state_running()
                                   : m.ext_state_background()
+                                : m.ext_state_enabled()}
+                            </Badge>
+                          )}
+                          {item.kind === "game" && item.enabled && (
+                            <Badge variant="secondary">
+                              {item.running
+                                ? m.ext_state_running()
                                 : m.ext_state_enabled()}
                             </Badge>
                           )}

@@ -61,6 +61,27 @@ const scene: ExtensionInfo = {
   entryUrl: "/content/scenes/mist/index.html",
 };
 
+const game: ExtensionInfo = {
+  kind: "game",
+  id: "community.living-world",
+  name: "Living World",
+  version: "1.2.0",
+  description: "一盆会自己生长的植物",
+  status: "ready",
+  verified: "declared",
+  signature: {
+    status: "unsigned",
+    decision: "allow",
+    reason: "official-bundle",
+  },
+  dev: false,
+  origin: "user",
+  enabled: true,
+  running: false,
+  capabilities: ["game.state.read", "game.state.write"],
+  granted: ["game.state.read", "game.state.write"],
+};
+
 const officialScene: ExtensionInfo = {
   kind: "scene",
   id: "lull.bamboo",
@@ -146,17 +167,56 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-test("lists both kinds with counts and filter chips", async () => {
+test("lists tools and wallpapers with counts and filter chips", async () => {
   mockCommands();
   render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
 
   expect(await screen.findByText("番茄钟")).toBeDefined();
   expect(screen.getByText("雾岚")).toBeDefined();
-  expect(screen.getByText("已安装 2 个（工具 1 / 壁纸 1）")).toBeDefined();
+  expect(
+    screen.getByText("已安装 2 个（工具 1 / 壁纸 1 / 游戏 0）"),
+  ).toBeDefined();
+  expect(screen.getByRole("button", { name: "工具" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "壁纸" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "游戏" })).toBeDefined();
 
   fireEvent.click(screen.getByRole("button", { name: "壁纸" }));
   expect(screen.queryByText("番茄钟")).toBeNull();
   expect(screen.getByText("雾岚")).toBeDefined();
+});
+
+test("games have their own category filter and badge", async () => {
+  mockCommands({ extensions_list: () => [widget, scene, game] });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  expect(
+    await screen.findByText("已安装 3 个（工具 1 / 壁纸 1 / 游戏 1）"),
+  ).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "游戏" }));
+  expect(screen.queryByText("番茄钟")).toBeNull();
+  expect(screen.queryByText("雾岚")).toBeNull();
+  const name = screen.getByText("Living World");
+  expect(name).toBeDefined();
+  const card = name.closest("article");
+  expect(card).not.toBeNull();
+  if (!card) return;
+  expect(within(card).getByText("游戏")).toBeDefined();
+  expect(within(card).getByText("已启用")).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "壁纸" }));
+  expect(screen.queryByText("Living World")).toBeNull();
+  expect(screen.getByText("雾岚")).toBeDefined();
+});
+
+test("category filter shows an empty state when nothing matches", async () => {
+  mockCommands();
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "游戏" }));
+  expect(await screen.findByTestId("extensions-filter-empty")).toBeDefined();
+  expect(screen.queryByText("番茄钟")).toBeNull();
+  expect(screen.queryByText("雾岚")).toBeNull();
 });
 
 test("扩展条目用紧凑两行合并说明、作者与许可", async () => {

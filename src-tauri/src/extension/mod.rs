@@ -132,6 +132,36 @@ impl Kind {
   }
 }
 
+/// 产品分类：扩展中心按这三类筛选，托盘「扩展」菜单只收工具。
+///
+/// 与序列化的 `kind` 分开，避免 UI / 托盘各自散落字符串比较。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionCategory {
+  Tool,
+  Wallpaper,
+  Game,
+}
+
+impl ExtensionCategory {
+  #[must_use]
+  pub fn from_kind(kind: &str) -> Option<Self> {
+    match kind {
+      "widget" => Some(Self::Tool),
+      "scene" => Some(Self::Wallpaper),
+      "game" => Some(Self::Game),
+      _ => None,
+    }
+  }
+}
+
+impl ExtensionInfo {
+  /// 该扩展的产品分类；未知 kind 返回 `None`，由调用方决定降级方式。
+  #[must_use]
+  pub fn category(&self) -> Option<ExtensionCategory> {
+    ExtensionCategory::from_kind(&self.kind)
+  }
+}
+
 fn kind_from_str(kind: &str) -> Result<Kind, ExtensionError> {
   match kind {
     "scene" => Ok(Kind::Scene),
@@ -1132,6 +1162,23 @@ mod tests {
       kind_from_str("native").err().map(|error| error.code),
       Some("extension.unsupported-kind".to_string())
     );
+  }
+
+  #[test]
+  fn extension_category_maps_the_three_kinds() {
+    assert_eq!(
+      ExtensionCategory::from_kind("widget"),
+      Some(ExtensionCategory::Tool)
+    );
+    assert_eq!(
+      ExtensionCategory::from_kind("scene"),
+      Some(ExtensionCategory::Wallpaper)
+    );
+    assert_eq!(
+      ExtensionCategory::from_kind("game"),
+      Some(ExtensionCategory::Game)
+    );
+    assert_eq!(ExtensionCategory::from_kind("native"), None);
   }
 
   fn temp_dir(tag: &str) -> Option<PathBuf> {

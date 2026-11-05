@@ -489,10 +489,11 @@ export function WidgetPluginShell() {
           if (!context || !hasGameBridgeCapability(context)) {
             throw new Error("未获得游戏能力授权");
           }
-          const gameId = String(params.gameId ?? "");
-          if (!gameId) throw new Error("game.connect 缺少 gameId");
+          // gameId 可省略：从设置页/托盘打开的控制器由宿主记录目标游戏。
+          const gameId =
+            typeof params.gameId === "string" ? params.gameId.trim() : "";
           return invoke("game_connect", {
-            request: { gameId },
+            request: gameId ? { gameId } : {},
             token: context.bridgeToken,
           });
         }

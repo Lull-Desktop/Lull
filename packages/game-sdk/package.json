@@ -25,6 +25,10 @@
       "types": "./dist/widget.d.ts",
       "default": "./dist/widget.js"
     },
+    "./controller": {
+      "types": "./dist/controller.d.ts",
+      "default": "./dist/controller.js"
+    },
     "./scene": {
       "types": "./dist/scene.d.ts",
       "default": "./dist/scene.js"

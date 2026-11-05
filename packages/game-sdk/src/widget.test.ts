@@ -131,6 +131,18 @@ describe("连接", () => {
     ).rejects.toMatchObject({ code: "permission-denied" });
   });
 
+  test("省略 gameId 时交给宿主记录目标（game.connect 不带参数）", async () => {
+    const host = createFakeHost();
+    const client = await connectLullGameWidget(host);
+    activeClients.push(client);
+
+    const connectCall = host.calls.find(
+      (call) => call.method === "game.connect",
+    );
+    expect(connectCall?.params).toEqual({});
+    expect(client.context.role).toBe("controller");
+  });
+
   test("connect 返回非法结构时按 bad-init 拒绝", async () => {
     const host = createFakeHost({
       connect: () => ({ context: { gameId: "x" }, replicaId: null }),

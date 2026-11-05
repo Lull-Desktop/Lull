@@ -1,0 +1,44 @@
+{
+  "name": "@lull/game-adapter-phaser",
+  "version": "0.1.0",
+  "description": "Lull Game SDK 的 Phaser 渲染适配器：把快照/渲染态/生命周期对齐到 Phaser.Game。",
+  "keywords": [
+    "lull",
+    "game",
+    "phaser",
+    "adapter",
+    "sdk",
+    "typescript"
+  ],
+  "type": "module",
+  "license": "Apache-2.0",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.check.json",
+    "prepublishOnly": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

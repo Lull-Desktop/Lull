@@ -1,5 +1,6 @@
 import {
   type GameClientMessage,
+  type GameControllerClientMessage,
   type GameHostMessage,
   isGameHostMessage,
 } from "./protocol.js";
@@ -13,7 +14,16 @@ export type GameTransport = {
   listen(listener: (message: GameHostMessage) => void): () => void;
 };
 
-export function createWindowGameTransport(target: Window): GameTransport {
+/** 包内控制器 iframe 的传输层；宿主消息与 authority 共用同一套校验。 */
+export type GameControllerTransport = {
+  post(message: GameControllerClientMessage): void;
+  listen(listener: (message: GameHostMessage) => void): () => void;
+};
+
+function createWindowTransport<TClient>(target: Window): {
+  post(message: TClient): void;
+  listen(listener: (message: GameHostMessage) => void): () => void;
+} {
   return {
     post(message) {
       target.postMessage(message, "*");
@@ -29,4 +39,14 @@ export function createWindowGameTransport(target: Window): GameTransport {
       return () => window.removeEventListener("message", onMessage);
     },
   };
+}
+
+export function createWindowGameTransport(target: Window): GameTransport {
+  return createWindowTransport(target);
+}
+
+export function createWindowGameControllerTransport(
+  target: Window,
+): GameControllerTransport {
+  return createWindowTransport(target);
 }

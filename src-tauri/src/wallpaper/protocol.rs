@@ -76,6 +76,7 @@ pub(crate) fn monitor_url(
   let canvas = virtual_bounds_from(infos).ok_or_else(|| "没有可用显示器".to_string())?;
   // 唯一事实源：媒体生命周期判断“这屏还在不在视频”也用 effective_scene。
   let scene = config.effective_scene(&monitor.device);
+  let game = config.effective_game(&monitor.device);
   let params = config.display.params_for_scene(&scene);
   Ok(format!(
     "/{}",
@@ -83,7 +84,7 @@ pub(crate) fn monitor_url(
       config.display.mode,
       config.display.sync,
       &scene,
-      config.display.game_content(),
+      game.as_deref(),
       canvas,
       (monitor.x, monitor.y, monitor.w, monitor.h),
       &params,
@@ -208,17 +209,42 @@ mod tests {
   }
 
   #[test]
-  fn monitor_url_game_wins_over_monitor_scene_override() {
+  fn monitor_url_independent_prefers_monitor_game() {
     let mut config = WallpaperConfig::default();
     config.display.mode = DisplayMode::Independent;
     config.display.scene = "lull.aurora".into();
     config.set_monitor_scene("\\\\.\\DISPLAY2", Some("lull.video".into()));
+    config.set_monitor_game("\\\\.\\DISPLAY2", Some("community.local".into()));
     config
       .display
-      .set_game(Some("community.stability-probe".into()));
+      .set_game(Some("community.global".into()));
     let url = monitor_url(&config, &ok_infos(), 1).unwrap();
-    assert!(url.contains("game=community.stability-probe"));
+    assert!(url.contains("game=community.local"));
     assert!(url.contains("scene=lull.video"));
+  }
+
+  #[test]
+  fn monitor_url_independent_scene_override_suppresses_global_game() {
+    let mut config = WallpaperConfig::default();
+    config.display.mode = DisplayMode::Independent;
+    config.set_monitor_scene("\\\\.\\DISPLAY2", Some("lull.video".into()));
+    config
+      .display
+      .set_game(Some("community.global".into()));
+    let url = monitor_url(&config, &ok_infos(), 1).unwrap();
+    assert!(!url.contains("game="));
+    assert!(url.contains("scene=lull.video"));
+  }
+
+  #[test]
+  fn monitor_url_mirror_ignores_monitor_game() {
+    let mut config = WallpaperConfig::default();
+    config.set_monitor_game("\\\\.\\DISPLAY2", Some("community.local".into()));
+    config
+      .display
+      .set_game(Some("community.global".into()));
+    let url = monitor_url(&config, &ok_infos(), 1).unwrap();
+    assert!(url.contains("game=community.global"));
   }
 
   #[test]

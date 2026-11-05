@@ -229,7 +229,8 @@ export interface WidgetBridgeMethods {
   };
   /** 连接游戏实例；返回 `{ context, replicaId }`，实例未运行时 context 为 null。 */
   "game.connect": {
-    params: { gameId: string };
+    /** `gameId` 可省略：宿主在打开控制器时已记录目标游戏。 */
+    params: { gameId?: string };
     result: unknown;
   };
   /** 取当前完整快照；实例未运行时为 null。 */

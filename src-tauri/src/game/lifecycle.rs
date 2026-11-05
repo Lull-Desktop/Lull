@@ -41,6 +41,7 @@ fn spec_from_manifest(manifest: &GameManifest) -> InstanceSpec {
       .keys()
       .cloned()
       .collect::<BTreeSet<String>>(),
+    capabilities: manifest.capabilities.iter().cloned().collect(),
     events: manifest
       .events
       .keys()
@@ -167,6 +168,8 @@ pub fn start(app: &AppHandle, game_id: &str) -> GameResult<GameInstanceView> {
   manager::emit_lifecycle(app, &lifecycle);
   manager::emit_snapshot(app, &snapshot);
   manager::emit_games_changed(app);
+  // 声明了控制器且偏好开启时，随游戏启动自动打开（失败不影响启动）。
+  super::controller::spawn_open_if_follows(app, game_id);
   Ok(view)
 }
 
@@ -243,7 +246,7 @@ pub fn stop(app: &AppHandle, game_id: &str) -> GameResult<GameInstanceView> {
     }
   }
 
-  let (view, lifecycle) = {
+  let (view, lifecycle, lifecycle_labels) = {
     let mut manager = manager();
     let (replicas, controllers) = counts(&manager, game_id);
     let Some(instance) = manager.instances.get_mut(game_id) else {
@@ -259,6 +262,22 @@ pub fn stop(app: &AppHandle, game_id: &str) -> GameResult<GameInstanceView> {
     }
     let view = instance.view(replicas, controllers);
     let lifecycle = instance.lifecycle("stopped", None, None);
+    // 先采集收件人：下面会把实例/参与者从表里删掉，删完再广播就没有控制器收得到了。
+    let mut lifecycle_labels = vec![authority::label_for(&instance.instance_id)];
+    lifecycle_labels.extend(
+      manager
+        .replicas
+        .values()
+        .filter(|replica| replica.game_id == game_id)
+        .map(|replica| replica.window_label.clone()),
+    );
+    lifecycle_labels.extend(
+      manager
+        .controllers
+        .values()
+        .filter(|controller| controller.game_id == game_id)
+        .map(|controller| controller.window_label.clone()),
+    );
     manager.instances.remove(game_id);
     manager
       .replicas
@@ -266,11 +285,13 @@ pub fn stop(app: &AppHandle, game_id: &str) -> GameResult<GameInstanceView> {
     manager
       .controllers
       .retain(|_, controller| controller.game_id != game_id);
-    (view, lifecycle)
+    (view, lifecycle, lifecycle_labels)
   };
   authority::destroy(app, &instance_id);
-  manager::emit_lifecycle(app, &lifecycle);
+  manager::emit_lifecycle_to(app, &lifecycle_labels, &lifecycle);
   manager::emit_games_changed(app);
+  // 停止后不再有"激活游戏"：控制器窗口全部回收（重启后按 autoOpen 重建）。
+  super::controller::close_for_game(app, game_id);
   Ok(view)
 }
 
@@ -434,10 +455,15 @@ pub fn failover(app: &AppHandle, game_id: &str) {
     instance.last_tick_ms = now_ms();
     instance.last_running_ms = now_ms();
     instance.updated_at_ms = now_ms();
-    (
-      instance.lifecycle("authority-changed", None, None),
-      instance.snapshot(),
-    )
+    let lifecycle = instance.lifecycle("authority-changed", None, None);
+    let snapshot = instance.snapshot();
+    let instance_id = instance.instance_id.clone();
+    for controller in manager.controllers.values_mut() {
+      if controller.game_id == game_id {
+        controller.instance_id = Some(instance_id.clone());
+      }
+    }
+    (lifecycle, snapshot)
   };
   manager::emit_lifecycle(app, &lifecycle);
   manager::emit_snapshot(app, &snapshot);
@@ -458,6 +484,7 @@ fn mark_failed(app: &AppHandle, game_id: &str, error: GameError) {
   };
   manager::emit_lifecycle(app, &lifecycle);
   manager::emit_games_changed(app);
+  super::controller::close_for_game(app, game_id);
 }
 
 #[cfg(test)]

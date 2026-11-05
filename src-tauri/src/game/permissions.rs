@@ -11,6 +11,8 @@ use crate::widget_package;
 pub const AUTHORITY_LABEL_PREFIX: &str = "game-authority-";
 pub const WALLPAPER_LABEL_PREFIX: &str = "wallpaper-";
 pub const WIDGET_LABEL_PREFIX: &str = "widget-";
+/// 包内控制器窗口 label 前缀（`game-controller-<hash>-<id>`）。
+pub const CONTROLLER_LABEL_PREFIX: &str = "game-controller-";
 pub const MANAGER_LABEL: &str = "settings";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +45,14 @@ pub fn widget_id(label: &str) -> Option<&str> {
   }
 }
 
+/// 包内控制器窗口（宿主壳 `/game-controller`）。
+#[must_use]
+pub fn is_controller_label(label: &str) -> bool {
+  label
+    .strip_prefix(CONTROLLER_LABEL_PREFIX)
+    .is_some_and(|rest| !rest.is_empty())
+}
+
 #[must_use]
 pub fn role_of(label: &str) -> WindowRole {
   if label == MANAGER_LABEL {
@@ -53,6 +63,9 @@ pub fn role_of(label: &str) -> WindowRole {
   }
   if label.starts_with(WALLPAPER_LABEL_PREFIX) {
     return WindowRole::Replica;
+  }
+  if is_controller_label(label) {
+    return WindowRole::Controller;
   }
   if widget_id(label).is_some() {
     return WindowRole::Controller;
@@ -119,6 +132,58 @@ pub fn require_widget_controller(
   widget_package::store::require_grant(app, id, capability)
     .map_err(|error| GameError::new(codes::PERMISSION_DENIED, error))?;
   Ok(id.to_string())
+}
+
+/// 控制器窗口统一校验：先查宿主写入的 binding，再按载体校验 token/授权。
+///
+/// - `game-controller-*`：建窗时签发的窗口 token；能力由清单声明 scope 决定；
+/// - `widget-*`：Widget 桥 token + 授权账本。
+///
+/// 没有 binding 的窗口一律拒绝——这保证控制器只能控制宿主为它绑定的那个游戏。
+pub fn require_controller(
+  app: &tauri::AppHandle,
+  label: &str,
+  token: Option<&str>,
+  capability: &str,
+) -> GameResult<super::manager::ControllerBinding> {
+  let binding = super::manager::binding_for(label).ok_or_else(|| {
+    GameError::new(
+      codes::PERMISSION_DENIED,
+      "控制器窗口没有绑定目标游戏：请从设置页「游戏」或托盘打开",
+    )
+  })?;
+  if is_controller_label(label) {
+    if !verify_window_token(label, token) {
+      return Err(GameError::new(
+        codes::PERMISSION_DENIED,
+        "控制器窗口 token 无效",
+      ));
+    }
+    match capability {
+      "game.state.read" | "game.event.read" => {}
+      "game.command.send" => {
+        if binding
+          .allowed_commands
+          .as_ref()
+          .is_some_and(|commands| commands.is_empty())
+        {
+          return Err(GameError::new(
+            codes::CONTROLLER_READ_ONLY,
+            "该控制器为只读，不能发送命令",
+          ));
+        }
+      }
+      _ => {
+        return Err(GameError::new(
+          codes::PERMISSION_DENIED,
+          format!("控制器不支持能力：{capability}"),
+        ));
+      }
+    }
+    return Ok(binding);
+  }
+  let _ = require_widget_controller(app, label, token, capability)?;
+  Ok(binding)
 }
 
 #[cfg(test)]

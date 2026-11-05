@@ -78,6 +78,7 @@ const APP_COMMANDS: &[&str] = &[
   "wallpaper_set_game",
   "wallpaper_set_scene_params",
   "wallpaper_set_monitor_scene",
+  "wallpaper_set_monitor_game",
   "media_capabilities",
   "media_assets",
   "media_asset_pick",
@@ -130,6 +131,9 @@ const APP_COMMANDS: &[&str] = &[
   "game_report_error",
   "game_detach",
   "game_command_send",
+  "game_open_controller",
+  "game_close_controller",
+  "game_controller_request",
   "i18n_boot",
   "i18n_set_locale",
 ];
