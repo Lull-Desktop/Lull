@@ -371,12 +371,12 @@ test("dev mode toggles through the dedicated command", async () => {
   });
 });
 
-test("scene action hands off to wallpaper settings", async () => {
+test("scene action hands off to the asset library", async () => {
   const onOpenWallpaperSettings = vi.fn();
   mockCommands();
   render(<ExtensionsPanel onOpenWallpaperSettings={onOpenWallpaperSettings} />);
 
-  fireEvent.click(await screen.findByRole("button", { name: "壁纸设置" }));
+  fireEvent.click(await screen.findByRole("button", { name: "素材管理" }));
   expect(onOpenWallpaperSettings).toHaveBeenCalledTimes(1);
 });
 
@@ -472,5 +472,5 @@ test("官方场景显示官方徽章，不显示未验签与卸载", async () =>
   expect(within(card).getByText("官方")).toBeDefined();
   expect(within(card).queryByText("未验签")).toBeNull();
   expect(within(card).queryByRole("button", { name: /卸载：竹影/ })).toBeNull();
-  expect(within(card).getByRole("button", { name: "壁纸设置" })).toBeDefined();
+  expect(within(card).getByRole("button", { name: "素材管理" })).toBeDefined();
 });

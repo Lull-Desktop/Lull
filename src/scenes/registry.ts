@@ -19,7 +19,7 @@ const VIDEO_MANIFEST = parseSceneManifest({
   id: "lull.video",
   name: "媒体",
   version: "1.0.0",
-  description: "本地图片或视频壁纸；素材与播放参数在下方媒体面板中设置。",
+  description: "本地视频、图片的导入在壁纸素材库中设置。",
   author: "Lull",
   license: "GPL-3.0-or-later",
   capabilities: ["wallpaper.viewport", "wallpaper.canvas", "wallpaper.sync"],

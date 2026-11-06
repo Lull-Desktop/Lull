@@ -95,7 +95,7 @@ pub fn authorize(label: &str, token: Option<&str>) -> Result<(), String> {
   }
 }
 
-/// 只读配置的控制面：设置窗与壁纸库窗（`backdrop`）免 token。
+/// 只读配置的控制面：设置窗与壁纸素材库窗（`backdrop`）免 token。
 ///
 /// `backdrop` 本来就能写配置（`media_config_set` / `media_activate`），给它读权限
 /// 不扩大能力。会话类命令（open/attach/detach/degrade）仍走 [`authorize`]，
@@ -130,7 +130,7 @@ mod tests {
 
   #[test]
   fn backdrop_is_trusted_for_config_reads_only() {
-    // 壁纸库窗口与设置窗同属受信控制面，读配置不需要 token。
+    // 壁纸素材库窗口与设置窗同属受信控制面，读配置不需要 token。
     assert!(authorize_control("backdrop", None).is_ok());
     assert!(authorize_control("backdrop", Some("bogus")).is_ok());
     assert!(authorize_control("settings", None).is_ok());

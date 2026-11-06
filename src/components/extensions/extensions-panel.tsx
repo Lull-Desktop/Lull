@@ -871,7 +871,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                           variant="outline"
                           onClick={onOpenWallpaperSettings}
                         >
-                          {m.ext_action_wallpaper_settings()}
+                          {m.ext_action_manage_assets()}
                         </Button>
                       )}
 

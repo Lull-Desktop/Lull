@@ -459,7 +459,7 @@ mod tests {
     let en = table.get("en-US").unwrap_or_else(|| unreachable!());
     for (key, chinese) in [
       ("widget_library_name", "音乐库"),
-      ("widget_backdrop_name", "壁纸库"),
+      ("widget_backdrop_name", "壁纸素材库"),
       ("widget_noise_library_name", "白噪音库"),
     ] {
       assert_eq!(zh.get(key).map(String::as_str), Some(chinese), "{key}");

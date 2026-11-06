@@ -77,38 +77,19 @@ const GAME_CONTROLLER_PERMISSIONS = [
 ];
 
 /**
- * `backdrop` 是壁纸库窗口：需要壁纸配置、内容目录、媒体壁纸面板，以及
- * 「壁纸类型」下拉所需的游戏列表与切换确认（停止 / 后台继续）命令。
+ * `backdrop` 是壁纸素材库窗口：壁纸设置已迁到设置窗，这里只做素材的导入、预览与
+ * 管理，所以只需要素材登记、清理与「设为壁纸」这几条媒体命令。
  * 窗口 id 不能叫 `wallpaper-*`：`window-wallpaper` capability 与壁纸媒体 token
  * 校验都按这个前缀识别真正的渲染窗口，前缀重名会误授权/误判。
  */
 const BACKDROP_PERMISSIONS = [
-  "allow-content-packages",
-  "allow-games-list",
-  "allow-game-set-background",
-  "allow-game-stop",
-  "allow-wallpaper-get-visible",
-  "allow-wallpaper-monitors",
-  "allow-wallpaper-display-get",
-  "allow-wallpaper-set-visible",
-  "allow-wallpaper-set-display",
-  "allow-wallpaper-set-game",
-  "allow-wallpaper-set-monitor-visible",
-  "allow-wallpaper-set-monitor-scene",
-  "allow-wallpaper-set-monitor-game",
-  "allow-wallpaper-set-scene-params",
   "allow-media-assets",
-  "allow-media-asset-pick",
-  "allow-media-asset-remove",
   "allow-media-asset-url",
   "allow-media-asset-pick-many",
+  "allow-media-asset-remove",
   "allow-media-asset-rename",
   "allow-media-asset-prune",
-  "allow-media-config-get",
-  "allow-media-config-set",
   "allow-media-activate",
-  "allow-media-resync",
-  "allow-media-stats",
 ];
 
 const errors = [];

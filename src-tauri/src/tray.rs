@@ -68,7 +68,7 @@ fn window_label(spec: &WidgetSpec) -> String {
 }
 
 /// 归入「设置」子菜单的窗口入口：除设置窗自身以外的全部内置窗口
-/// （壁纸库 / 音乐库 / 白噪音库……，以后新增的工具窗同理）。
+/// （壁纸素材库 / 音乐库 / 白噪音库……，以后新增的工具窗同理）。
 ///
 /// 顺序沿用清单的 `order`（`ALL_WIDGETS` 已由 build.rs 排好序）。
 fn window_entries() -> impl Iterator<Item = &'static WidgetSpec> {
@@ -204,7 +204,7 @@ fn append_controller_menu(app: &AppHandle, menu: &Submenu<Wry>) -> tauri::Result
 /// 构建「设置」子菜单：显示/隐藏设置 + 分隔线 + 各窗口入口。
 ///
 /// 窗口入口不再平铺在一级菜单里，托盘右键的层级保持为
-/// 「设置 ▸ 壁纸库 / 音乐库 / 白噪音库」。
+/// 「设置 ▸ 壁纸素材库 / 音乐库 / 白噪音库」。
 fn build_settings_menu(app: &AppHandle, toggle: &MenuItem<Wry>) -> tauri::Result<Submenu<Wry>> {
   let menu = Submenu::with_id(app, "settings", crate::i18n::t("tray_settings"), true)?;
   menu.append(toggle)?;
@@ -234,7 +234,7 @@ fn build_settings_menu(app: &AppHandle, toggle: &MenuItem<Wry>) -> tauri::Result
   Ok(menu)
 }
 
-/// 托盘「扩展」子菜单里的可执行项：工具直接开窗，壁纸打开壁纸库。
+/// 托盘「扩展」子菜单里的可执行项：工具直接开窗，壁纸打开壁纸素材库。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TrayExtensionKind {
   Tool,
@@ -252,7 +252,7 @@ struct TrayExtension {
 /// 托盘「扩展」子菜单的入选规则：除游戏外的扩展都保留。
 ///
 /// - 工具（widget）：第三方、非 Provider；停用的仍显示但菜单项置灰。
-/// - 壁纸（scene）：显示为壁纸库入口；不做启用过滤。
+/// - 壁纸（scene）：显示为壁纸素材库入口；不做启用过滤。
 /// - 游戏：由游戏页 / 「设置 ▸ 游戏控制器」管理，不进入扩展菜单。
 /// 这条规则只作用于托盘，和设置页的分类筛选互不共享状态。
 fn tray_extension_allowed(
@@ -472,7 +472,7 @@ pub fn init(app: &tauri::App) -> tauri::Result<()> {
           return;
         }
         if id.starts_with("ext-scene-") {
-          // 壁纸条目打开壁纸库：切换场景/游戏要经过壁纸库的确认流程。
+          // 壁纸条目打开壁纸素材库；切换场景/游戏在「设置 ▸ 壁纸」页签完成。
           if let Some(spec) = window_host::find("backdrop") {
             window_host::open_async(app, spec);
           }
@@ -566,7 +566,7 @@ mod tests {
     assert!(!tray_extension_allowed(Some(Tool), "bundled", false));
     assert!(!tray_extension_allowed(Some(Tool), "user", true));
 
-    // 壁纸不按启用状态过滤（scene 没有启用位），保留为壁纸库入口。
+    // 壁纸不按启用状态过滤（scene 没有启用位），保留为壁纸素材库入口。
     assert!(tray_extension_allowed(Some(Wallpaper), "user", false));
     assert!(tray_extension_allowed(Some(Wallpaper), "bundled", false));
 

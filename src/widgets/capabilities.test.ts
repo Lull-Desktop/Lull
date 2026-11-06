@@ -50,14 +50,20 @@ describe("generated window capabilities", () => {
     expect(library.permissions).toContain("allow-media-call");
   });
 
-  test("壁纸库窗口拿壁纸/媒体配置权限，白噪音库窗口拿媒体权限", () => {
+  test("壁纸素材库窗口只拿素材命令，白噪音库窗口拿媒体权限", () => {
     const backdrop = readCapability("backdrop");
     expect(backdrop.permissions).toContain("allow-window-set-frame");
-    expect(backdrop.permissions).toContain("allow-content-packages");
-    expect(backdrop.permissions).toContain("allow-wallpaper-set-display");
-    expect(backdrop.permissions).toContain("allow-wallpaper-set-scene-params");
-    expect(backdrop.permissions).toContain("allow-media-config-set");
-    expect(backdrop.permissions).toContain("allow-media-stats");
+    expect(backdrop.permissions).toContain("allow-media-assets");
+    expect(backdrop.permissions).toContain("allow-media-activate");
+    // 壁纸设置已迁到设置窗：素材库不再需要壁纸、内容目录与游戏命令。
+    expect(backdrop.permissions).not.toContain("allow-content-packages");
+    expect(backdrop.permissions).not.toContain("allow-games-list");
+    expect(backdrop.permissions).not.toContain("allow-wallpaper-set-display");
+    expect(backdrop.permissions).not.toContain(
+      "allow-wallpaper-set-scene-params",
+    );
+    expect(backdrop.permissions).not.toContain("allow-media-config-set");
+    expect(backdrop.permissions).not.toContain("allow-media-stats");
     expect(backdrop.permissions).not.toContain("allow-widget-open");
     expect(backdrop.permissions).not.toContain("allow-media-call");
 

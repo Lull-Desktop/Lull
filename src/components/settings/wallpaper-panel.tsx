@@ -1,11 +1,13 @@
 /**
- * 壁纸库窗口：壁纸层总开关、显示模式、场景参数与每台显示器的独立配置。
+ * 设置窗「壁纸」页签：壁纸层总开关、显示模式、场景参数与每台显示器的独立配置。
+ *
+ * 只输出设置分区，卡片、标题与内边距由外层的 `LibraryPane` 提供，
+ * 滚动交给设置页（`WindowShell` 的滚动容器）。
  */
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Monitor } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -18,13 +20,6 @@ import { GameSwitchDialog } from "@/components/library/game-switch-dialog";
 import { SceneParamFields } from "@/components/scene-params";
 import { MediaPanel } from "@/components/settings/media-panel";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -495,15 +490,8 @@ export function WallpaperPanel() {
       : !display?.game && activeScene?.manifest.id === "lull.video";
 
   return (
-    <Card className="flex max-h-full min-h-0 w-full flex-col">
-      <CardHeader className="shrink-0">
-        <CardTitle className="flex items-center gap-2">
-          <Monitor className="h-5 w-5 text-bamboo" />
-          {m.wallpaper_title()}
-        </CardTitle>
-        <CardDescription>{m.wallpaper_description()}</CardDescription>
-      </CardHeader>
-      <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+    <>
+      <div className="space-y-4" data-testid="wallpaper-panel">
         <div className="flex items-center justify-between">
           <Label htmlFor={wallpaperSwitchId} className="text-ink-soft">
             {m.wallpaper_show()}
@@ -750,7 +738,7 @@ export function WallpaperPanel() {
         <p className="text-xs text-muted-foreground">
           {wallpaperError || statusText(wallpaperStatus)}
         </p>
-      </CardContent>
+      </div>
       <GameSwitchDialog
         gameName={pendingSwitch?.gameName ?? null}
         busy={switchBusy}
@@ -758,6 +746,6 @@ export function WallpaperPanel() {
           void resolveGameSwitch(choice);
         }}
       />
-    </Card>
+    </>
   );
 }

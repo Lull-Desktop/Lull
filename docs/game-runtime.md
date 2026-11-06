@@ -902,7 +902,7 @@ type GameRenderContext = {
 - `mirror`：`canvas = view`，每屏按视口渲染完整世界。
 - `span`：`canvas` 是虚拟桌面并集、`view` 是本屏矩形；replica 用 `view` 对画布做裁剪，**不重新计算游戏坐标**（复用 `core/wallpaper/params.ts` 的 `canvasTransform` 语义）。
 - 游戏世界逻辑坐标不依赖某个显示器的 DPR；DPR 只影响渲染采样。
-- 壁纸 `independent` 模式：每屏可独立选择场景或游戏；底层仍支持同一游戏实例被多屏 attach，但壁纸库的逐屏下拉只允许一台显示器选中同一游戏，视频/图片等场景可重复。不同游戏各自实例（受 `maxRunning` 限制）。`display.policy` 仍是 `shared`，区别只在“每屏选哪个内容源”。
+- 壁纸 `independent` 模式：每屏可独立选择场景或游戏；底层仍支持同一游戏实例被多屏 attach，但壁纸设置页的逐屏下拉只允许一台显示器选中同一游戏，视频/图片等场景可重复。不同游戏各自实例（受 `maxRunning` 限制）。`display.policy` 仍是 `shared`，区别只在“每屏选哪个内容源”。
 
 ### 12.4 显示模式矩阵
 
@@ -910,7 +910,7 @@ type GameRenderContext = {
 | --- | --- | --- | --- |
 | `mirror` | `shared` | 每屏一个 replica，整幅渲染 | 一个 |
 | `span` | `shared` | 每屏一个 replica，按 canvas/view 裁剪 | 一个 |
-| `independent` | `shared` | 每屏一个 replica；可各自选场景或不同游戏，同一游戏在壁纸库 UI 中最多一台屏选中 | 每个游戏一个 |
+| `independent` | `shared` | 每屏一个 replica；可各自选场景或不同游戏，同一游戏在壁纸设置 UI 中最多一台屏选中 | 每个游戏一个 |
 | 任意 | `per-monitor` | 启动时拒绝（`game.unsupported_display_policy`） | — |
 
 ### 12.5 重建与热插拔
@@ -1187,7 +1187,7 @@ Widget 桥协议保持不变（`WIDGET_PROTOCOL = 1`），新增方法：
 - URL 协议：壁纸 hash 同时携带 `scene=` 与可选的 `game=`；`monitor_url` 按 `effective_game(device)` 解析，前端只在 `game` 非空时挂 `GameReplicaHost`，清空后立即回退到场景，不重载页面。
 - 信任边界：两个入口同包同源，但 authority 的提交能力来自窗口角色 + token，replica 永远拿不到 token；副本 iframe 的 `allow-scripts` 不包含 `allow-same-origin`。
 - `display.policy` 仍是 `shared`：同一游戏实例仍可被多块屏 attach（mirror/span 或旧配置），但 independent 的新选择受逐屏互斥约束；`wallpaper::runtime::active_games()` 取全局 + 逐屏游戏的并集，托盘控制器按游戏分组。
-- 切换游戏：壁纸库下拉切换时若旧游戏仍有运行实例，会提示「停止游戏 / 后台继续运行 / 取消」；停止调用 `game_stop`，后台继续调用 `game_set_background(enabled=true)`，确认后才写新壁纸。
+- 切换游戏：壁纸设置下拉切换时若旧游戏仍有运行实例，会提示「停止游戏 / 后台继续运行 / 取消」；停止调用 `game_stop`，后台继续调用 `game_set_background(enabled=true)`，确认后才写新壁纸。
 
 ### 15.2 校验规则（`game_package::manifest`）
 

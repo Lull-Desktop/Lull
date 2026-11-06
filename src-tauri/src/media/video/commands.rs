@@ -46,7 +46,7 @@ fn ensure_media_host(label: &str) -> Result<(), String> {
   if matches!(label, "settings" | "backdrop") {
     Ok(())
   } else {
-    Err("只有设置窗口或壁纸库窗口可以执行该媒体操作".to_string())
+    Err("只有设置窗口或壁纸素材库窗口可以执行该媒体操作".to_string())
   }
 }
 
@@ -238,7 +238,7 @@ pub fn media_config_get(
   webview: WebviewWindow,
   token: Option<String>,
 ) -> Result<MediaConfigView, String> {
-  // 壁纸库窗口（backdrop）与设置窗同属受信控制面，读配置不需要壁纸 token。
+  // 壁纸素材库窗口（backdrop）与设置窗同属受信控制面，读配置不需要壁纸 token。
   lifecycle::authorize_control(webview.label(), token.as_deref())?;
   let display = current_display()?;
   let asset = display

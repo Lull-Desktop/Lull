@@ -323,11 +323,11 @@ describe("WallpaperPanel game sources", () => {
 });
 
 describe("WallpaperPanel external params", () => {
-  test("已安装的场景包参数出现在壁纸库，并能写回宿主", async () => {
+  test("已安装的场景包参数出现在壁纸页签，并能写回宿主", async () => {
     render(<WallpaperPanel />);
 
     const slider = await screen.findByRole("slider", { name: "光晕强度" });
-    expect(screen.getByText(/参数由壁纸库窗口实时下发到场景桥/)).toBeDefined();
+    expect(screen.getByText(/参数由壁纸设置实时下发到场景桥/)).toBeDefined();
 
     fireEvent.keyDown(slider, { key: "End" });
     fireEvent.keyUp(slider, { key: "End" });

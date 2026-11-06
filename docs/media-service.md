@@ -234,7 +234,7 @@ Media Service（Rust）
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` / `usePlayerSession` / `useDirectoryBrowser`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
 - `@lull/media-sdk/widget`：`createWidgetTransport` / `createWidgetMediaClient`，翻译为 Widget 桥的 `media.call/connect/disconnect`，并通过 `onMediaEvent` 接收宿主转发事件。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
-- 音乐库 / 壁纸库 / 白噪音库窗口、官方播放器与白噪音窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。音乐库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单，以及「曲库整理」「测试与接口」两个调试页签，并负责导入、扫描、重命名与移除目录；壁纸库（label `backdrop`）承载壁纸层与媒体壁纸配置；白噪音库（label `noise-library`）承载 Noise 素材、Preset 与 API 调试。
+- 音乐库 / 壁纸素材库 / 白噪音库窗口、官方播放器与白噪音窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。音乐库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单，以及「曲库整理」「测试与接口」两个调试页签，并负责导入、扫描、重命名与移除目录；壁纸素材库（label `backdrop`）只承载素材管理，壁纸层与媒体壁纸配置在设置窗「壁纸」页签；白噪音库（label `noise-library`）承载 Noise 素材、Preset 与 API 调试。
 
 P5 已落地：`./widget` 传输、8 个 Noise capability、Rust bridge token、`noise-mixer` 示例；`./vue` 与查询缓存仍未实现。
 

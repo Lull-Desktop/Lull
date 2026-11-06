@@ -1,5 +1,5 @@
 /**
- * 壁纸库窗口的「素材管理」页签。
+ * 壁纸素材库窗口的内容：素材列表、导入与预览。
  *
  * 只做导入 / 预览 / 管理：素材文件不复制、不转码，也不生成派生素材，
  * 所以这里没有裁剪与滤镜，预览直接读 Tauri asset URL。
@@ -100,8 +100,8 @@ export function MediaManagerPanel({ active }: { active: boolean }) {
     void refresh();
   }, [active, refresh]);
 
-  // 常驻订阅：页签隐藏时「壁纸层」的媒体面板仍能导入/移除素材，
-  // 漏掉这些 `media-changed` 会让切回素材页签时看到旧列表。
+  // 常驻订阅：设置窗壁纸页签的媒体面板也能导入/移除素材，
+  // 漏掉这些 `media-changed` 会让切回素材库时看到旧列表。
   useEffect(() => onMediaChanged(() => void refresh()), [refresh]);
 
   const sorted = useMemo(

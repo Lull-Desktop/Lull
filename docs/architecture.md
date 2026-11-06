@@ -16,7 +16,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ lull.exe（Tauri / Rust）                                     │
-│  ├─ 托盘 + 设置窗 + 音乐库 / 壁纸库 / 白噪音库窗口          │
+│  ├─ 托盘 + 设置窗 + 音乐库 / 壁纸素材库 / 白噪音库窗口       │
 │  ├─ wallpaper runtime：每屏一个无边框 WebView 窗口            │
 │  └─ config：display.json（版本迁移 + 原子写盘）               │
 │                                                              │
@@ -35,7 +35,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 
 - 单进程、多窗口；所有窗口关闭都只隐藏，托盘「退出」才结束进程。
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
-- 内置库窗口 label 为 `settings` / `library` / `backdrop` / `noise-library`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。`backdrop` 与 `noise-library` 沿用音乐库的 1080×760 / min 900×600 尺寸与标题 + 横向页签布局：`backdrop` 为「壁纸层 / 素材管理」两页签，`noise-library` 为「噪音素材库 / 噪音预设 / 噪音测试」三页签；壁纸库不用 `wallpaper-*` 前缀，避免被壁纸渲染窗口的 capability glob 与媒体 token 前缀校验误识别。播放器与白噪音已迁为官方 Widget 包，窗口 label 分别为 `widget-player`、`widget-noise`；番茄钟已迁为 `examples/widgets/liquid-pomodoro` 普通扩展，窗口 label 为 `widget-pomodoro`。
+- 内置库窗口 label 为 `settings` / `library` / `backdrop` / `noise-library`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。`backdrop` 与 `noise-library` 沿用音乐库的 1080×760 / min 900×600 尺寸与标题 + 横向页签布局：`backdrop` 只承载「素材管理」（壁纸本身的设置在设置窗「壁纸」页签，因此没有页签导航），`noise-library` 为「噪音素材库 / 噪音预设 / 噪音测试」三页签；壁纸素材库不用 `wallpaper-*` 前缀，避免被壁纸渲染窗口的 capability glob 与媒体 token 前缀校验误识别。播放器与白噪音已迁为官方 Widget 包，窗口 label 分别为 `widget-player`、`widget-noise`；番茄钟已迁为 `examples/widgets/liquid-pomodoro` 普通扩展，窗口 label 为 `widget-pomodoro`。
 - 第三方/官方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
 - 壁纸窗口只有一条**只读** capability 基础（`window-wallpaper`：`content_packages` +
   事件订阅 + 视频会话命令）：
@@ -270,14 +270,14 @@ lib.rs
 
 | 事件 | 发送方 | 消费方 |
 | --- | --- | --- |
-| `wallpaper-changed` | Rust（拓扑重建 / 开关 / 场景） | 壁纸库窗口刷新显示器与场景 |
+| `wallpaper-changed` | Rust（拓扑重建 / 开关 / 场景） | 设置窗壁纸页签刷新显示器与场景 |
 | `widgets-changed` | Rust / 前端 | 设置页刷新库窗口 / 工具窗开关 |
 | `window-prefs-changed` | Rust | 所有顶栏重新读取 `isMinimizable` |
 | `flow-theme-changed` | 前端（跨窗口） | 设置 / 播放器 / 番茄钟 / 白噪音 |
 | `content-changed` | Rust（内容包安装 / 卸载） | 设置页、扩展中心与壁纸窗的场景目录 |
 | `extensions-changed` | Rust（安装 / 卸载 / 启用 / 改权限） | 扩展中心、托盘；兼容期同时发 `content-changed` |
 | `slots-changed` | Rust（选择 / 激活 / 停用 / 窗口销毁 / 失败回滚） | 扩展中心、设置页窗口列表 |
-| `media-changed` / `media-config-changed` | Rust（会话/配置/素材库） | 壁纸库窗口（素材管理页签订阅 `media-changed` 刷新列表，壁纸媒体面板订阅 `media-config-changed`） |
+| `media-changed` / `media-config-changed` | Rust（会话/配置/素材库） | 壁纸素材库窗口（素材列表订阅 `media-changed`）；设置窗壁纸页签的媒体壁纸面板订阅 `media-config-changed` |
 | `media-master-visible` | Rust（全局壁纸显隐） | 壁纸 MediaSurface 暂停/恢复 HTML video |
 | `media-degraded` | Rust（原生路径失败） | 壁纸 MediaSurface 切换 HTML 回退 |
 | `media:event` | Rust（资料库 revision、扫描进度、歌单/收藏/历史、播放/队列、Noise Session/Track/Library、输出音量） | 音乐库窗口、白噪音库窗口、已订阅的播放器/白噪音窗口 |
@@ -444,8 +444,8 @@ Game Runtime（P1–P3）路径：
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 64 个测试文件（345 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、队列解析、seek 整数化、懒加载分页、单层目录浏览、P4 元数据/标签/标签管理 CRUD 与标签曲目关联/智能歌单/音乐库窗口曲库整理页签、壁纸库窗口、壁纸库素材管理页签、白噪音库窗口、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心、智能随机 Profile/设置面板/API 能力面板）
-cargo test             Rust 279 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 视频素材批量导入、重命名与失效清理、壁纸库配置读取鉴权 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、默认曲库移除 / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / P6 备份、歌词 sidecar / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照、自动续播列表、智能随机 Profile/Strategy/Engine 与模拟校准、引擎协议）
+pnpm test              前端 64 个测试文件（345 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、队列解析、seek 整数化、懒加载分页、单层目录浏览、P4 元数据/标签/标签管理 CRUD 与标签曲目关联/智能歌单/音乐库窗口曲库整理页签、壁纸素材库窗口、设置窗壁纸页签、白噪音库窗口、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心、智能随机 Profile/设置面板/API 能力面板）
+cargo test             Rust 279 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 视频素材批量导入、重命名与失效清理、壁纸素材库配置读取鉴权 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、默认曲库移除 / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / P6 备份、歌词 sidecar / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照、自动续播列表、智能随机 Profile/Strategy/Engine 与模拟校准、引擎协议）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名

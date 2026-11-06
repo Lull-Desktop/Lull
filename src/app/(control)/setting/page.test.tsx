@@ -2,7 +2,8 @@
  * 设置页交互测试：七页签信息架构、窗口开关、功能槽位与主题偏好。
  *
  * 三个库窗口的开关分别落在壁纸 / 音乐 / 白噪音页签；音乐播放器与白噪音两个
- * 功能槽位也在这两个页签里。壁纸库窗口本身的交互测试在
+ * 功能槽位也在这两个页签里。壁纸页签内部的交互测试在
+ * app/(control)/setting/wallpaper-tab.test.tsx，壁纸素材库窗口本身在
  * components/library/wallpaper-library-window.test.tsx。
  */
 import { invoke } from "@tauri-apps/api/core";
@@ -123,16 +124,15 @@ test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 游戏 / 扩展 / �
   expect(
     screen.getByRole("tab", { name: "偏好" }).getAttribute("aria-selected"),
   ).toBe("true");
-  // 壁纸层/关于都不在默认偏好页签里。
-  expect(screen.queryByText("壁纸层")).toBeNull();
+  // 壁纸面板首次进入才挂载（懒挂载后常驻），关于也不在默认偏好页签里。
+  expect(screen.queryByTestId("settings-wallpaper-pane")).toBeNull();
   expect(screen.queryByText("关于 Lull")).toBeNull();
 });
 
-test("壁纸 / 音乐 / 白噪音三个页签是占位页，且沿用偏好卡片作高度基准", () => {
+test("音乐 / 白噪音是占位页，壁纸页承载壁纸设置并沿用偏好卡片作高度基准", () => {
   renderSettingsPage();
 
   for (const [label, testId] of [
-    ["壁纸", "settings-wallpaper-pane"],
     ["音乐", "settings-music-pane"],
     ["白噪音", "settings-noise-pane"],
   ] as const) {
@@ -152,6 +152,16 @@ test("壁纸 / 音乐 / 白噪音三个页签是占位页，且沿用偏好卡�
         .getAttribute("aria-hidden"),
     ).toBe("true");
   }
+
+  fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
+  const wallpaper = screen.getByTestId("settings-wallpaper-pane");
+  expect(within(wallpaper).getByTestId("wallpaper-panel")).toBeDefined();
+  expect(
+    within(wallpaper).queryByText("功能开发中，后续版本补充。"),
+  ).toBeNull();
+  expect(
+    screen.getByTestId("settings-preferences-pane").getAttribute("aria-hidden"),
+  ).toBe("true");
 });
 
 test("关于页签展示版本与扩展模型", () => {
@@ -211,7 +221,7 @@ test("三个库窗口开关分别位于壁纸 / 音乐 / 白噪音页签，并�
   renderSettingsPage();
 
   // 库窗口入口已迁出偏好页：默认页签里三个按钮都不在。
-  for (const name of ["壁纸库窗口", "音乐库窗口", "白噪音库窗口"]) {
+  for (const name of ["壁纸素材库窗口", "音乐库窗口", "白噪音库窗口"]) {
     expect(screen.queryByRole("button", { name })).toBeNull();
   }
 
@@ -234,7 +244,7 @@ test("三个库窗口开关分别位于壁纸 / 音乐 / 白噪音页签，并�
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
     expect(toggle.textContent).toBe("打开");
 
-    // 行在「功能开发中」卡片下方。
+    // 行在面板（或占位卡片）下方。
     const heading = within(pane).getByRole("heading", { name: item.label });
     expect(
       heading.compareDocumentPosition(toggle) &
@@ -268,7 +278,7 @@ test("库窗口已显示时按钮显示「关闭」，点击后关闭窗口", as
 
   const pane = screen.getByTestId("settings-wallpaper-pane");
   const toggle = within(pane).getByRole("button", {
-    name: "壁纸库窗口",
+    name: "壁纸素材库窗口",
   }) as HTMLButtonElement;
 
   await waitFor(() => {
@@ -412,7 +422,7 @@ test("扩展页合并为单卡片，并保留偏好卡片作为高度基准", as
   expect(extensionsPane.contains(card)).toBe(true);
 });
 
-test("扩展页的「壁纸设置」打开壁纸库窗口", async () => {
+test("扩展页的「素材管理」打开壁纸素材库窗口", async () => {
   mockInvoke({
     extensions_list: () => [
       {
@@ -433,7 +443,7 @@ test("扩展页的「壁纸设置」打开壁纸库窗口", async () => {
   renderSettingsPage();
 
   fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
-  fireEvent.click(await screen.findByRole("button", { name: "壁纸设置" }));
+  fireEvent.click(await screen.findByRole("button", { name: "素材管理" }));
 
   await waitFor(() => {
     expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "backdrop" });

@@ -93,14 +93,14 @@ MediaSurface (src/scenes/media-surface.tsx)
 旧库没有 `kind` 时按 `path` 扩展名补算，不提升 `MEDIA_STORE_VERSION`，避免整库回退空库。
 
 `name` 是**显示名**：重命名只改这个字段，不动磁盘文件名、不动 `path`、不影响
-`available` 判定。`assets` 数组顺序就是登记顺序，壁纸库窗口的排序是前端视图排序，
+`available` 判定。`assets` 数组顺序就是登记顺序，壁纸素材库窗口的排序是前端视图排序，
 不写回索引。清理失效素材只移除登记，**不会删除任何文件**。
 
 ### 2.3 安全边界
 
 | 入口 | 规则 |
 | --- | --- |
-| `media_asset_pick` / `media_asset_pick_many` / `media_asset_remove` / `media_asset_rename` / `media_asset_prune` / `media_config_set` / `media_activate` | 只允许 `settings` 与 `backdrop`（壁纸库）窗口 |
+| `media_asset_pick` / `media_asset_pick_many` / `media_asset_remove` / `media_asset_rename` / `media_asset_prune` / `media_config_set` / `media_activate` | 只允许 `settings` 与 `backdrop`（壁纸素材库）窗口 |
 | `media_asset_url` / `media_config_get` | 只允许 `settings` 与 `backdrop`；`backdrop` 读配置不需要 token |
 | `media_open` / `media_attach` / `media_detach` / `media_degrade` | 壁纸窗口必须带顶层帧 token，且 `origin` 在白名单；`backdrop` 不在放行之列 |
 | 外部脚本 iframe | 运行在 opaque-origin sandbox；拿不到父页面 token；不新增媒体 ACL |
@@ -317,12 +317,12 @@ WebView2 预发布接口只从固定版 SDK 提取最小头文件，不手写猜
 
 ### 4.7 手动重新同步播放
 
-壁纸库窗口「媒体壁纸」底部提供 **重新同步播放** 按钮：
+设置窗壁纸页签的「媒体壁纸」底部提供 **重新同步播放** 按钮：
 
 - 前端调用 `media_resync(positionMs = 0)`；
 - Rust 对所有原生 Session 调 `seek(0)`，主开关可见时恢复播放；
 - 再广播 `media-resync` 事件，HTML 壁纸页把 `<video>` seek 到同一点并 play；
-- 返回被同步的会话数，壁纸库窗口显示“已重新同步 N 个会话”。
+- 返回被同步的会话数，面板显示“已重新同步 N 个会话”。
 
 这样不区分 mirror / independent / 共享 / 独立解码，所有显示器都从同一起点重新开始；
 原生流本身不能由 JS seek，所以原生路径以 Rust 端 seek 为准。
@@ -370,12 +370,11 @@ media: native stream stats stream=... abi=1 state=2 textures=0 created=4 transie
 media: native stream stalled stream=... session=media-... label=wallpaper-0 reason=stopped state=2 presented=9022 dropped=1
 ```
 
-### 4.9 壁纸库窗口的素材管理
+### 4.9 壁纸素材库窗口的素材管理
 
-**这是什么**：壁纸库窗口（`backdrop`）有两个页签——「壁纸层」放原有的显示模式、场景、
-每屏配置与媒体参数；「素材管理」只负责媒体素材的导入、预览与管理，不做裁剪、滤镜或
-导出，也不生成缩略图或派生文件。两个页签都常驻挂载，切换只是隐藏，切回不会重新拉取
-显示器与场景配置。
+**这是什么**：壁纸素材库窗口（`backdrop`）只负责媒体素材的导入、预览与管理，不做裁剪、
+滤镜或导出，也不生成缩略图或派生文件。壁纸本身的设置（显示模式、场景、每屏配置与媒体
+参数）在设置窗的「壁纸」页签，两者共用同一份素材索引与 `media-changed` 广播。
 
 **如何使用**：
 
@@ -392,9 +391,9 @@ media: native stream stalled stream=... session=media-... label=wallpaper-0 reas
 - 不复制文件：素材留在原位置，移动硬盘未挂载时文件会被判为失效；
 - 清理只删登记，不删文件；失效判定失败时不会误删磁盘文件，但登记需要重新导入；
 - 素材没有缩略图，视频列表项只显示类型图标；
-- 重命名不会重建播放会话，所以「壁纸层」的素材下拉可能仍显示旧名字，直到下一次
+- 重命名不会重建播放会话，所以设置窗壁纸页签的素材下拉可能仍显示旧名字，直到下一次
   配置变化；这是为了避免重命名导致壁纸视频从头播放；
-- 预览会逐个素材放行 asset protocol 白名单，素材很多时首次进入页签会有可感知的
+- 预览会逐个素材放行 asset protocol 白名单，素材很多时首次进入窗口会有可感知的
   加载时间。
 
 ## 5. 验收

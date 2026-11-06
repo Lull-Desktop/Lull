@@ -376,7 +376,7 @@ await game.reportError({ code: "render.context-lost", message: "WebGL 上下文�
 
 | 来源 | 配置 | 适用 |
 | --- | --- | --- |
-| 包内 `entry.replica` | `display.game = <id>`；independent 下也可写 `monitors[<device>].game`（设置页 / 壁纸库「壁纸类型」） | 完整的单包游戏，逻辑与渲染一起分发 |
+| 包内 `entry.replica` | `display.game = <id>`；independent 下也可写 `monitors[<device>].game`（设置页「壁纸」页签的「壁纸类型」） | 完整的单包游戏，逻辑与渲染一起分发 |
 | Scene 绑定 | 场景 manifest 的 `game: { id, role: "replica" }` | 可换主题的视觉层；Scene 可选，不是显示游戏的必需品 |
 
 两种来源都由宿主 top-level 页执行 `game_connect`，iframe 只拿到只读的

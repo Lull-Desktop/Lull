@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 壁纸库窗口内的「媒体壁纸」面板。
+ * 设置窗壁纸页签里的「媒体壁纸」面板。
  *
  * 只在场景为 `lull.video` 时由 WallpaperPanel 渲染；配置写入走
  * `media_config_set` / `media_activate`，壁纸窗口通过 `media-config-changed` 热更。
@@ -291,8 +291,8 @@ export function MediaPanel() {
 
       {/*
         随素材类型增减的一整块（图片只有填充/对齐，视频还多循环、帧率、硬件解码、
-        共享），再加诊断表格。卡片高度由 WallpaperPanel 的 CardContent 统一滚动，
-        这里不再自带滚动条，避免嵌套滚动。
+        共享），再加诊断表格。滚动交给设置页（壁纸页签整页滚动），这里不再自带
+        滚动条，避免嵌套滚动。
       */}
       <div className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-2">

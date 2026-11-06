@@ -1,7 +1,8 @@
 /**
  * 设置窗口页面：偏好（语言 / 主题 / 窗口行为）、壁纸、音乐、白噪音、游戏、扩展、
- * 关于七个页签。三个库窗口的开关分别放在壁纸 / 音乐 / 白噪音页签里，音乐与白噪音
- * 页签另有对应的功能槽位（音乐播放器 / 白噪音）；库窗口内部功能仍在独立窗口里。
+ * 关于七个页签。壁纸页签承载壁纸层的全部设置（显示模式、场景、每屏配置），音乐与
+ * 白噪音页签有对应的功能槽位（音乐播放器 / 白噪音）；三个库窗口的开关也各在自己的
+ * 页签里（壁纸素材库窗口现在只做媒体素材管理）。
  */
 "use client";
 
@@ -28,6 +29,7 @@ import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
 import { SlotPanel } from "@/components/extensions/slot-panel";
 import { GamesPanel } from "@/components/settings/games-panel";
 import { ThemeModeSwitch } from "@/components/settings/theme-mode-switch";
+import { WallpaperPanel } from "@/components/settings/wallpaper-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -209,6 +211,7 @@ function LibraryPane({
   cardTestId,
   contentClassName,
   inactive = false,
+  collapseWhenInactive = false,
   children,
 }: {
   icon?: ReactNode;
@@ -220,13 +223,20 @@ function LibraryPane({
   contentClassName?: string;
   /** 未选中：整块 invisible + aria-hidden + inert，但仍然占位。 */
   inactive?: boolean;
+  /**
+   * 未选中时用 `display:none` 彻底移出布局，只保留 DOM 与状态。
+   * 内容可能比视图长（壁纸页）时必须用它：`invisible` 仍参与布局与溢出计算，
+   * 会让停留的其它页签底部多出一段空白可滚动区。
+   */
+  collapseWhenInactive?: boolean;
   children?: ReactNode;
 }) {
   return (
     <main
       className={cn(
-        "absolute inset-x-0 top-0 flex min-h-full flex-col",
-        inactive && "invisible",
+        "absolute inset-x-0 top-0 min-h-full",
+        inactive && collapseWhenInactive ? "hidden" : "flex flex-col",
+        inactive && !collapseWhenInactive && "invisible",
       )}
       aria-hidden={inactive ? true : undefined}
       inert={inactive ? true : undefined}
@@ -296,6 +306,9 @@ export default function Settings() {
   const [widgetMsg, setWidgetMsg] = useState("");
   const [slotError, setSlotError] = useState("");
   const [tab, setTab] = useState<SettingsTab>("preferences");
+  // 壁纸面板挂载即拉显示器与场景配置，条件渲染会让每次切回都重发请求并闪一次
+  // 「查询中」。首次进入后常驻（切走用 display:none 隐藏），保留 DOM 与订阅。
+  const [wallpaperVisited, setWallpaperVisited] = useState(false);
   const { items: extensions, refresh: refreshExtensions } = useExtensions();
   const { slots, refresh: refreshSlots } = useExtensionSlots();
   // 官方包已迁为 Slot Provider；这里只保留“官方非 Provider”兼容项。
@@ -416,7 +429,7 @@ export default function Settings() {
     [refreshWidgets],
   );
 
-  // 扩展页的「壁纸设置」直接打开壁纸库窗口；失败提示统一走 widgetMsg。
+  // 扩展页的「素材管理」直接打开壁纸素材库窗口；失败提示统一走 widgetMsg。
   const openToolWindow = useCallback((kind: string): void => {
     setWidgetMsg("");
     void invoke("widget_open", { kind }).catch((error: unknown) => {
@@ -440,6 +453,7 @@ export default function Settings() {
   // 槽位面板按页签各挂一个，切页签时清掉上一次的错误，避免提示串到别的页签。
   const selectTab = useCallback((value: SettingsTab): void => {
     setSlotError("");
+    if (value === "wallpaper") setWallpaperVisited(true);
     setTab(value);
   }, []);
 
@@ -891,17 +905,26 @@ export default function Settings() {
             </CardContent>
           </Card> */}
           </LibraryPane>
-          {tab === "wallpaper" && (
+          {wallpaperVisited && (
             <LibraryPane
               icon={<Wallpaper className="h-4 w-4 text-bamboo" />}
               title={TAB_LABELS.wallpaper()}
+              description={m.wallpaper_description()}
               testId="settings-wallpaper-pane"
+              cardTestId="settings-wallpaper-card"
+              // 长属性排在简写之后：CardContent 自带的 p-6 会盖掉 p-5。
+              contentClassName="space-y-4 px-5 pt-5 pb-5"
+              inactive={tab !== "wallpaper"}
+              collapseWhenInactive
             >
-              <LibraryWindowRow
-                kind="backdrop"
-                widgetStates={widgetStates}
-                onToggle={toggleWidget}
-              />
+              <div className="border-t border-border/60 pt-4">
+                <LibraryWindowRow
+                  kind="backdrop"
+                  widgetStates={widgetStates}
+                  onToggle={toggleWidget}
+                />
+              </div>
+              <WallpaperPanel />
             </LibraryPane>
           )}
           {tab === "music" && (
