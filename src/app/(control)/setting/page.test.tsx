@@ -1,7 +1,9 @@
 /**
  * 设置页交互测试：七页签信息架构、窗口开关、功能槽位与主题偏好。
  *
- * 壁纸库窗口的交互测试在 components/library/wallpaper-library-window.test.tsx。
+ * 三个库窗口的开关分别落在壁纸 / 音乐 / 白噪音页签；音乐播放器与白噪音两个
+ * 功能槽位也在这两个页签里。壁纸库窗口本身的交互测试在
+ * components/library/wallpaper-library-window.test.tsx。
  */
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -29,7 +31,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: () => Promise.resolve(() => {}),
 }));
 
-/** 偏好页功能槽位卡片固定用的音乐播放器 Slot。 */
+/** 音乐页签固定用的音乐播放器 Slot。 */
 const MUSIC_SLOT: SlotInfo = {
   id: "music-player",
   name: "音乐播放器",
@@ -50,6 +52,29 @@ const MUSIC_SLOT: SlotInfo = {
       eligible: true,
       selected: true,
       active: true,
+    },
+  ],
+};
+
+/** 白噪音页签固定用的白噪音 Slot。 */
+const NOISE_SLOT: SlotInfo = {
+  id: "noise-controller",
+  name: "白噪音",
+  description: "选择白噪音界面",
+  category: "audio",
+  status: "stopped",
+  selected: "noise",
+  defaultProvider: "noise",
+  providers: [
+    {
+      id: "noise",
+      name: "白噪音",
+      version: "1.1.0",
+      origin: "bundled",
+      enabled: true,
+      eligible: true,
+      selected: true,
+      active: false,
     },
   ],
 };
@@ -117,6 +142,10 @@ test("壁纸 / 音乐 / 白噪音三个页签是占位页，且沿用偏好卡�
     expect(within(pane).getByText("功能开发中，后续版本补充。")).toBeDefined();
     // 页签标题同时是占位卡片的小标题。
     expect(within(pane).getByRole("heading", { name: label })).toBeDefined();
+    // 卡片下方只有该库窗口那一行开关。
+    expect(
+      within(pane).getAllByRole("button", { name: /库窗口$/ }),
+    ).toHaveLength(1);
     expect(
       screen
         .getByTestId("settings-preferences-pane")
@@ -130,9 +159,13 @@ test("关于页签展示版本与扩展模型", () => {
 
   fireEvent.click(screen.getByRole("tab", { name: "关于" }));
 
-  expect(screen.getByRole("heading", { name: "关于 Lull" })).toBeDefined();
-  expect(screen.getByText(/版本 .*GPL-3.0-or-later/)).toBeDefined();
-  expect(screen.getByText(/扩展模型/)).toBeDefined();
+  // 与其它页签同一套面板：absolute inset-0 的 settings-about-pane。
+  const pane = screen.getByTestId("settings-about-pane");
+  expect(
+    within(pane).getByRole("heading", { name: "关于 Lull" }),
+  ).toBeDefined();
+  expect(within(pane).getByText(/版本 .*GPL-3.0-or-later/)).toBeDefined();
+  expect(within(pane).getByText(/扩展模型/)).toBeDefined();
   expect(screen.queryByTestId("settings-preferences-card")).toBeNull();
 });
 
@@ -162,7 +195,7 @@ test("窗口全局开关读取并保存 taskbarAndMinimize", async () => {
   });
 });
 
-test("工具窗开关按当前显示状态渲染，并能打开三个库窗口", async () => {
+test("三个库窗口开关分别位于壁纸 / 音乐 / 白噪音页签，并能打开对应窗口", async () => {
   mockInvoke({
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
     widget_states: () => [
@@ -177,31 +210,75 @@ test("工具窗开关按当前显示状态渲染，并能打开三个库窗口",
   });
   renderSettingsPage();
 
-  for (const name of ["音乐库窗口", "壁纸库窗口", "白噪音库窗口"]) {
-    const toggle = (await screen.findByRole("button", {
-      name,
-    })) as HTMLButtonElement;
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    expect(toggle.textContent).toBe("打开");
+  // 库窗口入口已迁出偏好页：默认页签里三个按钮都不在。
+  for (const name of ["壁纸库窗口", "音乐库窗口", "白噪音库窗口"]) {
+    expect(screen.queryByRole("button", { name })).toBeNull();
   }
 
-  // 三个库窗口按 manifest order 展示：壁纸库 → 音乐库 → 白噪音库。
-  expect(
-    screen
-      .getAllByRole("button", { name: /库窗口$/ })
-      .map((toggle) => toggle.getAttribute("aria-label")),
-  ).toEqual(["壁纸库窗口", "音乐库窗口", "白噪音库窗口"]);
+  const cases = [
+    { label: "壁纸", testId: "settings-wallpaper-pane", kind: "backdrop" },
+    { label: "音乐", testId: "settings-music-pane", kind: "library" },
+    { label: "白噪音", testId: "settings-noise-pane", kind: "noise-library" },
+  ] as const;
 
-  fireEvent.click(screen.getByRole("button", { name: "壁纸库窗口" }));
-  await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "backdrop" });
-  });
+  for (const item of cases) {
+    fireEvent.click(screen.getByRole("tab", { name: item.label }));
 
-  fireEvent.click(screen.getByRole("button", { name: "白噪音库窗口" }));
-  await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("widget_open", {
-      kind: "noise-library",
+    const pane = screen.getByTestId(item.testId);
+    const toggles = within(pane).getAllByRole("button", {
+      name: /库窗口$/,
     });
+    expect(toggles).toHaveLength(1);
+
+    const toggle = toggles[0] as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.textContent).toBe("打开");
+
+    // 行在「功能开发中」卡片下方。
+    const heading = within(pane).getByRole("heading", { name: item.label });
+    expect(
+      heading.compareDocumentPosition(toggle) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // widget_states 读回来后按钮才可点。
+    await waitFor(() => {
+      expect(toggle.hasAttribute("disabled")).toBe(false);
+    });
+
+    fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("widget_open", { kind: item.kind });
+    });
+  }
+});
+
+test("库窗口已显示时按钮显示「关闭」，点击后关闭窗口", async () => {
+  mockInvoke({
+    window_prefs_get: () => ({ taskbarAndMinimize: true }),
+    widget_states: () => [{ kind: "backdrop", visible: true }],
+    widget_open: () => null,
+    widget_close: () => null,
+    extensions_list: () => [],
+    extensions_slots: () => [],
+  });
+  renderSettingsPage();
+
+  fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
+
+  const pane = screen.getByTestId("settings-wallpaper-pane");
+  const toggle = within(pane).getByRole("button", {
+    name: "壁纸库窗口",
+  }) as HTMLButtonElement;
+
+  await waitFor(() => {
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+  expect(toggle.textContent).toBe("关闭");
+
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("widget_close", { kind: "backdrop" });
   });
 });
 
@@ -220,43 +297,65 @@ test("偏好页合并为一张卡片，功能槽位位于窗口分区内", () =>
   }
   // 关于已拆成独立页签，不再在偏好卡片底部重复。
   expect(within(card).queryByText("关于 Lull")).toBeNull();
-  // 功能槽位内容并入「窗口」分区，不再有独立卡片。
+  // 库窗口开关与组件管理都已迁到各自页签，偏好卡片里不再有它们。
   const windowSection = within(card).getByTestId("settings-window-section");
   expect(
-    within(windowSection).getByTestId("settings-feature-slots"),
-  ).toBeDefined();
+    within(windowSection).queryByTestId("settings-feature-slots"),
+  ).toBeNull();
+  expect(within(card).queryByRole("button", { name: /库窗口$/ })).toBeNull();
+  expect(within(card).queryByTestId("slot-panel")).toBeNull();
 });
 
-test("功能槽位面板迁到偏好页的窗口设置下方，并能打开当前实现", async () => {
+test("音乐 / 白噪音页签各自只显示对应的功能槽位", async () => {
   mockInvoke({
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
     widget_states: () => [],
     extensions_list: () => [],
-    extensions_slots: () => [MUSIC_SLOT],
-    extensions_slot_activate: () => MUSIC_SLOT,
+    extensions_slots: () => [MUSIC_SLOT, NOISE_SLOT],
+    extensions_slot_activate: (args) =>
+      (args as { slot: string }).slot === "music-player"
+        ? MUSIC_SLOT
+        : NOISE_SLOT,
   });
   renderSettingsPage();
 
-  const panel = await screen.findByTestId("slot-panel");
-  expect(within(panel).getByText("音乐播放器")).toBeDefined();
-  expect(within(panel).getByText("运行中")).toBeDefined();
-  expect(within(panel).getByText("播放器 1.1.0")).toBeDefined();
+  // 音乐页签：只有音乐播放器槽位，且位于「组件管理」区块内。
+  fireEvent.click(screen.getByRole("tab", { name: "音乐" }));
 
-  // 功能槽位内容位于「窗口」标题下方，与窗口设置同一分区。
-  const windowSection = screen.getByTestId("settings-window-section");
-  const slotsBlock = within(windowSection).getByTestId(
-    "settings-feature-slots",
-  );
-  expect(slotsBlock.contains(panel)).toBe(true);
+  const musicPane = screen.getByTestId("settings-music-pane");
+  const musicPanel = await within(musicPane).findByTestId("slot-panel");
+  expect(within(musicPanel).getByText("音乐播放器")).toBeDefined();
+  expect(within(musicPanel).getByText("运行中")).toBeDefined();
+  expect(within(musicPanel).getByText("播放器 1.1.0")).toBeDefined();
+  expect(within(musicPanel).queryByTestId("slot-noise-controller")).toBeNull();
+
+  const musicSlots = within(musicPane).getByTestId("settings-feature-slots");
+  expect(musicSlots.contains(musicPanel)).toBe(true);
   expect(
-    screen.getByText("窗口").compareDocumentPosition(slotsBlock) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
+    within(musicPane)
+      .getByText("功能开发中，后续版本补充。")
+      .compareDocumentPosition(musicSlots) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
 
-  fireEvent.click(within(panel).getByRole("button", { name: "打开" }));
+  fireEvent.click(within(musicPanel).getByRole("button", { name: "打开" }));
   await waitFor(() => {
     expect(invoke).toHaveBeenCalledWith("extensions_slot_activate", {
       slot: "music-player",
+    });
+  });
+
+  // 白噪音页签：只有白噪音槽位。
+  fireEvent.click(screen.getByRole("tab", { name: "白噪音" }));
+
+  const noisePane = screen.getByTestId("settings-noise-pane");
+  const noisePanel = await within(noisePane).findByTestId("slot-panel");
+  expect(within(noisePanel).getByText("白噪音")).toBeDefined();
+  expect(within(noisePanel).queryByTestId("slot-music-player")).toBeNull();
+
+  fireEvent.click(within(noisePanel).getByRole("button", { name: "打开" }));
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_slot_activate", {
+      slot: "noise-controller",
     });
   });
 });
@@ -268,12 +367,18 @@ test("扩展页不再重复渲染功能槽位面板", async () => {
     extensions_dev_state: () => ({ devMode: false, packages: [] }),
   });
   renderSettingsPage();
-  expect(await screen.findByTestId("slot-panel")).toBeDefined();
+
+  fireEvent.click(screen.getByRole("tab", { name: "音乐" }));
+  expect(
+    await within(screen.getByTestId("settings-music-pane")).findByTestId(
+      "slot-panel",
+    ),
+  ).toBeDefined();
 
   fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
 
   expect(await screen.findByText(/已安装 0 个/)).toBeDefined();
-  // 偏好面板保留为高度基准但已隐藏；可见的扩展面板里不能出现功能槽位。
+  // 扩展面板里不能再出现功能槽位。
   const extensionsPane = screen.getByTestId("settings-extensions-pane");
   expect(within(extensionsPane).queryByTestId("slot-panel")).toBeNull();
 });
