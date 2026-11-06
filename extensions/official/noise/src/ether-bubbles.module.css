@@ -298,6 +298,34 @@
   pointer-events: none;
 }
 
+/* 动态音轨行容器：≤8 行与固定布局一致，超出限高内部滚动（安全网）。
+   min-height = 当前 5 轨满载自然高度（5 行 + 4 行距）：以此刻的卡片高度
+   为下限，气泡行减少时卡片/玻璃管/窗口不再缩短，行顶对齐、位置稳定；
+   行多于 8 条时容器内滚、高度封顶。 */
+.trackList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--row-gap);
+  min-height: calc(5 * var(--child-size) + 4 * var(--row-gap));
+  max-height: calc(8 * (var(--child-size) + var(--row-gap)));
+  /* 气泡光晕（.bubbleAura inset:-8px，呼吸/拖拽/悬停会放大到约 12~15px）
+     会向行外溢出装饰像素，若不吸收会被算作可滚动溢出，5 轨就误出滚动条。
+     padding 吸收后用负 margin 抵销占位，行距节奏与不加时逐像素一致。 */
+  padding-bottom: 16px;
+  margin-bottom: -16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* 经典滚动条占宽会把行栅格（1.71fr | rail | 1fr）挤离 .rail 的定位基准
+     （.rail 按 ribbonGroup 全宽计算），导致气泡偏离玻璃轨道中线。
+     隐藏滚动条保证列宽恒定；>8 轨仍可滚轮/拖动滚动。 */
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+}
+
+.trackList::-webkit-scrollbar {
+  display: none;
+}
+
 .soundRow {
   position: relative;
   z-index: 1;
@@ -498,8 +526,13 @@
 .sphere {
   position: relative;
   display: block;
-  width: 100%;
-  height: 100%;
+  /* content-box 下 1px 边框只向右下撑大盒子，球心会偏离壳心 1px、
+     与 volumeRing 圆心错开。border-box + 2px 尺寸补偿 + 负 margin
+     保持原视觉直径不变（含边框 34px），但球心回到正中与弧环同心。 */
+  box-sizing: border-box;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  margin: -1px;
   overflow: hidden;
   border: 1px solid rgba(223, 250, 240, 0.18);
   border-radius: 50%;
@@ -932,8 +965,11 @@
 .motherSphere {
   position: relative;
   display: block;
-  width: 100%;
-  height: 100%;
+  /* 与 .sphere 同理：抵消 content-box 边框的右下偏移，球心对准 masterRing。 */
+  box-sizing: border-box;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  margin: -1px;
   overflow: hidden;
   border: 1px solid rgba(242, 255, 249, 0.26);
   border-radius: 50%;
@@ -1723,83 +1759,6 @@
   }
 }
 
-.localList {
-  display: grid;
-  gap: 4px;
-  margin: 2px 18px 8px;
-  padding: 8px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--ether-paper, #f6f3ec) 68%, transparent);
-  border: 1px solid
-    color-mix(in srgb, var(--ether-ink, #25302c) 10%, transparent);
-}
-
-.localTitle {
-  padding: 0 2px 2px;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--ether-ink-soft, #6b756f);
-}
-
-.localTrack {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 3px 2px;
-  font-size: 12px;
-  color: var(--ether-ink-soft, #6b756f);
-}
-
-.localTrack[data-enabled="true"] {
-  color: var(--ether-ink, #25302c);
-}
-
-.localToggle,
-.localRemove {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 50%;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.localToggle {
-  color: var(--ether-accent, #5e9c86);
-}
-
-.localRemove {
-  opacity: 0.55;
-}
-
-.localRemove:hover {
-  opacity: 1;
-  color: #b0574e;
-}
-
-.localRemove svg {
-  width: 13px;
-  height: 13px;
-}
-
-.localName {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.localLevel {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.7;
-}
-
 .presetRow {
   display: flex;
   align-items: center;
@@ -1858,11 +1817,6 @@
 .playbackRow button svg {
   width: 13px;
   height: 13px;
-}
-
-.localTrack input[type="range"] {
-  width: 54px;
-  accent-color: var(--ether-accent, #5e9c86);
 }
 
 /* ── 悬停标签 ───────────────────────────────────────────────── */

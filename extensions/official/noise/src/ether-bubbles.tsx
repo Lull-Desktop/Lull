@@ -1,5 +1,5 @@
 /**
- * EtherBubbles（白噪音）：悬浮式五层环境声混音器。
+ * EtherBubbles（白噪音）：悬浮式环境声混音器，音轨行如实反映后端 Session 配置。
  *
  * 交互：点击泡泡开关声音，滚轮 / 上下拖动调节音量；点击主泡静音，滚轮调总音量。
  * 视觉：玻璃泡 + 发光液体 + 体积环；声场运行时由分析器驱动液体涟漪与呼吸。
@@ -16,14 +16,18 @@ import {
   ChevronRight,
   ChevronsLeftRight,
   Clock,
+  CloudRain,
   Flame,
   Leaf,
   Minus,
   Moon,
+  Music2,
   Pause,
   Play,
   RotateCcw,
   Settings2,
+  Sparkles,
+  Target,
   Waves,
   X,
   Zap,
@@ -37,9 +41,9 @@ import type {
 } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  getMediaClient,
   m,
   onWidgetPrefsChanged,
+  peekMediaClient,
   readWidgetStorage,
   useWidgetFit,
   useWidgetTheme,
@@ -50,27 +54,31 @@ import {
 } from "./compat";
 import styles from "./ether-bubbles.module.css";
 import {
-  BUILTIN_ASSET_IDS,
-  type ChannelMap,
-  type ChannelState,
-  channelMood,
+  buildDemoSession,
   clampLevel,
-  effectiveLevel,
   INITIAL_MASTER,
-  initialChannels,
+  type LibraryMeta,
   masterMood,
-  SOUNDS,
-  type SoundDefinition,
-  type SoundId,
+  type TrackIconKey,
+  type TrackView,
+  toTrackView,
+  trackMood,
 } from "./sound-model";
 import { TipHost, tip } from "./tooltip";
 
-const SOUND_ICONS: Record<SoundId, ComponentType<{ className?: string }>> = {
-  rain: DropletGlyph,
-  thunder: Zap,
-  wind: Leaf,
+const TRACK_ICONS: Record<
+  TrackIconKey,
+  ComponentType<{ className?: string }>
+> = {
+  droplet: DropletGlyph,
+  zap: Zap,
+  leaf: Leaf,
   waves: Waves,
-  fire: Flame,
+  flame: Flame,
+  "cloud-rain": CloudRain,
+  target: Target,
+  music: Music2,
+  sparkles: Sparkles,
 };
 
 const SLEEP_OPTIONS = [0, 15, 30, 60] as const;
@@ -88,7 +96,7 @@ type BubbleStyle = CSSProperties & {
   "--master-scale": string;
 };
 
-type ReadoutTarget = SoundId | "master";
+type ReadoutTarget = string | "master";
 
 /** 参考图里雨滴两侧展开的水翼，用 lucide 基础路径拼一个更轻盈的雨符号。 */
 function DropletGlyph({ className }: { className?: string }) {
@@ -139,18 +147,16 @@ type DragState = {
 };
 
 type BubbleProps = {
-  definition: SoundDefinition;
-  channel: ChannelState;
+  view: TrackView;
   playing: boolean;
   readout: boolean;
-  onToggle: (id: SoundId) => void;
-  onVolume: (id: SoundId, value: number) => void;
-  onAdjust: (id: SoundId) => void;
+  onToggle: (track: NoiseTrack) => void;
+  onVolume: (track: NoiseTrack, value: number) => void;
+  onAdjust: (target: ReadoutTarget) => void;
 };
 
 function SoundBubble({
-  definition,
-  channel,
+  view,
   playing,
   readout,
   onToggle,
@@ -160,19 +166,21 @@ function SoundBubble({
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
-  const level = effectiveLevel(channel);
+  const track = view.track;
+  const level = view.effective;
   const active = playing && level > 0;
-  const Icon = SOUND_ICONS[definition.id];
+  const Icon = TRACK_ICONS[view.icon];
+  const errorPrefix = track.error ? "素材缺失 · " : "";
   const status = active
     ? `音量 ${level}%`
-    : channel.enabled && level > 0
+    : track.enabled && view.level > 0
       ? "待播放"
       : "已关闭";
 
   const wheel = (event: ReactWheelEvent<HTMLButtonElement>): void => {
     const step = event.deltaY < 0 ? 4 : -4;
-    onVolume(definition.id, level + step);
-    onAdjust(definition.id);
+    onVolume(track, level + step);
+    onAdjust(track.id);
   };
 
   const pointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
@@ -193,8 +201,8 @@ function SoundBubble({
     const delta = drag.startY - event.clientY;
     if (!drag.moved && Math.abs(delta) < 4) return;
     drag.moved = true;
-    onVolume(definition.id, drag.startLevel + delta * 0.72);
-    onAdjust(definition.id);
+    onVolume(track, drag.startLevel + delta * 0.72);
+    onAdjust(track.id);
   };
 
   const endDrag = (event: ReactPointerEvent<HTMLButtonElement>): void => {
@@ -215,25 +223,25 @@ function SoundBubble({
 
   const click = (): void => {
     if (suppressClickRef.current) return;
-    onToggle(definition.id);
+    onToggle(track);
   };
 
   const keyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
     if (event.key === "ArrowUp" || event.key === "ArrowRight") {
       event.preventDefault();
-      onVolume(definition.id, level + 5);
-      onAdjust(definition.id);
+      onVolume(track, level + 5);
+      onAdjust(track.id);
     } else if (event.key === "ArrowDown" || event.key === "ArrowLeft") {
       event.preventDefault();
-      onVolume(definition.id, level - 5);
-      onAdjust(definition.id);
+      onVolume(track, level - 5);
+      onAdjust(track.id);
     } else if (event.key === "Home") {
       event.preventDefault();
-      onVolume(definition.id, 0);
+      onVolume(track, 0);
     } else if (event.key === "End") {
       event.preventDefault();
-      onVolume(definition.id, 100);
-      onAdjust(definition.id);
+      onVolume(track, 100);
+      onAdjust(track.id);
     }
   };
 
@@ -246,7 +254,7 @@ function SoundBubble({
       data-readout={readout ? "true" : "false"}
       style={
         {
-          "--tone": definition.tone,
+          "--tone": view.tone,
           "--fill": `${level}%`,
         } as BubbleStyle
       }
@@ -272,7 +280,7 @@ function SoundBubble({
         type="button"
         className={styles.bubbleButton}
         data-ether-wheel="true"
-        aria-label={`${definition.label}，${status}。点击${active ? "关闭" : "开启"}，滚轮或上下拖动调节音量`}
+        aria-label={`${view.label}，${errorPrefix}${status}。点击${active ? "关闭" : "开启"}，滚轮或上下拖动调节音量`}
         aria-pressed={active}
         onWheel={wheel}
         onPointerDown={pointerDown}
@@ -445,11 +453,13 @@ function MasterBubble({
 
 export function EtherBubbles() {
   const rootRef = useRef<HTMLDivElement>(null);
-  const clientRef = useRef(getMediaClient());
-  const sessionRef = useRef<NoiseSession | null>(null);
-  const [session, setSession] = useState<NoiseSession | null>(null);
+  const clientRef = useRef(peekMediaClient());
+  const [session, setSession] = useState<NoiseSession>(buildDemoSession);
+  const sessionRef = useRef<NoiseSession>(session);
+  /** 首个真实快照到达前，不把演示轨的 id 发给后端。 */
+  const sessionReadyRef = useRef(false);
   const [awake, setAwake] = useState(false);
-  const [channels, setChannels] = useState<ChannelMap>(initialChannels);
+  const [libraryMeta, setLibraryMeta] = useState<LibraryMeta | null>(null);
   const [master, setMaster] = useState(INITIAL_MASTER);
   const [muted, setMuted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -478,39 +488,30 @@ export function EtherBubbles() {
     if (!clientRef.current) setAwake(true);
   }, []);
 
-  const activeCount = SOUNDS.reduce(
-    (count, sound) => count + (channels[sound.id].enabled ? 1 : 0),
-    0,
-  );
-  const localTracks = (session?.tracks ?? []).filter(
-    (track) => !Object.values(BUILTIN_ASSET_IDS).includes(track.assetId),
-  );
-  const localAudible = localTracks.some((track) => track.enabled);
-  const audible = awake && !muted && (activeCount > 0 || localAudible);
+  const tracks = [...session.tracks].sort((a, b) => a.order - b.order);
+  const anyAudible = tracks.some((track) => track.enabled && track.volume > 0);
+  const audible = awake && !muted && anyAudible;
 
-  const applySession = useCallback((next: NoiseSession) => {
-    const current = sessionRef.current;
-    if (current && next.revision < current.revision) return;
+  const commitSession = useCallback((next: NoiseSession): void => {
     sessionRef.current = next;
     setSession(next);
-    const defaults = initialChannels();
-    const mapped = initialChannels();
-    for (const sound of SOUNDS) {
-      const track = next.tracks.find(
-        (item) => item.assetId === BUILTIN_ASSET_IDS[sound.id],
-      );
-      mapped[sound.id] = track
-        ? { enabled: track.enabled, level: Math.round(track.volume * 100) }
-        : { enabled: false, level: defaults[sound.id].level };
-    }
-    setChannels(mapped);
-    setMaster(Math.round(next.masterVolume * 100));
-    setMuted(next.muted);
-    setSleepMinutes(
-      SLEEP_OPTIONS.find((option) => option === next.sleep.timerMinutes) ?? 0,
-    );
-    setAwake(next.state === "playing");
   }, []);
+
+  const applySession = useCallback(
+    (next: NoiseSession) => {
+      const current = sessionRef.current;
+      if (current && next.revision < current.revision) return;
+      sessionReadyRef.current = true;
+      commitSession(next);
+      setMaster(Math.round(next.masterVolume * 100));
+      setMuted(next.muted);
+      setSleepMinutes(
+        SLEEP_OPTIONS.find((option) => option === next.sleep.timerMinutes) ?? 0,
+      );
+      setAwake(next.state === "playing");
+    },
+    [commitSession],
+  );
 
   useEffect(() => {
     const client = clientRef.current;
@@ -670,20 +671,6 @@ export function EtherBubbles() {
     }, 1600);
   }, []);
 
-  const ensureBuiltinTrack = useCallback(
-    async (
-      client: NonNullable<typeof clientRef.current>,
-      id: SoundId,
-    ): Promise<NoiseTrack> => {
-      const existing = sessionRef.current?.tracks.find(
-        (track) => track.assetId === BUILTIN_ASSET_IDS[id],
-      );
-      if (existing) return existing;
-      return client.noise.tracks.add(BUILTIN_ASSET_IDS[id]);
-    },
-    [],
-  );
-
   const ensurePlaying = useCallback(
     async (
       client: NonNullable<typeof clientRef.current>,
@@ -695,19 +682,28 @@ export function EtherBubbles() {
     [],
   );
 
-  const setChannelVolume = useCallback(
-    (id: SoundId, value: number): void => {
+  /** 乐观更新本地轨字段；不递增 revision，服务端回包由 applySession 覆盖归一。 */
+  const patchLocalTrack = useCallback(
+    (trackId: string, patch: Partial<NoiseTrack>): void => {
+      commitSession({
+        ...sessionRef.current,
+        tracks: sessionRef.current.tracks.map((item) =>
+          item.id === trackId ? { ...item, ...patch } : item,
+        ),
+      });
+    },
+    [commitSession],
+  );
+
+  const setTrackVolume = useCallback(
+    (track: NoiseTrack, value: number): void => {
       const level = clampLevel(value);
-      setChannels((prev) => ({
-        ...prev,
-        [id]: { enabled: level > 0, level },
-      }));
+      patchLocalTrack(track.id, { volume: level / 100, enabled: level > 0 });
       setMuted(false);
-      markReadout(id);
+      markReadout(track.id);
       const client = clientRef.current;
-      if (!client) return;
+      if (!client || !sessionReadyRef.current) return;
       void (async () => {
-        const track = await ensureBuiltinTrack(client, id);
         await client.noise.tracks.setVolume(track.id, level / 100);
         await client.noise.tracks.setEnabled(track.id, level > 0);
         const next = await ensurePlaying(client);
@@ -715,28 +711,24 @@ export function EtherBubbles() {
         applySession(await client.noise.session.setMuted(false));
       })().catch(() => {});
     },
-    [applySession, ensureBuiltinTrack, ensurePlaying, markReadout],
+    [applySession, ensurePlaying, markReadout, patchLocalTrack],
   );
 
-  const toggleChannel = useCallback(
-    (id: SoundId): void => {
-      const current = channels[id];
+  const toggleTrack = useCallback(
+    (track: NoiseTrack): void => {
       const playing = sessionRef.current
         ? sessionRef.current.state === "playing"
         : awake;
-      const enabled = playing ? !current.enabled : true;
-      const level = enabled && current.level < 5 ? 50 : current.level;
-      setChannels((prev) => ({
-        ...prev,
-        [id]: { enabled, level },
-      }));
+      const enabled = playing ? !track.enabled : true;
+      const currentLevel = clampLevel(track.volume * 100);
+      const level = enabled && currentLevel < 5 ? 50 : currentLevel;
+      patchLocalTrack(track.id, { enabled, volume: level / 100 });
       setMuted(false);
-      markReadout(id);
+      markReadout(track.id);
       const client = clientRef.current;
-      if (!client) return;
+      if (!client || !sessionReadyRef.current) return;
       if (!playing) {
         void (async () => {
-          const track = await ensureBuiltinTrack(client, id);
           await client.noise.tracks.setVolume(track.id, level / 100);
           await client.noise.tracks.setEnabled(track.id, true);
           applySession(await client.noise.session.play());
@@ -745,7 +737,6 @@ export function EtherBubbles() {
         return;
       }
       void (async () => {
-        const track = await ensureBuiltinTrack(client, id);
         await client.noise.tracks.setVolume(track.id, level / 100);
         await client.noise.tracks.setEnabled(track.id, enabled);
         const next = enabled
@@ -755,14 +746,7 @@ export function EtherBubbles() {
         applySession(await client.noise.session.setMuted(false));
       })().catch(() => {});
     },
-    [
-      applySession,
-      awake,
-      channels,
-      ensureBuiltinTrack,
-      ensurePlaying,
-      markReadout,
-    ],
+    [applySession, awake, ensurePlaying, markReadout, patchLocalTrack],
   );
 
   const setMasterVolume = useCallback(
@@ -910,63 +894,37 @@ export function EtherBubbles() {
     [applySession],
   );
 
-  const toggleLocalTrack = useCallback(
-    (track: NoiseTrack): void => {
-      const client = clientRef.current;
-      if (!client) return;
-      const playing = sessionRef.current?.state === "playing";
-      setMuted(false);
-      if (!playing) {
-        void (async () => {
-          await client.noise.tracks.setEnabled(track.id, true);
-          await client.noise.session.setMuted(false);
-          applySession(await client.noise.session.play());
-        })().catch(() => {});
-        return;
-      }
-      void (async () => {
-        await client.noise.tracks.setEnabled(track.id, !track.enabled);
-        await client.noise.session.setMuted(false);
-        if (!track.enabled) applySession(await ensurePlaying(client));
-      })().catch(() => {});
-    },
-    [applySession, ensurePlaying],
-  );
+  /** 素材元数据（分类图标）拉取；失败静默，视觉派生回退纯哈希。 */
+  const refreshLibrary = useCallback((): void => {
+    const client = clientRef.current;
+    if (!client) return;
+    void Promise.all([
+      client.noise.library.listAssets({ pageSize: 200 }),
+      client.noise.library.getCategories(),
+    ])
+      .then(([page, categories]) => {
+        const assetCategory = new Map<string, string>();
+        for (const asset of page.items) {
+          if (asset.category) assetCategory.set(asset.id, asset.category.id);
+        }
+        const categoryIcon = new Map<string, string>();
+        for (const category of categories) {
+          if (category.icon) categoryIcon.set(category.id, category.icon);
+        }
+        setLibraryMeta({ assetCategory, categoryIcon });
+      })
+      .catch(() => {});
+  }, []);
 
-  const setLocalTrackVolume = useCallback(
-    (track: NoiseTrack, value: number): void => {
-      const level = clampLevel(value);
-      const client = clientRef.current;
-      setMuted(false);
-      if (!client) return;
-      void (async () => {
-        await client.noise.tracks.setVolume(track.id, level / 100);
-        await client.noise.tracks.setEnabled(track.id, level > 0);
-        await client.noise.session.setMuted(false);
-        if (level > 0) applySession(await ensurePlaying(client));
-      })().catch(() => {});
-    },
-    [applySession, ensurePlaying],
-  );
-
-  const removeLocalTrack = useCallback(
-    (track: NoiseTrack): void => {
-      const client = clientRef.current;
-      if (!client) return;
-      void client.noise.tracks
-        .remove(track.id)
-        .then(() => client.noise.session.getCurrent())
-        .then(applySession)
-        .catch(() => {});
-    },
-    [applySession],
-  );
+  useEffect(() => {
+    refreshLibrary();
+  }, [refreshLibrary]);
 
   const resetMix = useCallback((): void => {
     setSettingsOpen(false);
     const client = clientRef.current;
     if (!client) {
-      setChannels(initialChannels());
+      commitSession(buildDemoSession());
       setMaster(INITIAL_MASTER);
       setMuted(false);
       setSleepMinutes(0);
@@ -980,7 +938,7 @@ export function EtherBubbles() {
         applySession(await client.noise.session.play());
       })
       .catch(() => {});
-  }, [applySession]);
+  }, [applySession, commitSession]);
 
   const nextDockSide = dockSide === "right" ? "left" : "right";
   const dockSideLabel =
@@ -1085,77 +1043,41 @@ export function EtherBubbles() {
               <div className={styles.rowSpacer} aria-hidden="true" />
             </div>
 
-            {SOUNDS.map((sound) => {
-              const channel = channels[sound.id];
-              const level = effectiveLevel(channel);
-              return (
-                <div
-                  className={styles.soundRow}
-                  key={sound.id}
-                  data-active={awake && level > 0 ? "true" : "false"}
-                >
-                  <div className={styles.rowLabel}>
-                    <span className={styles.glyphTitle}>{sound.glyph}</span>
-                    <span className={styles.rowMeta}>
-                      {awake
-                        ? `${level}% · ${channelMood(channel, sound)}`
-                        : channel.enabled && level > 0
-                          ? "待播放"
-                          : "静默"}
-                    </span>
-                  </div>
-                  <div className={styles.rowBubble}>
-                    <SoundBubble
-                      definition={sound}
-                      channel={channel}
-                      playing={awake}
-                      readout={readout === sound.id}
-                      onToggle={toggleChannel}
-                      onVolume={setChannelVolume}
-                      onAdjust={markReadout}
-                    />
-                  </div>
-                  <div className={styles.rowSpacer} aria-hidden="true" />
-                </div>
-              );
-            })}
-
-            {localTracks.length > 0 ? (
-              <div className={styles.localList}>
-                <span className={styles.localTitle}>本地轨道</span>
-                {localTracks.map((track) => (
+            <div className={styles.trackList}>
+              {tracks.map((track) => {
+                const view = toTrackView(track, libraryMeta);
+                return (
                   <div
+                    className={styles.soundRow}
                     key={track.id}
-                    className={styles.localTrack}
-                    data-enabled={track.enabled ? "true" : "false"}
+                    data-active={awake && view.effective > 0 ? "true" : "false"}
+                    data-error={track.error ? "true" : "false"}
                   >
-                    <button
-                      type="button"
-                      className={styles.localToggle}
-                      aria-label={`${track.name}，${track.enabled ? "关闭" : "开启"}`}
-                      aria-pressed={track.enabled}
-                      onClick={() => toggleLocalTrack(track)}
-                      {...tip(track.enabled ? "静音这条轨道" : "开启这条轨道")}
-                    >
-                      {track.enabled ? "●" : "○"}
-                    </button>
-                    <span className={styles.localName}>{track.name}</span>
-                    <span className={styles.localLevel}>
-                      {Math.round(track.volume * 100)}%
-                    </span>
-                    <button
-                      type="button"
-                      className={styles.localRemove}
-                      aria-label={`移除 ${track.name}`}
-                      onClick={() => removeLocalTrack(track)}
-                      {...tip("移除本地轨道")}
-                    >
-                      <X />
-                    </button>
+                    <div className={styles.rowLabel}>
+                      <span className={styles.glyphTitle}>{view.glyph}</span>
+                      <span className={styles.rowMeta}>
+                        {awake
+                          ? `${view.effective}% · ${trackMood(view)}`
+                          : track.enabled && view.level > 0
+                            ? "待播放"
+                            : "静默"}
+                      </span>
+                    </div>
+                    <div className={styles.rowBubble}>
+                      <SoundBubble
+                        view={view}
+                        playing={awake}
+                        readout={readout === track.id}
+                        onToggle={toggleTrack}
+                        onVolume={setTrackVolume}
+                        onAdjust={markReadout}
+                      />
+                    </div>
+                    <div className={styles.rowSpacer} aria-hidden="true" />
                   </div>
-                ))}
-              </div>
-            ) : null}
+                );
+              })}
+            </div>
 
             <div className={styles.gearRow}>
               <button
@@ -1301,56 +1223,6 @@ export function EtherBubbles() {
                     <span />
                   </button>
                 </div>
-              </div>
-
-              <div className={styles.localList}>
-                <span className={styles.localTitle}>本地轨道</span>
-                {localTracks.length === 0 ? (
-                  <span className={styles.settingsNote}>
-                    当前 Preset 没有本地素材。
-                  </span>
-                ) : (
-                  localTracks.map((track) => (
-                    <div
-                      key={track.id}
-                      className={styles.localTrack}
-                      data-enabled={track.enabled ? "true" : "false"}
-                    >
-                      <button
-                        type="button"
-                        className={styles.localToggle}
-                        aria-label={`${track.name}，${track.enabled ? "关闭" : "开启"}`}
-                        aria-pressed={track.enabled}
-                        onClick={() => toggleLocalTrack(track)}
-                        {...tip(
-                          track.enabled ? "静音这条轨道" : "开启这条轨道",
-                        )}
-                      >
-                        {track.enabled ? "●" : "○"}
-                      </button>
-                      <span className={styles.localName}>{track.name}</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        value={Math.round(track.volume * 100)}
-                        aria-label={`${track.name} 音量`}
-                        onChange={(event) =>
-                          setLocalTrackVolume(track, Number(event.target.value))
-                        }
-                      />
-                      <button
-                        type="button"
-                        className={styles.localRemove}
-                        aria-label={`移除 ${track.name}`}
-                        onClick={() => removeLocalTrack(track)}
-                        {...tip("移除本地轨道")}
-                      >
-                        <X />
-                      </button>
-                    </div>
-                  ))
-                )}
               </div>
 
               <div className={styles.settingsFoot}>

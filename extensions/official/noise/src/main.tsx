@@ -8,7 +8,11 @@ import {
 } from "@lull/widget-sdk/react";
 import { type ReactNode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { installNoiseBridge, preloadNoiseState } from "./compat";
+import {
+  createDemoWidgetClient,
+  installNoiseBridge,
+  preloadNoiseState,
+} from "./compat";
 import { EtherBubbles } from "./ether-bubbles";
 import "./global.css";
 
@@ -59,11 +63,15 @@ async function boot(): Promise<void> {
         </HostSync>
       </LullProvider>,
     );
-  } catch (error) {
-    mount.textContent =
-      error instanceof Error
-        ? `白噪音加载失败：${error.message}`
-        : "白噪音加载失败";
+  } catch {
+    // 非宿主 iframe（独立预览/单测）：用内存桩渲染演示态，便于查看与截图。
+    createRoot(mount).render(
+      <LullProvider client={createDemoWidgetClient()}>
+        <HostSync>
+          <EtherBubbles />
+        </HostSync>
+      </LullProvider>,
+    );
   }
 }
 
