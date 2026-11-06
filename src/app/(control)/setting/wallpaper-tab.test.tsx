@@ -112,6 +112,7 @@ const listenState = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (event: string, handler: () => void) =>
     listenState.impl(event, handler),
+  emit: () => Promise.resolve(),
 }));
 
 type MonitorRow = {

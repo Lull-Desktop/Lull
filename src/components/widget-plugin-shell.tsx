@@ -91,8 +91,8 @@ declare global {
 
 const PROTOCOL_VERSION = 1;
 const READY_TIMEOUT_MS = 8000;
-/** 桥允许插件打开 / 关闭 / 查询的工具窗口白名单。 */
-const BRIDGE_WINDOW_KINDS = ["library"] as const;
+/** 桥允许插件打开 / 关闭 / 查询的窗口白名单。 */
+const BRIDGE_WINDOW_KINDS = ["library", "settings"] as const;
 
 /** Widget 可申请的游戏能力；宿主壳按能力把请求转发给 `game_*` 命令。 */
 const GAME_BRIDGE_CAPABILITIES = [
@@ -354,6 +354,40 @@ export function WidgetPluginShell() {
         tab,
       });
     })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      })
+      .catch(() => {
+        // 浏览器预览 / 单测没有 Tauri 事件系统。
+      });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [context, send]);
+
+  // 设置窗的页签 / 曲库分类同步：播放器的队列 / 收藏齿轮落在设置窗的「音乐」页。
+  useEffect(() => {
+    if (!context || !context.granted.includes("widget.chrome")) return;
+    let stop: (() => void) | null = null;
+    let disposed = false;
+    void listen<{ tab?: string; category?: string | null }>(
+      "settings-music-changed",
+      (event) => {
+        const category =
+          typeof event.payload?.category === "string"
+            ? event.payload.category
+            : "";
+        send({
+          v: PROTOCOL_VERSION,
+          type: "window.state",
+          kind: "settings",
+          visible: true,
+          ...(category ? { tab: category } : {}),
+        });
+      },
+    )
       .then((unlisten) => {
         if (disposed) unlisten();
         else stop = unlisten;

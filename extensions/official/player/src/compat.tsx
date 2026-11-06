@@ -114,6 +114,39 @@ export function onLibraryState(
   });
 }
 
+/**
+ * 打开（或唤醒）设置窗口并停在「音乐」页的指定曲库分类。
+ * 队列 / 收藏已经迁到设置窗，播放器的齿轮改走这里。
+ */
+export function widgetOpenSettings(category: string): Promise<void> {
+  if (!widget) return Promise.resolve();
+  return widget.openWindow({ kind: "settings", tab: `music:${category}` });
+}
+
+/** 关闭（隐藏）设置窗口。 */
+export function widgetCloseSettings(): Promise<void> {
+  if (!widget) return Promise.resolve();
+  return widget.closeWindow({ kind: "settings" });
+}
+
+/** 设置窗口当前是否可见；桥不可用时按「关着」处理。 */
+export function widgetSettingsVisible(): Promise<boolean> {
+  if (!widget) return Promise.resolve(false);
+  return widget.isWindowOpen("settings").catch(() => false);
+}
+
+/** 订阅设置窗口的可见性与停留的曲库分类（`tab`）。 */
+export function onSettingsState(
+  listener: (state: { visible: boolean; tab?: string }) => void,
+): () => void {
+  if (!widget) return () => {};
+  return widget.onWindowState((state) => {
+    if (state.kind === "settings") {
+      listener({ visible: state.visible, tab: state.tab });
+    }
+  });
+}
+
 const THEME_LABELS: Record<string, () => string> = {
   blueGold: m.flow_theme_blue_gold,
   jade: m.flow_theme_forest,

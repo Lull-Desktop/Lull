@@ -1,13 +1,14 @@
 /**
  * 设置窗口页面：偏好（语言 / 主题 / 窗口行为）、壁纸、音乐、白噪音、游戏、扩展、
- * 关于七个页签。壁纸页签承载壁纸层的全部设置（显示模式、场景、每屏配置），音乐与
- * 白噪音页签有对应的功能槽位（音乐播放器 / 白噪音）；三个库窗口的开关也各在自己的
- * 页签里（壁纸素材库窗口现在只做媒体素材管理）。
+ * 关于七个页签。壁纸页签承载壁纸层的全部设置（显示模式、场景、每屏配置），音乐
+ * 页签除音乐播放器槽位与音乐库开关外，还承载曲库浏览的六个二级分类（全部歌曲 /
+ * 我的收藏 / 队列 / 歌单 / 最近添加 / 最近播放）；白噪音页签有白噪音槽位。三个库
+ * 窗口的开关也各在自己的页签里（壁纸素材库窗口现在只做媒体素材管理）。
  */
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import {
   AppWindow,
   AudioLines,
@@ -27,6 +28,11 @@ import {
 } from "react";
 import { ExtensionsPanel } from "@/components/extensions/extensions-panel";
 import { SlotPanel } from "@/components/extensions/slot-panel";
+import {
+  isMusicCategory,
+  MusicBrowser,
+  type MusicCategory,
+} from "@/components/library/music-browser";
 import { GamesPanel } from "@/components/settings/games-panel";
 import { ThemeModeSwitch } from "@/components/settings/theme-mode-switch";
 import { WallpaperPanel } from "@/components/settings/wallpaper-panel";
@@ -202,6 +208,9 @@ function LibraryWindowRow({
  * 不会把文字顶出卡片边框）；卡片 flex-1 跟着拉满，窗口缩放时高度自动跟着变。
  * 壁纸 / 音乐 / 白噪音 / 关于用它承载各自内容，偏好页也复用它（不要顶部标题，
  * 三个分区自带 SectionHeading，且未选中时要整块隐藏但仍占位作高度基准）。
+ *
+ * `fillHeight` 换成 `absolute inset-0`：面板高度锁定为容器高度、不再被内容撑高，
+ * 内部用 `min-h-0 flex-1 overflow-y-auto` 形成唯一滚动条（音乐页的曲库列表要这个）。
  */
 function LibraryPane({
   icon,
@@ -212,6 +221,7 @@ function LibraryPane({
   contentClassName,
   inactive = false,
   collapseWhenInactive = false,
+  fillHeight = false,
   children,
 }: {
   icon?: ReactNode;
@@ -229,12 +239,14 @@ function LibraryPane({
    * 会让停留的其它页签底部多出一段空白可滚动区。
    */
   collapseWhenInactive?: boolean;
+  /** 高度锁定为容器高度（内容自己滚），不再随内容长高。 */
+  fillHeight?: boolean;
   children?: ReactNode;
 }) {
   return (
     <main
       className={cn(
-        "absolute inset-x-0 top-0 min-h-full",
+        fillHeight ? "absolute inset-0" : "absolute inset-x-0 top-0 min-h-full",
         inactive && collapseWhenInactive ? "hidden" : "flex flex-col",
         inactive && !collapseWhenInactive && "invisible",
       )}
@@ -242,9 +254,20 @@ function LibraryPane({
       inert={inactive ? true : undefined}
       data-testid={testId}
     >
-      <Card className="flex w-full flex-1 flex-col" data-testid={cardTestId}>
+      <Card
+        // fillHeight 时卡片要能被压到容器高度以下：flex 项的自动最小尺寸是
+        // min-content，不加 min-h-0 的话极矮窗口会把卡片撑出面板。
+        className={cn("flex w-full flex-1 flex-col", fillHeight && "min-h-0")}
+        data-testid={cardTestId}
+      >
         <CardContent
-          className={cn("flex flex-1 flex-col", contentClassName ?? "p-6")}
+          className={cn(
+            "flex flex-1 flex-col",
+            // 高度锁定时内容区自己滚：窗口被压到极矮（min 640×320）时，
+            // 标题 / 槽位 / 开关这些固定块放不下也不会溢出卡片。
+            fillHeight && "min-h-0 overflow-y-auto",
+            contentClassName ?? "p-6",
+          )}
         >
           {title !== undefined && (
             <SectionHeading
@@ -309,6 +332,10 @@ export default function Settings() {
   // 壁纸面板挂载即拉显示器与场景配置，条件渲染会让每次切回都重发请求并闪一次
   // 「查询中」。首次进入后常驻（切走用 display:none 隐藏），保留 DOM 与订阅。
   const [wallpaperVisited, setWallpaperVisited] = useState(false);
+  // 音乐面板同理：挂载即连媒体客户端并拉列表，切回来不该重连重拉。
+  const [musicVisited, setMusicVisited] = useState(false);
+  // 曲库二级分类：设置页持有，外部（播放器齿轮）唤起时可指定。
+  const [musicCategory, setMusicCategory] = useState<MusicCategory>("tracks");
   const { items: extensions, refresh: refreshExtensions } = useExtensions();
   const { slots, refresh: refreshSlots } = useExtensionSlots();
   // 官方包已迁为 Slot Provider；这里只保留“官方非 Provider”兼容项。
@@ -454,8 +481,61 @@ export default function Settings() {
   const selectTab = useCallback((value: SettingsTab): void => {
     setSlotError("");
     if (value === "wallpaper") setWallpaperVisited(true);
+    if (value === "music") setMusicVisited(true);
     setTab(value);
   }, []);
+
+  /** 外部指定页签："music" 只切页签，"music:queue" 再定位到对应分类。 */
+  const applyOpenTab = useCallback(
+    (raw: string | null | undefined): void => {
+      if (!raw) return;
+      const [nextTab, nextCategory] = raw.split(":");
+      if (!(SETTINGS_TABS as readonly string[]).includes(nextTab)) return;
+      if (nextCategory && isMusicCategory(nextCategory)) {
+        setMusicCategory(nextCategory);
+      }
+      selectTab(nextTab as SettingsTab);
+    },
+    [selectTab],
+  );
+
+  // 播放器扩展等外部入口经 widget_open 指定页签：挂载时取走 Rust 暂存值
+  // （新建窗口时事件早于监听注册），运行中收 widget-open-tab 事件。
+  useEffect(() => {
+    let disposed = false;
+    void invoke<string | null>("widget_take_open_tab", { kind: "settings" })
+      .then((value) => {
+        if (!disposed) applyOpenTab(value);
+      })
+      .catch(() => {
+        // 浏览器预览 / 单测没有 Tauri IPC；页签保持默认。
+      });
+    let stop: (() => void) | null = null;
+    void listen<{ tab?: string }>("widget-open-tab", (event) => {
+      applyOpenTab(event.payload?.tab ?? null);
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else stop = unlisten;
+      })
+      .catch(() => {
+        // 同上；事件不可用时只影响外部指定页签。
+      });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [applyOpenTab]);
+
+  // 页签 / 曲库分类变化广播给宿主壳：播放器的齿轮据此点亮与判断「再点一次」。
+  useEffect(() => {
+    void emit("settings-music-changed", {
+      tab,
+      category: tab === "music" ? musicCategory : null,
+    }).catch(() => {
+      // 浏览器预览 / 单测没有 Tauri 事件系统。
+    });
+  }, [tab, musicCategory]);
 
   const toggleOfficialTool = useCallback(
     (item: ExtensionInfo, on: boolean): void => {
@@ -927,11 +1007,18 @@ export default function Settings() {
               <WallpaperPanel />
             </LibraryPane>
           )}
-          {tab === "music" && (
+          {musicVisited && (
             <LibraryPane
               icon={<Music className="h-4 w-4 text-bamboo" />}
               title={TAB_LABELS.music()}
+              description={m.settings_music_description()}
               testId="settings-music-pane"
+              cardTestId="settings-music-card"
+              // 长属性排在简写之后：CardContent 自带的 p-6 会盖掉 p-5。
+              contentClassName="min-h-0 gap-3 px-5 pt-5 pb-5"
+              fillHeight
+              inactive={tab !== "music"}
+              collapseWhenInactive
             >
               <SlotSection
                 slotId={MUSIC_SLOT_ID}
@@ -944,6 +1031,11 @@ export default function Settings() {
                 kind="library"
                 widgetStates={widgetStates}
                 onToggle={toggleWidget}
+              />
+              {/* 曲库二级分类 + 内容区：整块占满剩余高度，内容自己滚。 */}
+              <MusicBrowser
+                category={musicCategory}
+                onCategoryChange={setMusicCategory}
               />
             </LibraryPane>
           )}

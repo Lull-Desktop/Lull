@@ -30,6 +30,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: () => Promise.resolve(() => {}),
+  emit: () => Promise.resolve(),
 }));
 
 /** 音乐页签固定用的音乐播放器 Slot。 */
@@ -129,29 +130,46 @@ test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 游戏 / 扩展 / �
   expect(screen.queryByText("关于 Lull")).toBeNull();
 });
 
-test("音乐 / 白噪音是占位页，壁纸页承载壁纸设置并沿用偏好卡片作高度基准", () => {
+test("音乐页承载曲库分类，白噪音仍是占位页", () => {
   renderSettingsPage();
 
-  for (const [label, testId] of [
-    ["音乐", "settings-music-pane"],
-    ["白噪音", "settings-noise-pane"],
-  ] as const) {
-    fireEvent.click(screen.getByRole("tab", { name: label }));
+  fireEvent.click(screen.getByRole("tab", { name: "音乐" }));
 
-    const pane = screen.getByTestId(testId);
-    expect(within(pane).getByText("功能开发中，后续版本补充。")).toBeDefined();
-    // 页签标题同时是占位卡片的小标题。
-    expect(within(pane).getByRole("heading", { name: label })).toBeDefined();
-    // 卡片下方只有该库窗口那一行开关。
-    expect(
-      within(pane).getAllByRole("button", { name: /库窗口$/ }),
-    ).toHaveLength(1);
-    expect(
-      screen
-        .getByTestId("settings-preferences-pane")
-        .getAttribute("aria-hidden"),
-    ).toBe("true");
+  const music = screen.getByTestId("settings-music-pane");
+  expect(
+    within(music).getByText("曲库浏览、收藏、队列与歌单都在这里管理。"),
+  ).toBeDefined();
+  expect(within(music).getByRole("heading", { name: "音乐" })).toBeDefined();
+  // 卡片里只有该库窗口那一行开关。
+  expect(
+    within(music).getAllByRole("button", { name: /库窗口$/ }),
+  ).toHaveLength(1);
+  // 音乐库窗口的六个页签在这里变成二级分类标签。
+  for (const label of [
+    "全部歌曲",
+    "我的收藏",
+    "队列",
+    "歌单",
+    "最近添加",
+    "最近播放",
+  ]) {
+    expect(within(music).getByRole("button", { name: label })).toBeDefined();
   }
+  // 内容区是唯一滚动条：父级链带 min-h-0，卡片不会被内容撑高。
+  expect(screen.getByTestId("music-browser-content").className).toContain(
+    "overflow-y-auto",
+  );
+
+  fireEvent.click(screen.getByRole("tab", { name: "白噪音" }));
+
+  const noise = screen.getByTestId("settings-noise-pane");
+  expect(within(noise).getByText("功能开发中，后续版本补充。")).toBeDefined();
+  expect(
+    within(noise).getAllByRole("button", { name: /库窗口$/ }),
+  ).toHaveLength(1);
+  expect(
+    screen.getByTestId("settings-preferences-pane").getAttribute("aria-hidden"),
+  ).toBe("true");
 
   fireEvent.click(screen.getByRole("tab", { name: "壁纸" }));
   const wallpaper = screen.getByTestId("settings-wallpaper-pane");
@@ -341,10 +359,17 @@ test("音乐 / 白噪音页签各自只显示对应的功能槽位", async () =>
 
   const musicSlots = within(musicPane).getByTestId("settings-feature-slots");
   expect(musicSlots.contains(musicPanel)).toBe(true);
+  // 标题（含说明）在组件管理之前，曲库分类列表在「音乐库」开关之后。
   expect(
     within(musicPane)
-      .getByText("功能开发中，后续版本补充。")
+      .getByText("曲库浏览、收藏、队列与歌单都在这里管理。")
       .compareDocumentPosition(musicSlots) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    within(musicPane)
+      .getByRole("button", { name: "音乐库窗口" })
+      .compareDocumentPosition(screen.getByTestId("music-browser-categories")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
 
   fireEvent.click(within(musicPanel).getByRole("button", { name: "打开" }));

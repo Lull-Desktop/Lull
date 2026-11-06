@@ -63,17 +63,21 @@ import {
 import {
   isWidgetAudioAvailable,
   onLibraryState,
+  onSettingsState,
   onWidgetPrefsChanged,
   useWidgetFit,
   useWidgetTheme,
   widgetAlignPlayer,
   widgetCloseLibrary,
+  widgetCloseSettings,
   widgetHideWindow,
   widgetIsMinimizable,
   widgetLibraryVisible,
   widgetMinimizeWindow,
   widgetOpenLibrary,
+  widgetOpenSettings,
   widgetResizeWidth,
+  widgetSettingsVisible,
 } from "./compat";
 import { CoverArt } from "./cover-art";
 import { LibraryImportActions } from "./library-import-actions";
@@ -140,8 +144,10 @@ const MODE_BUBBLE_HALF = 22;
 const ORB_CENTER_IN_STAGE = 148;
 type DockSide = "left" | "right";
 type DrawerTab = "library" | "queue" | "favorites";
-/** 播放器能主动定位的音乐库页签，取值与 library-window 的 LibraryTab 一致。 */
-type LibraryTarget = "queue" | "favorites" | "folders";
+/** 播放器能主动定位的音乐库页签；队列 / 收藏已迁到设置窗，库窗口只定位目录。 */
+type LibraryTarget = "folders";
+/** 队列 / 收藏在设置窗「音乐」页里，齿轮定位的是这套分类 id。 */
+type SettingsTarget = "queue" | "favorites";
 /** 页签的展示顺序；键盘左右键沿这个顺序循环。 */
 const DRAWER_TAB_ORDER: readonly DrawerTab[] = [
   "library",
@@ -494,8 +500,11 @@ export function LiquidPlayer(): React.ReactElement {
   const [drawerHeld, setDrawerHeld] = useState(false);
   // 音乐库窗口（状态监控）是否可见：由宿主推送校准，不靠本地猜测。
   const [libraryOpen, setLibraryOpen] = useState(false);
-  // 库窗口当前停留的页签：同样来自宿主推送，用来区分「关闭」与「切页签」。
-  const [libraryWindowTab, setLibraryWindowTab] = useState<string>("folders");
+  // 库窗口当前停留的页签只用于「再点一次是否关闭」的判定，用 ref 存即可。
+  const libraryWindowTabRef = useRef<string>("folders");
+  // 设置窗是否可见，以及它停在「音乐」页的哪个曲库分类。
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsCategory, setSettingsCategory] = useState<string>("tracks");
   const [dockSide, setDockSide] = useState<DockSide>("right");
   const [dockLeaving, setDockLeaving] = useState(false);
   const [dockSwitching, setDockSwitching] = useState(false);
@@ -586,7 +595,8 @@ export function LiquidPlayer(): React.ReactElement {
   const drawerWidthTimerRef = useRef<number | null>(null);
   const drawerOpenRef = useRef(true);
   const libraryOpenRef = useRef(false);
-  const libraryWindowTabRef = useRef<string>("folders");
+  const settingsOpenRef = useRef(false);
+  const settingsCategoryRef = useRef<string>("tracks");
   const dockSideRef = useRef<DockSide>("right");
   const dockSwitchBusyRef = useRef(false);
   const dragDepthRef = useRef(0);
@@ -694,9 +704,9 @@ export function LiquidPlayer(): React.ReactElement {
   const scrubBubbleY = 50 + Math.sin(scrubAngle) * 46;
   const listLength = visibleTracks.length;
   const canSkip = current !== null && listLength > 1;
-  // 齿轮开关亮起判定：库窗口开着，且正停在对应页签上。
-  const queueGearActive = libraryOpen && libraryWindowTab === "queue";
-  const favoritesGearActive = libraryOpen && libraryWindowTab === "favorites";
+  // 齿轮开关亮起判定：设置窗开着，且正停在「音乐」页的对应分类上。
+  const queueGearActive = settingsOpen && settingsCategory === "queue";
+  const favoritesGearActive = settingsOpen && settingsCategory === "favorites";
 
   /**
    * 库窗口开关 + 页签的唯一状态入口：本地先生效，宿主推送回来再校准。
@@ -709,7 +719,19 @@ export function LiquidPlayer(): React.ReactElement {
       setLibraryOpen(visible);
       if (tab) {
         libraryWindowTabRef.current = tab;
-        setLibraryWindowTab(tab);
+      }
+    },
+    [],
+  );
+
+  /** 设置窗的同一套入口：可见性 + 停留的曲库分类。 */
+  const applySettingsOpen = useCallback(
+    (visible: boolean, category?: string): void => {
+      settingsOpenRef.current = visible;
+      setSettingsOpen(visible);
+      if (category) {
+        settingsCategoryRef.current = category;
+        setSettingsCategory(category);
       }
     },
     [],
@@ -733,6 +755,21 @@ export function LiquidPlayer(): React.ReactElement {
       stop();
     };
   }, [applyLibraryOpen]);
+
+  /** 设置窗状态同步：队列 / 收藏齿轮的高亮跟住真实窗口与分类。 */
+  useEffect(() => {
+    let alive = true;
+    void widgetSettingsVisible().then((visible: boolean) => {
+      if (alive) applySettingsOpen(visible);
+    });
+    const stop = onSettingsState(({ visible, tab }) =>
+      applySettingsOpen(visible, tab),
+    );
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, [applySettingsOpen]);
 
   useEffect(() => {
     const trackId = current?.id;
@@ -1646,6 +1683,31 @@ export function LiquidPlayer(): React.ReactElement {
     [applyLibraryOpen, showNotice],
   );
 
+  /**
+   * 设置窗「音乐」页曲库分类的开关（toggle）：已经停在该分类就收起设置窗，
+   * 否则唤起并定位。与库窗口那条一样先乐观翻转，失败回滚。
+   */
+  const toggleSettingsWindow = useCallback(
+    (target: SettingsTarget): void => {
+      const closing =
+        settingsOpenRef.current && settingsCategoryRef.current === target;
+      if (closing) {
+        applySettingsOpen(false);
+        void widgetCloseSettings().catch(() => {
+          applySettingsOpen(true, target);
+          showNotice("关闭设置窗口失败");
+        });
+        return;
+      }
+      applySettingsOpen(true, target);
+      void widgetOpenSettings(target).catch(() => {
+        applySettingsOpen(false);
+        showNotice("打开设置窗口失败");
+      });
+    },
+    [applySettingsOpen, showNotice],
+  );
+
   const loadMoreFavorites = useCallback((): void => {
     if (favoritesLoading || !favoritesState.hasMore) return;
     const next = favoritesPage + 1;
@@ -2496,13 +2558,13 @@ export function LiquidPlayer(): React.ReactElement {
                   className={styles.drawerAdd}
                   data-active={queueGearActive ? "true" : "false"}
                   aria-label={
-                    queueGearActive ? "关闭音乐库队列" : "在音乐库中打开队列"
+                    queueGearActive ? "关闭设置窗队列" : "在设置中打开队列"
                   }
                   aria-pressed={queueGearActive}
                   {...tip(
-                    queueGearActive ? "关闭音乐库队列" : "在音乐库中打开队列",
+                    queueGearActive ? "关闭设置窗队列" : "在设置中打开队列",
                   )}
-                  onClick={() => toggleLibraryWindow("queue")}
+                  onClick={() => toggleSettingsWindow("queue")}
                 >
                   <Settings />
                 </button>
@@ -2513,16 +2575,16 @@ export function LiquidPlayer(): React.ReactElement {
                   data-active={favoritesGearActive ? "true" : "false"}
                   aria-label={
                     favoritesGearActive
-                      ? "关闭音乐库收藏"
-                      : "在音乐库中打开我的收藏"
+                      ? "关闭设置窗收藏"
+                      : "在设置中打开我的收藏"
                   }
                   aria-pressed={favoritesGearActive}
                   {...tip(
                     favoritesGearActive
-                      ? "关闭音乐库收藏"
-                      : "在音乐库中打开我的收藏",
+                      ? "关闭设置窗收藏"
+                      : "在设置中打开我的收藏",
                   )}
-                  onClick={() => toggleLibraryWindow("favorites")}
+                  onClick={() => toggleSettingsWindow("favorites")}
                 >
                   <Settings />
                 </button>

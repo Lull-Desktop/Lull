@@ -1,5 +1,9 @@
 /**
- * 官方资料库窗口：曲库 / 歌单 / 喜欢 / 历史 / 队列。
+ * 官方资料库窗口：目录、智能歌单、曲库整理与接口调试。
+ *
+ * 全部歌曲 / 我的收藏 / 队列 / 歌单 / 最近添加 / 最近播放已经迁到设置窗的
+ * 「音乐」页签（见 `components/library/music-browser.tsx`），这个窗口只留
+ * 目录与工具类页签，宽度仍是 1080px。
  *
  * 只通过 `@lull/media-sdk` 访问 Media Service；不直接 invoke、不读 SQLite、
  * 不解析音频文件。窗口关闭不停止播放，重开时重新取快照。
@@ -7,44 +11,24 @@
 "use client";
 
 import type {
-  AlbumSummary,
-  ArtistSummary,
-  HistoryEntry,
   LullMediaClient,
   MusicFolderView,
   PlayerState,
-  PlaylistDetail,
   PlaylistSummary,
-  QueueState,
   SmartPlaylistView,
   TagView,
-  TrackQuery,
   TrackSummary,
 } from "@lull/media-sdk";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import {
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  Download,
   FlaskConical,
   FolderOpen,
-  Heart,
-  History,
-  Import,
-  ListMusic,
-  ListOrdered,
   Music,
   Pencil,
-  Play,
-  Plus,
   RefreshCw,
-  Search,
   Sparkles,
-  Square,
   Trash2,
-  Upload,
   Wrench,
   X,
 } from "lucide-react";
@@ -52,6 +36,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CoverPreview } from "@/components/library/cover-preview";
 import { folderRows } from "@/components/library/folder-tree";
 import { LibraryWindowFrame } from "@/components/library/library-window-frame";
+import { TrackList } from "@/components/library/track-list";
 import { LibraryOrganizerPanel } from "@/components/settings/library-organizer-panel";
 import { MediaApiTestPanel } from "@/components/settings/media-api-test-panel";
 import { Button } from "@/components/ui/button";
@@ -62,17 +47,7 @@ import { useLocale } from "@/i18n/locale";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 
-type LibraryTab =
-  | "tracks"
-  | "recent"
-  | "folders"
-  | "playlists"
-  | "favorites"
-  | "history"
-  | "queue"
-  | "smart"
-  | "organizer"
-  | "media-test";
+type LibraryTab = "folders" | "smart" | "organizer" | "media-test";
 
 type LibraryWindowProps = {
   /** 测试/嵌入时注入；不传则使用官方 Tauri 单例。 */
@@ -81,12 +56,6 @@ type LibraryWindowProps = {
 
 const TABS: { id: LibraryTab; label: () => string; icon: typeof Music }[] = [
   { id: "folders", label: m.library_my_folders, icon: FolderOpen },
-  { id: "tracks", label: m.library_tracks, icon: Music },
-  { id: "favorites", label: m.library_favorites, icon: Heart },
-  { id: "queue", label: m.library_queue, icon: ListOrdered },
-  { id: "playlists", label: m.library_playlists, icon: ListMusic },
-  { id: "recent", label: m.library_recent_added, icon: Clock },
-  { id: "history", label: m.library_history, icon: History },
   { id: "smart", label: m.library_smart_playlists, icon: Sparkles },
   { id: "organizer", label: m.library_tab_organizer, icon: Wrench },
   { id: "media-test", label: m.library_tab_media_test, icon: FlaskConical },
@@ -94,33 +63,12 @@ const TABS: { id: LibraryTab; label: () => string; icon: typeof Music }[] = [
 
 /** 只在原资料库页签显示的窗口级刷新；两个工具页签各有自己的刷新入口。 */
 const LIBRARY_REFRESH_TABS: ReadonlySet<LibraryTab> = new Set([
-  "tracks",
-  "recent",
   "folders",
-  "playlists",
-  "favorites",
-  "history",
-  "queue",
   "smart",
 ]);
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** 校验外部传入的页签 id（widget_open 的 tab 参数）是否合法。 */
-function isLibraryTab(value: string): value is LibraryTab {
-  return TABS.some((tab) => tab.id === value);
-}
-
-function formatDuration(durationMs?: number): string {
-  if (!durationMs || !Number.isFinite(durationMs) || durationMs <= 0) {
-    return "--:--";
-  }
-  const total = Math.round(durationMs / 1000);
-  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(
-    total % 60,
-  ).padStart(2, "0")}`;
 }
 
 function formatTime(timestamp: number): string {
@@ -131,44 +79,9 @@ function formatTime(timestamp: number): string {
   }
 }
 
-/** 「全部歌曲」的索引筛选；字段与 Media SDK 的 TrackQuery 对齐。 */
-type TrackFilters = {
-  artistId: string;
-  albumId: string;
-  genre: string;
-  format: string;
-  year: string;
-};
-
-const EMPTY_TRACK_FILTERS: TrackFilters = {
-  artistId: "",
-  albumId: "",
-  genre: "",
-  format: "",
-  year: "",
-};
-
-const TRACK_FORMATS = [
-  "mp3",
-  "flac",
-  "m4a",
-  "aac",
-  "wav",
-  "ogg",
-  "opus",
-  "aiff",
-] as const;
-
-function trackQuery(keyword: string, filters: TrackFilters): TrackQuery {
-  const year = Number.parseInt(filters.year, 10);
-  return {
-    keyword: keyword.trim() || undefined,
-    artistId: filters.artistId || undefined,
-    albumId: filters.albumId || undefined,
-    genre: filters.genre.trim() || undefined,
-    format: filters.format || undefined,
-    year: Number.isFinite(year) ? year : undefined,
-  };
+/** 校验外部传入的页签 id（widget_open 的 tab 参数）是否合法。 */
+function isLibraryTab(value: string): value is LibraryTab {
+  return TABS.some((tab) => tab.id === value);
 }
 
 function folderStatusLabel(status: MusicFolderView["status"]): string {
@@ -187,46 +100,18 @@ function folderStatusLabel(status: MusicFolderView["status"]): string {
 export function LibraryWindow({
   client: providedClient,
 }: LibraryWindowProps = {}) {
-  // 订阅语言：筛选、备份与列表文案要在设置窗切换语言后同步重渲染。
+  // 订阅语言：目录、备份与列表文案要在设置窗切换语言后同步重渲染。
   useLocale();
   const [client, setClient] = useState<LullMediaClient | null>(null);
-  const [tab, setTab] = useState<LibraryTab>("tracks");
-  const [keyword, setKeyword] = useState("");
-  const [tracks, setTracks] = useState<TrackSummary[]>([]);
-  const [tracksTotal, setTracksTotal] = useState(0);
-  const [artists, setArtists] = useState<ArtistSummary[]>([]);
-  const [albums, setAlbums] = useState<AlbumSummary[]>([]);
-  const [genres, setGenres] = useState<string[]>([]);
-  const [filters, setFilters] = useState<TrackFilters>(EMPTY_TRACK_FILTERS);
+  const [tab, setTab] = useState<LibraryTab>("folders");
   const [recursiveImport, setRecursiveImport] = useState(true);
-  const [recentTracks, setRecentTracks] = useState<TrackSummary[]>([]);
   const { confirm, ask, dialog: confirmDialog } = useConfirmDialog();
   const [folders, setFolders] = useState<MusicFolderView[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   /** 目录列表按路径展开成树：父目录在前，子目录按层级缩进。 */
   const folderTree = useMemo(() => folderRows(folders), [folders]);
-  /**
-   * 「全部歌曲」的艺术家筛选只列出真正有曲目的实体。
-   *
-   * `listArtists` 返回的是全部艺术家实体，除了曲目标签里的艺术家，还包括导入
-   * 时由 `albumArtist` 创建的实体（合集/原声带常见）以及标签编辑、合并后留下
-   * 的孤立实体。这些实体在 `music_track_artists` 里没有关系，选中它们必然得到
-   * 空列表，所以在筛选与计数里先按 `trackCount > 0` 过滤。
-   */
-  const filterableArtists = useMemo(
-    () => artists.filter((artist) => artist.trackCount > 0),
-    [artists],
-  );
   const [folderTracks, setFolderTracks] = useState<TrackSummary[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selected, setSelected] = useState<PlaylistDetail | null>(null);
-  const [favorites, setFavorites] = useState<TrackSummary[]>([]);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [queue, setQueue] = useState<QueueState | null>(null);
-  const [queueTracks, setQueueTracks] = useState<Record<string, TrackSummary>>(
-    {},
-  );
   const [player, setPlayer] = useState<PlayerState | null>(null);
   const [editingTrack, setEditingTrack] = useState<TrackSummary | null>(null);
   const [smartPlaylists, setSmartPlaylists] = useState<SmartPlaylistView[]>([]);
@@ -234,7 +119,6 @@ export function LibraryWindow({
   const [smartName, setSmartName] = useState("");
   const [smartGenre, setSmartGenre] = useState("");
   const [smartFavorite, setSmartFavorite] = useState(false);
-  const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -304,48 +188,18 @@ export function LibraryWindow({
     const run = async (): Promise<void> => {
       // 两个工具页签使用自己的面板数据，不触发资料库的列表请求。
       if (tab === "organizer" || tab === "media-test") return;
-      if (tab !== "playlists") {
-        // 曲库/喜欢页也提供“加入歌单”，因此这些页签也要拉一次歌单列表。
-        const list = await client.playlists.list();
-        if (alive) setPlaylists(list);
-      }
-      if (tab === "tracks") {
-        // 关键字与下拉索引一起进 TrackQuery，两者同时生效。
-        const page = await client.library.listTracks({
-          ...trackQuery(keyword, filters),
-          pageSize: 100,
-        });
-        if (!alive) return;
-        setTracks(page.items);
-        setTracksTotal(page.total);
-        const [nextArtists, nextAlbums, nextGenres] = await Promise.all([
-          client.library.listArtists(),
-          client.library.listAlbums(),
-          client.library.listGenres(),
-        ]);
-        if (!alive) return;
-        setArtists(nextArtists);
-        setAlbums(nextAlbums);
-        setGenres(nextGenres);
-        return;
-      }
-      if (tab === "recent") {
-        const page = await client.library.listTracks({
-          sortBy: "addedAt",
-          sortOrder: "desc",
-          pageSize: 100,
-        });
-        if (alive) setRecentTracks(page.items);
-        return;
-      }
+      // 两个列表页都提供「加入歌单」，因此都要拉一次歌单列表。
+      const list = await client.playlists.list();
+      if (alive) setPlaylists(list);
       if (tab === "folders") {
-        const list = await client.folders.list();
+        const nextFolders = await client.folders.list();
         if (!alive) return;
-        setFolders(list);
+        setFolders(nextFolders);
         const folderId =
-          selectedFolderId && list.some((item) => item.id === selectedFolderId)
+          selectedFolderId &&
+          nextFolders.some((item) => item.id === selectedFolderId)
             ? selectedFolderId
-            : (list[0]?.id ?? null);
+            : (nextFolders[0]?.id ?? null);
         if (folderId !== selectedFolderId) setSelectedFolderId(folderId);
         if (folderId) {
           const page = await client.folders.getTracks(folderId, {
@@ -357,24 +211,12 @@ export function LibraryWindow({
         }
         return;
       }
-      if (tab === "playlists") {
-        const list = await client.playlists.list();
-        if (!alive) return;
-        setPlaylists(list);
-        if (selectedId) {
-          const detail = await client.playlists.get(selectedId);
-          if (alive) setSelected(detail);
-        } else {
-          setSelected(null);
-        }
-        return;
-      }
       if (tab === "smart") {
-        const list = await client.library.listSmartPlaylists();
+        const smartList = await client.library.listSmartPlaylists();
         if (!alive) return;
-        setSmartPlaylists(list);
-        if (list[0]) {
-          const page = await client.library.runSmartPlaylist(list[0].id, {
+        setSmartPlaylists(smartList);
+        if (smartList[0]) {
+          const page = await client.library.runSmartPlaylist(smartList[0].id, {
             pageSize: 100,
           });
           if (alive) setSmartTracks(page.items);
@@ -383,61 +225,17 @@ export function LibraryWindow({
         }
         return;
       }
-      if (tab === "favorites") {
-        const page = await client.favorites.list(1, 100);
-        if (alive) setFavorites(page.items);
-        return;
-      }
-      if (tab === "history") {
-        const page = await client.history.list(1, 100);
-        if (alive) setHistory(page.items);
-        return;
-      }
-      const state = await client.queue.get();
-      if (!alive) return;
-      setQueue(state);
-      const missing = state.trackIds.filter((id) => !queueTracks[id]);
-      if (missing.length === 0) return;
-      const loaded = await Promise.all(
-        missing.map(async (id) => {
-          try {
-            return [id, await client.library.getTrack(id)] as const;
-          } catch {
-            return null;
-          }
-        }),
-      );
-      if (!alive) return;
-      setQueueTracks((previous) => {
-        const next = { ...previous };
-        for (const item of loaded) {
-          if (item) next[item[0]] = item[1];
-        }
-        return next;
-      });
     };
-    const timer = window.setTimeout(
-      () => {
-        void run().catch((reason: unknown) => {
-          if (alive) setError(m.library_error({ reason: errorText(reason) }));
-        });
-      },
-      tab === "tracks" ? 220 : 0,
-    );
+    const timer = window.setTimeout(() => {
+      void run().catch((reason: unknown) => {
+        if (alive) setError(m.library_error({ reason: errorText(reason) }));
+      });
+    }, 0);
     return () => {
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [
-    client,
-    filters,
-    keyword,
-    queueTracks,
-    selectedFolderId,
-    selectedId,
-    tab,
-    version,
-  ]);
+  }, [client, selectedFolderId, tab, version]);
 
   const run = useCallback(
     async (label: string, action: () => Promise<void>): Promise<void> => {
@@ -454,17 +252,6 @@ export function LibraryWindow({
     },
     [refresh],
   );
-
-  const updateFilter = useCallback(
-    (key: keyof TrackFilters, value: string): void => {
-      setFilters((current) => ({ ...current, [key]: value }));
-    },
-    [],
-  );
-
-  const resetFilters = useCallback((): void => {
-    setFilters(EMPTY_TRACK_FILTERS);
-  }, []);
 
   // 播放 / 停止共用同一个按钮：当前曲目正在播（或加载）时点它就是停止。
   const playingTrackId =
@@ -519,18 +306,6 @@ export function LibraryWindow({
     [client, player, playWithRepeatOne, runPlayerAction],
   );
 
-  const toggleQueuePlay = useCallback(
-    (index: number, isPlaying: boolean): void => {
-      if (!client) return;
-      if (isPlaying) {
-        runPlayerAction(client.player.stop());
-        return;
-      }
-      playWithRepeatOne(() => client.queue.playAt(index));
-    },
-    [client, playWithRepeatOne, runPlayerAction],
-  );
-
   const addToQueue = useCallback(
     (track: TrackSummary): void => {
       if (!client) return;
@@ -542,105 +317,12 @@ export function LibraryWindow({
     [client, run],
   );
 
-  /** 队列页签与收藏/歌曲列表共用 TrackTable：按队列顺序把 id 还原成曲目。 */
-  const queueTracksInOrder = useMemo((): TrackSummary[] => {
-    if (!queue) return [];
-    const rows: TrackSummary[] = [];
-    for (const trackId of queue.trackIds) {
-      const track = queueTracks[trackId];
-      if (track) rows.push(track);
-    }
-    return rows;
-  }, [queue, queueTracks]);
-
-  const queueCurrentTrackId =
-    queue && typeof queue.currentIndex === "number"
-      ? (queue.trackIds[queue.currentIndex] ?? null)
-      : null;
-
-  const playFromQueue = useCallback(
-    (track: TrackSummary): void => {
-      if (!queue) return;
-      const index = queue.trackIds.indexOf(track.id);
-      if (index < 0) return;
-      const isPlaying =
-        queue.currentIndex === index && playingTrackId === track.id;
-      toggleQueuePlay(index, isPlaying);
-    },
-    [queue, playingTrackId, toggleQueuePlay],
-  );
-
-  const removeFromQueue = useCallback(
-    (track: TrackSummary): void => {
-      if (!client) return;
-      void run("queue", async () => {
-        await client.queue.remove(track.id);
-      });
-    },
-    [client, run],
-  );
-
-  /** 最近播放：同一条曲目只保留最新一次，避免重复行复用同一个 key。 */
-  const historyTracks = useMemo((): TrackSummary[] => {
-    const seen = new Set<string>();
-    const rows: TrackSummary[] = [];
-    for (const entry of history) {
-      const track = entry.track;
-      if (!track || seen.has(track.id)) continue;
-      seen.add(track.id);
-      rows.push(track);
-    }
-    return rows;
-  }, [history]);
-
-  const playedAtOf = useMemo(() => {
-    const times = new Map<string, number>();
-    for (const entry of history) {
-      const trackId = entry.track?.id;
-      if (!trackId) continue;
-      const current = times.get(trackId);
-      if (current === undefined || entry.playedAt > current) {
-        times.set(trackId, entry.playedAt);
-      }
-    }
-    return (track: TrackSummary): string | null => {
-      const playedAt = times.get(track.id);
-      return playedAt === undefined ? null : formatTime(playedAt);
-    };
-  }, [history]);
-
   const toggleFavorite = useCallback(
     (track: TrackSummary): void => {
       if (!client) return;
+      // 行的星标由 `favorites.changed` 广播触发的重拉校准，这里不维护本地副本。
       void run(`favorite:${track.id}`, async () => {
-        const result = await client.favorites.set(track.id, !track.favorite);
-        const update = (items: TrackSummary[]): TrackSummary[] =>
-          items.map((item) =>
-            item.id === track.id
-              ? { ...item, favorite: result.favorite }
-              : item,
-          );
-        setTracks(update);
-        setFavorites((items) =>
-          result.favorite
-            ? update(items)
-            : items.filter((item) => item.id !== track.id),
-        );
-        setSelected((current) =>
-          current
-            ? {
-                ...current,
-                entries: current.entries.map((entry) =>
-                  entry.track?.id === track.id
-                    ? {
-                        ...entry,
-                        track: { ...entry.track, favorite: result.favorite },
-                      }
-                    : entry,
-                ),
-              }
-            : current,
-        );
+        await client.favorites.set(track.id, !track.favorite);
       });
     },
     [client, run],
@@ -656,88 +338,6 @@ export function LibraryWindow({
     },
     [client, run],
   );
-
-  const createPlaylist = useCallback((): void => {
-    if (!client || !newName.trim()) return;
-    void run("playlist-create", async () => {
-      const detail = await client.playlists.create(newName.trim());
-      setNewName("");
-      setSelectedId(detail.id);
-      setSelected(detail);
-    });
-  }, [client, newName, run]);
-
-  const renamePlaylist = useCallback(
-    (name: string): void => {
-      if (!client || !selected) return;
-      const next = name.trim();
-      if (!next || next === selected.name) return;
-      void run("playlist-rename", async () => {
-        await client.playlists.update(selected.id, { name: next });
-      });
-    },
-    [client, run, selected],
-  );
-
-  const deletePlaylist = useCallback((): void => {
-    if (!client || !selected) return;
-    void run("playlist-delete", async () => {
-      await client.playlists.delete(selected.id);
-      setSelectedId(null);
-      setSelected(null);
-    });
-  }, [client, run, selected]);
-
-  const removeFromPlaylist = useCallback(
-    (trackId: string): void => {
-      if (!client || !selected) return;
-      void run("playlist-remove", async () => {
-        await client.playlists.removeTrack(selected.id, trackId);
-        setNotice(m.library_playlist_track_removed());
-      });
-    },
-    [client, run, selected],
-  );
-
-  const moveTrack = useCallback(
-    (trackId: string, current: number, direction: -1 | 1): void => {
-      if (!client || !selected) return;
-      const target = current + direction;
-      if (target < 0 || target >= selected.entries.length) return;
-      void run("playlist-move", async () => {
-        await client.playlists.reorder(selected.id, trackId, target);
-      });
-    },
-    [client, run, selected],
-  );
-
-  const importM3u = useCallback((): void => {
-    if (!client) return;
-    void run("m3u-import", async () => {
-      const result = await client.playlists.importM3u();
-      setSelectedId(result.playlist.id);
-      setSelected(result.playlist);
-      setNotice(
-        m.library_m3u_imported({
-          imported: result.imported,
-          missing: result.missing.length,
-        }),
-      );
-    });
-  }, [client, run]);
-
-  const exportM3u = useCallback((): void => {
-    if (!client || !selected) return;
-    void run("m3u-export", async () => {
-      const result = await client.playlists.exportM3u(selected.id);
-      setNotice(
-        m.library_m3u_exported({
-          exported: result.exported,
-          skipped: result.skipped,
-        }),
-      );
-    });
-  }, [client, run, selected]);
 
   const createSmartPlaylist = useCallback((): void => {
     if (!client) return;
@@ -794,14 +394,6 @@ export function LibraryWindow({
     [client, run],
   );
 
-  const clearHistory = useCallback((): void => {
-    if (!client) return;
-    void run("history-clear", async () => {
-      await client.history.clear();
-      setNotice(m.library_history_cleared());
-    });
-  }, [client, run]);
-
   const importFolder = useCallback((): void => {
     if (!client) return;
     void run("folder-import", async () => {
@@ -843,13 +435,6 @@ export function LibraryWindow({
   //     await client.library.exportBackup();
   //   });
   // }, [client, run]);
-
-  const importBackup = useCallback((): void => {
-    if (!client) return;
-    void run("backup-import", async () => {
-      await client.library.importBackup();
-    });
-  }, [client, run]);
 
   const scanFolder = useCallback(
     (folder: MusicFolderView): void => {
@@ -947,15 +532,8 @@ export function LibraryWindow({
     [playlists],
   );
 
-  const hasActiveFilters = Object.values(filters).some((value) => value !== "");
-  const hasQuery = keyword.trim().length > 0 || hasActiveFilters;
-
   const selectTab = useCallback((next: LibraryTab): void => {
     setTab(next);
-    if (next !== "playlists") {
-      setSelectedId(null);
-      setSelected(null);
-    }
     setError(null);
     setNotice(null);
   }, []);
@@ -1048,123 +626,6 @@ export function LibraryWindow({
         </div>
       )}
 
-      {/* 全部歌曲的索引筛选：关键字与下拉索引放在同一块，一起进入 TrackQuery。 */}
-      {tab === "tracks" && (
-        <section
-          className="space-y-3 rounded-xl border border-paper-deep/60 bg-card p-3"
-          data-testid="library-track-filters"
-          aria-label={m.library_filter_title()}
-        >
-          <div className="flex h-9 items-center gap-2 rounded-lg border border-paper-deep/70 bg-paper px-3 focus-within:ring-2 focus-within:ring-bamboo/50">
-            <Search
-              className="h-4 w-4 shrink-0 text-ink-faint"
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
-              placeholder={m.library_search_placeholder()}
-              aria-label={m.library_search_placeholder()}
-              className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            <select
-              aria-label={m.library_filter_artist()}
-              value={filters.artistId}
-              onChange={(event) => updateFilter("artistId", event.target.value)}
-              className="h-9 min-w-0 rounded-lg border border-paper-deep/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
-            >
-              <option value="">{m.library_filter_artist()}</option>
-              {filterableArtists.map((artist) => (
-                <option key={artist.id} value={artist.id}>
-                  {artist.name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label={m.library_filter_album()}
-              value={filters.albumId}
-              onChange={(event) => updateFilter("albumId", event.target.value)}
-              className="h-9 min-w-0 rounded-lg border border-paper-deep/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
-            >
-              <option value="">{m.library_filter_album()}</option>
-              {albums.map((album) => (
-                <option key={album.id} value={album.id}>
-                  {album.title}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label={m.library_filter_genre()}
-              value={filters.genre}
-              onChange={(event) => updateFilter("genre", event.target.value)}
-              className="h-9 min-w-0 rounded-lg border border-paper-deep/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
-            >
-              <option value="">{m.library_filter_genre()}</option>
-              {genres.map((genre) => (
-                <option key={genre} value={genre}>
-                  {genre}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label={m.library_filter_format()}
-              value={filters.format}
-              onChange={(event) => updateFilter("format", event.target.value)}
-              className="h-9 min-w-0 rounded-lg border border-paper-deep/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
-            >
-              <option value="">{m.library_filter_format()}</option>
-              {TRACK_FORMATS.map((format) => (
-                <option key={format} value={format}>
-                  {format.toUpperCase()}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              inputMode="numeric"
-              aria-label={m.library_filter_year()}
-              placeholder={m.library_filter_year()}
-              value={filters.year}
-              onChange={(event) => updateFilter("year", event.target.value)}
-              className="h-9 min-w-0 rounded-lg border border-paper-deep/70 bg-paper px-2 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-bamboo/50"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-9 justify-center"
-              disabled={!hasActiveFilters}
-              onClick={resetFilters}
-            >
-              {m.library_filter_reset()}
-            </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
-            <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-paper/70 px-2.5 py-1">
-              <strong className="text-sm font-semibold tabular-nums text-ink">
-                {tracksTotal}
-              </strong>
-              {m.library_stat_tracks()}
-            </span>
-            <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-paper/70 px-2.5 py-1">
-              <strong className="text-sm font-semibold tabular-nums text-ink">
-                {filterableArtists.length}
-              </strong>
-              {m.library_stat_artists()}
-            </span>
-            <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-paper/70 px-2.5 py-1">
-              <strong className="text-sm font-semibold tabular-nums text-ink">
-                {albums.length}
-              </strong>
-              {m.library_stat_albums()}
-            </span>
-          </div>
-        </section>
-      )}
-
       {/* 列表在页签内滚动：内容再长也不会把窗口撑高，标题与页签的位置保持不变。 */}
       <section className="min-h-0 flex-1 overflow-y-auto">
         {tab === "organizer" && (
@@ -1172,36 +633,6 @@ export function LibraryWindow({
         )}
 
         {tab === "media-test" && <MediaApiTestPanel client={client} />}
-
-        {tab === "tracks" && (
-          <TrackTable
-            tracks={tracks}
-            playlists={playlistOptions}
-            busy={busy}
-            playingTrackId={playingTrackId}
-            onPlay={play}
-            onQueue={addToQueue}
-            onFavorite={toggleFavorite}
-            onAddToPlaylist={addToPlaylist}
-            onEdit={setEditingTrack}
-            empty={hasQuery ? m.library_filter_empty() : m.library_empty()}
-          />
-        )}
-
-        {tab === "recent" && (
-          <TrackTable
-            tracks={recentTracks}
-            playlists={playlistOptions}
-            busy={busy}
-            playingTrackId={playingTrackId}
-            onPlay={play}
-            onQueue={addToQueue}
-            onFavorite={toggleFavorite}
-            onAddToPlaylist={addToPlaylist}
-            onEdit={setEditingTrack}
-            empty={m.library_empty()}
-          />
-        )}
 
         {tab === "folders" && (
           <div className="grid gap-4 md:h-full md:grid-cols-[260px_minmax(0,1fr)]">
@@ -1412,7 +843,7 @@ export function LibraryWindow({
                     </div>
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto">
-                    <TrackTable
+                    <TrackList
                       tracks={folderTracks}
                       playlists={playlistOptions}
                       busy={busy}
@@ -1442,168 +873,6 @@ export function LibraryWindow({
                 </p>
               )}
             </div>
-          </div>
-        )}
-
-        {tab === "favorites" && (
-          <TrackTable
-            tracks={favorites}
-            playlists={playlistOptions}
-            busy={busy}
-            playingTrackId={playingTrackId}
-            onPlay={play}
-            onQueue={addToQueue}
-            onFavorite={toggleFavorite}
-            onAddToPlaylist={addToPlaylist}
-            onEdit={setEditingTrack}
-            empty={m.library_empty()}
-          />
-        )}
-
-        {tab === "playlists" && (
-          <div className="grid gap-4 md:h-full md:grid-cols-[260px_minmax(0,1fr)]">
-            {/* 左侧歌单卡撑满页签高度：歌单列表在中间自己滚，
-                新建输入与 M3U 导入固定在卡片首尾，与「我的目录」卡同构。 */}
-            <Card className="flex h-full min-h-0 flex-col">
-              <CardHeader className="shrink-0 pb-3">
-                <CardTitle className="text-base">
-                  {m.library_playlists()}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex min-h-0 flex-1 flex-col space-y-3">
-                <div className="flex shrink-0 gap-2">
-                  <input
-                    value={newName}
-                    onChange={(event) => setNewName(event.target.value)}
-                    placeholder={m.library_playlist_new_placeholder()}
-                    className="min-w-0 flex-1 rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1.5 text-sm outline-none"
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") createPlaylist();
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={createPlaylist}
-                    disabled={busy !== null || !newName.trim()}
-                    aria-label={m.library_playlist_create()}
-                  >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </div>
-                {playlists.length === 0 ? (
-                  <p className="px-1 py-3 text-sm text-ink-faint">
-                    {m.library_playlist_empty()}
-                  </p>
-                ) : (
-                  <div className="min-h-0 flex-1 divide-y divide-paper-deep/50 overflow-y-auto rounded-md border border-paper-deep/60">
-                    {playlists.map((playlist) => (
-                      <button
-                        key={playlist.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedId(playlist.id);
-                          setSelected(null);
-                        }}
-                        className={cn(
-                          "flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm transition-colors",
-                          selectedId === playlist.id
-                            ? "bg-bamboo-mist/60 text-ink"
-                            : "text-ink-soft hover:bg-paper-warm",
-                        )}
-                      >
-                        <span className="min-w-0 flex-1 truncate">
-                          {playlist.name}
-                        </span>
-                        <span className="shrink-0 text-xs text-ink-faint tabular-nums">
-                          {playlist.trackCount}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="w-full shrink-0"
-                  onClick={importM3u}
-                  disabled={busy !== null}
-                >
-                  <Import className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                  {m.library_m3u_import()}
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* 右侧详情卡撑满页签高度：标题固定置顶，曲目列表自己滚，
-                左右两侧滚动互不影响。 */}
-            <Card className="flex h-full min-h-0 flex-col">
-              <CardHeader className="shrink-0 flex-row items-center justify-between gap-3 pb-3">
-                {selected ? (
-                  <CardTitle className="min-w-0 flex-1">
-                    <input
-                      key={selected.id}
-                      defaultValue={selected.name}
-                      aria-label={m.library_playlist_rename()}
-                      className="w-full min-w-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-base font-semibold outline-none hover:border-paper-deep/70 focus:border-paper-deep"
-                      onBlur={(event) => renamePlaylist(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
-                      }}
-                    />
-                  </CardTitle>
-                ) : (
-                  <CardTitle className="truncate text-base">
-                    {m.library_playlists()}
-                  </CardTitle>
-                )}
-                {selected && (
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={exportM3u}
-                      disabled={busy !== null}
-                    >
-                      <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                      {m.library_m3u_export()}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={deletePlaylist}
-                      disabled={busy !== null}
-                    >
-                      <Trash2 className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                      {m.library_playlist_delete()}
-                    </Button>
-                  </div>
-                )}
-              </CardHeader>
-              <CardContent className="flex min-h-0 flex-1 flex-col">
-                {selected ? (
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    <PlaylistTracks
-                      detail={selected}
-                      busy={busy}
-                      playingTrackId={playingTrackId}
-                      onPlay={play}
-                      onQueue={addToQueue}
-                      onFavorite={toggleFavorite}
-                      onRemove={removeFromPlaylist}
-                      onMove={moveTrack}
-                    />
-                  </div>
-                ) : (
-                  <p className="py-10 text-center text-sm text-ink-faint">
-                    {m.library_playlist_empty()}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
           </div>
         )}
 
@@ -1677,7 +946,7 @@ export function LibraryWindow({
                 </div>
               </CardContent>
             </Card>
-            <TrackTable
+            <TrackList
               tracks={smartTracks}
               playlists={playlistOptions}
               busy={busy}
@@ -1690,57 +959,6 @@ export function LibraryWindow({
               empty="当前规则没有匹配曲目"
             />
           </div>
-        )}
-
-        {tab === "history" && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium text-ink-soft">
-                {m.library_history()}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={clearHistory}
-                disabled={busy !== null || history.length === 0}
-              >
-                <Trash2 className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                {m.library_history_clear()}
-              </Button>
-            </div>
-            <TrackTable
-              tracks={historyTracks}
-              playlists={playlistOptions}
-              busy={busy}
-              playingTrackId={playingTrackId}
-              subtitleSuffix={playedAtOf}
-              onPlay={play}
-              onQueue={addToQueue}
-              onFavorite={toggleFavorite}
-              onAddToPlaylist={addToPlaylist}
-              onEdit={setEditingTrack}
-              empty={m.library_history_empty()}
-            />
-          </div>
-        )}
-
-        {tab === "queue" && (
-          <TrackTable
-            tracks={queueTracksInOrder}
-            playlists={playlistOptions}
-            busy={busy}
-            playingTrackId={playingTrackId}
-            highlightedTrackId={queueCurrentTrackId}
-            onPlay={playFromQueue}
-            onQueue={addToQueue}
-            onFavorite={toggleFavorite}
-            onAddToPlaylist={addToPlaylist}
-            onEdit={setEditingTrack}
-            onRemove={removeFromQueue}
-            removeLabel={m.library_queue_remove()}
-            empty={m.library_queue_empty()}
-          />
         )}
       </section>
 
@@ -1760,167 +978,6 @@ export function LibraryWindow({
         />
       ) : null}
     </LibraryWindowFrame>
-  );
-}
-
-type TrackTableProps = {
-  tracks: TrackSummary[];
-  playlists: { id: string; name: string }[];
-  busy: string | null;
-  empty: string;
-  showFileName?: boolean;
-  /** 正在播放的曲目；与当前行一致时按钮显示「停止」。 */
-  playingTrackId: string | null;
-  /** 行首额外注记（例如「最近播放」的播放时间），跟在专辑/年份之后。 */
-  subtitleSuffix?: (track: TrackSummary) => string | null;
-  /** 强调行：队列页签用来标记当前播放位置。 */
-  highlightedTrackId?: string | null;
-  /** 额外的行内「移除」操作；文案由 `removeLabel` 提供。 */
-  onRemove?: (track: TrackSummary) => void;
-  removeLabel?: string;
-  /** 移除按钮图标；默认 X，单曲删除用垃圾桶。 */
-  removeIcon?: "x" | "trash";
-  onPlay: (track: TrackSummary) => void;
-  onQueue: (track: TrackSummary) => void;
-  onFavorite: (track: TrackSummary) => void;
-  onAddToPlaylist: (playlistId: string, track: TrackSummary) => void;
-  onEdit?: (track: TrackSummary) => void;
-};
-
-function TrackTable(props: TrackTableProps) {
-  if (props.tracks.length === 0) {
-    return (
-      <p className="py-16 text-center text-sm text-ink-faint">{props.empty}</p>
-    );
-  }
-  return (
-    <div className="divide-y divide-paper-deep/50 rounded-xl border border-paper-deep/60 bg-card">
-      {props.tracks.map((track) => {
-        const subtitleSuffix = props.subtitleSuffix?.(track) ?? null;
-        return (
-          <div
-            key={track.id}
-            className={cn(
-              "flex flex-wrap items-center gap-3 px-3 py-2.5",
-              props.highlightedTrackId === track.id && "bg-bamboo-mist/40",
-            )}
-          >
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{track.title}</p>
-              <p className="truncate text-xs text-ink-faint">
-                {track.artists.join(", ") || "—"}
-                {track.album ? ` · ${track.album}` : ""}
-                {track.year ? ` · ${track.year}` : ""}
-                {props.showFileName && track.fileName
-                  ? ` · ${track.fileName}`
-                  : ""}
-                {subtitleSuffix ? ` · ${subtitleSuffix}` : ""}
-              </p>
-            </div>
-            <span className="w-14 text-right text-xs text-ink-faint">
-              {formatDuration(track.durationMs)}
-            </span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => props.onFavorite(track)}
-              disabled={props.busy !== null}
-              title={
-                track.favorite
-                  ? m.library_favorite_remove()
-                  : m.library_favorite_add()
-              }
-            >
-              <Heart
-                className={cn(
-                  "h-4 w-4",
-                  track.favorite && "fill-current text-destructive",
-                )}
-                aria-hidden="true"
-              />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => props.onPlay(track)}
-              disabled={!track.available}
-            >
-              {props.playingTrackId === track.id ? (
-                <Square
-                  className="mr-1 h-4 w-4 fill-current"
-                  aria-hidden="true"
-                />
-              ) : (
-                <Play className="mr-1 h-4 w-4" aria-hidden="true" />
-              )}
-              {props.playingTrackId === track.id
-                ? m.library_stop()
-                : m.library_play()}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => props.onQueue(track)}
-              disabled={props.busy !== null}
-            >
-              <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
-              {m.library_queue_add()}
-            </Button>
-            {props.onEdit ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => props.onEdit?.(track)}
-                disabled={props.busy !== null}
-                title="编辑元数据与标签"
-              >
-                <Pencil className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            ) : null}
-            {props.onRemove ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => props.onRemove?.(track)}
-                disabled={props.busy !== null}
-                title={props.removeLabel}
-              >
-                {props.removeIcon === "trash" ? (
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                ) : (
-                  <X className="h-4 w-4" aria-hidden="true" />
-                )}
-                {props.removeLabel}
-              </Button>
-            ) : null}
-            {props.playlists.length > 0 && (
-              <select
-                className="max-w-[10rem] rounded-md border border-paper-deep/70 bg-paper-warm px-2 py-1 text-xs"
-                defaultValue=""
-                onChange={(event) => {
-                  const playlistId = event.target.value;
-                  if (playlistId) props.onAddToPlaylist(playlistId, track);
-                  event.target.value = "";
-                }}
-                aria-label={m.library_playlist_add_to()}
-              >
-                <option value="">{m.library_playlist_add_to()}</option>
-                {props.playlists.map((playlist) => (
-                  <option key={playlist.id} value={playlist.id}>
-                    {playlist.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
@@ -2189,130 +1246,6 @@ function MetadataEditor({
           </div>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-type PlaylistTracksProps = {
-  detail: PlaylistDetail;
-  busy: string | null;
-  playingTrackId: string | null;
-  onPlay: (track: TrackSummary) => void;
-  onQueue: (track: TrackSummary) => void;
-  onFavorite: (track: TrackSummary) => void;
-  onRemove: (trackId: string) => void;
-  onMove: (trackId: string, current: number, direction: -1 | 1) => void;
-};
-
-function PlaylistTracks(props: PlaylistTracksProps) {
-  const entries = props.detail.entries;
-  if (entries.length === 0) {
-    return (
-      <p className="py-10 text-center text-sm text-ink-faint">
-        {m.library_playlist_empty()}
-      </p>
-    );
-  }
-  return (
-    <div className="space-y-1">
-      {entries.map((entry, index) => {
-        const track = entry.track;
-        return (
-          <div
-            key={entry.trackId}
-            className="flex flex-wrap items-center gap-2 rounded-md px-2 py-2 hover:bg-paper-warm"
-          >
-            <span className="w-6 text-right text-xs text-ink-faint">
-              {index + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
-                {track?.title ?? entry.trackId}
-              </p>
-              <p className="truncate text-xs text-ink-faint">
-                {track?.artists.join(", ")}
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => props.onMove(entry.trackId, index, -1)}
-              disabled={index === 0 || props.busy !== null}
-              aria-label={m.library_playlist_move_up()}
-            >
-              <ChevronUp className="h-4 w-4" aria-hidden="true" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => props.onMove(entry.trackId, index, 1)}
-              disabled={index === entries.length - 1 || props.busy !== null}
-              aria-label={m.library_playlist_move_down()}
-            >
-              <ChevronDown className="h-4 w-4" aria-hidden="true" />
-            </Button>
-            {track && (
-              <>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => props.onFavorite(track)}
-                  disabled={props.busy !== null}
-                >
-                  <Heart
-                    className={cn(
-                      "h-4 w-4",
-                      track.favorite && "fill-current text-destructive",
-                    )}
-                    aria-hidden="true"
-                  />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => props.onPlay(track)}
-                >
-                  {props.playingTrackId === track.id ? (
-                    <Square
-                      className="mr-1 h-4 w-4 fill-current"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <Play className="mr-1 h-4 w-4" aria-hidden="true" />
-                  )}
-                  {props.playingTrackId === track.id
-                    ? m.library_stop()
-                    : m.library_play()}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => props.onQueue(track)}
-                  disabled={props.busy !== null}
-                >
-                  <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
-                  {m.library_queue_add()}
-                </Button>
-              </>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => props.onRemove(entry.trackId)}
-              disabled={props.busy !== null}
-            >
-              <Trash2 className="mr-1 h-4 w-4" aria-hidden="true" />
-              {m.library_playlist_remove_track()}
-            </Button>
-          </div>
-        );
-      })}
     </div>
   );
 }

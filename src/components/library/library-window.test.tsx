@@ -303,107 +303,6 @@ test("目录导入的曲目列表不显示单曲删除按钮", async () => {
   expect(screen.queryByRole("button", { name: "删除单曲" })).toBeNull();
 });
 
-test("最近添加页签按 addedAt 倒序请求", async () => {
-  const client = createClient();
-  render(<LibraryWindow client={client} />);
-
-  fireEvent.click(screen.getByRole("button", { name: "最近添加" }));
-
-  await waitFor(() => {
-    expect(client.library.listTracks).toHaveBeenLastCalledWith({
-      sortBy: "addedAt",
-      sortOrder: "desc",
-      pageSize: 100,
-    });
-  });
-});
-
-test("全部歌曲的筛选索引与关键字一起进入 TrackQuery", async () => {
-  const client = createClient();
-  render(<LibraryWindow client={client} />);
-
-  await waitFor(() => {
-    expect(client.library.listTracks).toHaveBeenCalledWith({
-      keyword: undefined,
-      artistId: undefined,
-      albumId: undefined,
-      genre: undefined,
-      format: undefined,
-      year: undefined,
-      pageSize: 100,
-    });
-  });
-
-  await screen.findByRole("option", { name: "Lull" });
-  fireEvent.change(screen.getByLabelText("艺术家"), {
-    target: { value: "art_1" },
-  });
-
-  await waitFor(() => {
-    expect(client.library.listTracks).toHaveBeenLastCalledWith({
-      keyword: undefined,
-      artistId: "art_1",
-      albumId: undefined,
-      genre: undefined,
-      format: undefined,
-      year: undefined,
-      pageSize: 100,
-    });
-  });
-
-  fireEvent.change(screen.getByPlaceholderText("搜索曲目、艺术家、专辑"), {
-    target: { value: "雨" },
-  });
-
-  await waitFor(() => {
-    expect(client.library.listTracks).toHaveBeenLastCalledWith({
-      keyword: "雨",
-      artistId: "art_1",
-      albumId: undefined,
-      genre: undefined,
-      format: undefined,
-      year: undefined,
-      pageSize: 100,
-    });
-  });
-
-  fireEvent.click(screen.getByRole("button", { name: "清除筛选" }));
-
-  await waitFor(() => {
-    expect(client.library.listTracks).toHaveBeenLastCalledWith({
-      keyword: "雨",
-      artistId: undefined,
-      albumId: undefined,
-      genre: undefined,
-      format: undefined,
-      year: undefined,
-      pageSize: 100,
-    });
-  });
-});
-
-test("艺术家筛选只列出有曲目的艺术家", async () => {
-  // albumArtist 也会创建艺术家实体，但没有曲目关系；选中它只会得到空列表。
-  const albumOnlyArtist: ArtistSummary = {
-    ...artist,
-    id: "art_album_only",
-    name: "Ocean Waves",
-    trackCount: 0,
-  };
-  const client = createClient(idleState, {
-    artistEntries: [artist, albumOnlyArtist],
-  });
-  render(<LibraryWindow client={client} />);
-
-  const select = screen.getByLabelText("艺术家") as HTMLSelectElement;
-  await waitFor(() => {
-    expect(
-      Array.from(select.options).map((option) => option.textContent),
-    ).toEqual(["艺术家", "Lull"]);
-  });
-  expect(screen.queryByRole("option", { name: "Ocean Waves" })).toBeNull();
-});
-
 test("从资料库播放会先切到单曲循环", async () => {
   const client = createClient();
   render(<LibraryWindow client={client} />);
@@ -482,7 +381,7 @@ test("切换工具页签不会断开窗口的媒体订阅", async () => {
 
   fireEvent.click(screen.getByRole("button", { name: "曲库整理" }));
   fireEvent.click(screen.getByRole("button", { name: "测试与接口" }));
-  fireEvent.click(screen.getByRole("button", { name: "全部歌曲" }));
+  fireEvent.click(screen.getByRole("button", { name: "我的目录" }));
 
   expect(client.connect).toHaveBeenCalledTimes(1);
   expect(client.disconnect).not.toHaveBeenCalled();
@@ -491,54 +390,6 @@ test("切换工具页签不会断开窗口的媒体订阅", async () => {
   await waitFor(() => {
     expect(client.disconnect).toHaveBeenCalledTimes(1);
   });
-});
-
-test("队列页签与收藏共用曲目列表，并保留移出操作", async () => {
-  const client = createClient(idleState, {
-    queueState: { trackIds: [track.id], currentIndex: 0, revision: 1 },
-  });
-  render(<LibraryWindow client={client} />);
-
-  fireEvent.click(screen.getByRole("button", { name: "队列" }));
-
-  expect(await screen.findByText("雨")).toBeDefined();
-  // 与「我的收藏」一致：艺术家 · 专辑 · 时长 都在同一行。
-  expect(screen.getByText(/Lull · 夜/)).toBeDefined();
-  expect(screen.getByText("02:00")).toBeDefined();
-
-  fireEvent.click(screen.getByRole("button", { name: "移出队列" }));
-
-  await waitFor(() => {
-    expect(client.queue.remove).toHaveBeenCalledWith("trk_1");
-  });
-});
-
-test("最近播放列表与收藏样式一致，并标注最近一次播放时间", async () => {
-  const playedAt = new Date("2026-11-02T10:00:00Z").getTime();
-  const client = createClient(idleState, {
-    historyEntries: [
-      { id: "h_1", trackId: track.id, track, playedAt, completed: true },
-      {
-        id: "h_2",
-        trackId: track.id,
-        track,
-        playedAt: playedAt - 60_000,
-        completed: true,
-      },
-    ],
-  });
-  render(<LibraryWindow client={client} />);
-
-  fireEvent.click(screen.getByRole("button", { name: "最近播放" }));
-
-  // 同一条曲目的多次播放只保留一行。
-  expect(await screen.findAllByText("雨")).toHaveLength(1);
-  expect(screen.getByText(/Lull · 夜/)).toBeDefined();
-  expect(
-    screen.getByText((content) =>
-      content.includes(new Date(playedAt).toLocaleString()),
-    ),
-  ).toBeDefined();
 });
 
 test("我的目录按路径层级缩进子目录", async () => {

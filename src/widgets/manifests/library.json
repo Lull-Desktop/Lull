@@ -5,7 +5,7 @@
   "id": "library",
   "name": "音乐库",
   "version": "1.0.0",
-  "description": "曲库、歌单、收藏、历史、播放队列与整理工具。",
+  "description": "本地音乐库管理和编辑工具",
   "author": "Lull",
   "license": "GPL-3.0-or-later",
   "builtin": true,

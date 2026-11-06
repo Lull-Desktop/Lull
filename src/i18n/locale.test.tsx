@@ -16,6 +16,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: () => Promise.resolve(() => {}),
+  emit: () => Promise.resolve(),
 }));
 
 afterEach(() => {

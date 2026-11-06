@@ -79,6 +79,10 @@
       "includes": [
         "src/components/library/library-window.tsx",
         "src/components/library/library-window.test.tsx",
+        "src/components/library/music-browser.tsx",
+        "src/components/library/music-browser.test.tsx",
+        "src/components/library/playlist-tracks.tsx",
+        "src/components/library/track-list.tsx",
         "src/hooks/use-media-client.ts"
       ],
       "linter": {
