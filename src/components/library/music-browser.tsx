@@ -140,6 +140,11 @@ const fieldClass =
 type MusicBrowserProps = {
   /** 测试/嵌入时注入；不传则使用官方 Tauri 单例。 */
   client?: LullMediaClient | null;
+  /**
+   * 窗口级连接拿到的播放器快照：本组件不再自己 connect（一个窗口只能有
+   * 一份 media_connect 订阅），初始状态由这里注入。
+   */
+  initialPlayer?: PlayerState | null;
   /** 受控分类：设置页持有，便于外部唤起时定位。 */
   category: MusicCategory;
   onCategoryChange: (next: MusicCategory) => void;
@@ -147,6 +152,7 @@ type MusicBrowserProps = {
 
 export function MusicBrowser({
   client: providedClient,
+  initialPlayer,
   category,
   onCategoryChange,
 }: MusicBrowserProps) {
@@ -155,7 +161,9 @@ export function MusicBrowser({
   const [client, setClient] = useState<LullMediaClient | null>(
     providedClient ?? null,
   );
-  const [player, setPlayer] = useState<PlayerState | null>(null);
+  const [player, setPlayer] = useState<PlayerState | null>(
+    initialPlayer ?? null,
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -219,22 +227,12 @@ export function MusicBrowser({
     return stop;
   }, [client, refresh]);
 
+  // 媒体连接由所在窗口独占（设置页根节点）；这里只消费快照与事件。
   useEffect(() => {
-    if (!client) return;
-    let alive = true;
-    void client
-      .connect({ topics: ["player.state", "queue.changed"] })
-      .then((snapshot) => {
-        if (alive && snapshot.player) setPlayer(snapshot.player);
-      })
-      .catch((reason: unknown) => {
-        if (alive) setError(m.library_error({ reason: errorText(reason) }));
-      });
-    return () => {
-      alive = false;
-      void client.disconnect();
-    };
-  }, [client]);
+    if (!initialPlayer) return;
+    // 事件可能早于快照到位，已有较新状态时不回退。
+    setPlayer((current) => current ?? initialPlayer);
+  }, [initialPlayer]);
 
   // 按需加载：只拉当前分类（切走再切回会重拉），避免六份数据常驻。
   useEffect(() => {

@@ -1,8 +1,9 @@
 /**
- * N3 功能型 Noise Library 面板（开发/验收用）。
+ * Noise 素材库面板（白噪音库窗口「噪音素材库」页签）。
  *
  * 导入、搜索、分类/标签、收藏、重命名与删除都走 `@lull/media-sdk` 的
- * `noise.library.*`；正式 Mixer/Library UI 由 N6 打磨。
+ * `noise.library.*`；下方内嵌 Preset 管理区块（保存/导入导出/映射）。
+ * 当前混音的音轨编辑在设置窗的白噪音页签，这里只管素材资产。
  */
 "use client";
 
@@ -34,7 +35,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getMediaClient } from "@/hooks/use-media-client";
-import { NoiseTrackListCard } from "@/components/settings/noise-track-list-card";
+import { NoisePresetPanel } from "@/components/settings/noise-preset-panel";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -426,7 +427,7 @@ export function NoiseLibraryPanel() {
 
             <div
               ref={listRef}
-              className="h-[420px] divide-y divide-paper-deep/50 overflow-y-auto overflow-x-hidden rounded-xl border border-paper-deep/60 bg-card"
+              className="h-[360px] divide-y divide-paper-deep/50 overflow-y-auto overflow-x-hidden rounded-xl border border-paper-deep/60 bg-card"
               onScroll={handleScroll}
             >
               {assets.length === 0 ? (
@@ -646,7 +647,7 @@ export function NoiseLibraryPanel() {
           )}
         </Card>
       </div>
-      <NoiseTrackListCard client={client} />
+      <NoisePresetPanel />
       {confirmDialog}
     </div>
   );

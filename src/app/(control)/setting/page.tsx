@@ -2,13 +2,18 @@
  * 设置窗口页面：偏好（语言 / 主题 / 窗口行为）、壁纸、音乐、白噪音、游戏、扩展、
  * 关于七个页签。壁纸页签承载壁纸层的全部设置（显示模式、场景、每屏配置），音乐
  * 页签除音乐播放器槽位与音乐库开关外，还承载曲库浏览的六个二级分类（全部歌曲 /
- * 我的收藏 / 队列 / 歌单 / 最近添加 / 最近播放）；白噪音页签有白噪音槽位。三个库
- * 窗口的开关也各在自己的页签里（壁纸素材库窗口现在只做媒体素材管理）。
+ * 我的收藏 / 队列 / 歌单 / 最近添加 / 最近播放）；白噪音页签承载预设下拉（选择并
+ * 应用）与当前混音的音轨调节。三个库窗口的开关也各在自己的页签里（壁纸素材库
+ * 窗口只做媒体素材管理，白噪音库窗口做素材与预设的导入导出）。
+ *
+ * 媒体订阅由本页独占：音乐页与白噪音页共用一次 `media_connect`（topic 取并集），
+ * 面板自己不再 connect/disconnect。
  */
 "use client";
 
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
+import type { LullMediaClient, PlaybackSnapshot } from "@lull/media-sdk";
 import {
   AppWindow,
   AudioLines,
@@ -34,6 +39,7 @@ import {
   type MusicCategory,
 } from "@/components/library/music-browser";
 import { GamesPanel } from "@/components/settings/games-panel";
+import { NoiseSettingsPanel } from "@/components/settings/noise-settings-panel";
 import { ThemeModeSwitch } from "@/components/settings/theme-mode-switch";
 import { WallpaperPanel } from "@/components/settings/wallpaper-panel";
 import { Button } from "@/components/ui/button";
@@ -43,6 +49,7 @@ import { Switch } from "@/components/ui/switch";
 import { useExtensionSlots } from "@/hooks/use-extension-slots";
 import { useExtensions } from "@/hooks/use-extensions";
 import { useFlowTheme } from "@/hooks/use-flow-theme";
+import { getMediaClient } from "@/hooks/use-media-client";
 import { localizeError } from "@/i18n/errors";
 import {
   LOCALE_OPTIONS,
@@ -60,6 +67,7 @@ import {
   type SlotInfo,
 } from "@/lib/extensions";
 import { FLOW_THEMES } from "@/lib/flow-theme";
+import { SETTINGS_MEDIA_TOPICS } from "@/lib/media-topics";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import {
@@ -334,6 +342,16 @@ export default function Settings() {
   const [wallpaperVisited, setWallpaperVisited] = useState(false);
   // 音乐面板同理：挂载即连媒体客户端并拉列表，切回来不该重连重拉。
   const [musicVisited, setMusicVisited] = useState(false);
+  // 白噪音面板首次访问后常驻：预设下拉与音轨列表不该每次切回来都重拉。
+  const [noiseVisited, setNoiseVisited] = useState(false);
+  // 媒体连接由本页独占：Rust 的 media_connect 按窗口 label 只保存一份订阅，
+  // 面板各自 connect 会互相踢掉，所以音乐页与白噪音页共用这一份。
+  const [mediaEnabled, setMediaEnabled] = useState(false);
+  const [mediaClient, setMediaClient] = useState<LullMediaClient | null>(null);
+  const [mediaSnapshot, setMediaSnapshot] = useState<PlaybackSnapshot | null>(
+    null,
+  );
+  const [mediaMsg, setMediaMsg] = useState("");
   // 曲库二级分类：设置页持有，外部（播放器齿轮）唤起时可指定。
   const [musicCategory, setMusicCategory] = useState<MusicCategory>("tracks");
   const { items: extensions, refresh: refreshExtensions } = useExtensions();
@@ -384,6 +402,35 @@ export default function Settings() {
     },
     [languagePref],
   );
+
+  // 媒体连接：进入音乐 / 白噪音页签时建立一次，卸载或连接失败时断开。
+  useEffect(() => {
+    if (!mediaEnabled) return;
+    const media = getMediaClient();
+    if (!media) return;
+    setMediaClient(media);
+    let alive = true;
+    void media
+      .connect({ topics: [...SETTINGS_MEDIA_TOPICS] })
+      .then((next) => {
+        if (!alive) return;
+        setMediaSnapshot(next);
+        setMediaMsg("");
+      })
+      .catch((reason: unknown) => {
+        if (!alive) return;
+        setMediaMsg(
+          m.settings_media_connect_failed({ reason: localizeError(reason) }),
+        );
+        // 落回未启用状态，下次切回音乐 / 白噪音页时重试。
+        setMediaEnabled(false);
+      });
+    return () => {
+      alive = false;
+      setMediaClient(null);
+      void media.disconnect();
+    };
+  }, [mediaEnabled]);
 
   // 全局窗口偏好：所有窗口的任务栏 / 最小化开关，写入后 Rust 广播给各窗口顶栏。
   useEffect(() => {
@@ -482,6 +529,8 @@ export default function Settings() {
     setSlotError("");
     if (value === "wallpaper") setWallpaperVisited(true);
     if (value === "music") setMusicVisited(true);
+    if (value === "noise") setNoiseVisited(true);
+    if (value === "music" || value === "noise") setMediaEnabled(true);
     setTab(value);
   }, []);
 
@@ -596,6 +645,12 @@ export default function Settings() {
       {widgetMsg && (
         <p className="mb-2 text-xs text-destructive" role="alert">
           {widgetMsg}
+        </p>
+      )}
+
+      {mediaMsg && (
+        <p className="mb-2 text-xs text-destructive" role="alert">
+          {mediaMsg}
         </p>
       )}
 
@@ -1034,16 +1089,25 @@ export default function Settings() {
               />
               {/* 曲库二级分类 + 内容区：整块占满剩余高度，内容自己滚。 */}
               <MusicBrowser
+                client={mediaClient}
+                initialPlayer={mediaSnapshot?.player ?? null}
                 category={musicCategory}
                 onCategoryChange={setMusicCategory}
               />
             </LibraryPane>
           )}
-          {tab === "noise" && (
+          {noiseVisited && (
             <LibraryPane
               icon={<AudioLines className="h-4 w-4 text-bamboo" />}
               title={TAB_LABELS.noise()}
+              description={m.settings_noise_description()}
               testId="settings-noise-pane"
+              cardTestId="settings-noise-card"
+              // 长属性排在简写之后：CardContent 自带的 p-6 会盖掉 p-5。
+              contentClassName="min-h-0 gap-3 px-5 pt-5 pb-5"
+              fillHeight
+              inactive={tab !== "noise"}
+              collapseWhenInactive
             >
               <SlotSection
                 slotId={NOISE_SLOT_ID}
@@ -1057,6 +1121,8 @@ export default function Settings() {
                 widgetStates={widgetStates}
                 onToggle={toggleWidget}
               />
+              {/* 预设选择与当前混音：使用侧，保存/导入导出都在白噪音库窗口。 */}
+              <NoiseSettingsPanel client={mediaClient} />
             </LibraryPane>
           )}
           {tab === "games" && (

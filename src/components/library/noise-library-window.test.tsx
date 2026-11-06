@@ -97,7 +97,7 @@ beforeEach(() => {
   mediaState.client = createClient();
 });
 
-test("白噪音库四个子页签可切换", async () => {
+test("白噪音库三个子页签可切换", async () => {
   render(<NoiseLibraryWindow />);
 
   expect(screen.getByRole("heading", { name: "白噪音库" })).toBeDefined();
@@ -105,18 +105,13 @@ test("白噪音库四个子页签可切换", async () => {
     .getAllByRole("button")
     .map((button) => button.textContent);
   expect(tabs).toEqual(
-    expect.arrayContaining([
-      "噪音素材库",
-      "分类与标签",
-      "噪音预设",
-      "噪音测试",
-    ]),
+    expect.arrayContaining(["噪音素材库", "分类与标签", "噪音测试"]),
   );
+  expect(tabs).not.toContain("噪音预设");
 
   expect(await screen.findByText("Noise 素材库")).toBeDefined();
-
-  fireEvent.click(screen.getByRole("button", { name: "噪音预设" }));
-  expect(await screen.findByText("Noise Preset")).toBeDefined();
+  // 预设管理并入素材库页签，不再有独立页签。
+  expect(await screen.findByText("预设管理")).toBeDefined();
 
   fireEvent.click(screen.getByRole("button", { name: "噪音测试" }));
   expect(await screen.findByText("白噪音 API 调试")).toBeDefined();
@@ -139,7 +134,7 @@ test("窗口根节点只 connect 一次，切页签不会断开，卸载时才�
   expect(topics.topics).toContain("noise.level");
   expect(topics.topics).toContain("output.changed");
 
-  fireEvent.click(screen.getByRole("button", { name: "噪音预设" }));
+  fireEvent.click(screen.getByRole("button", { name: "分类与标签" }));
   fireEvent.click(screen.getByRole("button", { name: "噪音测试" }));
   fireEvent.click(screen.getByRole("button", { name: "噪音素材库" }));
 

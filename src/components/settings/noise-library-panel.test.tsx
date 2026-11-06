@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   addTrack: vi.fn(),
   getSession: vi.fn(),
   playSession: vi.fn(),
+  listPresets: vi.fn(),
 }));
 
 vi.mock("@/hooks/use-media-client", () => ({
@@ -86,6 +87,7 @@ function client(): LullMediaClient {
         reorder: vi.fn(async () => {}),
       },
       session: { getCurrent: mocks.getSession, play: mocks.playSession },
+      presets: { listPresets: mocks.listPresets },
     },
   } as unknown as LullMediaClient;
 }
@@ -116,6 +118,13 @@ beforeEach(() => {
   mocks.createTag.mockResolvedValue(tags[1]);
   mocks.updateTag.mockResolvedValue(tags[1]);
   mocks.deleteTag.mockResolvedValue(undefined);
+  mocks.listPresets.mockResolvedValue({
+    items: [],
+    total: 0,
+    page: 1,
+    pageSize: 50,
+    hasMore: false,
+  });
   mocks.getMediaClient.mockReturnValue(client());
 });
 
@@ -132,5 +141,14 @@ describe("NoiseLibraryPanel", () => {
     await waitFor(() => expect(mocks.importAssets).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "刷新" }));
     await waitFor(() => expect(mocks.revalidateAssets).toHaveBeenCalled());
+  });
+
+  test("素材库页签内嵌预设管理，不再渲染音轨卡", async () => {
+    await mount();
+
+    // 预设的保存/导入导出随素材库页签；音轨编辑已迁到设置窗。
+    expect(await screen.findByText("预设管理")).toBeDefined();
+    expect(screen.queryByText("音轨（Session/Track API）")).toBeNull();
+    expect(screen.queryByTestId("noise-session-tracks")).toBeNull();
   });
 });

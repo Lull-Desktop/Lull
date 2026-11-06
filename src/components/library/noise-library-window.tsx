@@ -1,5 +1,8 @@
 /**
- * 白噪音库窗口：噪音素材库 / 分类与标签 / 噪音预设 / 噪音测试四个子页签。
+ * 白噪音库窗口：噪音素材库（含预设管理）/ 分类与标签 / 噪音测试三个子页签。
+ *
+ * 窗口只负责素材资产：导入、编辑、分类标签与 Preset 的保存/导入导出。
+ * 预设的「选择并应用」与当前混音的音轨编辑在设置窗的白噪音页签。
  *
  * 媒体订阅由窗口根节点独占：Rust 的 `media_connect` 是“每窗口一份”，
  * 子面板只订阅事件与调用 API，不能各自 connect/disconnect。
@@ -7,41 +10,22 @@
 "use client";
 
 import type { LullMediaClient, PlaybackSnapshot } from "@lull/media-sdk";
-import { ListMusic, Tags, TestTube, Waves } from "lucide-react";
+import { Tags, TestTube, Waves } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { LibraryWindowFrame } from "@/components/library/library-window-frame";
 import { NoiseApiTestPanel } from "@/components/settings/noise-api-test-panel";
 import { NoiseLibraryPanel } from "@/components/settings/noise-library-panel";
-import { NoisePresetPanel } from "@/components/settings/noise-preset-panel";
 import { NoiseTaxonomyPanel } from "@/components/settings/noise-taxonomy-panel";
 import { getMediaClient } from "@/hooks/use-media-client";
 import { useLocale } from "@/i18n/locale";
+import { NOISE_WINDOW_TOPICS } from "@/lib/media-topics";
 import { m } from "@/paraglide/messages";
 
-type NoiseTab = "library" | "taxonomy" | "presets" | "test";
-
-/** 与 Rust `NOISE_WINDOW_TOPICS` 对齐；窗口根节点只连接一次。 */
-const NOISE_WINDOW_TOPICS = [
-  "noise.state",
-  "noise.session.changed",
-  "noise.session.state-changed",
-  "noise.track.added",
-  "noise.track.removed",
-  "noise.track.updated",
-  "noise.track.state-changed",
-  "noise.volume.changed",
-  "noise.library.changed",
-  "noise.preset.created",
-  "noise.preset.updated",
-  "noise.preset.deleted",
-  "noise.level",
-  "output.changed",
-] as const;
+type NoiseTab = "library" | "taxonomy" | "test";
 
 const TABS: { id: NoiseTab; label: () => string; icon: typeof Waves }[] = [
   { id: "library", label: m.noise_tab_library, icon: Waves },
   { id: "taxonomy", label: m.noise_tab_taxonomy, icon: Tags },
-  { id: "presets", label: m.noise_tab_presets, icon: ListMusic },
   { id: "test", label: m.noise_tab_test, icon: TestTube },
 ];
 
@@ -113,7 +97,6 @@ export function NoiseLibraryWindow() {
       <section className="min-h-0 flex-1 overflow-y-auto">
         {tab === "library" && <NoiseLibraryPanel />}
         {tab === "taxonomy" && <NoiseTaxonomyPanel />}
-        {tab === "presets" && <NoisePresetPanel />}
         {tab === "test" && (
           <NoiseApiTestPanel
             client={client}

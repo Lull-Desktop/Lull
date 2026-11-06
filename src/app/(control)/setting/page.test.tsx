@@ -130,7 +130,7 @@ test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 游戏 / 扩展 / �
   expect(screen.queryByText("关于 Lull")).toBeNull();
 });
 
-test("音乐页承载曲库分类，白噪音仍是占位页", () => {
+test("音乐页承载曲库分类，白噪音页承载预设与音轨", () => {
   renderSettingsPage();
 
   fireEvent.click(screen.getByRole("tab", { name: "音乐" }));
@@ -163,7 +163,21 @@ test("音乐页承载曲库分类，白噪音仍是占位页", () => {
   fireEvent.click(screen.getByRole("tab", { name: "白噪音" }));
 
   const noise = screen.getByTestId("settings-noise-pane");
-  expect(within(noise).getByText("功能开发中，后续版本补充。")).toBeDefined();
+  expect(
+    within(noise).getByText(
+      "选择预设并应用到当前混音；素材导入与预设管理在白噪音库中完成。",
+    ),
+  ).toBeDefined();
+  expect(within(noise).queryByText("功能开发中，后续版本补充。")).toBeNull();
+  // 预设下拉 + 当前混音音轨都在这里；保存/导出只留在白噪音库窗口。
+  expect(within(noise).getByTestId("noise-settings-panel")).toBeDefined();
+  expect(
+    within(noise).getByRole("combobox", { name: "白噪音预设" }),
+  ).toBeDefined();
+  expect(
+    within(noise).getByRole("button", { name: "应用" }),
+  ).toBeDefined();
+  expect(within(noise).getByTestId("noise-session-tracks")).toBeDefined();
   expect(
     within(noise).getAllByRole("button", { name: /库窗口$/ }),
   ).toHaveLength(1);
@@ -179,6 +193,10 @@ test("音乐页承载曲库分类，白噪音仍是占位页", () => {
   ).toBeNull();
   expect(
     screen.getByTestId("settings-preferences-pane").getAttribute("aria-hidden"),
+  ).toBe("true");
+  // 白噪音页首次进入后常驻（切走只隐藏，保留预设选择与音轨状态）。
+  expect(
+    screen.getByTestId("settings-noise-pane").getAttribute("aria-hidden"),
   ).toBe("true");
 });
 

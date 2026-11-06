@@ -1,8 +1,9 @@
 /**
- * N4 功能型 Noise Preset 面板（开发/验收用）。
+ * Noise Preset 管理区块（由白噪音库窗口的「噪音素材库」页签渲染）。
  *
- * 保存当前 Session、加载 Preset、收藏/重命名/删除、导入导出与缺失轨道映射都
- * 走 `@lull/media-sdk` 的 `noise.presets.*`；正式 Preset Gallery 由 N6 打磨。
+ * 资产侧动作都在这里：保存当前混音、导入/导出 `.lull-noise.json`、收藏、
+ * 重命名、删除、缺失轨道映射。「选择预设并应用」在设置窗的白噪音页签，
+ * 那边是下拉 + 一键应用，不提供任何保存/导出入口。
  */
 "use client";
 
@@ -26,6 +27,8 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getMediaClient } from "@/hooks/use-media-client";
+import { useLocale } from "@/i18n/locale";
+import { m } from "@/paraglide/messages";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -38,6 +41,7 @@ function sourceLabel(source: string): string {
 }
 
 export function NoisePresetPanel() {
+  useLocale();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [client, setClient] = useState<LullMediaClient | null>(null);
   const [presets, setPresets] = useState<NoisePresetSummary[]>([]);
@@ -259,11 +263,8 @@ export function NoisePresetPanel() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Noise Preset</CardTitle>
-          <CardDescription>
-            保存当前 Session 为 Preset，或加载已有 Preset。Preset
-            只保存配置快照，不含音频。
-          </CardDescription>
+          <CardTitle className="text-base">{m.noise_preset_title()}</CardTitle>
+          <CardDescription>{m.noise_preset_description()}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
@@ -471,7 +472,7 @@ export function NoisePresetPanel() {
                 disabled={busy !== ""}
                 onClick={() => loadPreset(selected.preset.id)}
               >
-                加载到 Session
+                {m.noise_preset_load_to_mix()}
               </Button>
               <Button
                 type="button"
