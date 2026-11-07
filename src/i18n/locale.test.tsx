@@ -67,7 +67,7 @@ test("设置页切到 English 后页签与关于页跟着换语言", async () =>
   expect(await screen.findByRole("tab", { name: "Preferences" })).toBeTruthy();
   expect(screen.getByRole("tab", { name: "Wallpaper" })).toBeTruthy();
   expect(screen.getByRole("tab", { name: "Music" })).toBeTruthy();
-  expect(screen.getByRole("tab", { name: "Ambient Lab" })).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "Ambient Sound" })).toBeTruthy();
   expect(screen.getByRole("tab", { name: "Extensions" })).toBeTruthy();
   expect(screen.getByRole("tab", { name: "About" })).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "About" }));
