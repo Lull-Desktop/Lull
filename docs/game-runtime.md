@@ -111,7 +111,7 @@ packages/game-sdk               →  游戏包内代码（authority / replica / 
 | Scene / `@lull/scene-sdk` | `init/frame/visibility` 只读帧 | 追加 `game.*` 消息（协议不升版）；scene manifest 增加可选 `game` 绑定 | `src/scenes/scene-bridge.ts`、`src/scenes/external-scene.tsx`、`packages/scene-sdk/src/protocol.ts` 增量扩展 |
 | Widget / `@lull/widget-sdk` | 插件窗口、能力授权、postMessage 桥 | Controller 复用；新增 3 个游戏能力与 4 个桥方法 | `src/sdk/widget/types.ts`、`packages/widget-sdk/src/protocol.ts`、`widget-plugin-shell` 增量扩展 |
 | Extension Center | 安装/启停/授权/开发模式 | 增加第三类包 `game`；运行状态按钮接 `game_start/stop` | `extension::{Kind,install,mod}`、`content_trust::PackageKind` 增量扩展 |
-| `media` | 音乐/噪音/视频壁纸 | **无耦合**；不复用 `media_call`，也不走 `media:event` | 不改 |
+| `media` | 音乐/音境工坊/视频壁纸 | **无耦合**；不复用 `media_call`，也不走 `media:event` | 不改 |
 | `config` | `display.json` | 游戏运行偏好单独放 `games.json`，不塞进显示配置 | 不改 |
 | 托盘 | 内置窗口/扩展入口 | 首期不加游戏菜单；P5 再评估"当前游戏"子菜单 | 不改 |
 

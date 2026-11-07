@@ -78,7 +78,7 @@ pnpm preview    # 预览构建产物
 | `docs/official-extensions.md` | 官方扩展的构建、分发与升级契约，随实施调整 |
 | `docs/extension-dev-mode.md` | 扩展开发模式与 React SDK 接入的设计稿，随实施调整 |
 | `docs/media-runtime.md` | 视频媒体运行时的实现与验收细节，随构建依赖变动 |
-| `docs/media-service.md` | 音乐/白噪音 Media Service 的实现细节，随阶段变动 |
+| `docs/media-service.md` | 音乐/音境工坊 Media Service 的实现细节，随阶段变动 |
 | `docs/media-noise-plan.md` | Media 2.5 + Noise 实施计划，随执行状态变动 |
 | `docs/Lull Media Service & Music Library 技术设计 RFC.md` | 内部设计评审稿，阶段决策与实现细节仍在变动 |
 | `docs/Lull Noise Service 技术设计 RFC.md` | 内部设计评审稿，阶段决策与实现细节仍在变动 |

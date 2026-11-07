@@ -61,8 +61,8 @@ const MUSIC_SLOT: SlotInfo = {
 /** 白噪音页签固定用的白噪音 Slot。 */
 const NOISE_SLOT: SlotInfo = {
   id: "noise-controller",
-  name: "白噪音",
-  description: "选择白噪音界面",
+  name: "音境工坊",
+  description: "选择音境工坊界面",
   category: "audio",
   status: "stopped",
   selected: "noise",
@@ -70,7 +70,7 @@ const NOISE_SLOT: SlotInfo = {
   providers: [
     {
       id: "noise",
-      name: "白噪音",
+      name: "音境工坊",
       version: "1.1.0",
       origin: "bundled",
       enabled: true,
@@ -117,7 +117,7 @@ test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 游戏 / 扩展 / �
     "偏好",
     "壁纸",
     "音乐",
-    "白噪音",
+    "音境工坊",
     "游戏",
     "扩展",
     "关于",
@@ -160,12 +160,12 @@ test("音乐页承载曲库分类，白噪音页承载会话控制、预设与�
     "overflow-y-auto",
   );
 
-  fireEvent.click(screen.getByRole("tab", { name: "白噪音" }));
+  fireEvent.click(screen.getByRole("tab", { name: "音境工坊" }));
 
   const noise = screen.getByTestId("settings-noise-pane");
   expect(
     within(noise).getByText(
-      "调节主音量、静音与睡眠定时，选择预设并应用到当前混音；素材导入与预设管理在白噪音库中完成。",
+      "调节主音量、静音与睡眠定时，选择预设并应用到当前混音；素材导入与预设管理在音境工坊库中完成。",
     ),
   ).toBeDefined();
   expect(within(noise).queryByText("功能开发中，后续版本补充。")).toBeNull();
@@ -182,7 +182,7 @@ test("音乐页承载曲库分类，白噪音页承载会话控制、预设与�
     within(sessionControls).getByRole("combobox", { name: "睡眠定时（分钟）" }),
   ).toBeDefined();
   const noisePreset = within(noise).getByRole("combobox", {
-    name: "白噪音预设",
+    name: "音境工坊预设",
   });
   // 主音量 / 静音 / 睡眠定时整体位于「白噪音预设」之上。
   expect(
@@ -270,14 +270,14 @@ test("三个库窗口开关分别位于壁纸 / 音乐 / 白噪音页签，并�
   renderSettingsPage();
 
   // 库窗口入口已迁出偏好页：默认页签里三个按钮都不在。
-  for (const name of ["壁纸素材库窗口", "音乐库窗口", "白噪音库窗口"]) {
+  for (const name of ["壁纸素材库窗口", "音乐库窗口", "音境工坊库窗口"]) {
     expect(screen.queryByRole("button", { name })).toBeNull();
   }
 
   const cases = [
     { label: "壁纸", testId: "settings-wallpaper-pane", kind: "backdrop" },
     { label: "音乐", testId: "settings-music-pane", kind: "library" },
-    { label: "白噪音", testId: "settings-noise-pane", kind: "noise-library" },
+    { label: "音境工坊", testId: "settings-noise-pane", kind: "noise-library" },
   ] as const;
 
   for (const item of cases) {
@@ -411,11 +411,11 @@ test("音乐 / 白噪音页签各自只显示对应的功能槽位", async () =>
   });
 
   // 白噪音页签：只有白噪音槽位。
-  fireEvent.click(screen.getByRole("tab", { name: "白噪音" }));
+  fireEvent.click(screen.getByRole("tab", { name: "音境工坊" }));
 
   const noisePane = screen.getByTestId("settings-noise-pane");
   const noisePanel = await within(noisePane).findByTestId("slot-panel");
-  expect(within(noisePanel).getByText("白噪音")).toBeDefined();
+  expect(within(noisePanel).getByText("音境工坊")).toBeDefined();
   expect(within(noisePanel).queryByTestId("slot-music-player")).toBeNull();
 
   fireEvent.click(within(noisePanel).getByRole("button", { name: "打开" }));

@@ -95,7 +95,7 @@ test("允许最小化的窗口渲染最小化按钮并可调用", async () => {
 
 test("不允许最小化的窗口（工具窗默认）没有最小化按钮", async () => {
   tauriWindow.isMinimizable.mockResolvedValueOnce(false);
-  render(<WindowTopbar section={() => "白噪音"} allowMinimize />);
+  render(<WindowTopbar section={() => "音境工坊"} allowMinimize />);
 
   // 等 isMinimizable 的 promise 落地，确认结果仍是「不渲染」。
   await vi.waitFor(() => {

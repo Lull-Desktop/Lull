@@ -321,7 +321,7 @@ export function NoiseLibraryPanel() {
       <div className="grid grid-cols-2 gap-2 overflow-hidden">
         <Card className="flex flex-col overflow-hidden">
           <CardHeader>
-            <CardTitle className="text-base">Noise 素材库</CardTitle>
+            <CardTitle className="text-base">音境工坊素材库</CardTitle>
             <CardDescription>
               导入本地音频、按分类/标签/收藏筛选；导入只复制到 Lull
               受管目录，不改原文件。

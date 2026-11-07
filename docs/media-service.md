@@ -5,7 +5,7 @@
 ## 1. 边界
 
 ```text
-官方播放器 / 白噪音 / 资料库 UI
+官方播放器 / 音境工坊 / 资料库 UI
 第三方 Widget（后续）
         │  @lull/media-sdk
         ▼
@@ -58,11 +58,11 @@ Media Service（Rust）
 
 ### 3.1 Provider 切换
 
-- 音乐播放器、白噪音 UI 是可替换的 Provider；同一 Slot 只运行一个窗口。
-- 播放/白噪音状态由 Media Service 持有，不随 Provider 窗口销毁而丢失。
+- 音乐播放器、音境工坊 UI 是可替换的 Provider；同一 Slot 只运行一个窗口。
+- 播放/音境工坊状态由 Media Service 持有，不随 Provider 窗口销毁而丢失。
 - `extensions_slot_use` 切换 Provider 时：旧窗口销毁会由 `media::on_window_destroyed`
   清理订阅；新 Provider 通过 `media_connect` 拿快照并重新订阅 `media:event`。
-- 因此切换播放器 UI 不打断播放，切换白噪音 UI 不停止 Session；Provider 不得自行创建
+- 因此切换播放器 UI 不打断播放，切换音境工坊 UI 不停止 Session；Provider 不得自行创建
   第二套音频服务。
 - 能力校验不变：Widget 仍需要 `widget.media`、对应读能力与 bridge token；Slot 只负责
   选择与互斥，不额外授予能力。
@@ -234,7 +234,7 @@ Media Service（Rust）
 - `@lull/media-sdk/react`：`LullMediaProvider` / `useMediaClient` / `useNoiseSession` / `useNoiseTracks` / `useNoiseLibrary` / `useNoisePresets` / `usePlayerSession` / `useDirectoryBrowser`；hooks 按 client 共享连接，最后一个订阅卸载时断开。
 - `@lull/media-sdk/widget`：`createWidgetTransport` / `createWidgetMediaClient`，翻译为 Widget 桥的 `media.call/connect/disconnect`，并通过 `onMediaEvent` 接收宿主转发事件。
 - `@lull/media-sdk/testing`：`createMemoryTransport`。
-- 音乐库 / 壁纸素材库 / 白噪音库窗口、官方播放器与白噪音窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。音乐库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单，以及「曲库整理」「测试与接口」两个调试页签，并负责导入、扫描、重命名与移除目录；壁纸素材库（label `backdrop`）只承载素材管理，壁纸层与媒体壁纸配置在设置窗「壁纸」页签；白噪音库（label `noise-library`）承载 Noise 素材、Preset 与 API 调试。
+- 音乐库 / 壁纸素材库 / 音境工坊库窗口、官方播放器与音境工坊窗口都只通过 SDK/Media Service 访问；不直接 `invoke`、不自己创建音频图。音乐库窗口（label `library`）包含全部歌曲/最近添加/我的目录/歌单/我的收藏/最近播放/队列/智能歌单，以及「曲库整理」「测试与接口」两个调试页签，并负责导入、扫描、重命名与移除目录；壁纸素材库（label `backdrop`）只承载素材管理，壁纸层与媒体壁纸配置在设置窗「壁纸」页签；音境工坊库（label `noise-library`）承载 Noise 素材、Preset 与 API 调试。
 
 P5 已落地：`./widget` 传输、8 个 Noise capability、Rust bridge token、`noise-mixer` 示例；`./vue` 与查询缓存仍未实现。
 
@@ -264,14 +264,14 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 - 遍历发现阶段出现错误时跳过缺失清理；目录整体不可达时目录标记 `missing` 并保留 Track。文件移动/重命名在下一次扫描按“旧 Track 移除 + 新 Track 新增”处理，不按标题/Hash 合并。
 - 已接入内嵌/文件夹封面与内嵌/同名 `.lrc` 歌词；歌词 UI、文件监听、`.lullignore` 尚未接入。
 - `library.listTracks` 已支持关键词、艺术家/专辑/流派(genre)/标签/格式/年份与 `folderId` 筛选；P4 已接入标签实体、多值标签、元数据编辑、艺术家/专辑合并拆分与智能歌单。
-- 播放/队列/白噪音已迁移到 Media Service；N1 起统一走共享 `AudioGraph`（本地音频 `MediaElementAudioSource`、Noise `noiseBus`），不再各自建 `AudioContext`。默认在线氛围曲与其合成引擎已移除；播放器队列 UI 仍未内置到播放器窗口；P3 在资料库窗口提供队列视图与移出/播放操作。
+- 播放/队列/音境工坊已迁移到 Media Service；N1 起统一走共享 `AudioGraph`（本地音频 `MediaElementAudioSource`、Noise `noiseBus`），不再各自建 `AudioContext`。默认在线氛围曲与其合成引擎已移除；播放器队列 UI 仍未内置到播放器窗口；P3 在资料库窗口提供队列视图与移出/播放操作。
 - P3 已支持歌单、喜欢、历史与 M3U 导入导出；本地音频元素已设置 `crossOrigin="anonymous"`，以配合 asset protocol 的 CORS 让 `MediaElementAudioSourceNode` 正常输出。
 - N2 起 Noise 使用独立 `NoiseSession`/`NoiseTrack` 运行时；旧 5 层 `noise.*` 由兼容门面映射到同一 Session。Session/Track 不持久化，退出即停止；只保存 master/muted 等偏好。睡眠定时到点会暂停 Session（保留 muted 偏好），不会自动恢复播放。
 - N3 的 Noise 本地素材在导入时复制到受管目录并流式 SHA-256；支持 `mp3/flac/wav/ogg/m4a/aac`、单文件 100 MB/30 分钟上限，重复 hash 返回已有 Asset。文件播放走 `<audio>` + `MediaElementAudioSourceNode`，缺失文件由 `revalidateAssets` 标记，不每次打开全量重算 hash。
 - N3.5 起分类/标签有用户 CRUD：内置分类/标签只读，用户分类支持父子层级与循环保护，同名分类（同父级）和同名标签（跨内置/用户）拒绝；删除分类把素材置为未分类且子分类存在时拒绝删除，删除标签级联移除素材关联。
 - N4 起 Preset 保存当前 Session 的 Asset 引用/哈希/名称/音量/loop/fade 快照，不含音频、脚本或路径；加载替换 Session 与 master 但不自动播放，缺失轨道返回 candidates，可 `mapPresetTrack` 后重载。`.lull-noise.json` 导入生成新本地 ID，原 ID 存 `origin_id`，同来源不自动覆盖。
 - N5/P5 起 Widget 侧不直接拿 Tauri IPC；bridge token 只注入顶层壳页。Widget snapshot 为 redacted；8 个 Noise capability 按方法/事件逐项强制校验，伪造 token 或未授权方法返回 `capability.denied`。
-- N6 起白噪音窗口改用 `NoiseSession`/`NoiseTrack`：5 个内置 procedural 仍渲染为泡泡，本地轨道显示紧凑列表；支持 Preset 选择/加载、播放/暂停、睡眠和本地轨开关/音量/移除。加载 Preset 后 Session 保持 idle，泡泡显示“待播放”、主泡显示暂停，点击播放/泡泡才出声；关闭窗口只断开 UI 订阅，不停止 Session；重开取 snapshot，多窗口靠 `noise.session.changed` 同步。
+- N6 起音境工坊窗口改用 `NoiseSession`/`NoiseTrack`：5 个内置 procedural 仍渲染为泡泡，本地轨道显示紧凑列表；支持 Preset 选择/加载、播放/暂停、睡眠和本地轨开关/音量/移除。加载 Preset 后 Session 保持 idle，泡泡显示“待播放”、主泡显示暂停，点击播放/泡泡才出声；关闭窗口只断开 UI 订阅，不停止 Session；重开取 snapshot，多窗口靠 `noise.session.changed` 同步。
 - P4 起元数据编辑写 `overrides_json` + `music_field_sources(source=manual)`，同步更新曲目/艺术家/专辑规范化字段；重扫看到 `manual/split/online` 不再覆盖该字段。标签是独立实体，`music_track_tags` 支持多标签与筛选；艺术家/专辑合并保留 `merged_into_id` 与别名，拆分把选中 Track 关系迁到新实体；智能歌单保存查询规则并在读取时实时查询。
 - P6 已支持同名 `.lrc` / `.txt` / `.srt` sidecar 歌词（按 lrc → txt → srt 优先级，内容原样保存）；组织数据备份为 JSON，只含 Track ID 引用、歌单、喜欢、历史、标签与智能歌单，不含音频/路径/资产，导入缺失 Track 自动跳过。在线元数据、文件监听与缩略图仍未开始。
 - 封面读取链路：`TrackSummary.hasCover` 表示是否有主封面；`library.getCoverUrl(trackId)` 返回经 asset protocol 授权的 URL；资产存 `music_assets`，关系存 `music_track_assets(role='cover')`，来源由扫描器写入 `embedded/folder`。当前没有用户上传/替换/删除封面的保存 API，`updateTrackMetadata` 也不覆盖封面；资料库元数据弹窗与音乐库窗口的曲库整理页签只做只读预览。
@@ -285,7 +285,7 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 | --- | --- | --- |
 | P0 | `media/video` 迁移、SQLx/lofty 依赖、迁移骨架 | 已完成基础 |
 | P1 | 来源/文件/Track/艺术家/专辑、扫描、只读 API、SDK 基础、设置面板 | 已完成（含资产、筛选、扫描进度/取消、revision/事件） |
-| P2 | Playback/Queue/Noise 服务、隐藏音频引擎、官方播放器/白噪音迁移 | 已完成，待长稳/多设备验收 |
+| P2 | Playback/Queue/Noise 服务、隐藏音频引擎、官方播放器/音境工坊迁移 | 已完成，待长稳/多设备验收 |
 | N1（P2.5） | Shared AudioGraph、engine protocol v2、全局输出音量、订阅/快照基础 | 代码已落地，待长稳/设备验收 |
 | P3 | 歌单/喜欢/历史、M3U、资料库窗口 | 代码已落地，待手工验收 |
 | N2 | Noise Core：Session/Track、内置 procedural Asset、旧 API 兼容门面 | 代码已落地，待手工验收 |
@@ -315,11 +315,11 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 
 该页签是调试工具，不是正式资料库 UI；正式界面是同一窗口的曲库/歌单/收藏等页签。媒体连接由窗口根节点统一建立，页签只订阅事件，不重复 connect/disconnect。
 
-白噪音库窗口的「噪音测试」页签（`components/settings/noise-api-test-panel.tsx`）用于 N2 手工验收：
+音境工坊库窗口的「音境工坊测试」页签（`components/settings/noise-api-test-panel.tsx`）用于 N2 手工验收：
 
 - 读取/切换 `noise.session.*` 状态，新建、播放、暂停、停止；
 - 按内置 profile 或 Asset ID 添加音轨，调整音量/enabled/loop/顺序并移除；
-- 主音量 / 静音 / 睡眠定时已迁到设置窗「白噪音」页签（白噪音预设之上）；这里在它们写入后观察 `noise.state`、`noise.session.changed`、`noise.level`；
+- 主音量 / 静音 / 睡眠定时已迁到设置窗「音境工坊」页签（音境工坊预设之上）；这里在它们写入后观察 `noise.state`、`noise.session.changed`、`noise.level`；
 - 用旧 5 层 `noise.*` 控件修改同一 Session，确认与新 API、引擎听感一致；
 - 查看 `PlaybackSnapshot` 的 player/noise/session revision，确认客户端按 domain revision 过滤事件。
 

@@ -52,7 +52,7 @@ fn require_write(label: &str) -> Result<(), MediaError> {
   } else {
     Err(MediaError::new(
       "capability.denied",
-      "只有设置窗口或白噪音库窗口可以导入/编辑/删除 Noise 素材",
+      "只有设置窗口或音境工坊库窗口可以导入/编辑/删除音境工坊素材",
     ))
   }
 }

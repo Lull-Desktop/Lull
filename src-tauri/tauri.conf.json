@@ -28,7 +28,7 @@
     "licenseFile": "../LICENSE",
     "category": "Productivity",
     "shortDescription": "Lull — 助眠与专注桌面应用",
-    "longDescription": "开源的助眠与专注桌面应用：动态壁纸、白噪音、番茄钟都在本地运行。",
+    "longDescription": "开源的助眠与专注桌面应用：动态壁纸、音境工坊、番茄钟都在本地运行。",
     "resources": {
       "native/lull_native.dll": "lull_native.dll",
       "../extensions/dist/": "extensions/",

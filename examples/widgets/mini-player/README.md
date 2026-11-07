@@ -36,7 +36,7 @@ pnpm widgets:samples:install mini-player
 - [ ] 点「结束运行」：Mini Player 窗口销毁，功能槽位保留选择；再次打开正常。
 - [ ] 停用 Mini Player：窗口销毁，槽位显示「不可用」，不会自动切回官方；重新启用后恢复。
 - [ ] 卸载正在运行的 Mini Player：窗口被清理，槽位回退/清空，不自动播放。
-- [ ] 音乐与白噪音同时运行：切换播放器不影响白噪音 Session。
+- [ ] 音乐与音境工坊同时运行：切换播放器不影响音境工坊 Session。
 - [ ] 重启 Lull：Mini Player 的选择保留，但不自动开窗、不自动播放。
 - [ ] 在 Mini Player 未选中时，扩展卡片不应直接「打开」它——只能通过「使用」进入槽位。
 

@@ -460,7 +460,7 @@ mod tests {
     for (key, chinese) in [
       ("widget_library_name", "音乐库"),
       ("widget_backdrop_name", "壁纸素材库"),
-      ("widget_noise_library_name", "白噪音库"),
+      ("widget_noise_library_name", "音境工坊库"),
     ] {
       assert_eq!(zh.get(key).map(String::as_str), Some(chinese), "{key}");
       let translated = en.get(key).unwrap_or_else(|| panic!("en-US 缺少 {key}"));

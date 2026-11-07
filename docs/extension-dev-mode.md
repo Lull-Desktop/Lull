@@ -1,6 +1,6 @@
 # 扩展开发模式与 React SDK 接入
 
-> 状态：**设计评审稿**。本文回答两件事：迁移后的官方扩展（白噪音 / 播放器）如何只通过
+> 状态：**设计评审稿**。本文回答两件事：迁移后的官方扩展（音境工坊 / 播放器）如何只通过
 > SDK 使用宿主能力；以及用 React 开发扩展时，开发模式如何与宿主、Vite、媒体桥协调。
 > 与 [官方扩展](./official-extensions.md)（包格式 / 随包分发）、
 > [Widget SDK](./widget-sdk.md)（包与能力契约）、[Media Service](./media-service.md)
@@ -10,7 +10,7 @@
 >
 > **实施进度（2026-11）**：P1 的 Vite 构建、Tier 0、`extensions:watch` 与边界检查已落地；
 > P2 的媒体桥、Tier 2 dev server、`widget_apply_resize` + `window.fit`、locale 与主题
-> token、媒体连接 Hub 均已落地，P2 完成。P3：白噪音已迁为 `extensions/official/noise`，
+> token、媒体连接 Hub 均已落地，P2 完成。P3：音境工坊已迁为 `extensions/official/noise`，
 > 走 `virtual:lull-messages` 与 SDK，`echo` 自检包已移除；P4：播放器已迁为
 > `extensions/official/player`，使用 `usePlayerSession` + `window.alignPlayer`。
 
@@ -53,7 +53,7 @@
 - 禁止 `@/`、`../src`、`@tauri-apps/api`、`window.__TAURI_INTERNALS__`、`localStorage`、
   `sessionStorage`、`eval`、远程 URL。
 - React / ReactDOM 打进包内（iframe 是独立文档），不要 externalize 到宿主。
-- 原生 `window.chrome = "custom"` 的包（播放器 / 白噪音）自绘顶栏，拖拽 / 最小化 /
+- 原生 `window.chrome = "custom"` 的包（播放器 / 音境工坊）自绘顶栏，拖拽 / 最小化 /
   关闭分别走 `startDrag` / `minimize` / `close`，不要直接调 Tauri 窗口 API。
 
 ### 2.2 入口与 Provider 组合
@@ -100,7 +100,7 @@ createRoot(document.getElementById("root")!).render(
 
 **问题**：Rust 的 `media_connect` 按窗口 label 保存一份订阅（后一次覆盖前一次），
 `media_disconnect` 清空整份。而播放器同时需要 `player.*`、`queue.*`、`library.*`，
-白噪音需要 `noise.*`；如果每个 React hook 各自 connect/disconnect，会互相踢掉订阅；
+音境工坊需要 `noise.*`；如果每个 React hook 各自 connect/disconnect，会互相踢掉订阅；
 StrictMode 的双调用与 HMR 刷新还会造成连接抖动和事件丢失。
 
 **设计**：在 media-sdk 增加 `MediaSessionHub`，由 `LullMediaProvider` 为每个 client
@@ -410,7 +410,7 @@ esbuild 继续服务 `examples/widgets/*` 的第三方示例。新增 `vite` 为
 | --- | --- | --- |
 | **P1** | Vite 构建 + Tier 0/1（`extensions:watch`）+ 边界检查 | 官方包能构建、挂载、重载；无宿主 CSP/URL 改动 |
 | **P2** | 媒体 Hub + player/queue/library hooks；locale/tokens/fit；Tier 2（`.lull-dev.json`、dev URL、`entry_url` 重构、devCsp、debug 守卫）；诊断面板 | React 扩展改组件即时生效；多 hook 共存不互相踢连接；release 不含 dev URL |
-| **P3** | 白噪音用 Tier 2 开发，Tier 0 验收；dev 卡片显示 URL | 白噪音功能对齐；HMR 下媒体/主题/语言正常 |
+| **P3** | 音境工坊用 Tier 2 开发，Tier 0 验收；dev 卡片显示 URL | 音境工坊功能对齐；HMR 下媒体/主题/语言正常 |
 | **P4** | 播放器用 Tier 2 开发；消费 P2 的 `usePlayerSession` / `useQueue`（若 P2 先落在 `_shared`，本阶段上游到 media-sdk） | 播放器功能对齐；抽屉宽度 / 封面 / UI 音效正常 |
 | **P5** | Tier 3 单命令编排；文档、Skill、站点同步；安全审计 | 新同学按文档一条命令起环境；CI 全绿 |
 

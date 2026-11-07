@@ -6,7 +6,7 @@
 
 ## 0. 先做 Music P3 还是 Noise：结论
 
-这里把“音乐服务”理解为原计划的 **P3**（歌单/喜欢/历史/M3U/资料库窗口），把“白噪音”理解为 Noise 的 **N2 及之后**。
+这里把“音乐服务”理解为原计划的 **P3**（歌单/喜欢/历史/M3U/资料库窗口），把“音境工坊”理解为 Noise 的 **N2 及之后**。
 
 **推荐顺序：**
 
@@ -502,7 +502,7 @@ N3 已落地（待手工验收）：
 - 文件播放：`TrackSource::File`；Rust 生成 asset protocol URL，TS `NoiseEngine` 用 `<audio>` + `MediaElementAudioSourceNode` 接入共享 `noiseBus`；删除 Asset 会移除当前 Session 中引用它的 Track。
 - API：`noise.library.listAssets/getAsset/getCategories/getTags/importAssets/importFolder/updateAsset/removeAsset/revalidateAssets/setAssetFavorite`；导入/编辑/删除/缺失检查仅 `settings`，`noise/library` 可读并可收藏，内置 Asset 不可改删。
 - SDK：`noise.library.*`、`NoiseAsset/NoiseCategory/NoiseTag/NoiseImportResult/NoiseRevalidateResult`、`noise.library.changed`。
-- UI：设置页新增“噪音素材库”功能面板，支持导入文件/文件夹、搜索、分类/标签筛选、收藏、编辑、删除、加入混音与缺失检查。
+- UI：设置页新增“音境工坊素材库”功能面板，支持导入文件/文件夹、搜索、分类/标签筛选、收藏、编辑、删除、加入混音与缺失检查。
 - 验证：`cargo test --lib` 177 项、`cargo clippy`、`pnpm test` 262 项、`pnpm typecheck`、`pnpm build:next` 均通过。
 - 下一阶段：N3.5 分类/标签独立 CRUD。
 
@@ -511,7 +511,7 @@ N3.5 已落地（待手工验收）：
 - API：`noise.library.createCategory/updateCategory/deleteCategory/createTag/updateTag/deleteTag`；仅 settings 可写，`noise/library` 只读。
 - 规则：内置分类/标签只读；用户分类支持父子层级、循环保护、同父级重名检查；标签按 normalized name 去重（跨内置/用户）；子分类存在时拒绝删除分类；删除分类把素材置为未分类，删除标签级联移除素材关联。
 - DTO/SDK：`NoiseCategory/NoiseTag` 增加 `sourceType`；SDK 增加对应 CRUD；`noise.library.changed` 复用。
-- UI：噪音素材库面板新增“分类与标签”管理卡，支持创建/重命名/移动父级/删除；内置项标只读。
+- UI：音境工坊素材库面板新增“分类与标签”管理卡，支持创建/重命名/移动父级/删除；内置项标只读。
 - 验证：`cargo test --lib` 177 项、`cargo clippy`、`pnpm test` 262 项、`pnpm typecheck`、`pnpm build:next` 均通过。
 - 下一阶段：N4 Noise Presets（保存/加载/导入/导出、Preset 缺失映射、社区 Preset 事务）。
 
@@ -523,7 +523,7 @@ N4 已落地（待手工验收）：
 - 加载：解析顺序 assetId → contentHash → 同名候选 → missing；替换 Session 轨道/master，state=idle，不自动播放；缺失返回 candidates，可 `mapPresetTrack` 后重载。
 - 内置 Preset 不可改删；加载/导出/收藏可用。删除 Preset 清理 `last_preset_id` 并依赖 FK 级联 tracks/favorites。
 - SDK：`noise.presets.*` 与 `NoisePresetSummary/Detail/Track/LoadResult/Missing/ExportResult`；事件 `noise.preset.created/updated/deleted`。
-- UI：设置页“噪音预设”面板，支持保存当前混音、加载、收藏、重命名/描述、删除、导入导出与缺失轨道映射。
+- UI：设置页“音境工坊预设”面板，支持保存当前混音、加载、收藏、重命名/描述、删除、导入导出与缺失轨道映射。
 - 验证：`cargo test --lib` 181 项、`cargo clippy`、`pnpm test` 263 项、`pnpm typecheck`、`pnpm build:next` 均通过。
 - 下一阶段：N5/P5 公开 SDK/Widget 权限，或 N6 官方 Noise UI。
 
@@ -545,7 +545,7 @@ N6 已落地（待手工验收）：
 - 5 个内置 procedural 仍以泡泡呈现，按 `noise:builtin:*` 映射到 Session Track；缺失时点击泡泡自动 `addTrack`。
 - 本地轨道在泡泡下方与设置面板显示紧凑列表，支持开关、音量、移除；Session 的播放/暂停、master/muted、睡眠、Preset 选择/加载均走 N2/N4 API。加载 Preset 后保持 idle，泡泡显示“待播放”、主泡显示暂停，点击播放/泡泡才出声；`applySession` 按 revision 拒绝过期命令结果，避免旧 play 响应把 UI 改回播放态。
 - 关闭窗口只断开 UI 订阅，不停止 Session；重开从 snapshot 恢复；多窗口通过 `noise.session.changed` 同步。
-- 设置页的 Noise Library/Preset 功能面板沿用 N3/N4；N6 增加白噪音窗口内的 Preset 入口与本地轨管理。
+- 设置页的 Noise Library/Preset 功能面板沿用 N3/N4；N6 增加音境工坊窗口内的 Preset 入口与本地轨管理。
 - 验证：`cargo test --lib` 185 项、`pnpm test` 267 项、`pnpm typecheck`、`pnpm build:next` 均通过；真机听感、关闭/重开和多窗口同步待手工验收。
 - 下一阶段：P4 元数据/标签或 P6 在线元数据/备份。
 

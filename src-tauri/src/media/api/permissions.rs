@@ -149,7 +149,7 @@ pub fn official_noise_allowed(label: &str, method: &str) -> Result<(), MediaErro
   } else {
     Err(MediaError::new(
       "capability.denied",
-      "当前窗口没有该 Noise 权限",
+      "当前窗口没有该音境工坊权限",
     ))
   }
 }

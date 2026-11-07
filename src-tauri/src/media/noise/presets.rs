@@ -79,7 +79,7 @@ fn require_file(label: &str) -> Result<(), MediaError> {
   } else {
     Err(MediaError::new(
       "capability.denied",
-      "只有设置窗口或白噪音库窗口可以导入/导出 Noise Preset 文件",
+      "只有设置窗口或音境工坊库窗口可以导入/导出音境工坊 Preset 文件",
     ))
   }
 }

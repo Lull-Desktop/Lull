@@ -84,7 +84,7 @@ Lull 采用分层许可：
 - 内置媒体壁纸（`src/scenes/video`）是应用代码，GPL-3.0-or-later。
 - 官方竹影场景扩展（`extensions/official/bamboo`）是应用代码，GPL-3.0-or-later。
 - 极光 / 暮色场景已从当前发行物移除，不再随安装包分发。
-- 白噪音通过 Web Audio 合成，未打包第三方音频采样。
+- 音境工坊通过 Web Audio 合成，未打包第三方音频采样。
 - 播放器的在线曲目来自其配置的公开源；再分发时需自行确认曲目授权。
 - 外部示例场景（`examples/scenes/*`）为 Lull 原创示例，CC BY 4.0。
 - `public/content/` 默认不内置任何示例壁纸，只保留内容目录与签名机制。

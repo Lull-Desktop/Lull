@@ -12,7 +12,7 @@
 
 ```text
 extensions/official/
-  noise/         # P3：白噪音（React + 媒体 SDK）
+  noise/         # P3：音境工坊（React + 媒体 SDK）
   player/        # P4：播放器（React + Media Hub 会话）
   bamboo/        # 竹影壁纸（场景包；构建产物 id=lull.bamboo）
   _shared/       # 官方扩展共享的构建期声明（virtual messages 类型等）

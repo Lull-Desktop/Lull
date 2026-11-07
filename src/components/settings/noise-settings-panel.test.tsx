@@ -142,7 +142,7 @@ describe("NoiseSettingsPanel", () => {
       within(controls).getByRole("combobox", { name: "睡眠定时（分钟）" }),
     ).toBeDefined();
 
-    const preset = screen.getByRole("combobox", { name: "白噪音预设" });
+    const preset = screen.getByRole("combobox", { name: "音境工坊预设" });
     expect(
       controls.compareDocumentPosition(preset) &
         Node.DOCUMENT_POSITION_FOLLOWING,

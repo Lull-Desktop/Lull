@@ -1,6 +1,6 @@
 # 官方扩展（随应用分发）
 
-> 状态：**契约冻结，实施中**。本文是「把播放器、白噪音这类内置工具迁移为标准
+> 状态：**契约冻结，实施中**。本文是「把播放器、音境工坊这类内置工具迁移为标准
 > Widget 包，并随安装包分发」的实现契约。标了阶段（P1–P5）的部分尚未落地；
 > 实施完成前，行为以代码为准。
 >
@@ -9,7 +9,7 @@
 > 便携版收录与 CI；`echo` 自检包已移除，`noise` 与 `player` 已迁移为正式官方扩展。P2 已完成：
 > Widget 的 player/queue/library 媒体能力与快照裁剪、Tier 2 dev server、
 > `widget_apply_resize` + `window.fit`、locale / 主题 token、媒体连接 Hub 均已落地。
-> P3 代码完成：白噪音包、托盘与设置页入口、扩展中心官方徽章已接入。P4 代码完成：
+> P3 代码完成：音境工坊包、托盘与设置页入口、扩展中心官方徽章已接入。P4 代码完成：
 > 播放器包、`window.alignPlayer`、封面兜底与设置/托盘入口已接入。P5 自动化完成：
 > 便携版冒烟验证 `extensions/{noise,player}` 与 `index.json` 均已入 zip、无
 > `.lull-dev.json`；release 流程新增 `extensions:check`；官方包补缺资源根、篡改、
@@ -41,7 +41,7 @@
 - 扩展中心把它们显示为「官方 · 随应用分发」：工具可停用 / 重新启用、查看详情与能力，
   场景可查看详情与去素材管理；两者都**不可卸载**，用户安装包不能占用这些 id。
 - 行为与迁移前一致：
-  - 白噪音：五层声景、本地轨、Preset、睡眠定时、主音量 / 静音、窗口贴合内容高度、
+  - 音境工坊：五层声景、本地轨、Preset、睡眠定时、主音量 / 静音、窗口贴合内容高度、
     关窗即隐藏、多窗口状态同步。
   - 播放器：本地曲目、封面、530↔880 曲库抽屉与左右停靠、进度 / 音量 /
     播放模式、智能随机 Profile 与五项滑杆、UI 音效、关窗继续播放。
@@ -90,7 +90,7 @@
 | 字段 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `order` | number | 100 | 托盘与扩展中心的排序；官方工具建议 `player: 10`、`noise: 30` |
-| `window.fit` | `"none" \| "content"` | `"none"` | 是否允许按内容高度调整窗口（白噪音用 `content`） |
+| `window.fit` | `"none" \| "content"` | `"none"` | 是否允许按内容高度调整窗口（音境工坊用 `content`） |
 | `provides` | array | `[]` | 功能槽位声明；官方 `player` → `music-player`，`noise` → `noise-controller` |
 
 其余规则不变：`id` 与目录同名、`license` 必填、`hostApi: 1`、`entry` 为包内相对
@@ -153,7 +153,7 @@ extensions/dist/lull.bamboo/
 
 - 它们是这两个 Slot 的**默认 Provider**，仍保留 id、只读、不可卸载。
 - 官方包升级不会改变 id，因此用户选择、授权、状态 KV 保留。
-- 扩展中心可把官方实现切到第三方实现，也可切回；切换只影响 UI 窗口，播放/白噪音
+- 扩展中心可把官方实现切到第三方实现，也可切回；切换只影响 UI 窗口，播放/音境工坊
   状态仍由 Media Service 持有。
 - 一个扩展 v1 最多声明一个 Slot；官方包也遵守同一规则。
 - 具体选择/运行规则见 [扩展槽位与 Provider](./extension-slots.md)。
@@ -337,7 +337,7 @@ Scene：`content_package::store::package_dir`：官方 `extensions/dist/<id>/cat
   `build.rs APP_COMMANDS`，并跑 `scripts/gen-widgets.mjs` 重生成 capability。
 - `window.fit: "content"` 的包，宿主壳延迟 reveal 到第一次成功贴高；保留现有 4 秒
   兜底显示。
-- SDK：`requestResize` + React `useWidgetFit`；官方白噪音用它贴高，播放器用它做抽屉
+- SDK：`requestResize` + React `useWidgetFit`；官方音境工坊用它贴高，播放器用它做抽屉
   宽度与左右锚点。
 
 ## 9. 本地化、主题令牌与字体（P2）
@@ -378,7 +378,7 @@ Scene：`content_package::store::package_dir`：官方 `extensions/dist/<id>/cat
 | --- | --- |
 | P1 | 官方来源、默认授权、构建/资源/便携版骨架（曾用 echo 包验证，验证后移除） |
 | P2 | 播放器 / 队列 / 曲库能力，`widget_apply_resize` + `fit`，locale / tokens，示例包验证 |
-| P3 | 白噪音迁移：移动 UI、包构建、托盘 / 设置 / 扩展中心整合，删除内置 noise |
+| P3 | 音境工坊迁移：移动 UI、包构建、托盘 / 设置 / 扩展中心整合，删除内置 noise |
 | P4 | 播放器迁移：移动 UI、播放器会话 hook、封面、抽屉宽度/锚点，删除内置 player |
 | P5 | 发布加固：便携版、CI、升级 / 篡改 / 缺资源测试、文档与 Skill 同步 |
 | P6 | 竹影迁移为官方 scene 包；删除内置 bamboo / aurora / dusk，宿主只保留媒体壁纸 |
@@ -397,7 +397,7 @@ Scene：`content_package::store::package_dir`：官方 `extensions/dist/<id>/cat
 保留：`library`、`settings` 的内置窗口与 Media 面板；`lull.video` 仍是唯一内置壁纸；
 竹影作为官方 scene 扩展默认场景。番茄钟已迁到 `examples/widgets/liquid-pomodoro`，
 不再属于内置或官方包。`media-engine` 隐藏音频引擎不变。数据方面，旧内置工具的
-localStorage 偏好（启动静音、播放模式/音量）会一次性重置；播放器模式/音量与白噪音
+localStorage 偏好（启动静音、播放模式/音量）会一次性重置；播放器模式/音量与音境工坊
 主音量以 Rust `player_state` / `noise_preferences` 为准，不丢数据。旧配置里的
 `lull.aurora` / `lull.dusk` 不重写，渲染层回退到默认竹影或媒体场景。
 
@@ -423,7 +423,7 @@ localStorage 偏好（启动静音、播放模式/音量）会一次性重置；
 - [ ] MSI / NSIS / 便携版安装后，`noise`、`player`、`lull.bamboo` 默认可用，托盘与扩展中心入口正确。
 - [ ] 扩展中心显示「官方」徽章；Widget 可停用 / 重新启用，Scene 可去素材管理；两者不能卸载。
 - [ ] 默认壁纸是官方竹影；薄雾参数、时钟、跨屏同步正常；缺包时回退媒体壁纸。
-- [ ] 白噪音与播放器的功能逐项对齐（见 §1.1），封面、抽屉宽度、贴高正常。
+- [ ] 音境工坊与播放器的功能逐项对齐（见 §1.1），封面、抽屉宽度、贴高正常。
 - [ ] App 升级后官方包更新、Widget 停用状态与状态 KV 保留、清单不再触发 `needs-review`。
 - [ ] 篡改 / 删除官方包文件后拒绝加载并给出诊断；重装后恢复。
 - [ ] zh-CN ↔ en-US 切换后，两个工具窗、扩展中心与托盘名称同步。
