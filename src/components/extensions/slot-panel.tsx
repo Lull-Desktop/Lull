@@ -1,11 +1,13 @@
 "use client";
 
 /**
- * 功能槽位面板：每个 Slot 只显示一个当前实现，并提供切换、打开、结束。
+ * 功能槽位面板：每个 Slot 只显示一个当前实现，并提供切换、打开 / 关闭、结束。
  *
  * 选择与运行由 Rust 的 Slot 事务完成；这里只负责触发和展示，不自行判断互斥。
+ * 打开与关闭窗口是同一个切换按钮：关闭窗口只隐藏窗口，Slot 仍保持 active
+ * （visible=false），因此按钮状态要看窗口可见性而不是 status。
  */
-import { Loader2, Settings2 } from "lucide-react";
+import { Loader2, PanelTopClose, PanelTopOpen, Settings2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -168,6 +170,9 @@ export function SlotPanel({
         {slots.map((slot) => {
           const provider = selectedProvider(slot);
           const active = slot.status === "active";
+          // 关闭窗口只隐藏窗口、不清空 Slot，status 仍是 active（visible=false）。
+          // 用可见性判断当前是否已打开，合并按钮据此在「打开 / 关闭窗口」间翻转。
+          const opened = slot.visible === true;
           const note = slot.error
             ? `${slot.error.code}：${slot.error.message}`
             : slot.status === "unavailable" && provider?.reason
@@ -230,65 +235,56 @@ export function SlotPanel({
                   <Settings2 className="h-3.5 w-3.5" />
                   {m.slot_action_switch()}
                 </Button>
-                {active ? (
-                  <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={disabled}
-                      onClick={() =>
-                        void run(
-                          () => activateSlot(slot.id),
-                          m.slot_action_open(),
-                        )
-                      }
-                    >
-                      {m.slot_action_open()}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={disabled || !slot.selected}
-                      onClick={() =>
-                        void run(
+                {/* 打开 / 关闭窗口共用一个按钮：文案、图标与样式随状态翻转。 */}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={opened ? "outline" : "default"}
+                  disabled={
+                    opened
+                      ? disabled || !slot.selected
+                      : active
+                        ? disabled
+                        : disabled || !canOpen(slot)
+                  }
+                  onClick={() =>
+                    opened
+                      ? void run(
                           () => closeExtension(slot.selected ?? ""),
                           m.slot_action_close(),
                         )
-                      }
-                    >
-                      {m.slot_action_close()}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={disabled}
-                      onClick={() =>
-                        void run(
-                          () => deactivateSlot(slot.id),
-                          m.slot_action_stop(),
+                      : void run(
+                          () => activateSlot(slot.id),
+                          m.slot_action_open(),
                         )
-                      }
-                    >
-                      {m.slot_action_stop()}
-                    </Button>
-                  </>
-                ) : (
+                  }
+                  className="gap-1.5"
+                >
+                  {opened ? (
+                    <PanelTopClose className="h-3.5 w-3.5" />
+                  ) : (
+                    <PanelTopOpen className="h-3.5 w-3.5" />
+                  )}
+                  {opened
+                    ? m.slot_action_close()
+                    : slot.status === "failed"
+                      ? m.slot_action_retry()
+                      : m.slot_action_open()}
+                </Button>
+                {active && (
                   <Button
                     type="button"
                     size="sm"
-                    disabled={disabled || !canOpen(slot)}
+                    variant="ghost"
+                    disabled={disabled}
                     onClick={() =>
                       void run(
-                        () => activateSlot(slot.id),
-                        m.slot_action_open(),
+                        () => deactivateSlot(slot.id),
+                        m.slot_action_stop(),
                       )
                     }
                   >
-                    {slot.status === "failed"
-                      ? m.slot_action_retry()
-                      : m.slot_action_open()}
+                    {m.slot_action_stop()}
                   </Button>
                 )}
               </div>

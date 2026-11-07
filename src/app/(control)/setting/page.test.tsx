@@ -375,6 +375,7 @@ test("音乐 / 白噪音页签各自只显示对应的功能槽位", async () =>
       (args as { slot: string }).slot === "music-player"
         ? MUSIC_SLOT
         : NOISE_SLOT,
+    extensions_close: () => undefined,
   });
   renderSettingsPage();
 
@@ -403,11 +404,11 @@ test("音乐 / 白噪音页签各自只显示对应的功能槽位", async () =>
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
 
-  fireEvent.click(within(musicPanel).getByRole("button", { name: "打开" }));
+  // 音乐槽位窗口可见：合并后的切换按钮显示「关闭窗口」，点击只隐藏窗口。
+  expect(within(musicPanel).queryByRole("button", { name: "打开" })).toBeNull();
+  fireEvent.click(within(musicPanel).getByRole("button", { name: "关闭窗口" }));
   await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("extensions_slot_activate", {
-      slot: "music-player",
-    });
+    expect(invoke).toHaveBeenCalledWith("extensions_close", { id: "player" });
   });
 
   // 白噪音页签：只有白噪音槽位。

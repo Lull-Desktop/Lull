@@ -64,7 +64,7 @@ const emptySlot: SlotInfo = {
 function renderPanel(slot: SlotInfo) {
   const onChanged = vi.fn(async () => {});
   const onMessage = vi.fn();
-  render(
+  const view = render(
     <SlotPanel
       slots={[slot]}
       busy={false}
@@ -72,7 +72,7 @@ function renderPanel(slot: SlotInfo) {
       onMessage={onMessage}
     />,
   );
-  return { onChanged, onMessage };
+  return { onChanged, onMessage, rerender: view.rerender };
 }
 
 afterEach(() => {
@@ -97,7 +97,88 @@ test("组件以紧凑列表展示当前实现与操作", () => {
   expect(row.contains(screen.getByRole("button", { name: "切换实现" }))).toBe(
     true,
   );
-  expect(row.contains(screen.getByRole("button", { name: "打开" }))).toBe(true);
+  // 打开与关闭合并为同一个按钮：窗口可见时只保留「关闭窗口」。
+  expect(row.contains(screen.getByRole("button", { name: "关闭窗口" }))).toBe(
+    true,
+  );
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+  expect(row.contains(screen.getByRole("button", { name: "结束运行" }))).toBe(
+    true,
+  );
+});
+
+test("窗口可见时切换按钮执行关闭窗口", async () => {
+  vi.mocked(invoke).mockResolvedValue(undefined);
+  const { onChanged, onMessage } = renderPanel(activeSlot);
+
+  const toggle = screen.getByRole("button", { name: "关闭窗口" });
+  expect(toggle.className).toContain("border-input");
+  expect(toggle.querySelector(".lucide-panel-top-close")).not.toBeNull();
+  fireEvent.click(toggle);
+
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_close", { id: "player" });
+  });
+  await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  expect(onMessage).toHaveBeenCalledWith("关闭窗口");
+});
+
+test("关闭只隐藏窗口：status 仍 active、visible=false 时按钮回到「打开」", async () => {
+  vi.mocked(invoke).mockResolvedValue(activeSlot);
+  const { onChanged, onMessage } = renderPanel({
+    ...activeSlot,
+    visible: false,
+  });
+
+  const toggle = screen.getByRole("button", { name: "打开" });
+  expect(screen.queryByRole("button", { name: "关闭窗口" })).toBeNull();
+  expect(toggle.className).toContain("bg-primary");
+  expect(toggle.querySelector(".lucide-panel-top-open")).not.toBeNull();
+  fireEvent.click(toggle);
+
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_slot_activate", {
+      slot: "music-player",
+    });
+  });
+  await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  expect(onMessage).toHaveBeenCalledWith("打开");
+});
+
+test("状态翻转后按钮的文案、图标与样式同步切换", () => {
+  const { rerender } = renderPanel({ ...activeSlot, visible: false });
+
+  const openToggle = screen.getByRole("button", { name: "打开" });
+  expect(openToggle.querySelector(".lucide-panel-top-open")).not.toBeNull();
+  expect(openToggle.className).toContain("bg-primary");
+
+  rerender(
+    <SlotPanel
+      slots={[activeSlot]}
+      busy={false}
+      onChanged={vi.fn(async () => {})}
+      onMessage={vi.fn()}
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+  const closeToggle = screen.getByRole("button", { name: "关闭窗口" });
+  expect(closeToggle.querySelector(".lucide-panel-top-close")).not.toBeNull();
+  expect(closeToggle.className).toContain("border-input");
+});
+
+test("启动失败时按钮显示「重试」，动作仍是激活槽位", async () => {
+  vi.mocked(invoke).mockResolvedValue(activeSlot);
+  renderPanel({ ...activeSlot, status: "failed", visible: false });
+
+  expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_slot_activate", {
+      slot: "music-player",
+    });
+  });
 });
 
 test("switch sheet invokes slot use and refreshes", async () => {
