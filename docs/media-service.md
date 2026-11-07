@@ -319,7 +319,7 @@ P4 已落地：资料库窗口曲目行可编辑元数据与标签，标签 CRUD
 
 - 读取/切换 `noise.session.*` 状态，新建、播放、暂停、停止；
 - 按内置 profile 或 Asset ID 添加音轨，调整音量/enabled/loop/顺序并移除；
-- 调 master/muted/睡眠，观察 `noise.state`、`noise.session.changed`、`noise.track.*`、`noise.level`；
+- 主音量 / 静音 / 睡眠定时已迁到设置窗「白噪音」页签（白噪音预设之上）；这里在它们写入后观察 `noise.state`、`noise.session.changed`、`noise.level`；
 - 用旧 5 层 `noise.*` 控件修改同一 Session，确认与新 API、引擎听感一致；
 - 查看 `PlaybackSnapshot` 的 player/noise/session revision，确认客户端按 domain revision 过滤事件。
 

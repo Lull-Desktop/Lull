@@ -1,5 +1,7 @@
 /**
- * 设置窗「白噪音」页签的核心面板：预设下拉 + 应用到当前音轨。
+ * 设置窗「白噪音」页签的核心面板：主音量 / 静音 / 睡眠定时 + 预设下拉 +
+ * 应用到当前音轨。会话控件（原白噪音库「噪音测试」的「主音量与睡眠」卡）
+ * 置于预设之上。
  *
  * 这里是**使用**侧：只做选择与套用，不做保存当前混音、导入/导出、改名、
  * 删除与缺失轨道映射（那些都在白噪音库窗口的「噪音素材库」页签）。
@@ -17,6 +19,7 @@ import type {
   NoisePresetSummary,
 } from "@lull/media-sdk";
 import { useCallback, useEffect, useId, useState } from "react";
+import { NoiseSessionControls } from "@/components/settings/noise-session-controls";
 import { NoiseSessionTracks } from "@/components/settings/noise-session-tracks";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -124,6 +127,9 @@ export function NoiseSettingsPanel({ client }: { client: LullMediaClient | null 
       className="flex min-h-0 flex-1 flex-col gap-3"
       data-testid="noise-settings-panel"
     >
+      {/* 主音量 / 静音 / 睡眠定时：从白噪音库「噪音测试」迁来，置于预设之上。 */}
+      <NoiseSessionControls client={client} />
+
       <div className="shrink-0 space-y-2">
         <div className="flex flex-wrap items-end gap-2">
           <div className="min-w-0 flex-1 space-y-1.5">

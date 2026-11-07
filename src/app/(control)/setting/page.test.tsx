@@ -130,7 +130,7 @@ test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 游戏 / 扩展 / �
   expect(screen.queryByText("关于 Lull")).toBeNull();
 });
 
-test("音乐页承载曲库分类，白噪音页承载预设与音轨", () => {
+test("音乐页承载曲库分类，白噪音页承载会话控制、预设与音轨", () => {
   renderSettingsPage();
 
   fireEvent.click(screen.getByRole("tab", { name: "音乐" }));
@@ -165,18 +165,31 @@ test("音乐页承载曲库分类，白噪音页承载预设与音轨", () => {
   const noise = screen.getByTestId("settings-noise-pane");
   expect(
     within(noise).getByText(
-      "选择预设并应用到当前混音；素材导入与预设管理在白噪音库中完成。",
+      "调节主音量、静音与睡眠定时，选择预设并应用到当前混音；素材导入与预设管理在白噪音库中完成。",
     ),
   ).toBeDefined();
   expect(within(noise).queryByText("功能开发中，后续版本补充。")).toBeNull();
-  // 预设下拉 + 当前混音音轨都在这里；保存/导出只留在白噪音库窗口。
+  // 会话控制 + 预设下拉 + 当前混音音轨都在这里；保存/导出只留在白噪音库窗口。
   expect(within(noise).getByTestId("noise-settings-panel")).toBeDefined();
+  const sessionControls = within(noise).getByTestId("noise-session-controls");
   expect(
-    within(noise).getByRole("combobox", { name: "白噪音预设" }),
+    within(sessionControls).getByRole("slider", { name: "主音量" }),
   ).toBeDefined();
   expect(
-    within(noise).getByRole("button", { name: "应用" }),
+    within(sessionControls).getByRole("switch", { name: "静音" }),
   ).toBeDefined();
+  expect(
+    within(sessionControls).getByRole("combobox", { name: "睡眠定时（分钟）" }),
+  ).toBeDefined();
+  const noisePreset = within(noise).getByRole("combobox", {
+    name: "白噪音预设",
+  });
+  // 主音量 / 静音 / 睡眠定时整体位于「白噪音预设」之上。
+  expect(
+    sessionControls.compareDocumentPosition(noisePreset) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(within(noise).getByRole("button", { name: "应用" })).toBeDefined();
   expect(within(noise).getByTestId("noise-session-tracks")).toBeDefined();
   expect(
     within(noise).getAllByRole("button", { name: /库窗口$/ }),
