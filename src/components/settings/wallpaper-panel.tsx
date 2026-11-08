@@ -147,22 +147,6 @@ function sceneSourceLabel(source: SceneCatalogEntry["source"]): string {
   return m.wallpaper_source_user();
 }
 
-/** 壁纸运行状态。存状态而不是成品文案，语言切换时提示才会跟着变。 */
-type WallpaperStatus = "querying" | "visible" | "hidden" | "not-running";
-
-function statusText(status: WallpaperStatus): string {
-  switch (status) {
-    case "visible":
-      return m.wallpaper_status_visible();
-    case "hidden":
-      return m.wallpaper_status_hidden();
-    case "not-running":
-      return m.wallpaper_status_not_running();
-    default:
-      return m.wallpaper_status_querying();
-  }
-}
-
 /** 与 Rust 侧 `config::DisplayConfig` 对应。 */
 type DisplayConfig = {
   mode: "mirror" | "independent" | "span";
@@ -197,8 +181,6 @@ export function WallpaperPanel() {
   const [switchBusy, setSwitchBusy] = useState(false);
   // 订阅语言：整块面板的文案都跟着界面语言走。
   useLocale();
-  const [wallpaperStatus, setWallpaperStatus] =
-    useState<WallpaperStatus>("querying");
   const [wallpaperError, setWallpaperError] = useState("");
   // 单台显示器的开关是"重建窗口"级操作，可能耗时几百毫秒；期间锁住开关，
   // 避免用户连点造成 create/destroy 竞态与画面抖动。
@@ -215,13 +197,11 @@ export function WallpaperPanel() {
         setMonitors(list);
         setDisplay(disp);
         setWallpaperError("");
-        setWallpaperStatus(visible ? "visible" : "hidden");
       })
       .catch(() => {
         setWallpaperVisible(null);
         setMonitors(null);
         setDisplay(null);
-        setWallpaperStatus("not-running");
       });
   }, []);
 
@@ -350,7 +330,6 @@ export function WallpaperPanel() {
       .then((v) => {
         setWallpaperVisible(v);
         setWallpaperError("");
-        setWallpaperStatus(v ? "visible" : "hidden");
       })
       .catch((err: unknown) => {
         setWallpaperError(localizeError(err));
@@ -548,6 +527,100 @@ export function WallpaperPanel() {
             onCheckedChange={(on) => updateDisplay({ sync: on })}
           />
         </div>
+        {sortedMonitors && sortedMonitors.length > 0 && (
+          <div className="space-y-3">
+            {sortedMonitors.map((monitor, i) => {
+              const monitorScene = sceneEntries.find(
+                (entry) => entry.manifest.id === monitor.scene,
+              );
+              return (
+                <div key={monitor.device} className="space-y-2">
+                  <div
+                    className="flex items-center justify-between"
+                    title={monitor.device}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-ink-soft">
+                        {m.wallpaper_monitor_label({ index: String(i + 1) })}
+                      </span>
+                      <span className="text-xs font-mono tabular-nums text-muted-foreground">
+                        {monitor.w}×{monitor.h}
+                      </span>
+                      {monitor.primary && (
+                        <Badge
+                          variant="outline"
+                          className="border-bamboo/40 px-1.5 py-0 text-[10px] text-bamboo"
+                        >
+                          {m.wallpaper_monitor_primary()}
+                        </Badge>
+                      )}
+                    </div>
+                    {display?.mode === "independent" && (
+                      <Select
+                        value={monitorContentValue(monitor)}
+                        onValueChange={(v) => selectContent(monitor.device, v)}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          aria-label={m.wallpaper_monitor_scene_aria({
+                            index: String(i + 1),
+                          })}
+                          className="w-40"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <WallpaperContentOptions
+                            scenes={sceneOptions}
+                            games={wallpaperGames}
+                            usedGames={gamesUsedByOtherMonitors(monitor.device)}
+                          />
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Switch
+                      aria-label={m.wallpaper_monitor_label({
+                        index: String(i + 1),
+                      })}
+                      checked={monitor.enabled}
+                      disabled={wallpaperVisible !== true}
+                      onCheckedChange={(on) =>
+                        toggleMonitor(monitor.device, on)
+                      }
+                    />
+                  </div>
+                  {display?.mode === "independent" &&
+                    !gamesLoading &&
+                    monitor.game &&
+                    !gameById.get(monitor.game)?.entryReplicaUrl && (
+                      <p className="text-xs text-destructive">
+                        {m.wallpaper_game_unavailable()}
+                      </p>
+                    )}
+                  {display?.mode === "independent" &&
+                    !monitor.game &&
+                    monitorScene?.manifest.params &&
+                    monitorScene.manifest.params.length > 0 &&
+                    sceneSupportsParams(monitorScene.manifest) && (
+                      <SceneParamFields
+                        definitions={monitorScene.manifest.params}
+                        values={display?.sceneParams?.[monitor.scene] ?? {}}
+                        onChange={(key, value) =>
+                          updateSceneParam(monitor.scene, key, value)
+                        }
+                        onReset={() => commitSceneParams(monitor.scene, {})}
+                      />
+                    )}
+                </div>
+              );
+            })}
+            {display?.mode === "independent" && sortedMonitors.length > 1 && (
+              <p className="text-xs text-muted-foreground">
+                {m.wallpaper_games_exclusive_hint()}
+              </p>
+            )}
+          </div>
+        )}
         {display && (display.mode === "mirror" || display.mode === "span") && (
           <>
             <div className="flex items-center justify-between">
@@ -641,103 +714,9 @@ export function WallpaperPanel() {
             )}
           </ul>
         )}
-        {sortedMonitors && sortedMonitors.length > 0 && (
-          <div className="space-y-3 border-t border-border/50 pt-4">
-            {sortedMonitors.map((monitor, i) => {
-              const monitorScene = sceneEntries.find(
-                (entry) => entry.manifest.id === monitor.scene,
-              );
-              return (
-                <div key={monitor.device} className="space-y-2">
-                  <div
-                    className="flex items-center justify-between"
-                    title={monitor.device}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-ink-soft">
-                        {m.wallpaper_monitor_label({ index: String(i + 1) })}
-                      </span>
-                      <span className="text-xs font-mono tabular-nums text-muted-foreground">
-                        {monitor.w}×{monitor.h}
-                      </span>
-                      {monitor.primary && (
-                        <Badge
-                          variant="outline"
-                          className="border-bamboo/40 px-1.5 py-0 text-[10px] text-bamboo"
-                        >
-                          {m.wallpaper_monitor_primary()}
-                        </Badge>
-                      )}
-                    </div>
-                    {display?.mode === "independent" && (
-                      <Select
-                        value={monitorContentValue(monitor)}
-                        onValueChange={(v) => selectContent(monitor.device, v)}
-                      >
-                        <SelectTrigger
-                          size="sm"
-                          aria-label={m.wallpaper_monitor_scene_aria({
-                            index: String(i + 1),
-                          })}
-                          className="w-40"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <WallpaperContentOptions
-                            scenes={sceneOptions}
-                            games={wallpaperGames}
-                            usedGames={gamesUsedByOtherMonitors(monitor.device)}
-                          />
-                        </SelectContent>
-                      </Select>
-                    )}
-                    <Switch
-                      aria-label={m.wallpaper_monitor_label({
-                        index: String(i + 1),
-                      })}
-                      checked={monitor.enabled}
-                      disabled={wallpaperVisible !== true}
-                      onCheckedChange={(on) =>
-                        toggleMonitor(monitor.device, on)
-                      }
-                    />
-                  </div>
-                  {display?.mode === "independent" &&
-                    !gamesLoading &&
-                    monitor.game &&
-                    !gameById.get(monitor.game)?.entryReplicaUrl && (
-                      <p className="text-xs text-destructive">
-                        {m.wallpaper_game_unavailable()}
-                      </p>
-                    )}
-                  {display?.mode === "independent" &&
-                    !monitor.game &&
-                    monitorScene?.manifest.params &&
-                    monitorScene.manifest.params.length > 0 &&
-                    sceneSupportsParams(monitorScene.manifest) && (
-                      <SceneParamFields
-                        definitions={monitorScene.manifest.params}
-                        values={display?.sceneParams?.[monitor.scene] ?? {}}
-                        onChange={(key, value) =>
-                          updateSceneParam(monitor.scene, key, value)
-                        }
-                        onReset={() => commitSceneParams(monitor.scene, {})}
-                      />
-                    )}
-                </div>
-              );
-            })}
-            {display?.mode === "independent" && sortedMonitors.length > 1 && (
-              <p className="text-xs text-muted-foreground">
-                {m.wallpaper_games_exclusive_hint()}
-              </p>
-            )}
-          </div>
-        )}
-        <p className="text-xs text-muted-foreground">
-          {wallpaperError || statusText(wallpaperStatus)}
-        </p>
+        {wallpaperError ? (
+          <p className="text-xs text-destructive">{wallpaperError}</p>
+        ) : null}
       </div>
       <GameSwitchDialog
         gameName={pendingSwitch?.gameName ?? null}
