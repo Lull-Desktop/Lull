@@ -14,7 +14,8 @@
         "wallpaper.viewport",
         "wallpaper.canvas",
         "wallpaper.params",
-        "wallpaper.script"
+        "wallpaper.script",
+        "wallpaper.pointer"
       ],
       "entry": "scenes/webgl-fluid/index.html",
       "theme": {
