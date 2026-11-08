@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "community.parallax-js",
+      "name": "Parallax.js / 视差灯塔",
+      "version": "1.0.0",
+      "description": "十层 PNG 组成的海岸灯塔场景，按鼠标位置做多层视差位移：远山、云帆、海浪与灯柱各按自己的深度缓慢漂移。 / A ten-layer lighthouse coast scene offset by cursor position: hills, sail-clouds, waves and the lighthouse beam each drift by their own depth.",
+      "author": "Matthew Wagerfield",
+      "license": "MIT",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.script",
+        "wallpaper.pointer"
+      ],
+      "entry": "scenes/parallax-js/index.html",
+      "theme": {
+        "background": "#000000",
+        "accent": "#e8c37a"
+      },
+      "performance": {
+        "tier": "low",
+        "targetFps": 60
+      },
+      "compatibility": {
+        "hostApi": 3,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "9d125553ccc9b5ae913d3ada5a1f902ca80eb449a702acb6e73ce3e45d91893b"
+      }
+    }
+  ]
+}

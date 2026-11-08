@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "community.medusae",
+      "name": "Medusae / 水母",
+      "version": "1.0.0",
+      "description": "Particulate.js 软体物理 + Three.js 的深海发光水母群。鼠标在壁纸上移动会扰动附近的水母，镜头与后期效果随场景持续演化。 / Semi-transparent jellyfish driven by Particulate.js soft-body physics and Three.js. Moving the pointer nudges the school nearby; camera and post effects keep evolving.",
+      "author": "Jay Weeks",
+      "license": "Artistic-2.0",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.script",
+        "wallpaper.pointer"
+      ],
+      "entry": "scenes/medusae/index.html",
+      "theme": {
+        "background": "#100a17",
+        "accent": "#8fc9e8"
+      },
+      "performance": {
+        "tier": "high",
+        "targetFps": 60
+      },
+      "compatibility": {
+        "hostApi": 3,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "9d53277f1bf7859693694501a6c637b1b8d569571130f4dda65e335b8620c6b1"
+      }
+    }
+  ]
+}

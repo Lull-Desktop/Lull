@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "community.triangles-light",
+      "name": "Triangles & Light / 三角与光",
+      "version": "1.0.0",
+      "description": "程序化生成的三角网格与一束跟随鼠标的光。切片密度、网格与光源的环境色/漫反射色、光源距离都可调。 / Procedural triangle mesh lit by a cursor-following light. Slice density, mesh/light ambient & diffuse colours and light distance are adjustable.",
+      "author": "Maksim Surguy",
+      "license": "MIT",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.params",
+        "wallpaper.script",
+        "wallpaper.pointer"
+      ],
+      "entry": "scenes/triangles-light/index.html",
+      "theme": {
+        "background": "#151618",
+        "accent": "#c0c0c0"
+      },
+      "params": [
+        {
+          "key": "mesh-ambient",
+          "type": "color",
+          "label": "Mesh Ambient / 网格环境光",
+          "description": "Ambient colour of the triangle mesh. / 三角网格的环境光颜色。",
+          "default": "#000000"
+        },
+        {
+          "key": "mesh-diffuse",
+          "type": "color",
+          "label": "Mesh Diffuse / 网格漫反射",
+          "description": "Diffuse colour of the triangle mesh. / 三角网格的漫反射颜色。",
+          "default": "#c0c0c0"
+        },
+        {
+          "key": "mesh-slices",
+          "type": "number",
+          "label": "Slices / 切片数",
+          "description": "Mesh subdivision count: higher = finer triangles, more CPU. / 网格细分数量：越大三角形越密，CPU 占用越高。",
+          "default": 350,
+          "min": 1,
+          "max": 800,
+          "step": 1
+        },
+        {
+          "key": "light-ambient",
+          "type": "color",
+          "label": "Light Ambient / 光源环境光",
+          "description": "Ambient colour of the cursor light. / 跟随鼠标的光源环境色。",
+          "default": "#c0c0c0"
+        },
+        {
+          "key": "light-diffuse",
+          "type": "color",
+          "label": "Light Diffuse / 光源漫反射",
+          "description": "Diffuse colour of the cursor light. / 跟随鼠标的光源漫反射色。",
+          "default": "#808080"
+        },
+        {
+          "key": "light-distance",
+          "type": "number",
+          "label": "Light Distance / 光源距离",
+          "description": "Distance from the light to the mesh: larger = softer, wider glow. / 光源到网格的距离：越大光斑越散。",
+          "default": 135,
+          "min": 0,
+          "max": 1000,
+          "step": 1
+        },
+        {
+          "key": "mouse-follow",
+          "type": "boolean",
+          "label": "Mouse Follow / 鼠标跟随",
+          "description": "Off: the light stops following the cursor. Original wallpaper toggles this with the space key. / 关闭：光斑停止跟随鼠标（原作通过空格键切换）。",
+          "default": true
+        }
+      ],
+      "performance": {
+        "tier": "medium",
+        "targetFps": 60
+      },
+      "compatibility": {
+        "hostApi": 3,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "92b41010ae4c9a5fa5fcee5262410a4904a84b48710005a46d89e1d09ba2ee6a"
+      }
+    }
+  ]
+}

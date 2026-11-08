@@ -87,6 +87,29 @@ Lull 采用分层许可：
   WebGL-Fluid-Simulation（原作 Pavel Dobryakov，Lively Wallpaper 适配版同许可），
   MIT License，Copyright (c) 2017 Pavel Dobryakov；完整文本见
   [`extensions/bundled/webgl-fluid/LICENSE`](extensions/bundled/webgl-fluid/LICENSE)。
+- 随包三角网格场景（`extensions/bundled/triangles-light`）：原作 Maksim Surguy 的
+  CodePen「Triangle pattern generator」（经 Lively Wallpaper 社区壁纸分发），
+  MIT License，Copyright (c) 2020 Maksim Surguy；完整文本见
+  [`extensions/bundled/triangles-light/LICENSE`](extensions/bundled/triangles-light/LICENSE)。
+  包内另含 Flat Surface Shader（Matthew Wagerfield，MIT）与 Mousetrap（Craig Campbell，Apache-2.0）
+  的内联副本，版权头注释随源码保留。
+- 随包山丘时钟场景（`extensions/bundled/the-hill`）：原作 Yoichi Kobayashi 的
+  CodePen「GLSL Hills」（经 Lively Wallpaper 社区壁纸分发），MIT License，
+  Copyright (c) 2020 Yoichi Kobayashi；完整文本见
+  [`extensions/bundled/the-hill/LICENSE`](extensions/bundled/the-hill/LICENSE)。
+  随包字体 Cinzel、Dancing Script（SIL OFL 1.1）与 Roboto（Apache-2.0），
+  以及 Three.js、jQuery（MIT），逐项登记在
+  [`extensions/bundled/the-hill/THIRD_PARTY_NOTICES.md`](extensions/bundled/the-hill/THIRD_PARTY_NOTICES.md)。
+- 随包水母场景（`extensions/bundled/medusae`）：原作 Jay Weeks 的
+  particulate-medusae（经 Lively Wallpaper 社区壁纸分发），**The Artistic License 2.0**，
+  Copyright (c) 2014-2016 Jay Weeks；完整文本与「Modified Version」改动声明见
+  [`extensions/bundled/medusae/LICENSE`](extensions/bundled/medusae/LICENSE) 与
+  [`extensions/bundled/medusae/README.md`](extensions/bundled/medusae/README.md)。
+- 随包视差灯塔场景（`extensions/bundled/parallax-js`）：原作 Matthew Wagerfield 与
+  Claudio Guglieri 的 parallax.js 项目主页（经 Lively Wallpaper 社区壁纸分发），
+  MIT License，Copyright (C) 2014 Matthew Wagerfield；完整文本见
+  [`extensions/bundled/parallax-js/LICENSE`](extensions/bundled/parallax-js/LICENSE)。
+  包内 jQuery、Underscore、Hammer.js、FastClick 均按各自 MIT 许可原样再分发。
 - 极光 / 暮色场景已从当前发行物移除，不再随安装包分发。
 - 音境工坊通过 Web Audio 合成，未打包第三方音频采样。
 - 播放器的在线曲目来自其配置的公开源；再分发时需自行确认曲目授权。

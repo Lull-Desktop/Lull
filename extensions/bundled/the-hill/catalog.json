@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "community.the-hill",
+      "name": "The Hill / 山丘时钟",
+      "version": "1.0.0",
+      "description": "GLSL 噪声生成的山丘剪影，叠加时间、星期与日期。山体颜色与透明度、背景色、字体颜色、时间与日期显示格式都可调。 / A GLSL-noise hill silhouette with a clock and date overlay. Hill colour & opacity, background, font colour and clock/date format are adjustable.",
+      "author": "Yoichi Kobayashi",
+      "license": "MIT",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.params",
+        "wallpaper.script"
+      ],
+      "entry": "scenes/the-hill/index.html",
+      "theme": {
+        "background": "#0e0e0e",
+        "accent": "#ffffff"
+      },
+      "params": [
+        {
+          "key": "hill-opacity",
+          "type": "number",
+          "label": "Hill Opacity / 山体透明度",
+          "description": "0 = invisible, 100 = fully opaque. / 0 为不可见，100 为完全不透明。",
+          "default": 50,
+          "min": 0,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "key": "background",
+          "type": "color",
+          "label": "Background / 背景色",
+          "description": "Scene clear colour. Changing it rebuilds the renderer once. / 场景清屏色；修改会重建一次渲染器。",
+          "default": "#0e0e0e"
+        },
+        {
+          "key": "hill-color",
+          "type": "color",
+          "label": "Hill / 山体颜色",
+          "description": "Shader colour of the hill layers. / 山体着色器的颜色。",
+          "default": "#ffffff"
+        },
+        {
+          "key": "font-color",
+          "type": "color",
+          "label": "Font / 文字颜色",
+          "description": "Clock, weekday and date colour. / 时间、星期与日期的颜色。",
+          "default": "#ffffff"
+        },
+        {
+          "key": "show-time",
+          "type": "boolean",
+          "label": "Time / 显示时间",
+          "default": true
+        },
+        {
+          "key": "show-date",
+          "type": "boolean",
+          "label": "Date / 显示日期",
+          "description": "Weekday and date line under the clock. / 时钟下方的星期与日期。",
+          "default": true
+        },
+        {
+          "key": "hour-12",
+          "type": "boolean",
+          "label": "12 Hour / 12 小时制",
+          "default": true
+        },
+        {
+          "key": "date-us",
+          "type": "boolean",
+          "label": "Month/Day Format / 月日格式",
+          "description": "On: month/day/year; off: day/month/year. / 开启为月/日/年，关闭为日/月/年。",
+          "default": false
+        }
+      ],
+      "performance": {
+        "tier": "medium",
+        "targetFps": 60
+      },
+      "compatibility": {
+        "hostApi": 1,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "3e22219329c83635f5ebd9b5f86a1bd34b8b821233ec71265f27f481bc5fd5ce"
+      }
+    }
+  ]
+}
