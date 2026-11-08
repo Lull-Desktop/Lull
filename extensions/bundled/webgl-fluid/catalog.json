@@ -5,14 +5,15 @@
       "schemaVersion": 1,
       "type": "scene",
       "id": "community.webgl-fluid",
-      "name": "WebGL 流体模拟",
-      "version": "1.0.0",
-      "description": "经典 WebGL 流体模拟：绚彩颜料在纯黑底上翻涌、扩散、发光，启动时随机注入一轮涡旋，Bloom 辉光与光线效果让流动的暗部更显通透。交互式鼠标泼溅为桌面版特性，壁纸形态下以自动演化为主。",
+      "name": "WebGL Fluid Simulation / WebGL 流体模拟",
+      "version": "1.2.0",
+      "description": "WebGL 流体模拟：绚彩颜料在黑底翻涌发光，带 Bloom 辉光。鼠标激起涟漪，画质/手感/辉光可调。 / WebGL fluid sim: vivid paint swirls & glows on black with Bloom. Mouse stirs ripples; quality, feel & glow adjustable.",
       "author": "Pavel Dobryakov",
       "license": "MIT",
       "capabilities": [
         "wallpaper.viewport",
         "wallpaper.canvas",
+        "wallpaper.params",
         "wallpaper.script"
       ],
       "entry": "scenes/webgl-fluid/index.html",
@@ -20,12 +21,188 @@
         "background": "#000000",
         "accent": "#4fc3f7"
       },
+      "params": [
+        {
+          "key": "mouse-follow",
+          "type": "boolean",
+          "label": "Mouse Follow / 鼠标跟随",
+          "description": "Off: mouse move stops injecting paint; clicks still pass to desktop. / 关闭：鼠标移动停止注入颜料；点击仍透传桌面。",
+          "default": true
+        },
+        {
+          "key": "random-splats",
+          "type": "boolean",
+          "label": "Auto Splats / 自动补溅",
+          "description": "Injects paint randomly every ~3.5s. / 每约 3.5 秒随机注入颜料。",
+          "default": false
+        },
+        {
+          "key": "quality",
+          "type": "enum",
+          "label": "Quality / 画质",
+          "description": "Fluid resolution: higher = clearer, more GPU. / 流体分辨率：越高越清晰、越耗 GPU。",
+          "default": "high",
+          "options": [
+            {
+              "value": "high",
+              "label": "High (1024)"
+            },
+            {
+              "value": "medium",
+              "label": "Medium (512)"
+            },
+            {
+              "value": "low",
+              "label": "Low (256)"
+            },
+            {
+              "value": "very-low",
+              "label": "Very Low (128)"
+            }
+          ]
+        },
+        {
+          "key": "sim-resolution",
+          "type": "enum",
+          "label": "Simulation Resolution / 模拟分辨率",
+          "description": "Sim grid precision: higher = finer, more GPU. / 模拟网格精度：越高越细腻、越耗 GPU。",
+          "default": "128",
+          "options": [
+            {
+              "value": "32",
+              "label": "32"
+            },
+            {
+              "value": "64",
+              "label": "64"
+            },
+            {
+              "value": "128",
+              "label": "128"
+            },
+            {
+              "value": "256",
+              "label": "256"
+            }
+          ]
+        },
+        {
+          "key": "density",
+          "type": "number",
+          "label": "Density Diffusion / 密度扩散",
+          "description": "Paint fade speed: larger = faster fade, 0 = no fade. / 颜料淡出速度：越大越快消失，0 = 不淡出。",
+          "default": 10,
+          "min": 0,
+          "max": 40,
+          "step": 1
+        },
+        {
+          "key": "velocity",
+          "type": "number",
+          "label": "Velocity Diffusion / 速度扩散",
+          "description": "Velocity decay: larger = motion stops faster. / 速度衰减：越大运动越快停止。",
+          "default": 20,
+          "min": 0,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "key": "pressure",
+          "type": "number",
+          "label": "Pressure / 压力",
+          "description": "Pressure retention: too low may cause flow artifacts. / 压力保持：过低可能产生流动伪影。",
+          "default": 80,
+          "min": 0,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "key": "vorticity",
+          "type": "number",
+          "label": "Vorticity / 涡旋",
+          "description": "Vortex strength: larger = more obvious curls. / 涡旋强度：越大卷曲越明显。",
+          "default": 30,
+          "min": 0,
+          "max": 50,
+          "step": 1
+        },
+        {
+          "key": "brush-size",
+          "type": "number",
+          "label": "Splat Radius / 溅射半径",
+          "description": "Mouse splat radius. / 鼠标溅射半径。",
+          "default": 25,
+          "min": 1,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "key": "shading",
+          "type": "boolean",
+          "label": "Shading / 立体阴影",
+          "description": "Enables 3D shading on paint. / 开启颜料 3D 明暗。",
+          "default": true
+        },
+        {
+          "key": "colorful",
+          "type": "boolean",
+          "label": "Colorful / 彩色",
+          "description": "Cycles mouse color continuously; auto splats use random colors. / 鼠标颜色持续循环；自动补溅随机取色。",
+          "default": true
+        },
+        {
+          "key": "bloom",
+          "type": "boolean",
+          "label": "Bloom / 辉光",
+          "description": "Enables Bloom glow. / 开启 Bloom 辉光。",
+          "default": true
+        },
+        {
+          "key": "bloom-intensity",
+          "type": "number",
+          "label": "Bloom Intensity / 辉光强度",
+          "default": 80,
+          "min": 10,
+          "max": 200,
+          "step": 5
+        },
+        {
+          "key": "bloom-threshold",
+          "type": "number",
+          "label": "Bloom Threshold / 辉光阈值",
+          "default": 60,
+          "min": 0,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "key": "sunrays",
+          "type": "boolean",
+          "label": "Sunrays / 阳光射线",
+          "default": true
+        },
+        {
+          "key": "sunrays-weight",
+          "type": "number",
+          "label": "Sunray Weight / 射线权重",
+          "default": 100,
+          "min": 30,
+          "max": 100,
+          "step": 1
+        },
+        {
+          "key": "background",
+          "type": "color",
+          "label": "Background Color / 背景颜色",
+          "default": "#000000"
+        }
+      ],
       "performance": {
         "tier": "high",
         "targetFps": 60
       },
       "compatibility": {
-        "hostApi": 1,
+        "hostApi": 3,
         "platforms": [
           "windows"
         ]
@@ -33,7 +210,7 @@
       "integrity": {
         "algorithm": "sha256",
         "scope": "package",
-        "digest": "3f7ac52628f6eae64e8575eaa45cb9f0a92a9adc4e51da9fe6b98f6cfebabccf"
+        "digest": "0e6b6934f0823debb02918f91c970d24e86d3ad939f14662284ae626f525b5c5"
       }
     }
   ]

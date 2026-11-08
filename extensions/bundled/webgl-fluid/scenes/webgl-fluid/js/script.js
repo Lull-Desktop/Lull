@@ -1740,3 +1740,285 @@ function hashCode(s) {
   }
   return hash;
 }
+
+/* ------------------------------------------------------------------------- *
+ * Lull 场景桥：鼠标位置（wallpaper.pointer）
+ *
+ * 壁纸窗口是 WS_EX_TRANSPARENT 的桌面子窗口，DOM 收不到真实鼠标事件；指针
+ * 位置由宿主以约 30Hz 采样后经 postMessage 下发。这里只消费 pointer 消息，
+ * 不注册任何鼠标/点击监听：点击、双击、滚轮从未进入这条链路，桌面行为不变。
+ *
+ * 协议与 packages/scene-sdk/src/protocol.ts 对应：
+ *   scene → host  { v:1, type:"ready", protocol:1 }
+ *   host  → scene { v:1, type:"pointer", pointer:{ x, y, inside, moving } }
+ *
+ * x/y 是场景绘制坐标系内的 CSS 像素；这里按画布 CSS 尺寸换算成 canvas 的
+ * 物理像素，兼容非整数 dpr 与 span 模式的共享画布。
+ * ------------------------------------------------------------------------- */
+(function lullPointerBridge() {
+  const PROTOCOL = 1;
+  const pointer = pointers[0];
+  const MAX_STEPS = 2;
+  const STEP_PX = 32;
+  const MAX_GAP_MS = 250;
+  const QUALITY_RESOLUTION = {
+    high: 1024,
+    medium: 512,
+    low: 256,
+    "very-low": 128,
+  };
+  const SIM_RESOLUTION = {
+    32: 32,
+    64: 64,
+    128: 128,
+    256: 256,
+  };
+  let pointerEnabled = true;
+  let lastParams = "";
+  let active = false;
+  let lastX = 0;
+  let lastY = 0;
+  let lastAt = 0;
+
+  function post(message) {
+    if (window.parent === window) return;
+    window.parent.postMessage(message, "*");
+  }
+
+  function isPointer(value) {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      typeof value.x === "number" &&
+      Number.isFinite(value.x) &&
+      typeof value.y === "number" &&
+      Number.isFinite(value.y) &&
+      typeof value.inside === "boolean" &&
+      typeof value.moving === "boolean"
+    );
+  }
+
+  /** CSS 像素 → canvas 物理像素；画布不可见时返回 null。 */
+  function toCanvas(value) {
+    if (canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return null;
+    return {
+      x: (value.x / canvas.clientWidth) * canvas.width,
+      y: (value.y / canvas.clientHeight) * canvas.height,
+    };
+  }
+
+  function stop() {
+    if (!active) return;
+    active = false;
+    updatePointerUpData(pointer);
+  }
+
+  /**
+   * 把宿主下发的 SceneFrame.params 映射到场景。
+   *
+   * 复用 Lively 适配层已有的 livelyPropertyListener：它已经处理好了
+   * 滑杆单位、framebuffer 重建与 shader 关键字更新。这里只做参数名映射，
+   * 并对会触发重编译/重分配的参数做变更判断。
+   */
+  function applyParams(params) {
+    if (!params || typeof params !== "object") return;
+
+    // frame 会随窗口尺寸频繁重发；参数没变时不要重复 updateKeywords/initFramebuffers。
+    const key = JSON.stringify(params);
+    if (key === lastParams) return;
+    lastParams = key;
+
+    // 没有线性过滤的设备在启动时已降级（见文件顶部）；不要用参数把效果重新打开。
+    const effectsSupported = ext.supportLinearFiltering;
+
+    if (typeof params["mouse-follow"] === "boolean") {
+      pointerEnabled = params["mouse-follow"];
+      if (!pointerEnabled) stop();
+    }
+    if (
+      typeof params["random-splats"] === "boolean" &&
+      _randomSplats !== params["random-splats"]
+    ) {
+      livelyPropertyListener("randomSplats", params["random-splats"]);
+    }
+    if (typeof params.density === "number") {
+      livelyPropertyListener("densityDiffusion", params.density);
+    }
+    if (typeof params.velocity === "number") {
+      livelyPropertyListener("velocityDiffusion", params.velocity);
+    }
+    if (typeof params.pressure === "number") {
+      livelyPropertyListener("pressure", params.pressure);
+    }
+    if (typeof params.vorticity === "number") {
+      livelyPropertyListener("vorticity", params.vorticity);
+    }
+    if (typeof params["brush-size"] === "number") {
+      livelyPropertyListener("splatRadius", params["brush-size"]);
+    }
+    if (
+      typeof params.shading === "boolean" &&
+      effectsSupported &&
+      config.SHADING !== params.shading
+    ) {
+      livelyPropertyListener("shading", params.shading);
+    }
+    if (
+      typeof params.colorful === "boolean" &&
+      config.COLORFUL !== params.colorful
+    ) {
+      livelyPropertyListener("colorful", params.colorful);
+    }
+    if (
+      typeof params.bloom === "boolean" &&
+      effectsSupported &&
+      config.BLOOM !== params.bloom
+    ) {
+      livelyPropertyListener("bloomEnable", params.bloom);
+    }
+    if (typeof params["bloom-intensity"] === "number") {
+      livelyPropertyListener("bloomIntensity", params["bloom-intensity"]);
+    }
+    if (typeof params["bloom-threshold"] === "number") {
+      livelyPropertyListener("bloomThreshold", params["bloom-threshold"]);
+    }
+    if (
+      typeof params.sunrays === "boolean" &&
+      effectsSupported &&
+      config.SUNRAYS !== params.sunrays
+    ) {
+      livelyPropertyListener("sunRaysEnable", params.sunrays);
+    }
+    if (typeof params["sunrays-weight"] === "number") {
+      livelyPropertyListener("sunRaysWeight", params["sunrays-weight"]);
+    }
+    if (
+      typeof params.background === "string" &&
+      /^#[0-9a-f]{6}$/i.test(params.background)
+    ) {
+      livelyPropertyListener("bgColor", params.background);
+    }
+
+    const dye = QUALITY_RESOLUTION[params.quality];
+    const sim = SIM_RESOLUTION[params["sim-resolution"]];
+    let resolutionChanged = false;
+    if (typeof dye === "number") {
+      const target = effectsSupported ? dye : Math.min(dye, 512);
+      if (config.DYE_RESOLUTION !== target) {
+        config.DYE_RESOLUTION = target;
+        resolutionChanged = true;
+      }
+    }
+    if (typeof sim === "number" && config.SIM_RESOLUTION !== sim) {
+      config.SIM_RESOLUTION = sim;
+      resolutionChanged = true;
+    }
+    if (resolutionChanged) initFramebuffers();
+  }
+
+  function apply(value) {
+    if (!pointerEnabled) {
+      stop();
+      return;
+    }
+    if (!value.inside || !value.moving) {
+      stop();
+      return;
+    }
+    const next = toCanvas(value);
+    if (!next) return;
+    const now = performance.now();
+
+    if (!active) {
+      // 从桌面外/静止恢复：只重新锚定，避免把旧位置到新位置连成一条长线。
+      active = true;
+      updatePointerDownData(pointer, -1, next.x, next.y);
+      lastX = next.x;
+      lastY = next.y;
+      lastAt = now;
+      return;
+    }
+
+    if (now - lastAt > MAX_GAP_MS) {
+      // 采样中断（窗口隐藏 / 系统休眠）后恢复：重新锚定，不跨越缺口画线。
+      updatePointerDownData(pointer, -1, next.x, next.y);
+      lastX = next.x;
+      lastY = next.y;
+      lastAt = now;
+      return;
+    }
+
+    const dx = next.x - lastX;
+    const dy = next.y - lastY;
+    const distance = Math.hypot(dx, dy);
+    if (distance === 0) {
+      lastAt = now;
+      return;
+    }
+
+    // 位置瞬间跳变（跨屏瞬移）：重新锚定，不画长线。
+    const jumpLimit = Math.max(canvas.width, canvas.height) * 0.5;
+    if (distance > jumpLimit) {
+      updatePointerDownData(pointer, -1, next.x, next.y);
+      lastX = next.x;
+      lastY = next.y;
+      lastAt = now;
+      return;
+    }
+
+    // 宿主约 30Hz 采样；按约 32px 间隔补间（最多 2 段），让 splat 连成拖尾。
+    const steps = Math.min(
+      MAX_STEPS,
+      Math.max(1, Math.ceil(distance / STEP_PX))
+    );
+    for (let step = 1; step <= steps; step += 1) {
+      updatePointerMoveData(
+        pointer,
+        lastX + (dx * step) / steps,
+        lastY + (dy * step) / steps
+      );
+      splatPointer(pointer);
+      pointer.moved = false; // 已立即提交，避免 applyInputs 再补一次
+    }
+    lastX = next.x;
+    lastY = next.y;
+    lastAt = now;
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return;
+    const data = event.data;
+    if (!data || data.v !== PROTOCOL) return;
+
+    if (data.type === "pointer") {
+      if (isPointer(data.pointer)) apply(data.pointer);
+      return;
+    }
+    if (data.type === "visibility") {
+      if (data.visible !== true) stop();
+      return;
+    }
+    if (data.type === "init" || data.type === "frame") {
+      // 布局 / 画布尺寸可能已变化，丢掉旧坐标锚点，等下一次移动重新锚定。
+      stop();
+      if (data.frame && typeof data.frame === "object") {
+        applyParams(data.frame.params);
+      }
+    }
+  });
+
+  function announce() {
+    post({ v: PROTOCOL, type: "ready", protocol: PROTOCOL });
+  }
+
+  // 宿主在 iframe 的 load 事件里会重置 ready；脚本执行期同步发送的 ready 会被
+  // 这次重置覆盖，宿主便一直停在 ready=false。等 load 处理完再发（200ms 足够
+  // 跨过父页面 onLoad 的 React 状态更新）。
+  if (document.readyState === "complete") {
+    setTimeout(announce, 0);
+  } else {
+    window.addEventListener("load", () => setTimeout(announce, 200), {
+      once: true,
+    });
+  }
+})();
