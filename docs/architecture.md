@@ -71,7 +71,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | 层 | 目录 | 允许依赖 | 禁止 |
 | --- | --- | --- | --- |
 | **Core** | `src/core/**`、`src-tauri/src/{config,media,wallpaper,window_host}` | 平台 API、纯工具 | 依赖 `scenes` / `widgets` / `app` |
-| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/{widget-sdk,scene-sdk}/**`、`examples/widgets/**`、`extensions/official/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
+| **Extensions** | `src/sdk/**`、`src/scenes/**`、`src/widgets/**`（含 `manifests/`）、`packages/{widget-sdk,scene-sdk}/**`、`examples/widgets/**`、`extensions/official/**`、`extensions/bundled/**`、`src-tauri/src/widget_package/**` | Core 的只读类型与窗口 label 协议；`sdk/widget/runtime` 可调用 `core/window` 宿主适配；`widget_package` 可调用 `window_host` | 直接调用 `app` 路由或宿主命令 |
 | **Community** | `content/**`、`public/content/**`、`scripts/*-content.mjs`、`src-tauri/src/content_package/**` | 清单格式、静态 HTML/CSS、受限沙箱脚本、用户内容目录读写 | 修改核心 / 创建系统窗口 / 越权访问宿主 |
 | **Extension Center** | `src-tauri/src/extension/**`、`src-tauri/src/package_hash.rs`、`src/components/extensions/**`、`src/lib/extensions.ts`、`src/hooks/use-extensions.ts` | `content_package` / `widget_package` 的校验与运行时；共享安装管线 | 拥有包格式 / 直接执行包内代码 |
 | **Services** | 设计文档 | — | 成为本地运行前置依赖 |
@@ -82,6 +82,8 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 - `src/sdk/**` 不 import `src/app/**` 或 `src/components/**`。
 - `src/scenes/**` 只接收 `SceneProps`，不读配置文件、不调用 Tauri；当前只保留媒体场景。
 - 官方壁纸/脚本场景在 `extensions/official/<id>/`，通过 Vite 构建为内容包，不进入 `src/`。
+- 预构建的第三方/社区随包扩展在 `extensions/bundled/<label>/`，构建期只做校验、复制与
+  摘要重算；它们同样不进入 `src/`。
 - `src/content/catalog.ts` 是内容加载服务，依赖 `sdk/scene`，不反向被 `core` 依赖。
 - `window_host` 只暴露窗口 label 前缀 `DYNAMIC_WINDOW_PREFIX`；`widget_package` 依赖 Core，Core 不反向 import 插件模块。
 - `src-tauri/src/lib.rs` 只做插件、命令与生命周期接线；新增能力先进对应模块。

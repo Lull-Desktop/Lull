@@ -44,6 +44,10 @@
 内置媒体场景（`src/scenes/video`）与官方竹影场景包（`extensions/official/bamboo/**`）
 是应用代码，仍为 GPL；不要把它们当作 CC BY 内容。
 
+预构建的第三方随包扩展（`extensions/bundled/**`）保留各自许可：包内附 `LICENSE`，
+并登记在 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)；不要把它们并入
+应用代码的 GPL 声明。
+
 ## 5. GPL 合规要点
 
 1. **源码提供**：分发安装包时，必须让接收者能获得对应版本的完整源码。

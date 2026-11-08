@@ -28,9 +28,20 @@ extensions/official/bamboo/        # 源码（catalog.json + Vite 入口）
 extensions/dist/lull.bamboo/       # 构建产物，安装目录 extensions/lull.bamboo/
 ```
 
-它与用户内容包格式相同，由 `pnpm extensions:build` 写入 `integrity`，运行时与
-`public/content/`、`%APPDATA%/content/` 一起通过 `content_packages` 合并；区别只在
-来源（`origin: "bundled"`）与只读分发。详见 [官方扩展](./official-extensions.md)。
+第三方/社区场景若要以**预构建包**随宿主分发，放在固定目录：
+
+```text
+extensions/bundled/<label>/        # 解压后的标准场景包（catalog.json + scenes/）
+extensions/dist/<scene-id>/         # 构建期复制 + 重算 integrity 后的产物
+```
+
+`extensions/bundled/` 与用户内容包格式完全一致，由 `pnpm extensions:build` 校验、
+按源字节重写摘要后进入 `extensions/dist`；运行时仍标记为 `origin: "bundled"`。
+约定与同步步骤见 [`extensions/README.md`](../extensions/README.md)。
+
+两类 scene 扩展都与用户内容包格式相同，由 `pnpm extensions:build` 写入场景的 `integrity`，
+运行时与 `public/content/`、`%APPDATA%/content/` 一起通过 `content_packages` 合并；
+区别只在来源（`origin: "bundled"`）与只读分发。详见 [官方扩展](./official-extensions.md)。
 
 ## 2. 目录文件
 

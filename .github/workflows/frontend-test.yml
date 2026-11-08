@@ -58,5 +58,5 @@ jobs:
       - name: Build widget examples
         run: pnpm widgets:samples:build
 
-      - name: Build and validate official extensions
+      - name: Build and validate bundled extensions
         run: pnpm extensions:build && pnpm extensions:check

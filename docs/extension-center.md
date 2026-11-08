@@ -93,6 +93,10 @@
 停用状态，也不进入 Widget 授权账本；扩展中心只提供详情与「壁纸设置」，不可卸载。
 宿主不再编译 `bamboo` / `aurora` / `dusk`，内置壁纸只剩媒体场景。
 
+同一个资源根也承载 `extensions/bundled/` 的预构建第三方/社区包（例如
+`community.webgl-fluid`）。它们按 `origin=bundled` 显示为随应用分发，但作者与许可
+以包内清单、`LICENSE` 与 `THIRD_PARTY_NOTICES.md` 为准，不要等同于 Lull 官方源码。
+
 - 保留 id：Widget `noise`、`player`；Scene `lull.bamboo`。用户包命中保留 id 时报
   `manifest.id-reserved`。
 - 升级：Widget 启动时 reconcile 授权与清单哈希，新增能力自动补授，用户此前的撤销保持撤销；

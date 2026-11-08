@@ -178,13 +178,20 @@ extensions/
       catalog.json
       index.html
       src/
+  bundled/                    # 预构建标准包（drop-in）：构建期复制 + 重算摘要
+    README.md                 # 约定说明（不是包目录）
+    webgl-fluid/              # 例：产物 id=community.webgl-fluid
+      catalog.json
+      scenes/webgl-fluid/
   dist/                       # 构建产物（gitignore；.gitkeep 保留目录供 resources 指向）
-  README.md                   # 维护者说明：如何新增 / 构建 / 调试官方扩展
+  README.md                   # 维护者说明：如何新增 / 构建 / 调试随包扩展
 ```
 
 构建后的 `extensions/dist/<id>/` 就是可直接安装的标准包；Widget 去掉
 `.lull-integrity.json`、Scene 去掉 `catalog.json` 后就是可分发的 zip 内容，与第三方包
-没有格式差异。
+没有格式差异。`bundled/` 与 `official/` 的区别只在输入形态：前者是已构建产物，
+后者是需要 Vite 编译的第一方源码。`bundled/` 的包可以来自第三方/社区；运行时仍按
+`origin=bundled` 处理，Widget 会被默认启用并授予声明能力，加入前必须审查。
 
 ### 4.2 构建脚本
 
@@ -201,8 +208,20 @@ extensions/
    `@tauri-apps/api` / `__TAURI_INTERNALS__` / `localStorage` / `eval`、体积预算；
 6. Widget 用 `scripts/lib/widget-digest.mjs` 写 `.lull-integrity.json`；
    Scene 用 `scripts/content-digest.mjs` 计算 entry 目录摘要并写回产物 `catalog.json`；
-7. 产出 `extensions/dist/index.json`（`kind / id / version / digest / order / provides`），供诊断与 CI
+7. 产出 `extensions/dist/index.json`（`kind / id / version / digest / order / provides / source`），供诊断与 CI
    断言；`--check` 模式只校验、不改文件，并包含 stale 目录检查。
+
+`extensions/bundled/` 的预构建包走同一套产物与摘要规则：
+
+1. 扫描 `extensions/bundled/<label>/`：有 `widget.json` 按 Widget，有 `catalog.json` 按 Scene；
+   目录名只是标签，产物目录用清单 id（`webgl-fluid` → `community.webgl-fluid`）；
+2. 逐字节复制到 `extensions/dist/<id>/`；包根 `.lull-integrity.json` /
+   `.lull-signature.json` 不复制，dev 配置与符号链接直接失败；
+3. Widget 重写 `.lull-integrity.json`；Scene 按 entry 目录重算并写回产物
+   `catalog.json` 的 `scenes[0].integrity`；
+4. 与官方源码产物一样跑 strict validator、远程资源扫描；索引条目带 `source: "bundled"`；
+5. `--check` 分别计算源目录与产物摘要，二者必须一致，源包 `integrity` 只作输入提示；
+6. 全量构建清理 dist 中不再声明的目录，删除 bundled 包后重新构建即可从发布物移除。
 
 构建工具从 esbuild 改为 Vite：官方扩展需要 React Fast Refresh、开发服务器与
 CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mode.md)。esbuild 继续
@@ -217,10 +236,12 @@ CSS Modules 的同一套配置，详见 [扩展开发模式](./extension-dev-mod
 
 - `src-tauri/tauri.conf.json` 的 `bundle.resources` 增加
   `"../extensions/dist": "extensions"`，安装后位于 `<安装目录>/extensions/`。
+  `extensions/bundled/` 的产物同样落在 `dist`，因此不需要额外的资源映射。
 - 便携版：`scripts/package-release.mjs` 必须把 `src-tauri/target/release/extensions/`
   一起打进 `Lull_<ver>_x64-portable.zip`；目录缺失直接失败，不允许发出缺资源的包。
+  它递归收集 `extensions/dist`，官方源码构建与 bundled 包都会被带上。
 - CI：`frontend-test.yml` 增加扩展构建与校验；`release.yml` 走 `prebuild` 自动构建。
-- `.gitignore` 增加 `extensions/dist/`。
+- `.gitignore` 增加 `extensions/dist/`；`extensions/bundled/` 是入库输入，不忽略。
 
 ### 4.4 开发与预览
 

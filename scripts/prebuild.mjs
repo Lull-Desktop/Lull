@@ -34,7 +34,7 @@ run(process.execPath, [join(root, "scripts", "validate-content.mjs")]);
 // ① Widget 清单与 Tauri capability 必须同步（生成文件过期时提前失败）
 run(process.execPath, [join(root, "scripts", "gen-widgets.mjs"), "--check"]);
 
-// ① 官方扩展构建（随安装包分发；脚本内部按需编译 SDK dist）
+// ① 随包扩展构建（官方源码 + extensions/bundled；脚本内部按需编译 SDK dist）
 run(process.execPath, [
   join(root, "scripts", "build-official-extensions.mjs"),
 ]);

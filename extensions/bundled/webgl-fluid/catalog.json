@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "community.webgl-fluid",
+      "name": "WebGL 流体模拟",
+      "version": "1.0.0",
+      "description": "经典 WebGL 流体模拟：绚彩颜料在纯黑底上翻涌、扩散、发光，启动时随机注入一轮涡旋，Bloom 辉光与光线效果让流动的暗部更显通透。交互式鼠标泼溅为桌面版特性，壁纸形态下以自动演化为主。",
+      "author": "Pavel Dobryakov",
+      "license": "MIT",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.canvas",
+        "wallpaper.script"
+      ],
+      "entry": "scenes/webgl-fluid/index.html",
+      "theme": {
+        "background": "#000000",
+        "accent": "#4fc3f7"
+      },
+      "performance": {
+        "tier": "high",
+        "targetFps": 60
+      },
+      "compatibility": {
+        "hostApi": 1,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "3f7ac52628f6eae64e8575eaa45cb9f0a92a9adc4e51da9fe6b98f6cfebabccf"
+      }
+    }
+  ]
+}

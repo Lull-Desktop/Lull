@@ -20,6 +20,7 @@
       "./*.mjs",
       "!!dist",
       "!!extensions/dist",
+      "!!extensions/bundled",
       "!!packages/*/dist",
       "!!src-tauri",
       "!!src/paraglide",

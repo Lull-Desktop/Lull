@@ -74,7 +74,8 @@ Lull 采用分层许可，提交前请确认文件归属：
 - 场景组件只接收 `SceneProps`，不读全局配置、不调用 Tauri。
 - 新增工具窗只改 `src/widgets/manifests/<id>.json`，然后跑 `pnpm widgets:gen`；Rust 描述由 `build.rs` 生成，不要手写 `spec.rs` 或 `capabilities/desktop.json`。
 - 工具组件只通过 `@/sdk/widget` / `@/sdk/widget/react` 使用宿主能力（状态、窗口、音频、媒体），不要直接 import `core/window/controls` 或读 `localStorage`。
-- 外部内容包只放 `public/content/`，不要 import 到 `src/`。
+- 外部内容包只放 `public/content/`（用户安装）或 `extensions/bundled/`（预构建随包），
+  不要 import 到 `src/`；需要仓库内 Vite 构建的官方场景放 `extensions/official/`。
 - 中文注释用于解释“为什么”，不要复述代码。
 - 界面文案一律走消息文件，不在组件里写死中英文：
 

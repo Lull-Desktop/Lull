@@ -138,7 +138,8 @@ const readme = [
 
 const portableRoot = `${product}_${version}_${arch}-portable`;
 
-// 官方扩展必须随便携版一起分发：resource_dir() 在便携版下就是 exe 所在目录。
+// dist 下全部随包扩展（官方源码构建 + extensions/bundled）必须一起进便携版：
+// resource_dir() 在便携版下就是 exe 所在目录。
 const extensionsDir = join(root, "extensions", "dist");
 if (!existsSync(join(extensionsDir, "index.json"))) {
   fail("缺少 extensions/dist/index.json：先执行 `pnpm extensions:build`");

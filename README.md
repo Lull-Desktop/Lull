@@ -247,7 +247,8 @@ src/
 packages/widget-sdk/       # 第三方插件侧 SDK：TypeScript 源码 → dist + .d.ts
 packages/scene-sdk/        # 场景侧 SDK：参数/几何/同步/可见性桥
 extensions/official/       # 官方扩展源码（noise / player / bamboo 场景 + Vite 工程）
-extensions/dist/           # 官方扩展构建产物（不入库，Tauri bundle.resources）
+extensions/bundled/        # 预构建随包扩展（drop-in；构建期复制到 dist）
+extensions/dist/           # 随包扩展构建产物（不入库，Tauri bundle.resources）
 examples/widgets/          # 原生 / React / Vue / Liquid 番茄钟 + 最小第三方播放器示例
 examples/scenes/           # 可安装内容包示例（静态 / 脚本场景）
 src-tauri/
@@ -318,7 +319,7 @@ pnpm test-mode -NativeMedia -RequireNative   # 没有原生 attach 成功时退�
 pnpm build
 ```
 
-`scripts/prebuild.mjs` 会依次做这些事：编译 i18n → 校验内容目录 → 校验 Widget capability → 构建官方扩展（`extensions/dist/`）→ 编译 `lull_native.dll` → 清理 `dist/.next` → Next 静态导出 → 触碰 `lib.rs` 强制重嵌入。
+`scripts/prebuild.mjs` 会依次做这些事：编译 i18n → 校验内容目录 → 校验 Widget capability → 构建随包扩展（官方源码 + `extensions/bundled` → `extensions/dist/`）→ 编译 `lull_native.dll` → 清理 `dist/.next` → Next 静态导出 → 触碰 `lib.rs` 强制重嵌入。
 
 产物整理（msi / exe / 便携版 zip + 校验和）：
 
@@ -326,7 +327,7 @@ pnpm build
 pnpm release:package      # → artifacts/release/
 ```
 
-便携版 zip 会带上 `extensions/{noise,player,lull.bamboo}`、`extensions/index.json` 与摘要锁；缺少索引或混入 `.lull-dev.json` 时 `release:package` 直接失败。
+便携版 zip 会带上 `extensions/` 下全部随包扩展（官方源码构建 + `extensions/bundled` 预构建，含 `community.webgl-fluid`）、`index.json` 与摘要锁；缺少索引或混入 `.lull-dev.json` 时 `release:package` 直接失败。
 
 ### 自定义扩展的方式
 
@@ -412,8 +413,8 @@ pnpm scenes:sdk
 | `pnpm scenes:samples:{build,hash,check,pack}`              | 构建、重算摘要、校验、打包两个脚本场景示例                                |
 | `pnpm widgets:samples:build` / `pnpm widgets:samples:pack` | 构建示例插件包（含 `mini-player`）/ 打成 `artifacts/*.lull-widget.zip` |
 | `pnpm widget:pack <dir>`                                   | 把任意构建后的 Widget 目录打成可安装 zip                           |
-| `pnpm extensions:build` / `extensions:dev <id>` / `extensions:watch <id>` | 构建官方扩展 / Vite dev server（HMR）/ 监听重建         |
-| `pnpm extensions:check`                                    | 官方扩展源码边界 + 产物摘要校验（CI）                            |
+| `pnpm extensions:build` / `extensions:dev <id>` / `extensions:watch <id>` | 构建官方扩展与刷新 bundled 包 / Vite dev server（HMR）/ 监听重建 |
+| `pnpm extensions:check`                                    | 扩展源码边界 + 产物摘要校验（CI）                            |
 
 ### 文档
 
