@@ -69,8 +69,9 @@ scenes/<name>/
 ```
 
 - `entry` 必须是 `.html`，相对包根目录，禁止 `..`、绝对路径与反斜杠。
-- 声明 `params` 必须同时声明 `wallpaper.params`；外部场景用 `wallpaper.params` / `wallpaper.sync`
-  时必须同时声明 `wallpaper.script`。
+- 声明 `params` 必须同时声明 `wallpaper.params`；外部场景用 `wallpaper.params` /
+  `wallpaper.sync` / `wallpaper.pointer` 时必须同时声明 `wallpaper.script`。
+- `wallpaper.pointer` 还需要 `compatibility.hostApi >= 3`。
 - 所有资源走相对路径；CSP 默认阻止远程脚本、字体、图片与音频。
 
 包分两档，差别只在「跑不跑脚本」：
@@ -109,6 +110,34 @@ scene.onFrame((frame) => {
 改值后热更壁纸 URL 哈希，再由 `onFrame` 把新参数送到场景，不需要重启壁纸。
 
 脚本包的资源协议会额外下发 nonce CSP，只允许包内资源。
+
+### 鼠标位置（`wallpaper.pointer`）
+
+声明 `wallpaper.script` + `wallpaper.pointer`、且 `compatibility.hostApi >= 3` 的场景，
+可以用 `onPointer` 接收鼠标移动：
+
+```ts
+import { connectLullScene } from "@lull/scene-sdk";
+
+const scene = await connectLullScene();
+scene.onPointer((pointer) => {
+  // pointer.x / pointer.y：场景绘制坐标系内的 CSS 像素
+  // pointer.inside：光标在桌面层上且落在本场景内
+  // pointer.moving：最近约 120ms 内是否有移动
+  halo.style.transform = `translate(${pointer.x}px, ${pointer.y}px)`;
+});
+```
+
+宿主链路是：Win32 位置采样 → Tauri 定向事件 → 顶层壁纸页面换算本地坐标 →
+iframe 的 postMessage 桥 → `onPointer`。壁纸窗口保持 `WS_EX_TRANSPARENT`，
+且宿主只读取坐标、不读取按键，所以：
+
+- 只有移动会产生消息；单击、双击、右键、滚轮不会触发 `onPointer`；
+- 光标在任务栏、开始菜单或其他应用窗口上时不下发位置；
+- 点击始终由桌面/其他窗口处理，场景看不到也拦不住；
+- 样本里没有按键、点击次数或修饰键字段。
+
+完整示例见 [`examples/scenes/pointer-demo`](https://github.com/Lull-Desktop/Lull/tree/master/examples/scenes/pointer-demo)（仓库内）。
 
 ## 版本与兼容约定
 

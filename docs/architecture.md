@@ -64,7 +64,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | `view` | 当前窗口对应的桌面矩形 |
 | `params` | JSON 后再 URI 编码的场景参数（字符串键值）；为空时省略 |
 
-前端 `src/core/wallpaper/params.ts` 负责解析与几何换算，`src/scenes/frame.ts` 负责合成本地帧（默认参数、能力与兼容性），`src/scenes/host.tsx` 负责选择内置组件或外部 iframe；`src/scenes/external-scene.tsx` + `scene-bridge.ts` 把帧推给声明 `wallpaper.script` 的外部场景。协议是纯函数，Rust/前端都有回归测试。
+前端 `src/core/wallpaper/params.ts` 负责解析与几何换算，`src/scenes/frame.ts` 负责合成本地帧（默认参数、能力与兼容性），`src/scenes/host.tsx` 负责选择内置组件或外部 iframe；`src/scenes/external-scene.tsx` + `scene-bridge.ts` 把帧推给声明 `wallpaper.script` 的外部场景，声明 `wallpaper.pointer` 的场景还会经 Rust `wallpaper/pointer.rs` 的 30Hz 位置采样、Tauri 定向事件与 `pointer` 消息收到只读鼠标位置（不含点击）。协议是纯函数，Rust/前端都有回归测试。
 
 ## 3. 分层与依赖规则
 

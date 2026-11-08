@@ -23,6 +23,7 @@ const CAPABILITIES = new Set([
   "wallpaper.sync",
   "wallpaper.params",
   "wallpaper.script",
+  "wallpaper.pointer",
 ]);
 const ID = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -307,14 +308,24 @@ for (const [index, scene] of (catalog.scenes ?? []).entries()) {
     }
     const hasCapability = (capability) =>
       scene.capabilities.includes(capability);
-    // 外部场景只有脚本桥能收到参数/相位；没有 script 就不能声明这两项。
+    // 外部场景只有脚本桥能收到参数/相位/指针；没有 script 就不能声明这些能力。
     if (
       !hasCapability("wallpaper.script") &&
-      (hasCapability("wallpaper.params") || hasCapability("wallpaper.sync"))
+      (hasCapability("wallpaper.params") ||
+        hasCapability("wallpaper.sync") ||
+        hasCapability("wallpaper.pointer"))
     ) {
       fail(
-        `${where}.capabilities: wallpaper.params / wallpaper.sync 必须同时声明 wallpaper.script`,
+        `${where}.capabilities: wallpaper.params / wallpaper.sync / wallpaper.pointer 必须同时声明 wallpaper.script`,
       );
+    }
+    if (hasCapability("wallpaper.pointer")) {
+      const hostApi = scene.compatibility?.hostApi;
+      if (!Number.isInteger(hostApi) || hostApi < 3) {
+        fail(
+          `${where}.capabilities: wallpaper.pointer 需要 compatibility.hostApi >= 3`,
+        );
+      }
     }
     if (
       Array.isArray(scene.params) &&

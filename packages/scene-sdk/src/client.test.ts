@@ -7,12 +7,13 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createLullSceneClient } from "./client.js";
 import { LullSceneError } from "./errors.js";
-import { SCENE_PROTOCOL } from "./protocol.js";
+import { SCENE_PROTOCOL, type ScenePointer } from "./protocol.js";
 import { syncedDelayMs } from "./sync.js";
 import {
   createMemorySceneTransport,
   createSceneFrame,
   createSceneInitMessage,
+  createScenePointer,
 } from "./testing.js";
 
 afterEach(() => {
@@ -90,6 +91,82 @@ describe("线协议", () => {
     transport.receive({ v: 1, type: "visibility", visible: false });
     expect(client.visible).toBe(false);
     expect(visible).toEqual([true, false]);
+  });
+
+  test("onPointer 注册时回放，之后跟随 pointer 消息", async () => {
+    const { transport, client } = await connect();
+    expect(client.pointer).toBeNull();
+    const seen: unknown[] = [];
+    const off = client.onPointer((pointer) => seen.push(pointer));
+    expect(seen).toEqual([]);
+
+    transport.receive({
+      v: 1,
+      type: "pointer",
+      pointer: createScenePointer({ x: 10, y: 20, inside: true, moving: true }),
+    });
+    expect(seen).toEqual([{ x: 10, y: 20, inside: true, moving: true }]);
+    expect(client.pointer).toEqual({
+      x: 10,
+      y: 20,
+      inside: true,
+      moving: true,
+    });
+
+    off();
+    transport.receive({
+      v: 1,
+      type: "pointer",
+      pointer: createScenePointer({ x: 30, y: 40 }),
+    });
+    expect(seen).toHaveLength(1);
+  });
+
+  test("点击类消息不触发 onPointer，pointer 只暴露移动字段", async () => {
+    const { transport, client } = await connect();
+    const seen: ScenePointer[] = [];
+    client.onPointer((pointer) => seen.push(pointer));
+
+    transport.receive({ v: 1, type: "click", x: 1, y: 2, button: 0 });
+    transport.receive({ v: 1, type: "dblclick", x: 1, y: 2 });
+    transport.receive({
+      v: 1,
+      type: "pointer",
+      pointer: {
+        x: 3,
+        y: 4,
+        inside: true,
+        moving: false,
+        buttons: 1,
+        detail: 2,
+      },
+    });
+
+    expect(seen).toEqual([{ x: 3, y: 4, inside: true, moving: false }]);
+    expect(Object.keys(seen[0] ?? {})).toEqual(["x", "y", "inside", "moving"]);
+  });
+
+  test("畸形 pointer 不触发监听，重复 init 重置 pointer", async () => {
+    const { transport, client } = await connect();
+    const seen: unknown[] = [];
+    client.onPointer((pointer) => seen.push(pointer));
+
+    transport.receive({
+      v: 1,
+      type: "pointer",
+      pointer: { x: 1, y: 2, inside: true },
+    });
+    expect(seen).toEqual([]);
+
+    transport.receive({
+      v: 1,
+      type: "pointer",
+      pointer: createScenePointer(),
+    });
+    expect(seen).toHaveLength(1);
+
+    transport.receive(createSceneInitMessage());
+    expect(client.pointer).toBeNull();
   });
 
   test("log 走桥转发", async () => {

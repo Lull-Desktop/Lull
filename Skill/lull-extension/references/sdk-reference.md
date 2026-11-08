@@ -11,6 +11,7 @@
 | `@lull/widget-sdk` 0.2.x | 1 | 1 | 0.1.x | TypeScript rewrite; `setState`/`startDrag` return `void`; `getState` supports generics and fallback |
 | `@lull/widget-sdk` 0.1.x | 1 | 1 | 0.1.x | Hand-written JS, no type declarations |
 | `@lull/scene-sdk` 0.1.x | 1 | 1 | 0.1.x | Only for `wallpaper.script` scenes |
+| `@lull/scene-sdk` 0.3.x | 1 | 1–3 | 0.3.x | Adds `wallpaper.pointer` move-only pointer channel (host API 3) |
 
 - During `0.x`, `minor` may bring breaking changes; read the diff before upgrading.
 - The bridge protocol `v` only increments on breaking field semantics; afterwards the host
@@ -120,11 +121,16 @@ Tests: `createInitMessage` / `createMemoryTransport` / `createLullWidgetClient` 
 | `frame` | last frame; `null` before `init` |
 | `params` | current params (types restored per manifest); empty object before `init` |
 | `visible` | whether the window is currently visible |
+| `pointer` | last pointer sample; `null` before the first sample |
 | `onFrame(fn)` | subscribe to frames (params/geometry/layout), **immediately replays** the current frame |
 | `onParams(fn)` | subscribe to params only, replays immediately |
 | `onVisibility(fn)` | subscribe to visibility, replays immediately |
+| `onPointer(fn)` | subscribe to move-only pointer state (`x/y/inside/moving`), replays immediately |
 | `log(message, level?)` | forwards to the host console with prefix `[scene:<id>]` |
 | `destroy()` | unsubscribes and rejects later calls |
+
+`pointer` requires the manifest to declare `wallpaper.script` + `wallpaper.pointer` and
+`compatibility.hostApi >= 3`. There are no click/button/wheel fields.
 
 `syncedDelayMs(periodMs, epochMs)` -> negative delay in ms, aligning `animation-delay`
 across windows. Do not compute the phase yourself with `Date.now()`.

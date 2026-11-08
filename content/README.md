@@ -40,7 +40,7 @@ pnpm test
 - `id` 全局唯一，建议 `作者.场景`；
 - 必须声明 `version` 与 `license`；
 - `entry` 只能指向内容根目录内的 `.html`，禁止 `..` / 绝对路径；
-- 静态包只允许 HTML / CSS（空 `sandbox`）；脚本包必须声明 `wallpaper.script`，由 Scene SDK 桥读取帧；
+- 静态包只允许 HTML / CSS（空 `sandbox`）；脚本包必须声明 `wallpaper.script`，由 Scene SDK 桥读取帧；需要鼠标位置反馈时再声明 `wallpaper.pointer`（仅移动，宿主 API 3）；
 - 不加载远程脚本、字体或音频；
 - 不访问 Tauri API / `window.parent` / 宿主存储；
 - 素材授权自行确认，并随包附许可证。

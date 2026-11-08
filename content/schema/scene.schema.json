@@ -39,7 +39,8 @@
           "wallpaper.canvas",
           "wallpaper.sync",
           "wallpaper.params",
-          "wallpaper.script"
+          "wallpaper.script",
+          "wallpaper.pointer"
         ]
       }
     },

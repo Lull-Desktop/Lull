@@ -72,7 +72,7 @@ Hard rules:
 | `params` | no | see §4 | `S-PARAM-*` |
 | `performance.tier` | no | `low` / `medium` / `high` | `S-PERF-TIER` |
 | `performance.targetFps` | no | integer 1-240 | `S-PERF-FPS` |
-| `compatibility.hostApi` | no | positive integer, current host `SCENE_HOST_API = 1` | `S-COMPAT-HOSTAPI` |
+| `compatibility.hostApi` | no | positive integer, current host `SCENE_HOST_API = 3` | `S-COMPAT-HOSTAPI` |
 | `compatibility.maxHostApi` | no | >= `hostApi` | `S-COMPAT-MAX` |
 | `compatibility.platforms` | no | `windows` / `macos` / `linux`, non-empty, unique | `S-COMPAT-PLATFORM` |
 | `integrity` | official catalog only | `{algorithm:"sha256", scope:"package", digest:64 hex}` | `S-INTEGRITY-*` |
@@ -86,6 +86,7 @@ Hard rules:
 | `wallpaper.sync` | can align animation phase to absolute time | without it `frame.sync.enabled` is always false; external packages also need `wallpaper.script` |
 | `wallpaper.params` | accepts manifest parameters | required when `params` is declared; external packages also need `wallpaper.script` |
 | `wallpaper.script` | may execute JS in a `sandbox="allow-scripts"` iframe | external packages only; without it the package loads as static (empty sandbox) |
+| `wallpaper.pointer` | receives move-only pointer state (`x/y/inside/moving`) | requires `wallpaper.script` and `compatibility.hostApi >= 3`; no click/button/wheel channel |
 
 A scene whose `compatibility.hostApi` exceeds the host, or whose platform does not match, is
 filtered out at the catalog layer - it simply does not appear in settings (not an error).

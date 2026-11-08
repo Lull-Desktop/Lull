@@ -23,7 +23,7 @@ export const WIDGET_SCHEMA_VERSION = 2;
 /** The host only accepts hostApi 1. */
 export const WIDGET_HOST_API = 1;
 export const SCENE_SCHEMA_VERSION = 1;
-export const SCENE_HOST_API = 1;
+export const SCENE_HOST_API = 3;
 
 export const WIDGET_CAPABILITIES = [
   "widget.ui",
@@ -89,6 +89,7 @@ export const SCENE_CAPABILITIES = [
   "wallpaper.sync",
   "wallpaper.params",
   "wallpaper.script",
+  "wallpaper.pointer",
 ];
 export const SCENE_PLATFORMS = ["windows", "macos", "linux"];
 export const SCENE_PARAM_TYPES = ["number", "boolean", "string", "color", "enum"];
@@ -653,12 +654,27 @@ function validateScene(root, report, add, files) {
       seen.add(cap);
     }
     hasScript = seen.has("wallpaper.script");
-    if (!hasScript && (seen.has("wallpaper.params") || seen.has("wallpaper.sync"))) {
+    if (
+      !hasScript &&
+      (seen.has("wallpaper.params") ||
+        seen.has("wallpaper.sync") ||
+        seen.has("wallpaper.pointer"))
+    ) {
       add(
         "error",
         "S-CAPS-SCRIPT",
-        "External packages must also declare wallpaper.script when using wallpaper.params / wallpaper.sync",
+        "External packages must also declare wallpaper.script when using wallpaper.params / wallpaper.sync / wallpaper.pointer",
       );
+    }
+    if (seen.has("wallpaper.pointer")) {
+      const hostApi = scene.compatibility?.hostApi;
+      if (!Number.isInteger(hostApi) || hostApi < 3) {
+        add(
+          "error",
+          "S-COMPAT-POINTER",
+          "wallpaper.pointer requires compatibility.hostApi >= 3",
+        );
+      }
     }
     if (!seen.has("wallpaper.viewport") && !seen.has("wallpaper.canvas")) {
       add(

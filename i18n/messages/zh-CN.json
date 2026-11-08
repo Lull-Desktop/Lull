@@ -159,6 +159,7 @@
   "ext_cap_sync": "跨屏同步",
   "ext_cap_params": "场景参数",
   "ext_cap_script": "场景脚本桥",
+  "ext_cap_pointer": "鼠标位置（仅移动）",
   "ext_level_required": "强制",
   "ext_level_hint": "提示",
   "ext_level_basic": "基础",

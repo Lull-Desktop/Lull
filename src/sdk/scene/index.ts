@@ -31,6 +31,7 @@ export {
   sceneGameBinding,
   sceneRunsScript,
   sceneSupportsParams,
+  sceneSupportsPointer,
   sceneSupportsSync,
 } from "./manifest";
 export {
@@ -45,6 +46,7 @@ export type {
   SceneDisplayMode,
   SceneFrame,
   SceneLayout,
+  ScenePointer,
   SceneProps,
   SceneRect,
   SceneSync,

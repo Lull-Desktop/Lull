@@ -15,8 +15,12 @@ import { useGameReplica } from "@/games/bridge/use-game-replica";
 import {
   type SceneCatalogEntry,
   type SceneFrame,
+  type ScenePointer,
   sceneRunsScript,
+  sceneSupportsPointer,
 } from "@/sdk/scene";
+import { pointerForFrame } from "./pointer";
+import { listenWallpaperPointer } from "./pointer-stream";
 import {
   isSceneGamePluginMessage,
   isScenePluginMessage,
@@ -24,6 +28,7 @@ import {
   type SceneHostMessage,
   sceneFrameMessage,
   sceneInitMessage,
+  scenePointerMessage,
   sceneVisibilityMessage,
 } from "./scene-bridge";
 
@@ -94,7 +99,9 @@ function ScriptedScene({
   const frameRef = useRef(frame);
   const readyRef = useRef(false);
   const onReadyRef = useRef(onReady);
+  const lastPointerRef = useRef<ScenePointer | null>(null);
   const [ready, setReady] = useState(false);
+  const pointerEnabled = sceneSupportsPointer(entry.manifest);
   const { handleSceneGameMessage, resetForReload } = useGameReplica({
     gameId: entry.manifest.game?.id ?? null,
     sceneId: entry.manifest.id,
@@ -127,6 +134,7 @@ function ScriptedScene({
     // iframe 重新加载后旧页面的 ready 失效；先发 init，等新页面回 ready。
     readyRef.current = false;
     setReady(false);
+    lastPointerRef.current = null;
     resetForReload();
     sendInit();
   }, [resetForReload, sendInit]);
@@ -170,15 +178,41 @@ function ScriptedScene({
     send(sceneFrameMessage(frameForIframe(frame, iframeRef.current)));
   }, [frame, send]);
 
+  // 只给声明 wallpaper.pointer 的脚本场景订阅；未声明能力的场景永远收不到指针消息。
+  useEffect(() => {
+    if (!pointerEnabled) return;
+    return listenWallpaperPointer((sample) => {
+      if (!readyRef.current) return;
+      if (document.visibilityState !== "visible") return;
+      const pointer = pointerForFrame(frameRef.current, sample);
+      if (!pointer) return;
+      lastPointerRef.current = pointer;
+      send(scenePointerMessage(pointer));
+    });
+  }, [pointerEnabled, send]);
+
   useEffect(() => {
     const sendVisibility = (): void => {
       if (!readyRef.current) return;
-      send(sceneVisibilityMessage(document.visibilityState === "visible"));
+      const visible = document.visibilityState === "visible";
+      send(sceneVisibilityMessage(visible));
+      // 隐藏时补一条取消样本，避免场景停在 moving=true 的状态上。
+      if (!visible && pointerEnabled && lastPointerRef.current) {
+        const last = lastPointerRef.current;
+        const cancel: ScenePointer = {
+          x: last.x,
+          y: last.y,
+          inside: false,
+          moving: false,
+        };
+        lastPointerRef.current = cancel;
+        send(scenePointerMessage(cancel));
+      }
     };
     document.addEventListener("visibilitychange", sendVisibility);
     return () =>
       document.removeEventListener("visibilitychange", sendVisibility);
-  }, [send]);
+  }, [pointerEnabled, send]);
 
   // span / mirror 切换时 iframe 容器尺寸会变，但未必触发 window resize。
   useEffect(() => {

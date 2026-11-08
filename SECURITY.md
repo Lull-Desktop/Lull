@@ -27,6 +27,8 @@ Lull 目前仅支持 Windows 10/11。其他平台没有官方构建，也不在�
    `wallpaper.script` 的脚本场景运行在 `sandbox="allow-scripts"` 的 opaque-origin iframe，
    只能通过 `@lull/scene-sdk` 桥读取帧；壁纸窗口只持有只读 `content_packages` 与事件订阅
    capability。任何绕过 iframe / 访问宿主 DOM / 调用非授权 IPC / 路径穿越都属于安全问题。
+   声明 `wallpaper.pointer` 的场景还会收到只读鼠标移动位置；未声明该能力的场景收到
+   `pointer` 消息、或场景收到点击/按键字段，都按隔离失效处理。
 2. **原生宿主**：`lull_native.dll` 直接操作 `Progman` / `WorkerW` / 窗口样式。导致桌面不可恢复、Z 序异常、任意窗口挂载的问题按高危处理。
 3. **IPC 与配置**：`display.json` 写入、路径处理、回滚逻辑；命令参数注入（例如 `eval` 的 JS 字符串）属于重点。
 4. **供应链**：依赖、构建脚本、`pnpm` 生命周期脚本、DLL 构建产物。
@@ -36,6 +38,8 @@ Lull 目前仅支持 Windows 10/11。其他平台没有官方构建，也不在�
 - 壁纸是桌面层窗口，登录锁屏/切换用户时的系统行为由 Windows 决定；
 - 静态内容包不执行 JavaScript，只允许 HTML/CSS；脚本场景仅在 opaque-origin
   `allow-scripts` iframe 中运行，并受 nonce CSP 限制。任何越出 iframe 的脚本执行都属于隔离失效；
+- `wallpaper.pointer` 只采样光标坐标：不装鼠标钩子、不读按键，且只在光标位于桌面层时
+  下发；壁纸窗口保持输入穿透，场景无法拦截或伪造桌面点击；
 - 应用默认不请求管理员权限；提权后的行为差异属于已知风险；
 - 安装包未签名属于发布前待办，不是代码漏洞。
 - 社区发布者签名（包内 `.lull-signature.json`）只证明「持钥方签发了这个包」；
@@ -46,6 +50,8 @@ Lull 目前仅支持 Windows 10/11。其他平台没有官方构建，也不在�
 
 - 只从可信来源获取内容包；
 - 声明 `wallpaper.script` 的场景会在沙箱内执行 JavaScript：只安装信任作者的脚本包；
+- 声明 `wallpaper.pointer` 的场景能观察鼠标在桌面层上的移动位置（不含点击/按键）；
+  对隐私敏感的环境请不要安装这类场景；
 - 不在 `public/content/` 放置来源不明的 HTML；
 - 关注 `%TEMP%\lull\app.log` 与 `%TEMP%\lull_wallpaper.log` 的异常；
 - 原生宿主异常时先退出应用并确认桌面恢复，再提交日志。

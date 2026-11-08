@@ -11,8 +11,8 @@ __DIR__/
 
 A static package has no `main.js`: the iframe runs with `sandbox=""`, so **not a single
 line of script executes**. Geometry comes from pure CSS (`100%` / `vw` / `vh`), animation
-from `@keyframes` only, and parameters cannot reach it (a static package must not declare
-`wallpaper.params` / `wallpaper.sync`).
+from `@keyframes` only, and parameters/pointer cannot reach it (a static package must not
+declare `wallpaper.params` / `wallpaper.sync` / `wallpaper.pointer`).
 
 ## Development
 

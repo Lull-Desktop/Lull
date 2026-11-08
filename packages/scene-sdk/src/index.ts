@@ -17,6 +17,8 @@ export {
   type SceneLogMessage,
   type SceneParamValue,
   type ScenePerformanceHints,
+  type ScenePointer,
+  type ScenePointerMessage,
   type SceneReadyMessage,
   type SceneRect,
   type SceneSync,

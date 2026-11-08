@@ -6,6 +6,7 @@ import {
   isSafeContentEntry,
   parseSceneCatalog,
   parseSceneManifest,
+  sceneSupportsPointer,
 } from "./index";
 
 function validManifest(overrides: Record<string, unknown> = {}) {
@@ -327,6 +328,48 @@ describe("scene manifest", () => {
         { requireEntry: true },
       ),
     ).not.toThrow();
+  });
+
+  test("pointer requires script and hostApi 3", () => {
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities: ["wallpaper.viewport", "wallpaper.pointer"],
+          compatibility: { hostApi: 3 },
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/wallpaper\.script/);
+
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities: [
+            "wallpaper.viewport",
+            "wallpaper.script",
+            "wallpaper.pointer",
+          ],
+          compatibility: { hostApi: 2 },
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/hostApi/);
+
+    const manifest = parseSceneManifest(
+      validManifest({
+        capabilities: [
+          "wallpaper.viewport",
+          "wallpaper.script",
+          "wallpaper.pointer",
+        ],
+        compatibility: { hostApi: 3 },
+      }),
+      { requireEntry: true },
+    );
+    expect(sceneSupportsPointer(manifest)).toBe(true);
+    expect(sceneSupportsPointer(parseSceneManifest(validManifest()))).toBe(
+      false,
+    );
   });
 
   test("parses performance and compatibility metadata", () => {

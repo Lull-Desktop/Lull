@@ -6,7 +6,7 @@
  * 示例按包名导入 `@lull/scene-sdk`，优先取 dist，未构建时回落到 TS 源码，
  * 保证示例写法与第三方真实消费方式一致。
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -38,6 +38,7 @@ const resolveSceneSdk = {
 const SAMPLES = [
   { dir: "param-demo", entry: "src/main.ts" },
   { dir: "three-scene", entry: "src/main.ts" },
+  { dir: "pointer-demo", entry: "src/main.ts" },
 ];
 
 let built = 0;
@@ -50,10 +51,13 @@ for (const sample of SAMPLES) {
     continue;
   }
   mkdirSync(dirname(outfile), { recursive: true });
-  await build({
+  // write:false + 自己落盘：某些 Windows 环境里 esbuild 子进程直接写工作区会被
+  // 安全软件/沙箱拒绝（open ...: Access is denied），内存输出再写文件可绕开。
+  const result = await build({
     entryPoints: [entry],
     outfile,
     bundle: true,
+    write: false,
     format: "esm",
     target: "es2022",
     minify: true,
@@ -65,6 +69,11 @@ for (const sample of SAMPLES) {
       js: "// Built from src/main.ts by pnpm scenes:samples:build; do not edit.",
     },
   });
+  const output = result.outputFiles?.[0];
+  if (!output) {
+    throw new Error(`${sample.dir}: esbuild 没有产出文件`);
+  }
+  writeFileSync(outfile, output.contents);
   built += 1;
   console.log(`[scenes] 构建 ${sample.dir} → ${outfile}`);
 }

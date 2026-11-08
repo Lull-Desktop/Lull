@@ -5,6 +5,7 @@ import {
   SCENE_BRIDGE_PROTOCOL,
   sceneFrameMessage,
   sceneInitMessage,
+  scenePointerMessage,
   sceneVisibilityMessage,
 } from "./scene-bridge";
 
@@ -45,6 +46,14 @@ describe("scene bridge protocol", () => {
       type: "visibility",
       visible: false,
     });
+  });
+
+  test("pointer message carries only move state and local coordinates", () => {
+    const pointer = { x: 12.5, y: 30, inside: true, moving: false };
+    const message = scenePointerMessage(pointer);
+    expect(message).toEqual({ v: 1, type: "pointer", pointer });
+    expect(Object.keys(message)).toEqual(["v", "type", "pointer"]);
+    expect(Object.keys(pointer)).toEqual(["x", "y", "inside", "moving"]);
   });
 
   test("accepts only ready/log from the scene", () => {

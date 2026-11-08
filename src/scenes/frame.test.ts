@@ -163,7 +163,7 @@ test("scene params resolve from stored strings and manifest defaults", () => {
 test("incompatible host API or platform returns null", () => {
   expect(
     resolveSceneFrame(
-      scene({ compatibility: { hostApi: 3 } }),
+      scene({ compatibility: { hostApi: 4 } }),
       BASE_PARAMS,
       ENV,
     ),

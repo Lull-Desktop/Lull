@@ -3,7 +3,7 @@
 > 目标：让创作者**不修改 Lull 核心代码**就能开发、测试并分发壁纸场景。
 > 首版范围：内置媒体壁纸 + 随包官方场景（竹影）+ 外部内容包（静态 HTML/CSS 或声明
 > `wallpaper.script` 的沙箱脚本场景）。脚本场景通过 `@lull/scene-sdk` 的 postMessage 桥
-> 读取参数、画布几何与同步相位。
+> 读取参数、画布几何、同步相位与鼠标位置。
 
 ## 1. 场景分类
 
@@ -90,9 +90,9 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
 | `wallpaper.sync` | 场景支持按绝对时间对齐动画相位 | 缺失时 `sync.enabled` 恒为 `false`；外部场景必须同时声明 `wallpaper.script` 才能收到相位 |
 | `wallpaper.params` | 场景接受 Manifest 声明的参数 | 声明 `params` 时必填；外部场景还必须同时声明 `wallpaper.script`；Setting 只对声明该能力的场景渲染参数控件 |
 | `wallpaper.script` | 外部场景在 `sandbox="allow-scripts"` 的 iframe 内执行 JS，并通过 Scene SDK 桥读取帧 | 只对内容包有效；没有该能力的外部包仍按静态包加载（空 sandbox） |
+| `wallpaper.pointer` | 场景接受宿主动态下发的鼠标移动位置（`x/y/inside/moving`，无点击/按键） | 必须同时声明 `wallpaper.script` 与 `compatibility.hostApi >= 3`；宿主只在光标位于桌面层时下发 |
 
-`compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。当前宿主为 **`SCENE_HOST_API = 2`**；声明 `game` 绑定的场景必须声明 `compatibility.hostApi: 2`（老宿主会把该场景当作不兼容跳过）。
-当前宿主 API 版本是 `SCENE_HOST_API = 1`。
+`compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。当前宿主为 **`SCENE_HOST_API = 3`**；声明 `game` 绑定的场景必须声明 `compatibility.hostApi: 2`（或更高），声明 `wallpaper.pointer` 的场景必须声明 `compatibility.hostApi: 3`（老宿主会把该场景当作不兼容跳过）。
 
 ## 3. 内置媒体场景接口
 
@@ -187,9 +187,10 @@ public/content/
 
 ```text
 iframe 加载 → scene: { v:1, type:"ready", protocol:1 }
-host        → scene: { v:1, type:"init", hostApi:1, id, frame, visible }
+host        → scene: { v:1, type:"init", hostApi:3, id, frame, visible }
 host        → scene: { v:1, type:"frame", frame }        # 参数/几何/布局变化
 host        → scene: { v:1, type:"visibility", visible }
+host        → scene: { v:1, type:"pointer", pointer }    # 仅移动；声明 wallpaper.pointer 时
 scene       → host : { v:1, type:"log", level, message }
 ```
 
@@ -207,6 +208,16 @@ type SceneFrame = {
   params: Record<string, string | number | boolean>;
   reducedMotion: boolean;
   performance: { tier: "low" | "medium" | "high"; targetFps?: number } | null;
+};
+
+type ScenePointer = {
+  /** 场景绘制坐标系内的 CSS 像素（viewport=本屏；canvas=共享画布）。 */
+  x: number;
+  y: number;
+  /** 光标在桌面层上，且落在本场景绘制面内。 */
+  inside: boolean;
+  /** 最近约 120ms 内是否观察到移动；静止/移出桌面/隐藏时为 false。 */
+  moving: boolean;
 };
 ```
 
@@ -232,11 +243,53 @@ scene.onFrame((frame) => {
 - Setting 改参数 → Rust 写配置并热更壁纸 URL 哈希 → `SceneHost` 重算帧 →
   桥推送 `frame`，不需要重启壁纸。
 
+#### 鼠标位置（`wallpaper.pointer`）
+
+声明 `wallpaper.script` + `wallpaper.pointer` 且 `compatibility.hostApi >= 3` 的场景
+可以订阅鼠标移动：
+
+```ts
+const scene = await connectLullScene();
+const root = document.documentElement;
+scene.onPointer((pointer) => {
+  root.style.setProperty("--pointer-x", `${pointer.x}px`);
+  root.style.setProperty("--pointer-y", `${pointer.y}px`);
+  root.dataset.pointer = !pointer.inside
+    ? "outside"
+    : pointer.moving
+      ? "moving"
+      : "idle";
+});
+```
+
+事件传递机制：
+
+```text
+Win32 GetPhysicalCursorPos / WindowFromPoint（Rust 30Hz 采样、去重、idle 状态机）
+  → Tauri 定向事件 wallpaper-pointer（emit_to label=wallpaper-N）
+  → 壁纸顶层页面按 frame.view / frame.canvas / dpr 换算成本地 CSS 像素
+  → iframe postMessage { v:1, type:"pointer", pointer }
+  → @lull/scene-sdk 校验并回调 onPointer
+```
+
+点击过滤与桌面安全：
+
+- 壁纸窗口是 `WS_EX_TRANSPARENT` 的，DOM `mousemove` 根本不会触发；本方案也**不安装**
+  `WH_MOUSE_LL` 钩子，只采样光标坐标，因此点击从设计上就进不了这条链路；
+- 宿主不读取按键/滚轮/键盘状态，`pointer` 载荷只有 `x/y/inside/moving`；
+- 桥协议没有 `click` / `dblclick` / `mousedown` 等类型，未知类型被直接丢弃；
+- 只在光标位于桌面层（Progman / WorkerW）时下发；其他应用窗口、任务栏、开始菜单上
+  补发 `inside:false` 后停止更新；
+- 单击/双击但未移动时坐标不变，去重后零消息；壁纸窗口不 `SetCapture`、不抢焦点，
+  点击始终由桌面/其他窗口处理。
+
 完整可安装示例：
 - [`examples/scenes/param-demo`](../examples/scenes/param-demo)：`glow / tint / pulse`，
   1.1.0 新增 `blur / hue / ring`，可验证覆盖更新；
 - [`examples/scenes/three-scene`](../examples/scenes/three-scene)：Three.js / WebGL，
-  `speed / particles / tint / wireframe / tilt` 参数热更。
+  `speed / particles / tint / wireframe / tilt` 参数热更；
+- [`examples/scenes/pointer-demo`](../examples/scenes/pointer-demo)：`wallpaper.pointer`
+  驱动跟随光晕，验证“移动有反馈、点击落桌面”。
 
 ### 4.4 画布与 iframe
 
@@ -257,6 +310,8 @@ scene.onFrame((frame) => {
 - 不允许 `entry` 逃逸内容根目录（校验器与运行时双重检查）；
 - 壁纸窗口只通过 `window-wallpaper` 拿到 `content_packages`（只读目录）与事件订阅，
   没有安装/窗口/壁纸命令；
+- `wallpaper.pointer` 只读取光标坐标：不装鼠标钩子、不读按键，协议没有点击类消息；
+  壁纸窗口保持输入穿透，场景既收不到也拦不住桌面点击；
 - 每个包有 `integrity` 摘要，目录有签名；第三方包没有发布者签名，摘要只证明
   “包没被改过”，不证明来源；
 - WebView2 可能把 Tauri 初始化脚本注入子帧，脚本场景里仍可能看到
@@ -341,7 +396,8 @@ pnpm extensions:check # 校验官方场景摘要 / 清单 / 产物边界
 - manifest 必填字段、未知字段、id/版本格式、capability 白名单；
 - `params` 的类型、默认值、唯一 key、number 范围与 enum 选项；
 - 声明 `params` 必须同时有 `wallpaper.params`；外部场景的 `wallpaper.params` /
-  `wallpaper.sync` 必须同时有 `wallpaper.script`；
+  `wallpaper.sync` / `wallpaper.pointer` 必须同时有 `wallpaper.script`；
+- `wallpaper.pointer` 必须声明 `compatibility.hostApi >= 3`；
 - `performance` 档位与 `targetFps`；
 - `compatibility` 的 hostApi 范围与平台；
 - entry 相对路径安全性与文件存在性；
@@ -356,6 +412,7 @@ Vitest 还会解析随包目录与示例场景，防止文档与实现漂移。
 - `schemaVersion` 是破坏性变更开关；新增可选字段不升版本。
 - 宿主读到不支持的版本会拒绝该目录并保留内置媒体场景，不崩溃。
 - 内容包 `version` 独立于 Lull 版本；`compatibility.hostApi` 声明最低宿主 API，`maxHostApi` 声明最高可用版本，`platforms` 声明平台。
+- `wallpaper.pointer` 属于场景宿主 API 3；老宿主不认这个能力，会在目录层跳过该场景。
 - 场景 id 一经发布不要修改；改名视为新场景。
 - 同 id 安装新版本会**覆盖**旧目录（先备份再替换），壁纸按 manifest `version`
   重建 iframe；没有版本大小比较、回滚或降级保护，发布前先在测试环境验证。
@@ -368,6 +425,8 @@ Vitest 还会解析随包目录与示例场景，防止文档与实现漂移。
 - 不允许场景执行任意 Rust 命令；
 - 不允许场景创建/管理窗口；
 - 不允许场景修改全局配置；
+- 鼠标位置通道只传递移动状态与坐标，不提供点击、双击、拖拽按键、滚轮或键盘事件；
+  也不提供浏览器 DOM `mousemove` 回退；
 - 不允许场景在首版访问麦克风、文件系统或网络；
 - 不允许外部场景使用 `MediaSurface`、视频会话命令或读取宿主媒体 token；视频壁纸是内置 `lull.video`，本地素材由设置页登记，细节见 [Media Runtime](media-runtime.md)；
 - 不把 React 组件直接分发给第三方；外部场景用静态 HTML/CSS 或 `@lull/scene-sdk` 的

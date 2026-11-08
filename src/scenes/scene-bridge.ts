@@ -15,7 +15,11 @@ import type {
   GameRenderState,
   GameSnapshot,
 } from "@/lib/games";
-import { SCENE_HOST_API, type SceneFrame } from "@/sdk/scene";
+import {
+  SCENE_HOST_API,
+  type SceneFrame,
+  type ScenePointer,
+} from "@/sdk/scene";
 
 export const SCENE_BRIDGE_PROTOCOL = 1 as const;
 
@@ -44,6 +48,11 @@ export type SceneHostMessage =
       v: typeof SCENE_BRIDGE_PROTOCOL;
       type: "visibility";
       visible: boolean;
+    }
+  | {
+      v: typeof SCENE_BRIDGE_PROTOCOL;
+      type: "pointer";
+      pointer: ScenePointer;
     };
 
 export type ScenePluginMessage =
@@ -81,6 +90,16 @@ export function sceneFrameMessage(frame: SceneFrame): SceneHostMessage {
 
 export function sceneVisibilityMessage(visible: boolean): SceneHostMessage {
   return { v: SCENE_BRIDGE_PROTOCOL, type: "visibility", visible };
+}
+
+/**
+ * 鼠标位置消息：只承载移动状态与本地坐标。
+ *
+ * 桥协议里没有 click / dblclick / mousedown 等类型；宿主也从不读取按键状态，
+ * 因此点击操作不会被转发，也不会影响桌面输入。
+ */
+export function scenePointerMessage(pointer: ScenePointer): SceneHostMessage {
+  return { v: SCENE_BRIDGE_PROTOCOL, type: "pointer", pointer };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

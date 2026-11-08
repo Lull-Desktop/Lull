@@ -35,6 +35,24 @@ export type ScenePerformanceHints = {
   targetFps?: number;
 };
 
+/**
+ * 宿主下发的鼠标位置样本。
+ *
+ * 与宿主 `src/sdk/scene/types.ts` 的 `ScenePointer` 逐字段对应。
+ * 只包含移动状态与坐标：没有按键、点击次数、滚轮或修饰键字段。
+ * `x`/`y` 是场景绘制坐标系内的 CSS 像素：
+ * - `layout === "viewport"`：本屏 iframe 的左上角为原点；
+ * - `layout === "canvas"`：共享画布的左上角为原点。
+ */
+export type ScenePointer = {
+  x: number;
+  y: number;
+  /** 光标位于桌面层，且落在本场景绘制面内。 */
+  inside: boolean;
+  /** 最近约 120ms 内是否观察到移动；静止、移出桌面或壁纸隐藏时为 false。 */
+  moving: boolean;
+};
+
 /** 宿主每帧/每次参数变化下发的只读画面信息。 */
 export type SceneFrame = {
   mode: SceneDisplayMode;
@@ -71,10 +89,17 @@ export type SceneVisibilityMessage = {
   visible: boolean;
 };
 
+export type ScenePointerMessage = {
+  v: typeof SCENE_PROTOCOL;
+  type: "pointer";
+  pointer: ScenePointer;
+};
+
 export type SceneHostMessage =
   | SceneInitMessage
   | SceneFrameMessage
-  | SceneVisibilityMessage;
+  | SceneVisibilityMessage
+  | ScenePointerMessage;
 
 export type SceneReadyMessage = {
   v: typeof SCENE_PROTOCOL;
@@ -102,6 +127,19 @@ function isRect(value: unknown): value is SceneRect {
     typeof value.y === "number" &&
     typeof value.w === "number" &&
     typeof value.h === "number"
+  );
+}
+
+/** 只做协议层校验；未知字段忽略，方便宿主向前兼容地追加信息。 */
+export function isScenePointer(value: unknown): value is ScenePointer {
+  return (
+    isRecord(value) &&
+    typeof value.x === "number" &&
+    Number.isFinite(value.x) &&
+    typeof value.y === "number" &&
+    Number.isFinite(value.y) &&
+    typeof value.inside === "boolean" &&
+    typeof value.moving === "boolean"
   );
 }
 
@@ -147,6 +185,7 @@ export function isSceneHostMessage(value: unknown): value is SceneHostMessage {
     );
   }
   if (value.type === "frame") return isSceneFrame(value.frame);
+  if (value.type === "pointer") return isScenePointer(value.pointer);
   if (value.type === "visibility") return typeof value.visible === "boolean";
   return false;
 }

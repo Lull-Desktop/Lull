@@ -201,7 +201,7 @@ Lull 的取舍不多，但每条都很清楚。下面几点解释了它为什么
 
 | SDK                    | 版本      | 阶段           | 已知可能变动的部分                                    |
 | ---------------------- | ------- | ------------ | -------------------------------------------- |
-| `@lull/scene-sdk`（场景）  | `0.1.0` | Experimental | 帧字段增删、参数类型细化、显示模式与跨屏画布的声明方式、`hostApi` 升级规则   |
+| `@lull/scene-sdk`（场景）  | `0.3.0` | Experimental | 帧字段增删、参数类型细化、显示模式与跨屏画布的声明方式、鼠标位置通道、`hostApi` 升级规则   |
 | `@lull/widget-sdk`（工具） | `0.2.0` | Experimental | 能力粒度拆分（尤其音频 / 媒体边界）、桥方法参数、主题 token 命名、窗口布局字段 |
 
 两条路线的技术边界不一样，所以各自独立定级、独立演进：Scene SDK 负责背景怎么展示，Widget SDK 负责桌面工具怎么运行，一个进 Beta 不代表另一个也进。
@@ -245,7 +245,7 @@ src/
   components/              # 窗口外壳、共享 UI、资料库实现（播放器/白噪音/番茄钟在扩展包）
   styles/                  # Tailwind 主题与窗口动效
 packages/widget-sdk/       # 第三方插件侧 SDK：TypeScript 源码 → dist + .d.ts
-packages/scene-sdk/        # 场景侧 SDK：参数/几何/同步/可见性桥
+packages/scene-sdk/        # 场景侧 SDK：参数/几何/同步/可见性/鼠标位置桥
 extensions/official/       # 官方扩展源码（noise / player / bamboo 场景 + Vite 工程）
 extensions/bundled/        # 预构建随包扩展（drop-in；构建期复制到 dist）
 extensions/dist/           # 随包扩展构建产物（不入库，Tauri bundle.resources）
@@ -368,7 +368,7 @@ pnpm content:pack ./my-scene --out artifacts
 
 > 别用 Windows 自带的 `Compress-Archive` 或某些压缩工具，它们可能把 zip 条目写成反斜杠路径，Lull 安装器会按安全规则拒掉。`content:pack` 统一写正斜杠和 UTF-8。
 
-需要参数、几何或同步的场景，声明 `wallpaper.params`、`wallpaper.sync` 和 `wallpaper.script`，并把 `@lull/scene-sdk` 打进包内：
+需要参数、几何或同步的场景，声明 `wallpaper.params`、`wallpaper.sync` 和 `wallpaper.script`，并把 `@lull/scene-sdk` 打进包内；需要鼠标位置反馈时再加 `wallpaper.pointer`（仅移动，宿主 API 3）：
 
 ```powershell
 pnpm scenes:sdk
@@ -447,7 +447,7 @@ pnpm scenes:sdk
 - 安装是本地行为。只接受单场景包，包必须声明整包摘要，同 id 覆盖也算本地手动更新；社区包内 `.lull-signature.json` 的发布者验签已落地（默认只警告，`invalid`/`mismatch`/`revoked` 阻断），在线更新和回滚还没做。
 - 扩展不是通用插件系统。静态包不执行脚本，脚本包只能通过 Scene SDK 桥读帧，两者都拿不到宿主 DOM、原生调用和 IPC。
 - Game Runtime 目前到 P3 部分 + P4 四类渲染适配器：单实例、`host-tick` / `self-loop`（experimental）、`game-authority-*` 隐藏窗口、存档与 journal、命令/事件、**每游戏 1–8 个控制器窗口**（`controllers[]`：包内页面或 Widget；只有运行中实例可打开，停止/失败回收全部窗口；`@lull/game-sdk/controller` 与 `/game-controller` 壳）、设置页运行中实例操作区开关 + 托盘只跟随"壁纸激活 + 运行中"的游戏、Scene 只读 Replica（`game` 绑定 + `game.*` 桥）、**游戏包自带 `entry.replica` 直接作为壁纸**、暂停/恢复与 hidden、`games.json` 偏好（自动启动/启动恢复/上限/控制器跟随）、租约 failover 硬化、`@lull/game-adapter-{canvas,phaser,pixi,three}`、设置页「游戏」页签与 `@lull/game-sdk`。游戏开发挂载（`.lull-dev.json` 对游戏包）与 WebView 稳定性真机报告仍是后续工作，见 [Game Runtime](docs/game-runtime.md) §19。
-- 接口还在 0.x。`@lull/widget-sdk`（`0.2.0`）和 `@lull/scene-sdk`（`0.1.0`）随仓库构建，还没发到 npm，不承诺跨版本兼容，见[扩展接口的成熟度](#扩展接口的成熟度)。
+- 接口还在 0.x。`@lull/widget-sdk`（`0.2.0`）和 `@lull/scene-sdk`（`0.3.0`）随仓库构建，还没发到 npm，不承诺跨版本兼容，见[扩展接口的成熟度](#扩展接口的成熟度)。
 - 发布流程还没完备。安装包还没做代码签名，公开分发前要补签名和素材授权复核。
 
 ## 许可证与归属

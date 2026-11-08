@@ -83,6 +83,7 @@ const CAPABILITY_META: Record<
   "wallpaper.sync": { label: m.ext_cap_sync, level: "basic" },
   "wallpaper.params": { label: m.ext_cap_params, level: "basic" },
   "wallpaper.script": { label: m.ext_cap_script, level: "basic" },
+  "wallpaper.pointer": { label: m.ext_cap_pointer, level: "basic" },
 };
 
 export function capabilityLabel(capability: string): string {

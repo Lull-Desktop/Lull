@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>鼠标光晕</title>
+    <style>
+      :root {
+        --pointer-x: 50vw;
+        --pointer-y: 50vh;
+        --halo-scale: 0.85;
+        --halo-opacity: 0;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #050a10;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: radial-gradient(
+          circle at 50% 42%,
+          rgba(159, 199, 194, 0.06),
+          transparent 62%
+        );
+      }
+
+      .halo,
+      .ring {
+        position: absolute;
+        left: 0;
+        top: 0;
+        border-radius: 50%;
+        pointer-events: none;
+        transform: translate(var(--pointer-x), var(--pointer-y))
+          scale(var(--halo-scale));
+        opacity: var(--halo-opacity);
+        transition:
+          transform 90ms linear,
+          opacity 220ms ease;
+        will-change: transform, opacity;
+      }
+
+      .halo {
+        width: 520px;
+        height: 520px;
+        margin: -260px 0 0 -260px;
+        background: radial-gradient(
+          circle,
+          rgba(159, 199, 194, 0.5) 0%,
+          rgba(159, 199, 194, 0.16) 42%,
+          transparent 70%
+        );
+        filter: blur(2px);
+      }
+
+      .ring {
+        width: 132px;
+        height: 132px;
+        margin: -66px 0 0 -66px;
+        border: 1px solid rgba(159, 199, 194, 0.5);
+        box-shadow: 0 0 24px rgba(159, 199, 194, 0.22);
+      }
+
+      .hint {
+        position: absolute;
+        left: 50%;
+        bottom: 44px;
+        margin: 0;
+        transform: translateX(-50%);
+        color: rgba(226, 242, 239, 0.7);
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 13px;
+        letter-spacing: 0.08em;
+        text-align: center;
+        user-select: none;
+      }
+
+      .hint strong {
+        display: block;
+        margin-bottom: 6px;
+        color: rgba(239, 250, 248, 0.92);
+        font-size: 15px;
+        font-weight: 500;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .halo,
+        .ring {
+          transition: opacity 220ms ease;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="halo"></div>
+    <div class="ring"></div>
+    <p class="hint">
+      <strong>移动鼠标，光晕跟随</strong>
+      单击、双击与右键都会直接落到桌面
+    </p>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

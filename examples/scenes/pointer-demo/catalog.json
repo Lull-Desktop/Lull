@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "demo.pointer-scene",
+      "name": "鼠标光晕（脚本场景）",
+      "version": "1.0.0",
+      "description": "演示 wallpaper.pointer：只接收鼠标移动与坐标，点击、双击仍然直接落到桌面。",
+      "author": "Lull Demo",
+      "license": "CC-BY-4.0",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.canvas",
+        "wallpaper.script",
+        "wallpaper.pointer"
+      ],
+      "entry": "scenes/pointer-demo/index.html",
+      "theme": {
+        "background": "#050a10",
+        "accent": "#9fc7c2"
+      },
+      "performance": {
+        "tier": "low",
+        "targetFps": 30
+      },
+      "compatibility": {
+        "hostApi": 3,
+        "platforms": [
+          "windows"
+        ]
+      },
+      "integrity": {
+        "algorithm": "sha256",
+        "scope": "package",
+        "digest": "0c81ae3c0066172a00c3a2c4b762a3df999e1d4ee31b61897a170c453d399595"
+      }
+    }
+  ]
+}

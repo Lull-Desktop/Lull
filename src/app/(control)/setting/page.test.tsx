@@ -110,7 +110,7 @@ test("Page renders in browser mode (no tauri)", () => {
   expect(screen.getByRole("main")).toBeDefined();
 });
 
-test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 游戏 / 扩展 / 关于 排列，壁纸与噪音内容不再内嵌", () => {
+test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 环境游戏 / 扩展 / 关于 排列，壁纸与噪音内容不再内嵌", () => {
   renderSettingsPage();
 
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
@@ -118,7 +118,7 @@ test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 游戏 / 扩展 / �
     "壁纸",
     "音乐",
     "音境工坊",
-    "游戏",
+    "环境游戏",
     "扩展",
     "关于",
   ]);

@@ -8,7 +8,7 @@
 export const SCENE_SCHEMA_VERSION = 1 as const;
 
 /** 宿主 API 版本：清单里的 compatibility.hostApi 与它比较。破坏性变更才递增。 */
-export const SCENE_HOST_API = 2 as const;
+export const SCENE_HOST_API = 3 as const;
 
 export const SCENE_CAPABILITIES = [
   "wallpaper.viewport",
@@ -22,6 +22,11 @@ export const SCENE_CAPABILITIES = [
    * 内置场景由 React 组件直接渲染，不需要这个能力。
    */
   "wallpaper.script",
+  /**
+   * 场景接受宿主动态下发的鼠标位置（只有移动状态与坐标，没有点击/按键）。
+   * 只对脚本桥场景有效，必须同时声明 wallpaper.script，且 compatibility.hostApi >= 3。
+   */
+  "wallpaper.pointer",
 ] as const;
 
 export type SceneCapability = (typeof SCENE_CAPABILITIES)[number];
@@ -565,6 +570,9 @@ export function parseSceneManifest(
   if (external && has("wallpaper.sync") && !has("wallpaper.script")) {
     fail(where, "外部内容包的 wallpaper.sync 必须同时声明 wallpaper.script");
   }
+  if (has("wallpaper.pointer") && !has("wallpaper.script")) {
+    fail(where, "wallpaper.pointer 必须同时声明 wallpaper.script");
+  }
 
   const themeInput = input.theme;
   let theme: SceneThemeHints | undefined;
@@ -586,6 +594,13 @@ export function parseSceneManifest(
   const compatibility = parseCompatibility(input.compatibility, where);
   if (game && (compatibility === undefined || compatibility.hostApi < 2)) {
     fail(where, "声明 game 绑定时必须声明 compatibility.hostApi >= 2");
+  }
+  // 指针通道属于宿主 API 3；显式要求让旧宿主在清单层把它当作不兼容场景跳过。
+  if (
+    has("wallpaper.pointer") &&
+    (compatibility === undefined || compatibility.hostApi < 3)
+  ) {
+    fail(where, "声明 wallpaper.pointer 时必须声明 compatibility.hostApi >= 3");
   }
 
   return {
@@ -628,4 +643,9 @@ export function sceneSupportsParams(manifest: SceneManifest): boolean {
 /** 场景是否声明了跨屏同步；外部场景还需要脚本桥才能读到相位。 */
 export function sceneSupportsSync(manifest: SceneManifest): boolean {
   return manifest.capabilities.includes("wallpaper.sync");
+}
+
+/** 场景是否声明了鼠标位置通道；外部场景还需要脚本桥才能收到样本。 */
+export function sceneSupportsPointer(manifest: SceneManifest): boolean {
+  return manifest.capabilities.includes("wallpaper.pointer");
 }

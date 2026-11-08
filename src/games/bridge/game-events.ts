@@ -12,24 +12,9 @@ import {
   listen,
   type UnlistenFn,
 } from "@tauri-apps/api/event";
+import { currentWindowLabel, hasTauriRuntime } from "@/core/window-label";
 
-type TauriInternals = {
-  metadata?: {
-    currentWindow?: { label?: string };
-  };
-};
-
-function internals(): TauriInternals | undefined {
-  if (typeof window === "undefined") return undefined;
-  return (window as Window & { __TAURI_INTERNALS__?: TauriInternals })
-    .__TAURI_INTERNALS__;
-}
-
-/** 当前 Tauri 窗口 label；浏览器预览或测试返回 null。 */
-export function currentWindowLabel(): string | null {
-  const label = internals()?.metadata?.currentWindow?.label;
-  return typeof label === "string" && label.length > 0 ? label : null;
-}
+export { currentWindowLabel };
 
 /**
  * 监听定向到当前窗口的宿主事件。
@@ -48,7 +33,7 @@ export function listenGameEvent<T>(
       target: { kind: "AnyLabel", label },
     });
   }
-  if (internals()) {
+  if (hasTauriRuntime()) {
     console.error(
       `[game] 当前窗口没有 label，拒绝全局监听 ${event}（会导致多游戏串台）`,
     );

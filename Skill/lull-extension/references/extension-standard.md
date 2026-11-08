@@ -55,7 +55,7 @@ Both? -> split into two extensions; never mix manifest kinds in one package
 - **Three independent versions**: package `version` (yours), `hostApi` (host API),
   `protocol` (bridge protocol). Upgrading the SDK only changes how you call the bridge;
   it does not change the host API.
-- Current values: `WIDGET_HOST_API = 1`, `SCENE_HOST_API = 1`, `WIDGET_PROTOCOL = 1`,
+- Current values: `WIDGET_HOST_API = 1`, `SCENE_HOST_API = 3`, `WIDGET_PROTOCOL = 1`,
   `SCENE_PROTOCOL = 1`, widget `schemaVersion = 2`, scene/catalog `schemaVersion = 1`.
 - `schemaVersion` only increments for breaking field changes; new optional fields do **not**
   bump it.

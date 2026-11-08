@@ -159,6 +159,7 @@
   "ext_cap_sync": "Cross-monitor sync",
   "ext_cap_params": "Scene parameters",
   "ext_cap_script": "Scene script bridge",
+  "ext_cap_pointer": "Pointer position (move only)",
   "ext_level_required": "Required",
   "ext_level_hint": "Advisory",
   "ext_level_basic": "Basic",

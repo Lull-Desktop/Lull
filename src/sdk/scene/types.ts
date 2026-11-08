@@ -35,6 +35,24 @@ export type SceneSync = {
   epochMs: number;
 };
 
+/**
+ * 宿主动态下发的鼠标位置样本。
+ *
+ * 与 `packages/scene-sdk/src/protocol.ts` 的 `ScenePointer` 逐字段对应。
+ * 只包含移动状态与坐标：没有按键、点击次数、滚轮或修饰键字段。
+ * `x`/`y` 是场景绘制坐标系内的 CSS 像素：
+ * - `layout === "viewport"`：本屏 iframe 的左上角为原点；
+ * - `layout === "canvas"`：共享画布的左上角为原点。
+ */
+export type ScenePointer = {
+  x: number;
+  y: number;
+  /** 光标位于桌面层，且落在本场景绘制面内。 */
+  inside: boolean;
+  /** 最近约 120ms 内是否观察到移动；静止、移出桌面或壁纸隐藏时为 false。 */
+  moving: boolean;
+};
+
 export type SceneFrame = {
   /** 用户配置的显示模式；场景可据此区分 mirror 与 independent。 */
   mode: SceneDisplayMode;

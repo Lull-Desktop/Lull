@@ -29,6 +29,7 @@ pub const CAPABILITIES: &[&str] = &[
   "wallpaper.sync",
   "wallpaper.params",
   "wallpaper.script",
+  "wallpaper.pointer",
 ];
 
 const MAX_ID_LEN: usize = 64;
@@ -216,9 +217,12 @@ fn parse_capabilities(scene: &serde_json::Map<String, Value>) -> Result<Vec<Stri
   }
 
   let has = |capability: &str| capabilities.iter().any(|known| known == capability);
-  if !has("wallpaper.script") && (has("wallpaper.params") || has("wallpaper.sync")) {
+  if !has("wallpaper.script")
+    && (has("wallpaper.params") || has("wallpaper.sync") || has("wallpaper.pointer"))
+  {
     return Err(
-      "外部内容包的 wallpaper.params / wallpaper.sync 必须同时声明 wallpaper.script".to_string(),
+      "外部内容包的 wallpaper.params / wallpaper.sync / wallpaper.pointer 必须同时声明 wallpaper.script"
+        .to_string(),
     );
   }
   if let Some(params) = scene.get("params").filter(|value| !value.is_null()) {
@@ -375,6 +379,20 @@ mod tests {
     );
     assert!(write_catalog(&bundle, &sync_no_script).is_ok());
     assert!(parse(&bundle).is_err(), "sync 没有 script 必须拒绝");
+
+    let pointer_no_script = base.replace(
+      "\"wallpaper.viewport\"",
+      "\"wallpaper.viewport\", \"wallpaper.pointer\"",
+    );
+    assert!(write_catalog(&bundle, &pointer_no_script).is_ok());
+    assert!(parse(&bundle).is_err(), "pointer 没有 script 必须拒绝");
+
+    let pointer_with_script = pointer_no_script.replace(
+      "\"wallpaper.pointer\"]",
+      "\"wallpaper.pointer\", \"wallpaper.script\"]",
+    );
+    assert!(write_catalog(&bundle, &pointer_with_script).is_ok());
+    assert!(parse(&bundle).is_ok(), "pointer + script 必须通过");
 
     let _ = std::fs::remove_dir_all(&bundle);
   }

@@ -15,6 +15,7 @@ import {
   type SceneFrame,
   type SceneHostMessage,
   type SceneInitMessage,
+  type ScenePointer,
 } from "./protocol.js";
 import type { SceneTransport } from "./transport.js";
 
@@ -81,6 +82,18 @@ export function createSceneInitMessage(
     id: "demo.param-scene",
     frame: createSceneFrame(),
     visible: true,
+    ...overrides,
+  };
+}
+
+export function createScenePointer(
+  overrides: Partial<ScenePointer> = {},
+): ScenePointer {
+  return {
+    x: 120.5,
+    y: 640,
+    inside: true,
+    moving: true,
     ...overrides,
   };
 }

@@ -5,6 +5,7 @@ import {
   type SceneHostMessage,
   type SceneInitMessage,
   type SceneParamValue,
+  type ScenePointer,
 } from "./protocol.js";
 import {
   createWindowSceneTransport,
@@ -24,6 +25,8 @@ export type LullSceneClient = {
   readonly params: Record<string, SceneParamValue>;
   /** 当前窗口是否可见（关闭/隐藏时由宿主下发）。 */
   readonly visible: boolean;
+  /** 最近一次鼠标位置样本；init 之后、首个样本之前为 null。 */
+  readonly pointer: ScenePointer | null;
 
   /** 订阅帧更新；注册时立即回放当前帧。 */
   onFrame(listener: (frame: SceneFrame) => void): () => void;
@@ -33,6 +36,8 @@ export type LullSceneClient = {
   ): () => void;
   /** 订阅窗口可见性；注册时立即回放当前值。 */
   onVisibility(listener: (visible: boolean) => void): () => void;
+  /** 订阅鼠标位置（只含移动状态与坐标）；注册时回放当前值。 */
+  onPointer(listener: (pointer: ScenePointer) => void): () => void;
   /** 转发到宿主控制台，前缀 `[scene:<id>]`。 */
   log(message: string, level?: "log" | "warn" | "error"): void;
   /** 退订全部监听并拒绝后续调用。 */
@@ -48,6 +53,19 @@ export type ConnectLullSceneOptions = {
 
 /** 同一页面重复调用返回同一个连接。 */
 let singleton: Promise<LullSceneClient> | null = null;
+
+/**
+ * 只复制协议内的移动字段：未来宿主若在 pointer 里追加点击/按键信息，
+ * SDK 也不会把它们暴露给场景。
+ */
+function readPointer(pointer: ScenePointer): ScenePointer {
+  return {
+    x: pointer.x,
+    y: pointer.y,
+    inside: pointer.inside,
+    moving: pointer.moving,
+  };
+}
 
 export function connectLullScene(
   options: ConnectLullSceneOptions = {},
@@ -83,9 +101,11 @@ export function createLullSceneClient(
       (params: Record<string, SceneParamValue>) => void
     >();
     const visibilityListeners = new Set<(visible: boolean) => void>();
+    const pointerListeners = new Set<(pointer: ScenePointer) => void>();
 
     let init: SceneInitMessage | null = null;
     let currentFrame: SceneFrame | null = null;
+    let currentPointer: ScenePointer | null = null;
     let visible = true;
     let disposed = false;
     let settled = false;
@@ -130,6 +150,9 @@ export function createLullSceneClient(
       get visible() {
         return visible;
       },
+      get pointer() {
+        return currentPointer;
+      },
       onFrame(listener) {
         frameListeners.add(listener);
         if (currentFrame) listener(currentFrame);
@@ -151,6 +174,13 @@ export function createLullSceneClient(
           visibilityListeners.delete(listener);
         };
       },
+      onPointer(listener) {
+        pointerListeners.add(listener);
+        if (currentPointer) listener(currentPointer);
+        return () => {
+          pointerListeners.delete(listener);
+        };
+      },
       log(message, level = "log") {
         if (disposed) return;
         transport.send({
@@ -167,6 +197,8 @@ export function createLullSceneClient(
         frameListeners.clear();
         paramListeners.clear();
         visibilityListeners.clear();
+        pointerListeners.clear();
+        currentPointer = null;
       },
     };
 
@@ -176,6 +208,7 @@ export function createLullSceneClient(
       if (message.type === "init") {
         init = message;
         currentFrame = message.frame;
+        currentPointer = null;
         visible = message.visible;
         if (!settled) {
           settled = true;
@@ -190,6 +223,14 @@ export function createLullSceneClient(
       if (message.type === "frame") {
         currentFrame = message.frame;
         emitFrame();
+        return;
+      }
+
+      if (message.type === "pointer") {
+        // 只接受 init 之后的指针样本；init 之前的消息没有场景上下文。
+        if (!init) return;
+        currentPointer = readPointer(message.pointer);
+        for (const listener of [...pointerListeners]) listener(currentPointer);
         return;
       }
 

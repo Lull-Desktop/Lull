@@ -9,7 +9,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::{ffi, protocol, topology, watchdog, windows};
+use super::{ffi, pointer, protocol, topology, watchdog, windows};
 use crate::config::{DisplayMode, WallpaperConfig};
 
 pub(crate) struct ConfigState {
@@ -227,6 +227,7 @@ pub fn autostart(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     }
   }
 
+  pointer::spawn(app_handle.clone());
   watchdog::spawn(app_handle);
   Ok(())
 }
