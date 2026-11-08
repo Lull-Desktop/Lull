@@ -194,6 +194,10 @@ host        → scene: { v:1, type:"pointer", pointer }    # 仅移动；声明 
 scene       → host : { v:1, type:"log", level, message }
 ```
 
+> 自建桥必须在 iframe `load` 之后发送 `ready`：宿主在 `onLoad` 里会重置
+> ready 状态并补发 `init`，脚本执行期同步发送的 `ready` 会被这次重置覆盖，
+> 场景会一直停在未握手状态（收不到 `pointer` / `frame`）。
+
 `frame` 字段：
 
 ```ts

@@ -234,26 +234,20 @@ fn build_settings_menu(app: &AppHandle, toggle: &MenuItem<Wry>) -> tauri::Result
   Ok(menu)
 }
 
-/// 托盘「扩展」子菜单里的可执行项：工具直接开窗，壁纸打开壁纸素材库。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TrayExtensionKind {
-  Tool,
-  Scene,
-}
-
+/// 托盘「扩展」子菜单里的可执行项：组件（第三方工具）直接开窗。
 #[derive(Debug, Clone)]
 struct TrayExtension {
   id: String,
   name: String,
-  kind: TrayExtensionKind,
   enabled: bool,
 }
 
-/// 托盘「扩展」子菜单的入选规则：除游戏外的扩展都保留。
+/// 托盘「扩展」子菜单的入选规则：只收组件（第三方工具）。
 ///
 /// - 工具（widget）：第三方、非 Provider；停用的仍显示但菜单项置灰。
-/// - 壁纸（scene）：显示为壁纸素材库入口；不做启用过滤。
+/// - 壁纸（scene）：不再进入该子菜单；素材管理仍走「设置 ▸ 壁纸素材库」。
 /// - 游戏：由游戏页 / 「设置 ▸ 游戏控制器」管理，不进入扩展菜单。
+///
 /// 这条规则只作用于托盘，和设置页的分类筛选互不共享状态。
 fn tray_extension_allowed(
   category: Option<ExtensionCategory>,
@@ -261,55 +255,38 @@ fn tray_extension_allowed(
   is_provider: bool,
 ) -> bool {
   match category {
-    Some(ExtensionCategory::Game) | None => false,
-    Some(ExtensionCategory::Wallpaper) => true,
     Some(ExtensionCategory::Tool) => origin != "bundled" && !is_provider,
+    Some(ExtensionCategory::Wallpaper | ExtensionCategory::Game) | None => false,
   }
 }
 
-/// 统一扩展列表 → 托盘扩展菜单条目；游戏在这里被类别规则排除。
+/// 统一扩展列表 → 托盘扩展菜单条目；壁纸与游戏在这里被类别规则排除。
 fn tray_extensions(app: &AppHandle) -> Vec<TrayExtension> {
   crate::extension::extensions_list(app.clone())
     .into_iter()
     .filter_map(|item| {
-      let category = item.category()?;
-      // 坏掉的场景不提供快捷入口；仍可在扩展中心查看诊断。
-      if category == ExtensionCategory::Wallpaper
-        && matches!(item.status.as_str(), "invalid" | "tampered")
-      {
-        return None;
-      }
       if !tray_extension_allowed(
-        Some(category),
+        item.category(),
         &item.origin,
         crate::extension::slots::defs::slot_for_provides(&item.provides).is_some(),
       ) {
         return None;
       }
-      let (kind, enabled) = match category {
-        ExtensionCategory::Tool => (TrayExtensionKind::Tool, item.enabled == Some(true)),
-        ExtensionCategory::Wallpaper => (TrayExtensionKind::Scene, true),
-        ExtensionCategory::Game => return None,
-      };
       Some(TrayExtension {
         id: item.id,
         name: item.name,
-        kind,
-        enabled,
+        enabled: item.enabled == Some(true),
       })
     })
     .collect()
 }
 
+/// 组件条目的展示名：停用的仍保留在菜单里，追加「已停用」并由菜单项置灰。
 fn tray_extension_label(item: &TrayExtension) -> String {
-  match item.kind {
-    TrayExtensionKind::Scene => {
-      format!("{} · {}", crate::i18n::t("ext_kind_scene"), item.name)
-    }
-    TrayExtensionKind::Tool if !item.enabled => {
-      format!("{} · {}", item.name, crate::i18n::t("ext_state_disabled"))
-    }
-    _ => item.name.clone(),
+  if item.enabled {
+    item.name.clone()
+  } else {
+    format!("{} · {}", item.name, crate::i18n::t("ext_state_disabled"))
   }
 }
 
@@ -349,7 +326,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     )?);
   }
 
-  // 官方非 Provider 兼容项 + 第三方普通 Widget 仍收在「扩展」子菜单。
+  // 官方非 Provider 兼容项与功能槽位平铺在一级菜单；第三方组件收在「扩展」子菜单。
   let packages = crate::widget_package::store::list(app);
   let mut official_plain = packages
     .iter()
@@ -375,29 +352,19 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     )?);
   }
 
-  let enabled = tray_extensions(app);
-  let submenu = if enabled.is_empty() {
+  let components = tray_extensions(app);
+  let submenu = if components.is_empty() {
     None
   } else {
     let menu = Submenu::with_id(app, "extensions", crate::i18n::t("tray_extensions"), true)?;
-    let mut last_kind: Option<TrayExtensionKind> = None;
-    for item in &enabled {
-      if last_kind.is_some_and(|kind| kind != item.kind) {
-        menu.append(&PredefinedMenuItem::separator(app)?)?;
-      }
-      last_kind = Some(item.kind);
-      let id = match item.kind {
-        TrayExtensionKind::Tool => format!("ext-tool-{}", item.id),
-        TrayExtensionKind::Scene => format!("ext-scene-{}", item.id),
-      };
-      let entry = MenuItem::with_id(
+    for item in &components {
+      menu.append(&MenuItem::with_id(
         app,
-        id,
+        format!("ext-tool-{}", item.id),
         tray_extension_label(item),
         item.enabled,
         None::<&str>,
-      )?;
-      menu.append(&entry)?;
+      )?)?;
     }
     Some(menu)
   };
@@ -469,13 +436,6 @@ pub fn init(app: &tauri::App) -> tauri::Result<()> {
           tauri::async_runtime::spawn(async move {
             let _ = crate::widget_package::open(app, plugin_id).await;
           });
-          return;
-        }
-        if id.starts_with("ext-scene-") {
-          // 壁纸条目打开壁纸素材库；切换场景/游戏在「设置 ▸ 壁纸」页签完成。
-          if let Some(spec) = window_host::find("backdrop") {
-            window_host::open_async(app, spec);
-          }
           return;
         }
         // 兼容旧版本重建前的 ext-<id> 菜单项。
@@ -557,20 +517,20 @@ mod tests {
   }
 
   #[test]
-  fn tray_extensions_keep_everything_except_games() {
+  fn tray_extensions_only_list_third_party_tools() {
     use crate::extension::ExtensionCategory::{Game, Tool, Wallpaper};
 
-    // 工具：第三方、非 Provider 进入「扩展」菜单；停用项仍保留（菜单项置灰）。
+    // 组件：第三方、非 Provider 进入「扩展」菜单；停用项仍保留（菜单项置灰）。
     assert!(tray_extension_allowed(Some(Tool), "user", false));
     assert!(tray_extension_allowed(Some(Tool), "dev", false));
     assert!(!tray_extension_allowed(Some(Tool), "bundled", false));
     assert!(!tray_extension_allowed(Some(Tool), "user", true));
 
-    // 壁纸不按启用状态过滤（scene 没有启用位），保留为壁纸素材库入口。
-    assert!(tray_extension_allowed(Some(Wallpaper), "user", false));
-    assert!(tray_extension_allowed(Some(Wallpaper), "bundled", false));
+    // 壁纸入口已移除：不论来源都不再进入「扩展」菜单。
+    assert!(!tray_extension_allowed(Some(Wallpaper), "user", false));
+    assert!(!tray_extension_allowed(Some(Wallpaper), "bundled", false));
 
-    // 游戏与未知 kind 一律排除。
+    // 游戏仍由「设置 ▸ 游戏控制器」管理；未知 kind 一律排除。
     assert!(!tray_extension_allowed(Some(Game), "user", false));
     assert!(!tray_extension_allowed(None, "user", false));
   }
@@ -580,7 +540,6 @@ mod tests {
     let item = TrayExtension {
       id: "community-pomodoro".into(),
       name: "番茄钟".into(),
-      kind: TrayExtensionKind::Tool,
       enabled: false,
     };
     assert!(tray_extension_label(&item).starts_with("番茄钟 · "));
