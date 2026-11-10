@@ -1125,6 +1125,7 @@ export default function Settings() {
               <NoiseSettingsPanel client={mediaClient} />
             </LibraryPane>
           )}
+          {/* 开发版本未开放*/}
           {tab === "games" && (
             <main
               className="absolute inset-0"

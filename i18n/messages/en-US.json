@@ -516,7 +516,7 @@
   "library_playlist_track_added": "Added to the playlist.",
   "library_playlist_track_removed": "Removed from the playlist.",
   "library_history_cleared": "Play history cleared.",
-  "games_title": "Ambient Games",
+  "games_title": "Ambient Games (Beta)",
   "games_description": "Integrate with desktop environment, run autonomously, support low-frequency interaction.",
   "games_loading": "Loading games…",
   "games_empty": "No games installed yet.",

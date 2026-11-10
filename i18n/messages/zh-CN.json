@@ -516,7 +516,7 @@
   "library_playlist_track_added": "已加入歌单。",
   "library_playlist_track_removed": "已从歌单移除。",
   "library_history_cleared": "已清空播放历史。",
-  "games_title": "环境游戏",
+  "games_title": "环境游戏(Beta)",
   "games_description": "融入桌面环境、持续自主运行、支持低频交互的轻量游戏",
   "games_loading": "读取游戏列表…",
   "games_empty": "还没有安装游戏。",
