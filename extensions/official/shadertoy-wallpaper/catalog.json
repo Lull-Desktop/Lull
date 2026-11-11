@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "scenes": [
+    {
+      "schemaVersion": 1,
+      "type": "scene",
+      "id": "lull.shadertoy-wallpaper",
+      "name": "着色器 / Shadertoy",
+      "version": "1.0.0",
+      "description": "把用户自己提供的 GLSL 源码（Shadertoy Image 风格 mainImage 或自定义 main() 的 fragment、单 Pass）作为动态壁纸运行；源码在壁纸设置的参数面板里粘贴，或从 .glsl/.frag 文本文件载入；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。Run user-provided single-pass GLSL as a wallpaper; external inputs are emulated with placeholder textures.",
+      "author": "Lull",
+      "license": "GPL-3.0-or-later",
+      "capabilities": [
+        "wallpaper.viewport",
+        "wallpaper.canvas",
+        "wallpaper.sync",
+        "wallpaper.params",
+        "wallpaper.script",
+        "wallpaper.pointer"
+      ],
+      "entry": "scenes/shadertoy-wallpaper/index.html",
+      "theme": {
+        "background": "#05070a",
+        "accent": "#7ee787"
+      },
+      "params": [
+        {
+          "key": "source",
+          "type": "text",
+          "label": "着色器源码 / Shader source",
+          "description": "粘贴 GLSL 源码，或从本地 .glsl/.frag 文本文件载入。上限 128 KiB；支持 Shadertoy Image 风格的 mainImage 或自定义 main() 的 fragment；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。",
+          "default": ""
+        },
+        {
+          "key": "render-scale",
+          "type": "number",
+          "label": "渲染比例 / Render scale",
+          "description": "绘制分辨率相对屏幕的比例；越低越省 GPU。超过 4K 像素上限时会自动下调。",
+          "default": 1,
+          "min": 0.25,
+          "max": 1,
+          "step": 0.05
+        },
+        {
+          "key": "animation",
+          "type": "boolean",
+          "label": "动画 / Animation",
+          "description": "暂停后停止推进 iTime，画面保持在当前帧。",
+          "default": true
+        }
+      ],
+      "performance": {
+        "tier": "medium",
+        "targetFps": 60
+      },
+      "compatibility": {
+        "hostApi": 4,
+        "platforms": ["windows"]
+      }
+    }
+  ]
+}

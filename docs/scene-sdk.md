@@ -73,7 +73,7 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
 | `author` | — | 创作者署名 |
 | `theme.background` | — | 首帧防闪背景色（`#RRGGBB`） |
 | `theme.accent` | — | 目录/设置页强调色 |
-| `params` | — | 可选参数声明；每项含 `key/type/label/default`，number 可带 `min/max/step`，enum 必须带 `options`。声明参数时必须同时声明 `wallpaper.params`；内置场景经 `SceneProps` 读取，外部脚本场景经 `@lull/scene-sdk` 读取，外部静态包必须省略 |
+| `params` | — | 可选参数声明；每项含 `key/type/label/default`，number 可带 `min/max/step`，enum 必须带 `options`（`text` 见 §2.2）。声明参数时必须同时声明 `wallpaper.params`；内置场景经 `SceneProps` 读取，外部脚本场景经 `@lull/scene-sdk` 读取，外部静态包必须省略 |
 | `performance` | — | 性能提示：`tier` 为 `low/medium/high`，可选 `targetFps`（1-240） |
 | `compatibility` | — | 宿主兼容范围：`hostApi` 必填，可选 `maxHostApi` 与 `platforms` |
 | `game` | — | 只读游戏绑定：`{ id, role: "replica" }`；声明时必须同时声明 `wallpaper.script`，且 `compatibility.hostApi >= 2` |
@@ -92,7 +92,27 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
 | `wallpaper.script` | 外部场景在 `sandbox="allow-scripts"` 的 iframe 内执行 JS，并通过 Scene SDK 桥读取帧 | 只对内容包有效；没有该能力的外部包仍按静态包加载（空 sandbox） |
 | `wallpaper.pointer` | 场景接受宿主动态下发的鼠标移动位置（`x/y/inside/moving`，无点击/按键） | 必须同时声明 `wallpaper.script` 与 `compatibility.hostApi >= 3`；宿主只在光标位于桌面层时下发 |
 
-`compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。当前宿主为 **`SCENE_HOST_API = 3`**；声明 `game` 绑定的场景必须声明 `compatibility.hostApi: 2`（或更高），声明 `wallpaper.pointer` 的场景必须声明 `compatibility.hostApi: 3`（老宿主会把该场景当作不兼容跳过）。
+`compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。当前宿主为 **`SCENE_HOST_API = 4`**；声明 `game` 绑定的场景必须声明 `compatibility.hostApi: 2`（或更高），声明 `wallpaper.pointer` 的场景必须声明 `compatibility.hostApi: 3`（或更高），声明 `text` 参数（见 §2.2）的场景必须声明 `compatibility.hostApi: 4`（或更高）。
+
+### 2.2 参数类型
+
+| 类型 | 控件 | 说明 |
+| --- | --- | --- |
+| `number` | 滑条（同时有 `min/max`）或数字输入 | 超出范围由宿主夹取 |
+| `boolean` | 开关 | |
+| `string` | 单行输入 | 不能承载换行 |
+| `color` | 取色器 | `#RRGGBB` |
+| `enum` | 下拉 | 必须提供 `options` |
+| `text` | 多行文本 + 「从文件载入」 | 宿主 API 4；值仍是字符串，随壁纸 URL 哈希下发 |
+
+`text` 的约定：
+
+- 面板用 `textarea` 编辑，只在「应用」、失焦或 Ctrl/Cmd+Enter 时提交，避免每次按键都写配置并热更壁纸；
+- 「从文件载入」用标准 `<input type="file">` + File API 读取用户**显式选择**的本地文本文件
+  （`.glsl/.frag` 等只是选择提示），不扫描目录、不访问任意路径、不上传、不调用 Tauri IPC；
+- 宿主上限 128 KiB（`SCENE_TEXT_PARAM_MAX_CHARS`）；声明 `text` 参数的场景应自行再做一次
+  业务校验并给出可见错误，宿主只保证配置/哈希链路不被无界放大；
+- 值会随 `display.json` 持久化（重启恢复），不保存 `File` 对象或文件授权。
 
 ## 3. 内置媒体场景接口
 
@@ -265,6 +285,10 @@ scene.onPointer((pointer) => {
       : "idle";
 });
 ```
+
+`inside` 只表示光标当前是否落在绘制面内；需要连续指针状态的场景（例如 Shadertoy
+的 `iMouse`）应保留最后一次 `inside: true` 的坐标，不要把 `inside: false` 的样本
+当成 `(0,0)` 或清零。
 
 事件传递机制：
 

@@ -71,6 +71,16 @@ test("invalid stored values fall back to defaults", () => {
   });
 });
 
+test("text params pass multi-line content through unchanged", () => {
+  const defs: SceneParamDefinition[] = [
+    { key: "source", type: "text", label: "源码", default: "" },
+  ];
+  expect(resolveSceneParams(defs, undefined)).toEqual({ source: "" });
+  expect(resolveSceneParams(defs, { source: "line 1\nline 2" })).toEqual({
+    source: "line 1\nline 2",
+  });
+});
+
 test("ignores unknown stored keys", () => {
   expect(resolveSceneParams(DEFS, { unknown: "x" })).not.toHaveProperty(
     "unknown",

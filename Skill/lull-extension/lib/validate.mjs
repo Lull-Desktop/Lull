@@ -23,7 +23,8 @@ export const WIDGET_SCHEMA_VERSION = 2;
 /** The host only accepts hostApi 1. */
 export const WIDGET_HOST_API = 1;
 export const SCENE_SCHEMA_VERSION = 1;
-export const SCENE_HOST_API = 3;
+/** Must match `src/sdk/scene/manifest.ts` SCENE_HOST_API. */
+export const SCENE_HOST_API = 4;
 
 export const WIDGET_CAPABILITIES = [
   "widget.ui",
@@ -92,7 +93,7 @@ export const SCENE_CAPABILITIES = [
   "wallpaper.pointer",
 ];
 export const SCENE_PLATFORMS = ["windows", "macos", "linux"];
-export const SCENE_PARAM_TYPES = ["number", "boolean", "string", "color", "enum"];
+export const SCENE_PARAM_TYPES = ["number", "boolean", "string", "color", "enum", "text"];
 
 const WIDGET_ID = /^[a-z][a-z0-9-]{1,31}$/;
 const SCENE_ID = /^[a-z0-9][a-z0-9._-]{2,63}$/;
@@ -791,6 +792,20 @@ function validateSceneParams(scene, caps, add) {
   if (Array.isArray(caps) && !caps.includes("wallpaper.params")) {
     add("error", "S-PARAMS-CAP", "Declaring params requires wallpaper.params");
   }
+  // `text` (multi-line text) is host API 4: hosts below that reject the manifest.
+  const hasTextParam = params.some(
+    (param) => isRecord(param) && param.type === "text",
+  );
+  if (hasTextParam) {
+    const hostApi = scene.compatibility?.hostApi;
+    if (!Number.isInteger(hostApi) || hostApi < 4) {
+      add(
+        "error",
+        "S-PARAM-TEXT-HOST",
+        "text params require compatibility.hostApi >= 4 (host API 4)",
+      );
+    }
+  }
 
   const seen = new Set();
   params.forEach((param, index) => {
@@ -879,7 +894,7 @@ function validateSceneParams(scene, caps, add) {
           add("error", "S-PARAM-DEFAULT", `${at}.default must match one of options.value`);
         }
       }
-    } else if (type === "string") {
+    } else if (type === "string" || type === "text") {
       if (typeof value !== "string") add("error", "S-PARAM-DEFAULT", `${at}.default must be a string`);
     }
 

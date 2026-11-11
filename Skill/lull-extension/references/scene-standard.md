@@ -102,7 +102,11 @@ Every rule below is enforced:
 
 - `key`: `^[a-z][a-z0-9._-]{0,31}$`, unique per scene; `label` non-empty; `default` required.
 - Types: `number` (finite) / `boolean` / `string` / `color` (`#RRGGBB`) / `enum` (non-empty
-  `options`; `default` must hit one of `options.value`; option values unique).
+  `options`; `default` must hit one of `options.value`; option values unique) / `text`.
+- `text` is host API 4: multi-line string value (`default` may be empty), rendered as a
+  textarea with a generic "load from file" control in wallpaper settings. Declaring a
+  `text` param requires `compatibility.hostApi >= 4`; the host caps the value at 128 KiB
+  and the scene must do its own validation (`S-PARAM-TEXT-HOST`).
 - `min`/`max`/`step` apply to **number only**; `min <= max`, `step > 0`.
 - `options` applies to **enum only**; unknown fields are rejected.
 - A number with both `min` and `max` renders as a slider; otherwise a numeric input.

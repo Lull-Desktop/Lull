@@ -9,13 +9,17 @@ use super::topology::{virtual_bounds_from, MonitorInfo};
 use crate::config::{DisplayMode, WallpaperConfig};
 
 fn encode_uri_component(input: &str) -> String {
-  const UNRESERVED: &[u8] = b"-_.~";
+  const HEX: &[u8; 16] = b"0123456789ABCDEF";
+  // 场景参数可以携带较大的文本（例如着色器源码）；逐字节 `format!` 会为每个
+  // 被编码字节分配一个 String，这里改成查表 push，输出保持与旧实现逐字节一致。
   let mut out = String::with_capacity(input.len());
   for &byte in input.as_bytes() {
-    if byte.is_ascii_alphanumeric() || UNRESERVED.contains(&byte) {
+    if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
       out.push(byte as char);
     } else {
-      out.push_str(&format!("%{byte:02X}"));
+      out.push('%');
+      out.push(HEX[(byte >> 4) as usize] as char);
+      out.push(HEX[(byte & 0x0f) as usize] as char);
     }
   }
   out
@@ -162,6 +166,34 @@ mod tests {
       &BTreeMap::new(),
     );
     assert!(independent.starts_with("#mode=independent&sync=1&scene=lull.bamboo&"));
+  }
+
+  #[test]
+  fn uri_component_encoding_matches_js_semantics() {
+    assert_eq!(encode_uri_component("a b\"c\nd"), "a%20b%22c%0Ad");
+    assert_eq!(encode_uri_component("-_.~AZ09"), "-_.~AZ09");
+    // 非 ASCII 按 UTF-8 逐字节百分号编码。
+    assert_eq!(encode_uri_component("着色"), "%E7%9D%80%E8%89%B2");
+  }
+
+  /// 着色器源码是常规参数（128 KiB 上限）；这里确认编码后的哈希仍远低于
+  /// Chromium 的 URL 上限（约 2 MB），且走的是同一条纯函数链路。
+  #[test]
+  fn wallpaper_hash_keeps_large_text_params_within_url_budget() {
+    let mut params = BTreeMap::new();
+    params.insert("source".to_string(), "x".repeat(128 * 1024));
+    let hash = wallpaper_hash(
+      DisplayMode::Mirror,
+      true,
+      "lull.shadertoy-wallpaper",
+      None,
+      (0, 0, 1920, 1080),
+      (0, 0, 1920, 1080),
+      &params,
+    );
+    assert!(hash.contains("scene=lull.shadertoy-wallpaper"));
+    assert!(hash.len() > 128 * 1024);
+    assert!(hash.len() < 2 * 1024 * 1024);
   }
 
   #[test]

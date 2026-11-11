@@ -1,0 +1,73 @@
+/* 壁纸场景：画布铺满绘制区域，状态层只做只读提示（壁纸窗口点击穿透）。 */
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #05070a;
+}
+
+.shader-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #05070a;
+}
+
+.shader-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.shader-status {
+  position: absolute;
+  left: 50%;
+  bottom: 6vh;
+  transform: translateX(-50%);
+  max-width: min(880px, 82vw);
+  pointer-events: none;
+  font-family:
+    ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+.shader-status-card {
+  border: 1px solid rgba(126, 231, 135, 0.22);
+  border-radius: 12px;
+  background: rgba(5, 7, 10, 0.86);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  padding: 14px 18px;
+  color: #d7e3da;
+}
+
+.shader-status-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #e8f5ea;
+}
+
+.shader-status-detail {
+  margin: 0;
+  max-height: 38vh;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #b7c4bb;
+}
+
+.shader-status[data-kind="error"] .shader-status-card,
+.shader-status[data-kind="perf"] .shader-status-card {
+  border-color: rgba(255, 122, 122, 0.32);
+}
+
+.shader-status[data-kind="error"] .shader-status-title,
+.shader-status[data-kind="perf"] .shader-status-title {
+  color: #ffb4b4;
+}

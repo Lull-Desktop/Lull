@@ -163,7 +163,7 @@ test("scene params resolve from stored strings and manifest defaults", () => {
 test("incompatible host API or platform returns null", () => {
   expect(
     resolveSceneFrame(
-      scene({ compatibility: { hostApi: 4 } }),
+      scene({ compatibility: { hostApi: 5 } }),
       BASE_PARAMS,
       ENV,
     ),
@@ -175,6 +175,20 @@ test("incompatible host API or platform returns null", () => {
       ENV,
     ),
   ).toBeNull();
+});
+
+test("host API 4 text params are compatible and reach the frame", () => {
+  const entry = scene({
+    capabilities: ["wallpaper.viewport", "wallpaper.params"],
+    compatibility: { hostApi: 4 },
+    params: [{ key: "source", type: "text", label: "源码", default: "" }],
+  });
+  const frame = resolveSceneFrame(
+    entry,
+    { ...BASE_PARAMS, params: { source: "void mainImage() {}" } },
+    ENV,
+  );
+  expect(frame?.params.source).toBe("void mainImage() {}");
 });
 
 test("passes reduced motion and performance hints to the scene", () => {

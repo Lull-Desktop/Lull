@@ -37,7 +37,7 @@
 ### 1.1 目标
 
 - 安装包（MSI / NSIS / 便携版 zip）自带 `noise`、`player` 两个标准 Widget 包，
-  以及 `lull.bamboo` 一个官方场景包。
+  以及 `lull.bamboo`、`lull.shadertoy-wallpaper` 两个官方场景包。
 - 扩展中心把它们显示为「官方 · 随应用分发」：工具可停用 / 重新启用、查看详情与能力，
   场景可查看详情与去素材管理；两者都**不可卸载**，用户安装包不能占用这些 id。
 - 行为与迁移前一致：
@@ -47,6 +47,9 @@
     播放模式、智能随机 Profile 与五项滑杆、UI 音效、关窗继续播放。
   - 竹影：深夜竹林、薄雾参数、时钟、跨屏画布定位与同步相位；默认场景仍是
     `lull.bamboo`，由官方扩展提供，不再编译进宿主。
+  - 着色器：运行用户提供的单 Pass GLSL（Shadertoy Image 子集）；源码在壁纸参数面板
+    粘贴或从 `.glsl/.frag` 文本文件载入，扩展内部完成识别、编译、渲染与错误展示。
+    宿主的唯一新增能力是通用 `text` 参数类型（host API 4），没有 Shader 专用 API。
 - 官方包随 App 升级：Widget 的授权与用户状态保留，新增能力自动补授，用户此前的撤销保持撤销；
   scene 只按版本重建壁纸 iframe。
 - 完整性由构建期摘要保证，运行时只读复核；缺锁 / 摘要不符拒绝加载并可诊断。
@@ -103,6 +106,18 @@ extensions/official/bamboo/
   catalog.json                 # schemaVersion 1，scenes 恰好一条
   index.html                   # Vite 构建入口（源码）
   src/                         # 场景 DOM / CSS / Scene SDK 连接
+```
+
+`shadertoy-wallpaper` 同构（产物 id `lull.shadertoy-wallpaper`，`entry` 为
+`scenes/shadertoy-wallpaper/index.html`），源码里额外有 `fixtures/`（手工验证用示例，
+不进入构建产物）：
+
+```text
+extensions/official/shadertoy-wallpaper/
+  catalog.json                 # 参数：source(text) / render-scale(number) / animation(boolean)
+  index.html
+  src/                         # source/profile、adapter、WebGL runtime、Scene SDK
+  fixtures/{gradient,flow,invalid}.frag
 ```
 
 源码目录名可以与场景 id 不同（`bamboo` → 产物 id `lull.bamboo`）；构建后：
@@ -178,6 +193,11 @@ extensions/
       catalog.json
       index.html
       src/
+    shadertoy-wallpaper/         # P8：着色器场景包源码（Vite 产物 id=lull.shadertoy-wallpaper）
+      catalog.json
+      index.html
+      src/
+      fixtures/
   bundled/                    # 预构建标准包（drop-in）：构建期复制 + 重算摘要
     README.md                 # 约定说明（不是包目录）
     webgl-fluid/              # 例：产物 id=community.webgl-fluid
@@ -403,6 +423,7 @@ Scene：`content_package::store::package_dir`：官方 `extensions/dist/<id>/cat
 | P4 | 播放器迁移：移动 UI、播放器会话 hook、封面、抽屉宽度/锚点，删除内置 player |
 | P5 | 发布加固：便携版、CI、升级 / 篡改 / 缺资源测试、文档与 Skill 同步 |
 | P6 | 竹影迁移为官方 scene 包；删除内置 bamboo / aurora / dusk，宿主只保留媒体壁纸 |
+| P8 | 新增官方 scene 包 `shadertoy-wallpaper`（`lull.shadertoy-wallpaper`）；宿主新增通用 `text` 参数类型（host API 4），无 Shader 专用 API |
 
 迁移后删除（git 历史保留）：
 
@@ -438,12 +459,18 @@ localStorage 偏好（启动静音、播放模式/音量）会一次性重置；
 | 字体服务不可用 | 回退系统字体栈；token fallback 保证布局不塌 |
 | 宽度 / 高度请求越界 | 夹取到清单范围与工作区；返回 `applied: false` 并记录原因 |
 | 便携版漏收 `extensions/` | `package-release.mjs` 直接失败，不产出缺资源的包 |
+| 着色器源码编译 / 链接失败 | 扩展保留旧 Program 继续渲染，壁纸上显示原始编译器日志；不写盘、不自动修复 |
+| 着色器源码过大 / 外部输入 | 源码超限报错；`iChannel*` 由占位纹理运行并在壁纸内提示，不下载真实资源 |
+| 粘贴整页 HTML/JS 或多 Pass 示例 | 识别为 `unsupported-source`，提示只粘贴单个 `mainImage` / `main()` 的 GLSL，不猜测 Pass |
 
 ## 12. 验收
 
-- [ ] MSI / NSIS / 便携版安装后，`noise`、`player`、`lull.bamboo` 默认可用，托盘与扩展中心入口正确。
+- [ ] MSI / NSIS / 便携版安装后，`noise`、`player`、`lull.bamboo`、`lull.shadertoy-wallpaper` 默认可用，托盘与扩展中心入口正确。
 - [ ] 扩展中心显示「官方」徽章；Widget 可停用 / 重新启用，Scene 可去素材管理；两者不能卸载。
 - [ ] 默认壁纸是官方竹影；薄雾参数、时钟、跨屏同步正常；缺包时回退媒体壁纸。
+- [ ] 着色器壁纸：粘贴 / 从文件载入 `mainImage` 或自定义 `main()` 源码均可运行；非法源码显示编译日志且不破坏旧画面；重启后源码恢复。
+- [ ] 着色器壁纸的鼠标位置：`iMouse.xy` 跟随桌面光标（左下原点、与 `iResolution` 同单位）；光标切到其他窗口或离开桌面后保持最后位置，不跳回负坐标；`zw` 为 0（无按键）。
+- [ ] 着色器壁纸的外部输入：含 `iChannel0` 的源码可加载运行；iChannel0 显示程序化噪声、iChannel1-3 为黑色；壁纸内出现 6 秒占位提示，`scene.log` 有对应警告。
 - [ ] 音境工坊与播放器的功能逐项对齐（见 §1.1），封面、抽屉宽度、贴高正常。
 - [ ] App 升级后官方包更新、Widget 停用状态与状态 KV 保留、清单不再触发 `needs-review`。
 - [ ] 篡改 / 删除官方包文件后拒绝加载并给出诊断；重装后恢复。

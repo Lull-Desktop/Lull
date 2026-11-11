@@ -7,8 +7,14 @@
 
 export const SCENE_SCHEMA_VERSION = 1 as const;
 
-/** 宿主 API 版本：清单里的 compatibility.hostApi 与它比较。破坏性变更才递增。 */
-export const SCENE_HOST_API = 3 as const;
+/**
+ * 宿主 API 版本：清单里的 compatibility.hostApi 与它比较。
+ *
+ * 破坏性变更才递增；新增参数类型属于能力扩展，声明它的场景必须写更高的
+ * `compatibility.hostApi`，旧宿主会把该场景当作不兼容跳过（清单层拒绝）。
+ * 4：新增 `text` 参数类型（多行文本，面板支持从本地文本文件载入）。
+ */
+export const SCENE_HOST_API = 4 as const;
 
 export const SCENE_CAPABILITIES = [
   "wallpaper.viewport",
@@ -40,6 +46,11 @@ export const SCENE_PARAM_TYPES = [
   "string",
   "color",
   "enum",
+  /**
+   * 多行文本（宿主 API 4）：面板渲染 textarea，并允许从本地文本文件载入内容。
+   * 值仍以字符串随 URL 哈希下发；宿主与场景各自设置长度上限。
+   */
+  "text",
 ] as const;
 export type SceneParamType = (typeof SCENE_PARAM_TYPES)[number];
 
@@ -333,6 +344,10 @@ function parseSceneParams(
         fail(at, "enum 参数的 default 必须命中 options.value");
       }
       enumOptions = options;
+    } else if (type === "text") {
+      if (typeof defaultValue !== "string") {
+        fail(at, "text 参数的 default 必须是字符串（可以为空）");
+      }
     } else if (typeof defaultValue !== "string") {
       fail(at, "string 参数的 default 必须是字符串");
     }
@@ -601,6 +616,14 @@ export function parseSceneManifest(
     (compatibility === undefined || compatibility.hostApi < 3)
   ) {
     fail(where, "声明 wallpaper.pointer 时必须声明 compatibility.hostApi >= 3");
+  }
+  // text 参数属于宿主 API 4（旧宿主不认识该类型，会在清单层拒绝整份清单）。
+  const hasTextParam = params?.some((param) => param.type === "text") ?? false;
+  if (
+    hasTextParam &&
+    (compatibility === undefined || compatibility.hostApi < 4)
+  ) {
+    fail(where, "声明 text 参数时必须声明 compatibility.hostApi >= 4");
   }
 
   return {

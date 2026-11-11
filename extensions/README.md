@@ -16,6 +16,7 @@ extensions/official/
   noise/         # P3：音境工坊（React + 媒体 SDK）
   player/        # P4：播放器（React + Media Hub 会话）
   bamboo/        # 竹影壁纸（场景包；构建产物 id=lull.bamboo）
+  shadertoy-wallpaper/  # P8：着色器壁纸（场景包；构建产物 id=lull.shadertoy-wallpaper）
   _shared/       # 官方扩展共享的构建期声明（virtual messages 类型等）
 extensions/bundled/  # 预构建标准包（drop-in；构建期复制到 dist）
   README.md          # 约定说明（不是包目录）
@@ -45,6 +46,7 @@ extensions/dist/  # 构建产物（gitignore，保留 .gitkeep 供 bundle.resour
 ```powershell
 pnpm extensions:build                 # 构建全部官方扩展 + 刷新全部 bundled 包 → extensions/dist/<id>/
 pnpm extensions:build bamboo          # 只构建竹影（也可用产物 id lull.bamboo）；bundled 仍会刷新
+pnpm extensions:build shadertoy-wallpaper  # 只构建着色器场景（产物 id lull.shadertoy-wallpaper）
 pnpm extensions:dev player            # Tier 2：Vite dev server（仅 widget）
 pnpm extensions:mount player          # 把 widget 源码目录写进宿主 dev 配置
 pnpm extensions:watch bamboo          # Tier 1：监听源码变化并重建；宿主里切场景重载

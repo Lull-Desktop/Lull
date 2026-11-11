@@ -1,4 +1,7 @@
 import { describe, expect, test } from "vitest";
+import shadertoyWallpaperCatalog from "../../../extensions/official/shadertoy-wallpaper/catalog.json" with {
+  type: "json",
+};
 import catalogJson from "../../../public/content/catalog.json" with {
   type: "json",
 };
@@ -252,6 +255,46 @@ describe("scene manifest", () => {
       min: 0,
       max: 1,
     });
+  });
+
+  test("parses text params (host API 4) and rejects lower hostApi", () => {
+    const capabilities = ["wallpaper.viewport", "wallpaper.params"];
+    const params = [
+      { key: "source", type: "text", label: "源码", default: "" },
+    ];
+    const manifest = parseSceneManifest(
+      validManifest({ capabilities, params, compatibility: { hostApi: 4 } }),
+    );
+    expect(manifest.params?.[0]).toMatchObject({ type: "text", default: "" });
+
+    expect(() =>
+      parseSceneManifest(
+        validManifest({ capabilities, params, compatibility: { hostApi: 3 } }),
+      ),
+    ).toThrow(/hostApi/);
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities,
+          params: [{ key: "source", type: "text", label: "源码", default: 1 }],
+          compatibility: { hostApi: 4 },
+        }),
+      ),
+    ).toThrow(/default/);
+  });
+
+  test("official shadertoy scene manifest satisfies the host schema", () => {
+    const catalog = shadertoyWallpaperCatalog as { scenes: unknown[] };
+    const manifest = parseSceneManifest(catalog.scenes[0], {
+      requireEntry: true,
+      where: "lull.shadertoy-wallpaper",
+    });
+    expect(manifest.id).toBe("lull.shadertoy-wallpaper");
+    expect(manifest.entry).toBe("scenes/shadertoy-wallpaper/index.html");
+    expect(manifest.capabilities).toContain("wallpaper.script");
+    expect(manifest.capabilities).toContain("wallpaper.pointer");
+    expect(manifest.params?.some((param) => param.type === "text")).toBe(true);
+    expect(manifest.compatibility?.hostApi).toBeGreaterThanOrEqual(4);
   });
 
   test("rejects invalid params", () => {

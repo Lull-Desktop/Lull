@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import {
   Select,
   SelectContent,
@@ -35,6 +35,35 @@ function initialDraft(
 
 const INPUT_CLASS =
   "h-8 rounded-lg border border-border bg-background px-2 text-sm text-ink tabular-nums";
+
+/**
+ * 多行文本参数（`text`）的宿主上限。
+ *
+ * 值会随壁纸 URL 哈希下发，两侧都不能无界放大；官方 shader 场景声明同样的
+ * 上限（见 `extensions/official/shadertoy-wallpaper/src/source/source-model.ts`），
+ * 修改时保持同步。
+ */
+export const SCENE_TEXT_PARAM_MAX_CHARS = 128 * 1024;
+
+/**
+ * 读取前的字节上限：UTF-8 每个字符最多 4 字节，因此字节数超过 4 倍字符上限时
+ * 内容一定超限；先拒绝可以避免把超大文件整个读进内存。
+ */
+const SCENE_TEXT_FILE_MAX_BYTES = SCENE_TEXT_PARAM_MAX_CHARS * 4;
+
+/** 文本类文件的提示过滤器；浏览器仍允许用户切到“所有文件”。 */
+const TEXT_FILE_ACCEPT = ".txt,.glsl,.frag,text/plain";
+
+function readFileText(file: File): Promise<string> {
+  if (typeof file.text === "function") return file.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.readAsText(file);
+  });
+}
 
 type RangedNumberParam = SceneParamDefinition & {
   type: "number";
@@ -86,6 +115,188 @@ function formatNumber(value: number, step: number): string {
   return value.toFixed(decimalsForStep(step));
 }
 
+type TextParamFieldProps = {
+  definition: SceneParamDefinition;
+  /** 面板里正在编辑的草稿。 */
+  value: string;
+  /** 宿主已保存的值；用于判断是否脏。 */
+  committed: string;
+  onDraft: (value: string) => void;
+  onCommit: (value: string) => void;
+};
+
+/**
+ * 多行文本参数：textarea + 通用“从文件载入”。
+ *
+ * 大文本不做逐键提交（会触发整条远程配置/哈希链路），只在应用按钮、失焦或
+ * Ctrl/Cmd+Enter 时提交；文件载入成功后立即提交一次。
+ */
+function TextParamField({
+  definition,
+  value,
+  committed,
+  onDraft,
+  onCommit,
+}: TextParamFieldProps) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    kind: "info" | "error";
+    text: string;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dirty = value !== committed;
+
+  const tooLarge = (): boolean => {
+    if (value.length <= SCENE_TEXT_PARAM_MAX_CHARS) return false;
+    setNotice({
+      kind: "error",
+      text: m.scene_param_text_file_too_large({
+        limit: String(Math.round(SCENE_TEXT_PARAM_MAX_CHARS / 1024)),
+      }),
+    });
+    return true;
+  };
+
+  const commit = (): void => {
+    if (!dirty || busy || tooLarge()) return;
+    onCommit(value);
+  };
+
+  const handleFile = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ): Promise<void> => {
+    const file = event.target.files?.[0];
+    // 清空 value：允许再次选择同一个文件（“重新载入”）。
+    event.target.value = "";
+    if (!file) return;
+    setNotice(null);
+    setBusy(true);
+    try {
+      if (file.size === 0) {
+        setNotice({ kind: "error", text: m.scene_param_text_file_empty() });
+        return;
+      }
+      if (file.size > SCENE_TEXT_FILE_MAX_BYTES) {
+        setNotice({
+          kind: "error",
+          text: m.scene_param_text_file_too_large({
+            limit: String(Math.round(SCENE_TEXT_PARAM_MAX_CHARS / 1024)),
+          }),
+        });
+        return;
+      }
+      const text = await readFileText(file);
+      if (text.length === 0) {
+        setNotice({ kind: "error", text: m.scene_param_text_file_empty() });
+        return;
+      }
+      if (text.length > SCENE_TEXT_PARAM_MAX_CHARS) {
+        setNotice({
+          kind: "error",
+          text: m.scene_param_text_file_too_large({
+            limit: String(Math.round(SCENE_TEXT_PARAM_MAX_CHARS / 1024)),
+          }),
+        });
+        return;
+      }
+      setFileName(file.name);
+      setNotice({
+        kind: "info",
+        text: m.scene_param_text_loaded({
+          name: file.name,
+          count: String(text.length),
+        }),
+      });
+      onDraft(text);
+      onCommit(text);
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: m.scene_param_text_file_read_failed({
+          reason: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm text-ink-soft">{definition.label}</div>
+          {definition.description && (
+            <div className="text-xs text-muted-foreground">
+              {definition.description}
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            className="text-xs text-muted-foreground transition-colors hover:text-ink disabled:opacity-50"
+            disabled={busy}
+            onClick={() => fileRef.current?.click()}
+          >
+            {m.scene_param_text_load_file()}
+          </button>
+          <button
+            type="button"
+            className="text-xs text-ink-soft transition-colors hover:text-ink disabled:opacity-50"
+            disabled={!dirty || busy}
+            onClick={commit}
+          >
+            {m.scene_param_text_apply()}
+          </button>
+        </div>
+      </div>
+      <textarea
+        aria-label={definition.label}
+        className={cn(
+          INPUT_CLASS,
+          "block h-40 w-full resize-y whitespace-pre font-mono text-xs leading-5",
+        )}
+        placeholder={m.scene_param_text_placeholder()}
+        spellCheck={false}
+        value={value}
+        onChange={(event) => onDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          }
+        }}
+      />
+      <input
+        ref={fileRef}
+        type="file"
+        accept={TEXT_FILE_ACCEPT}
+        aria-label={m.scene_param_text_load_file()}
+        className="hidden"
+        onChange={(event) => void handleFile(event)}
+      />
+      {notice ? (
+        <p
+          role={notice.kind === "error" ? "alert" : "status"}
+          className={cn(
+            "text-xs",
+            notice.kind === "error"
+              ? "text-destructive"
+              : "text-muted-foreground",
+          )}
+        >
+          {notice.text}
+        </p>
+      ) : fileName ? (
+        <p className="text-xs text-muted-foreground">{fileName}</p>
+      ) : null}
+    </div>
+  );
+}
+
 /** 场景参数的通用编辑器：按 Manifest 类型渲染控件，提交时把字符串写回宿主。 */
 export function SceneParamFields({
   definitions,
@@ -127,6 +338,19 @@ export function SceneParamFields({
         const value = draft[definition.key] ?? "";
         const commit = (next: string): void =>
           update(definition.key, next, true);
+
+        if (definition.type === "text") {
+          return (
+            <TextParamField
+              key={definition.key}
+              definition={definition}
+              value={value}
+              committed={values[definition.key] ?? String(definition.default)}
+              onDraft={(next) => update(definition.key, next, false)}
+              onCommit={commit}
+            />
+          );
+        }
 
         if (isRangedNumber(definition)) {
           const step = rangeStep(definition);

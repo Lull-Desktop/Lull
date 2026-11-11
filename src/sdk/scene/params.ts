@@ -38,6 +38,7 @@ function coerce(
     if (raw !== undefined && COLOR_PATTERN.test(raw)) return raw;
     return def.default as string;
   }
+  // string / text：值原样透传（text 的多行内容与长度上限由场景自己校验）。
   return raw !== undefined ? raw : (def.default as string);
 }
 

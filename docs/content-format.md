@@ -21,11 +21,13 @@ public/content/
 `catalog.json` 是运行时唯一发现入口；没有登记的目录不会被加载。默认安装包不内置示例壁纸，
 可安装示例位于 `examples/scenes/`。
 
-官方随包壁纸（竹影）是**官方 scene 扩展**，不放在这里：
+官方随包壁纸（竹影、着色器）是**官方 scene 扩展**，不放在这里：
 
 ```text
-extensions/official/bamboo/        # 源码（catalog.json + Vite 入口）
-extensions/dist/lull.bamboo/       # 构建产物，安装目录 extensions/lull.bamboo/
+extensions/official/bamboo/                 # 源码（catalog.json + Vite 入口）
+extensions/dist/lull.bamboo/                # 构建产物，安装目录 extensions/lull.bamboo/
+extensions/official/shadertoy-wallpaper/       # 源码：运行用户提供的 GLSL
+extensions/dist/lull.shadertoy-wallpaper/      # 构建产物，安装目录 extensions/lull.shadertoy-wallpaper/
 ```
 
 第三方/社区场景若要以**预构建包**随宿主分发，放在固定目录：

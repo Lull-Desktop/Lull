@@ -372,11 +372,27 @@ fn hot_update_windows(
     if let Some(window) = app.get_webview_window(&label) {
       // 参数热更只有这一条通道；成败都留日志，便于排查「设置面板改了没反应」。
       match window.eval(format!("location.hash = {quoted}")) {
-        Ok(()) => ffi::wlog(&format!("{label}: 热更哈希 {hash}")),
+        Ok(()) => ffi::wlog(&format!("{label}: 热更哈希 {}", hash_summary(hash))),
         Err(error) => ffi::wlog(&format!("{label}: 热更哈希失败 {error}")),
       }
     }
   }
+}
+
+/// 日志里的参数哈希摘要。
+///
+/// 场景参数可以携带较大的文本（例如着色器源码），完整哈希可达数百 KB；
+/// 整行写进 `%TEMP%\lull\app.log` 会让日志失去可读性，所以只保留开头并标记截断。
+fn hash_summary(hash: &str) -> String {
+  const MAX: usize = 240;
+  if hash.len() <= MAX {
+    return hash.to_string();
+  }
+  let mut end = MAX;
+  while end > 0 && !hash.is_char_boundary(end) {
+    end -= 1;
+  }
+  format!("{}…(+{} chars)", &hash[..end], hash.len() - end)
 }
 
 pub(crate) fn reapply_display(app: &AppHandle) -> Result<(), String> {
@@ -386,4 +402,33 @@ pub(crate) fn reapply_display(app: &AppHandle) -> Result<(), String> {
   hot_update_windows(app, &config, &infos);
   emit_changed(app);
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::hash_summary;
+
+  #[test]
+  fn hash_summary_keeps_short_hashes_intact() {
+    let hash = "#mode=mirror&sync=1&scene=lull.bamboo";
+    assert_eq!(hash_summary(hash), hash);
+  }
+
+  #[test]
+  fn hash_summary_truncates_large_params() {
+    let hash = format!("#params={}", "a".repeat(4096));
+    let summary = hash_summary(&hash);
+    assert!(summary.starts_with("#params=aaa"));
+    assert!(summary.ends_with(&format!("…(+{} chars)", hash.len() - 240)));
+    assert!(summary.len() < hash.len());
+  }
+
+  #[test]
+  fn hash_summary_never_splits_a_character() {
+    // 哈希本身是百分号编码的 ASCII；这里只验证 helper 对非 ASCII 也安全。
+    let hash = format!("{}界", "x".repeat(239));
+    let summary = hash_summary(&hash);
+    assert!(summary.starts_with("x"));
+    assert!(summary.contains("…(+"));
+  }
 }

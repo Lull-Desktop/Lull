@@ -41,8 +41,9 @@
 - 官方示例可作为模板被修改；
 - 第三方内容仍可自选许可，只需在 manifest 声明。
 
-内置媒体场景（`src/scenes/video`）与官方竹影场景包（`extensions/official/bamboo/**`）
-是应用代码，仍为 GPL；不要把它们当作 CC BY 内容。
+内置媒体场景（`src/scenes/video`）与官方场景包（`extensions/official/bamboo/**`、
+`extensions/official/shadertoy-wallpaper/**`）是应用代码，仍为 GPL；不要把它们当作
+CC BY 内容。着色器场景本身不随包分发任何第三方 shader 源码：用户源码由用户自行提供。
 
 预构建的第三方随包扩展（`extensions/bundled/**`）保留各自许可：包内附 `LICENSE`，
 并登记在 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)；不要把它们并入

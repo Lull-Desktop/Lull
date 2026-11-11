@@ -124,7 +124,7 @@
           "pattern": "^[a-z][a-z0-9._-]{0,31}$"
         },
         "type": {
-          "enum": ["number", "boolean", "string", "color", "enum"]
+          "enum": ["number", "boolean", "string", "color", "enum", "text"]
         },
         "label": { "type": "string", "minLength": 1, "maxLength": 80 },
         "description": { "type": "string", "maxLength": 280 },
