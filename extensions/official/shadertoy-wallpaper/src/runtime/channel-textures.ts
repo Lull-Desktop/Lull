@@ -22,6 +22,10 @@ export type ChannelTexture = {
   texture: WebGLTexture | null;
   width: number;
   height: number;
+  /** 3D 纹理的层数（体积边长）；2D 纹理不带此字段。 */
+  depth?: number;
+  /** 纹理目标；默认 2d。Volume Pass 的输出为 3d。 */
+  kind?: "2d" | "3d";
 };
 
 export type ChannelTextures = {

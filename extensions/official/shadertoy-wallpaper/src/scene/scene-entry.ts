@@ -141,6 +141,12 @@ export function mountShaderScene(
   }
 
   const context = contextResult.context;
+  report(
+    "log",
+    context.version === 2
+      ? "WebGL2 上下文（GLSL ES 1.00 / 3.00）"
+      : "WebGL1 上下文（仅 GLSL ES 1.00）",
+  );
   const renderer = createShaderRenderer({ canvas, context });
   const clock = createShaderClock();
   const guard = createPerformanceGuard();

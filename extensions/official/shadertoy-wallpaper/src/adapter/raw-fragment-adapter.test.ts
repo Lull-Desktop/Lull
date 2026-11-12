@@ -13,6 +13,16 @@ function adaptOk(source: string, derivativesSupported = false) {
   return result.shader;
 }
 
+function adaptEs3(source: string) {
+  const result = adaptRawFragment(source, {
+    derivativesSupported: false,
+    dialect: 300,
+  });
+  expect(result.ok).toBe(true);
+  if (!result.ok) throw new Error(result.diagnostic.message);
+  return result.shader;
+}
+
 describe("adaptRawFragment", () => {
   test("keeps main() and injects uniforms without wrapping mainImage", () => {
     const shader = adaptOk(RAW);
@@ -70,5 +80,43 @@ describe("adaptRawFragment", () => {
       "void main() { gl_FragColor = textureLod(iChannel0, vec2(0.5), 0.0); }",
     );
     expect(shader.warnings.join(" ")).toContain("textureLod");
+  });
+
+  test("maps ES1 gl_FragColor output when compiling as ES3", () => {
+    const shader = adaptEs3(RAW);
+    expect(shader.fragmentSource).toContain("out vec4 lullFragColor;");
+    expect(shader.fragmentSource).toContain(
+      "#define gl_FragColor lullFragColor",
+    );
+    expect(shader.vertexSource).toContain("#version 300 es");
+  });
+
+  test("maps gl_FragColor onto an existing ES3 out variable", () => {
+    const shader = adaptEs3(`#version 300 es
+out vec4 fragColor;
+void main() { gl_FragColor = vec4(1.0); }`);
+    expect(shader.fragmentSource).toContain("#define gl_FragColor fragColor");
+    expect(shader.fragmentSource).not.toContain("out vec4 lullFragColor;");
+  });
+
+  test("keeps an explicit ES3 out variable without adding a second output", () => {
+    const shader = adaptEs3(`#version 300 es
+out vec4 fragColor;
+void main() { fragColor = vec4(1.0); }`);
+    expect(shader.fragmentSource).toContain("out vec4 fragColor;");
+    expect(shader.fragmentSource).not.toContain("out vec4 lullFragColor;");
+    expect(shader.fragmentSource).not.toContain("#define gl_FragColor");
+  });
+
+  test("maps gl_FragData to a single ES3 output array", () => {
+    const shader = adaptEs3("void main() { gl_FragData[0] = vec4(1.0); }");
+    expect(shader.fragmentSource).toContain("out vec4 lullFragData[1];");
+    expect(shader.fragmentSource).toContain("#define gl_FragData lullFragData");
+  });
+
+  test("ES3 lineOffset points at the first user source line", () => {
+    const shader = adaptEs3(RAW);
+    const lines = shader.fragmentSource.split("\n");
+    expect(lines[shader.lineOffset]).toContain("void main()");
   });
 });

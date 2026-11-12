@@ -1,17 +1,24 @@
 /**
  * WebGL 上下文生命周期（RFC §8.1 / §8.4）。
  *
- * 只申请 WebGL1：首版模板与 uniform 都按 GLSL ES 1.00 写，避免同时维护两套。
- * WebGL2 仅作为「有 2、没有 1」的兜底上下文（ES 1.00 源码在 WebGL2 里同样可编译）。
+ * 优先申请 WebGL2：ES 3.00 源码（texelFetch / 整数运算等）只能在 WebGL2 编译；
+ * WebGL2 同样接受 ES 1.00 源码，因此不需要为了兼容旧 shader 保留 WebGL1 首选。
+ * 只有环境没有 WebGL2 时才回退 WebGL1（仅 ES 1.00）。
  */
 import { diagnostic, type ShaderDiagnostic } from "./diagnostics";
 
 export type GlContext = {
   gl: WebGLRenderingContext;
   canvas: HTMLCanvasElement;
-  /** 创建的是 WebGL1 还是 WebGL2 兜底上下文。 */
+  /** 创建的是 WebGL1 还是 WebGL2 上下文。 */
   version: 1 | 2;
-  /** 当前上下文是否支持 OES_standard_derivatives。 */
+  /**
+   * WebGL1 是否支持 OES_standard_derivatives。
+   *
+   * WebGL2 的导数是核心能力，但 API 不暴露 OES 扩展；这里仍返回 false，迫使
+   * renderer 在 WebGL2 下把导数源码交给 ES 3.00 适配器，而不是错误地添加 OES
+   * `#extension`。
+   */
   derivativesSupported: boolean;
   isLost(): boolean;
   onLost(listener: () => void): () => void;
@@ -43,6 +50,16 @@ type ContextProbe = {
 export type ContextFactory = (canvas: HTMLCanvasElement) => ContextProbe | null;
 
 function defaultFactory(canvas: HTMLCanvasElement): ContextProbe | null {
+  const webgl2 = canvas.getContext("webgl2", CONTEXT_ATTRIBUTES);
+  if (webgl2) {
+    // WebGL2 不暴露 OES_standard_derivatives（ES 3.00 里是核心能力）；
+    // 这里保守地当作「不支持」，让 renderer 把导数源码走 ES3 适配。
+    return {
+      gl: webgl2 as unknown as WebGLRenderingContext,
+      version: 2,
+      derivativesSupported: false,
+    };
+  }
   const webgl1 = canvas.getContext("webgl", CONTEXT_ATTRIBUTES);
   if (webgl1) {
     const gl = webgl1 as WebGLRenderingContext;
@@ -51,16 +68,6 @@ function defaultFactory(canvas: HTMLCanvasElement): ContextProbe | null {
       version: 1,
       derivativesSupported:
         gl.getExtension("OES_standard_derivatives") !== null,
-    };
-  }
-  const webgl2 = canvas.getContext("webgl2", CONTEXT_ATTRIBUTES);
-  if (webgl2) {
-    // WebGL2 不暴露 OES_standard_derivatives（ES 3.00 里是核心能力）；
-    // 这里保守地当作「不支持」，让需要导数的 ES 1.00 源码得到明确错误。
-    return {
-      gl: webgl2 as unknown as WebGLRenderingContext,
-      version: 2,
-      derivativesSupported: false,
     };
   }
   return null;

@@ -10,11 +10,19 @@ export const MAX_SOURCE_CHARS = 128 * 1024;
 
 export const SUPPORTED_PROFILE = "shadertoy-image" as const;
 export const RAW_FRAGMENT_PROFILE = "raw-fragment" as const;
+export const VOLUME_PROFILE = "shadertoy-volume" as const;
 
-/** Shadertoy Image（mainImage）或普通 fragment shader（自定义 main）。 */
+/** 运行时需要的 GLSL 版本；WebGL2 才能编译 300 es。 */
+export type GlslDialect = 100 | 300;
+
+/**
+ * Shadertoy Image（mainImage）、Volume（mainVolume，3D 纹理）或普通 fragment
+ * shader（自定义 main）。
+ */
 export type ShaderProfile =
   | typeof SUPPORTED_PROFILE
-  | typeof RAW_FRAGMENT_PROFILE;
+  | typeof RAW_FRAGMENT_PROFILE
+  | typeof VOLUME_PROFILE;
 
 export type LoadedShaderSource = {
   /** 用户选择的文件名；只有宿主面板知道，场景里通常为 null。 */

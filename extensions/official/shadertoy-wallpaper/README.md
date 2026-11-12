@@ -3,9 +3,11 @@
 把用户自己提供的 GLSL 源码当作桌面壁纸运行。产物 id 固定为
 `lull.shadertoy-wallpaper`，是官方随包 **scene** 扩展（`catalog.json` + Vite 入口）。
 
-- 渲染：扩展内部原生 WebGL 1（GLSL ES 1.00），无第三方渲染库；
-- Profile：支持 Shadertoy Image（`mainImage`）与普通 fragment（自定义 `main()`），
-  单 Pass 或多 Pass（Common + Buffer A-D + Image）；外部输入使用占位值；
+- 渲染：扩展内部原生 WebGL；有 WebGL2 时优先使用（GLSL ES 1.00 / 3.00），
+  否则回退 WebGL1（仅 GLSL ES 1.00），无第三方渲染库；
+- Profile：支持 Shadertoy Image（`mainImage`）、Volume（`mainVolume`，3D 纹理）与
+  普通 fragment（自定义 `main()`），单 Pass 或多 Pass
+  （Common + Volume A-D + Buffer A-D + Image A-D + Image）；外部输入使用占位值；
 - 宿主边界：不新增 Rust 服务 / Tauri 命令 / Widget Bridge 路由 / Package，
   源码以普通字符串参数下发。
 
@@ -26,49 +28,133 @@
 | `render-scale` | `number` | 0.25–1，绘制分辨率比例；超过 4K 像素上限自动下调 |
 | `animation` | `boolean` | 关闭后冻结 `iTime`，画面停在当前帧 |
 
-## 多 Pass（Common / Buffer A-D / Image）
+## 多 Pass（Common / Volume A-D / Buffer A-D / Image A-D / Image）
 
-在同一个 `source` 里用分节标记组织，shader 代码本体不用改：
+前端只有一个 `source` 输入框；把多个 tab 的代码合并粘贴，用**注释行分节**即可，Shader
+代码本体不用改。推荐用最醒目的等号分隔：
 
 ```glsl
-//---- Common ----
-float helper(float x) { return x * 2.0; }
+//==== Common ====
+// [粘贴 Common 代码]
 
-//---- Buffer A ----
-void mainImage(out vec4 c, in vec2 p) { /* ... */ }
+//==== Volume A ====
+// [粘贴 Volume A 代码：mainVolume(out vec4 O, vec3 V)，3D 纹理]
 
-//---- Image ----
-void mainImage(out vec4 c, in vec2 p) { /* ... */ }
+//==== Buffer A ====
+// [粘贴 Buffer A 代码]
 
-//---- Bindings ----
-Image.iChannel0 = BufferA
-BufferA.iChannel1 = Noise
+//==== Image A ====
+// [粘贴 Image A 代码：额外图像 Pass]
+
+//==== Image ====
+// [粘贴 Image 代码：最终显示]
+
+//==== Bindings ====
+BufferA.iChannel0 = VolumeA
+Image.iChannel0 = ImageA
+VolumeA.size = 128
 ```
 
-- 只有出现分节标记才进入多 Pass；否则按单 Pass 处理。
-- 顺序固定 Buffer A → B → C → D → Image；Common 自动拼到每个 Pass 前面。
-- 每个 Buffer 有独立 FBO 双缓冲；`iChannelN` 指向自己时读上一帧，形成 feedback。
+Pass 类型：
+
+- **Buffer A-D**：2D 反馈缓冲，入口 `mainImage`；
+- **Volume A-D**：3D 体积纹理，入口 `mainVolume(out vec4 O, vec3 V)`，`V` 是体素坐标；
+  仅 WebGL2 / ES 3.00，渲染到 RGBA16F 3D 纹理，可被其他 Pass 用 `sampler3D` 采样；
+- **Image A-D**：额外 2D 图像 Pass，入口 `mainImage`，可被其他 Pass 采样；
+- **Image**：最终显示 Pass。**缺少 Image 时，用最后一个 Image A-D 作为显示 Pass**
+  （会给出警告）。
+
+### 分隔符写法
+
+| 写法 | 说明 |
+| --- | --- |
+| `//==== Buffer A ====` | 推荐；`=` 可换成 `-`、`*`、`#`、`+`、`~` |
+| `//---- Buffer A ----` | 旧写法，继续支持 |
+| `//== Buffer A` / `//== Buffer A ==` | 少写几个符号 |
+| `// @pass Buffer A` | 指令式，最省符号 |
+| `// @bindings` | Bindings 的简写 |
+
+规则：
+
+- 标记必须单独占一行；大小写不敏感；`BufferA` 与 `Buffer A` 等价（Volume / Image A-D 同理）。
+- 只有带装饰符号或 `@pass/@bindings` 才识别；普通注释 `// Buffer A is used here`
+  不会被误判。
+- 顺序任意：解析时统一按 Volume A→B→C→D → Buffer A→B→C→D → Image A→B→C→D → Image
+  排序（显示 Pass 最后），Common 自动拼到每个 Pass 前。
+- 必须有显示 Pass（Image，或至少一个 Image A-D）；第一个标记之前只能有空行/注释
+  （标题、版权头），不能有代码；重复分节/空分节会报错。
+- 标记只是注释，不会进入 GLSL。
+
+### 合并步骤
+
+1. 先写 `//==== Common ====`（没有 Common 可省略）；
+2. 粘贴 Common 代码；
+3. 按需写 `//==== Volume A ====` / `//==== Buffer A ====` / `//==== Image A ====`，
+   粘贴对应代码；
+4. 写最终显示 Pass（`//==== Image ====`，或省略 Image 时用最后一个 Image A-D）；
+5. 需要非默认通道时，最后加 `//==== Bindings ====` 和绑定行；
+6. 点「应用」，不需要改 Shadertoy 代码。
+
+### 默认通道与 Bindings
+
+- 每个 Buffer / Volume 有独立 FBO 双缓冲；`iChannelN` 指向自己时读上一帧，形成 feedback。
 - 默认绑定：Buffer A 的 `iChannel0` = 自身上一帧；Buffer B 的 `iChannel0` = 自身、
-  `iChannel1` = BufferA；Buffer C/D 依此类推；Image 的 `iChannel0-3` = BufferA-D；
-  缺失目标绑定为黑色。
-- Bindings 可覆盖任意通道：目标为 `BufferA-D`、`Noise`、`Black`；`Image` 不能作为目标。
+  `iChannel1` = BufferA；Buffer C/D 依此类推；Volume A-D 与 Buffer 同构（自反馈 +
+  前序 Volume）；Image / Image A-D 的 `iChannel0-3` = BufferA-D；缺失目标绑定为黑色。
+- Bindings 可覆盖任意通道：目标为 `BufferA-D`、`VolumeA-D`、`ImageA-D`、`Noise`、
+  `Black`；`Image`（最终显示）不能作为目标。绑定到 Volume 的通道会自动声明为
+  `sampler3D`（用 `texture(iChannelN, vec3)` / `texelFetch(iChannelN, ivec3, 0)` 采样）。
+- `VolumeA.size = N`（8–256，默认 128）可设置体积纹理边长；注意多数体积 shader 的
+  数学按 128³ 写死，改小会改变形状，仅用于性能调优或本身按分辨率归一化的 shader。
 - 所有 Pass 共享 `iResolution / iTime / iFrame / iMouse`，每个 Pass 独立编译；任一
-  Pass 失败时整条新管线都不替换，旧画面继续渲染。
-- 多 Pass 时按单 Pass 1080p 像素预算自动降采样（Render Scale 仍可再调低），避免
-  FBO 显存过大。
-- FBO 优先 half-float，失败回退 RGBA8 并在日志/提示中说明。
+  Pass 失败时整条新管线都不替换，旧画面继续渲染。Volume Pass 的 `iResolution` 为
+  `(size, size, size)`。
+- 多 Pass 时按单 Pass 1080p 像素预算自动降采样；2D FBO 优先 half-float，失败回退
+  RGBA8；Volume 必须 half-float（存负距离值），需要 `EXT_color_buffer_float`，不回退。
+- Volume Pass 每帧渲染全部 slice（逐层绘制到 3D 纹理），开销随 `size³` 增长；
+  `size=128` 时约 200 万体素/帧，弱 GPU 上可能触发性能保护。
+
+## GLSL ES 3.00 / WebGL2
+
+运行时优先创建 WebGL2。以下源码会走 ES3 路径：
+
+- 显式声明 `#version 300 es`；
+- 使用 `texelFetch`、`textureSize`、`int[]`、数组构造器（`vec4[N](…)`）、`round`、
+  位运算、`switch`、`uint`、全局 `in/out`、`layout` 等 ES3 语法；
+- Volume Pass（`mainVolume`）或任何绑定到 Volume 的 `sampler3D` 通道；
+- 使用 `dFdx/dFdy/fwidth`：WebGL2 的 ES1 shader 拿不到 OES 导数扩展，必须走 ES3；
+- 使用 `textureLod` / `textureGrad` / `texture2DLod` / `textureCubeLod`：ES3 保留
+  显式 LOD/Grad 语义，ES1 只能退化为普通采样。
+
+ES3 适配会注入 `#version 300 es`、ES3 顶点模板和 `out vec4 lullFragColor;`，并保留旧写法兼容：
+
+- `texture2D` / `textureCube` / `texture2DProj` 映射到 ES3 的 `texture*`；
+- `varying` 映射到 `in`；
+- 自定义 `main()` 里的 `gl_FragColor` 映射到注入的 `out`，或用户已声明的 `out vec4`；
+- `gl_FragData[0]` 映射到单输出数组。
+
+ES1 源码在 WebGL2 上仍按 ES1 编译（导数 / 显式 LOD 除外，它们会自动走 ES3），
+避免行为漂移。只有 WebGL1 时，ES3 源码会在编译前得到“需要 WebGL2”的明确诊断，
+而不是 `texelFetch` 找不到之类的日志。
+
+注意：这里支持的是 **GLSL 语言特性 + 程序化多 Pass / 体积纹理**，不是完整 Shadertoy
+运行时。真实纹理/音频/键盘通道、cubemap、外部 3D 纹理资源和 Shadertoy 资源仍不可用
+（Volume Pass 的 3D 纹理由 shader 自己生成，不加载外部资源）。
 
 ## 支持范围
 
-支持两种入口：
+支持三种入口：
 
 - **Shadertoy Image**：`void mainImage(out vec4 fragColor, in vec2 fragCoord)`，由扩展
   包装成 WebGL 的 `main()`；
+- **Shadertoy Volume**：`void mainVolume(out vec4 O, vec3 V)`，仅用于 Volume A-D 分节，
+  包装成逐 slice 渲染到 3D 纹理的 `main()`（仅 WebGL2 / ES 3.00）；
 - **Raw Fragment**：源码自带 `void main()`，直接编译；用 `gl_FragCoord` 取像素坐标、
-  `gl_FragColor` 输出。提供 `vUv` / `uv` / `vTexCoord` 三个常用 UV varying；
-  自定义 attribute 或其他 varying 名不支持。
+  ES1 用 `gl_FragColor` 输出，ES3 也可以自己声明 `out vec4`。提供 `vUv` / `uv` /
+  `vTexCoord` 三个常用 UV varying；自定义 attribute 不支持，其他 varying 名需要与
+  ES3 顶点模板的输出名一致。
 
-两种入口共享同一套 uniform、占位通道与兼容宏。
+三种入口共享同一套 uniform、占位通道与兼容宏；ES3 / Volume 入口额外使用 ES3 模板。
 
 支持的 uniform：`iResolution`、`iTime`、`iTimeDelta`、`iFrame`、`iFrameRate`、
 `iMouse`、`iDate`、`iChannel0-3`、`iChannelResolution`、`iChannelTime`、`iSampleRate`。
@@ -85,19 +171,22 @@ BufferA.iChannel1 = Noise
   `iSampleRate = 44100`。
 
 使用占位通道时，壁纸底部会提示 6 秒并转发 `scene.log` 警告。依赖真实纹理、音乐、
-键盘或摄像头的 shader 能运行，但画面与 Shadertoy 不等价；cubemap / 3D 纹理不支持。
+键盘或摄像头的 shader 能运行，但画面与 Shadertoy 不等价；cubemap / 外部 3D 纹理资源
+不支持（Volume Pass 生成的 3D 纹理除外）。
 
 明确不支持（会在识别阶段报错，不会静默替换）：
 
-- `#version` 非 100、`#include`；
-- 整页 HTML/JS 示例（会提示只粘贴单个 GLSL）；多 Pass 请用上面的分节格式；
-- Common / Buffer A-D / Multipass / Feedback；
-- cubemap / 3D 纹理 / 真实音频、视频、摄像头输入与远程资源；
-- 点击、拖拽、滚轮、键盘（宿主指针通道没有按键字段）。
+- 仅有 WebGL1 时运行 ES3 源码或 Volume Pass（会提示需要 WebGL2，不会进入 ES1 编译）；
+- 缺少 `EXT_color_buffer_float` 时运行 Volume Pass（无法渲染到 3D 浮点纹理）；
+- `#include`；
+- 整页 HTML/JS 示例（会提示只粘贴单个 GLSL）；
+- cubemap / 外部 3D 纹理资源 / 真实音频、视频、摄像头输入与远程资源；
+- 点击、拖拽、滚轮、键盘（宿主指针通道没有按键字段；`iChannel1` 的键盘纹理也不会
+  产生真实按键）。
 
-`texture()` 会映射到 GLSL ES 1.00 的 `texture2D()`；`textureLod` / `textureGrad`
-退化为普通采样；需要 `dFdx/dFdy/fwidth` 时会尝试启用
-`OES_standard_derivatives`，上下文不支持则报错。
+ES1 路径下 `texture()` 映射到 `texture2D()`，`textureLod` / `textureGrad` 退化为
+普通采样；需要 `dFdx/dFdy/fwidth` 时，WebGL1 会尝试启用
+`OES_standard_derivatives`，WebGL2 会自动改走 ES3 核心导数。
 
 ## 时间语义（已知偏差）
 
@@ -134,6 +223,11 @@ pnpm extensions:watch shadertoy-wallpaper  # Tier 1，改完在宿主里重选/�
 - `channel.frag`：采样 `iChannel0` 噪声与 `iChannel1` 黑色，用于验收占位通道；
 - `raw.frag`：自定义 `main()` 的普通 fragment shader；
 - `multipass.frag`：Buffer A + Image 的多 Pass / Feedback 示例；
+- `es3.frag`：`#version 300 es` + `texelFetch` / `textureSize` / 整数数组 / 位运算；
+- `es3-multipass.frag`：ES3 多 Pass 自反馈；
+- `volume.frag`：Volume A（球体 SDF 自反馈）+ Buffer A 采样 + Image，体积渲染冒烟示例；
+- `volume-lotus.frag`：用户提供的球体↔莲花 morph 体积 shader（Volume A + Buffer A +
+  Image A，无 Image，128³），需 WebGL2，用于验收 Volume / Image A-D / 显示回退；
 - `invalid.frag`：故意编译失败（未知函数），用于验证错误日志。
 
 ## 与 RFC 的差异

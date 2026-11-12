@@ -47,9 +47,11 @@
     播放模式、智能随机 Profile 与五项滑杆、UI 音效、关窗继续播放。
   - 竹影：深夜竹林、薄雾参数、时钟、跨屏画布定位与同步相位；默认场景仍是
     `lull.bamboo`，由官方扩展提供，不再编译进宿主。
-  - 着色器：运行用户提供的单 Pass GLSL（Shadertoy Image 子集）；源码在壁纸参数面板
-    粘贴或从 `.glsl/.frag` 文本文件载入，扩展内部完成识别、编译、渲染与错误展示。
-    宿主的唯一新增能力是通用 `text` 参数类型（host API 4），没有 Shader 专用 API。
+  - 着色器：运行用户提供的单 / 多 Pass GLSL（Shadertoy Image / Volume 子集：
+    Common + Volume A-D + Buffer A-D + Image A-D + Image，WebGL2 优先，支持
+    GLSL ES 1.00 与 3.00，Volume 3D 纹理需 WebGL2）；源码在壁纸参数面板粘贴或从
+    `.glsl/.frag` 文本文件载入，扩展内部完成识别、编译、渲染与错误展示。宿主的唯一
+    新增能力是通用 `text` 参数类型（host API 4），没有 Shader 专用 API。
 - 官方包随 App 升级：Widget 的授权与用户状态保留，新增能力自动补授，用户此前的撤销保持撤销；
   scene 只按版本重建壁纸 iframe。
 - 完整性由构建期摘要保证，运行时只读复核；缺锁 / 摘要不符拒绝加载并可诊断。
@@ -117,7 +119,7 @@ extensions/official/shadertoy-wallpaper/
   catalog.json                 # 参数：source(text) / render-scale(number) / animation(boolean)
   index.html
   src/                         # source/profile、adapter、WebGL runtime、Scene SDK
-  fixtures/{gradient,flow,invalid}.frag
+  fixtures/*.frag              # gradient / flow / mouse / channel / raw / multipass / es3 / invalid
 ```
 
 源码目录名可以与场景 id 不同（`bamboo` → 产物 id `lull.bamboo`）；构建后：
@@ -461,7 +463,9 @@ localStorage 偏好（启动静音、播放模式/音量）会一次性重置；
 | 便携版漏收 `extensions/` | `package-release.mjs` 直接失败，不产出缺资源的包 |
 | 着色器源码编译 / 链接失败 | 扩展保留旧 Program 继续渲染，壁纸上显示原始编译器日志；不写盘、不自动修复 |
 | 着色器源码过大 / 外部输入 | 源码超限报错；`iChannel*` 由占位纹理运行并在壁纸内提示，不下载真实资源 |
-| 粘贴整页 HTML/JS 或多 Pass 示例 | 识别为 `unsupported-source`，提示只粘贴单个 `mainImage` / `main()` 的 GLSL，不猜测 Pass |
+| 着色器使用 GLSL ES 3.00 特性 | WebGL2 上按 ES3 编译（`texelFetch`、整数数组、位运算等）；只有 WebGL1 时识别为 `unsupported-feature` / `unsupported-version`，提示需要 WebGL2，不进入 ES1 编译 |
+| 着色器使用 Volume / Image A-D 分节 | Volume A-D 以 `mainVolume` 渲染到 RGBA16F 3D 纹理（需 WebGL2 + `EXT_color_buffer_float`），绑定到 Volume 的通道自动用 `sampler3D`；Image A-D 为额外图像 Pass，缺 Image 时用最后一个 Image A-D 显示；WebGL1 / 缺浮点渲染目标时给出明确诊断 |
+| 粘贴整页 HTML/JS 示例 | 识别为 `unsupported-source`，提示只粘贴单个 GLSL；多 Pass 用分节格式 |
 
 ## 12. 验收
 
@@ -470,6 +474,9 @@ localStorage 偏好（启动静音、播放模式/音量）会一次性重置；
 - [ ] 默认壁纸是官方竹影；薄雾参数、时钟、跨屏同步正常；缺包时回退媒体壁纸。
 - [ ] 着色器壁纸：粘贴 / 从文件载入 `mainImage` 或自定义 `main()` 源码均可运行；非法源码显示编译日志且不破坏旧画面；重启后源码恢复。
 - [ ] 着色器壁纸的鼠标位置：`iMouse.xy` 跟随桌面光标（左下原点、与 `iResolution` 同单位）；光标切到其他窗口或离开桌面后保持最后位置，不跳回负坐标；`zw` 为 0（无按键）。
+- [ ] 着色器壁纸的多 Pass：用 `//---- Buffer A ----` / `//---- Image ----` 分节可运行 Feedback；Buffer A 的 `iChannel0` 读到上一帧；参数/尺寸变化后反馈缓冲重建。
+- [ ] 着色器壁纸的 ES3：`#version 300 es` + `texelFetch` / `textureSize` / 整数数组 / 位运算在 WebGL2 上可运行；导数 shader 在 WebGL2 上自动走 ES3；只有 WebGL1 的环境给出“需要 WebGL2”诊断。
+- [ ] 着色器壁纸的 Volume / Image A-D：`//==== Volume A ====`（`mainVolume`）+ `//==== Buffer A ====` + `//==== Image A ====` 可运行；`BufferA.iChannel0 = VolumeA` 绑定后 Buffer A 用 `sampler3D` 采样体积；缺 Image 时回退显示 Image A；WebGL1 / 缺 `EXT_color_buffer_float` 给出诊断（验收 fixture：`volume.frag` / `volume-lotus.frag`）。
 - [ ] 着色器壁纸的外部输入：含 `iChannel0` 的源码可加载运行；iChannel0 显示程序化噪声、iChannel1-3 为黑色；壁纸内出现 6 秒占位提示，`scene.log` 有对应警告。
 - [ ] 音境工坊与播放器的功能逐项对齐（见 §1.1），封面、抽屉宽度、贴高正常。
 - [ ] App 升级后官方包更新、Widget 停用状态与状态 KV 保留、清单不再触发 `needs-review`。

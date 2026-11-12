@@ -92,14 +92,95 @@ describe("detectShaderProfile", () => {
     expect(result.ok).toBe(true);
   });
 
-  test("rejects non-ES1 #version", () => {
+  test("marks #version 300 es as an ES3 shader", () => {
     const result = detectShaderProfile(`#version 300 es\n${SAMPLE}`);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.dialect).toBe(300);
+      expect(result.declaredVersion).toBe(300);
+    }
+  });
+
+  test("accepts #version 100", () => {
+    const result = detectShaderProfile(`#version 100\n${SAMPLE}`);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.dialect).toBe(100);
+      expect(result.declaredVersion).toBe(100);
+    }
+  });
+
+  test("rejects versions other than 100 / 300 es", () => {
+    const result = detectShaderProfile(`#version 310 es\n${SAMPLE}`);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.diagnostic.code).toBe("unsupported-version");
   });
 
-  test("accepts #version 100", () => {
-    expect(detectShaderProfile(`#version 100\n${SAMPLE}`).ok).toBe(true);
+  test("marks texelFetch as requiring ES3", () => {
+    const result = detectShaderProfile(`void mainImage(out vec4 c, in vec2 p) {
+      c = texelFetch(iChannel0, ivec2(0), 0);
+    }`);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.dialect).toBe(300);
+      expect(result.es3Features).toContain("texelFetch");
+    }
+  });
+
+  test("detects integer arrays, bit operations, and switch", () => {
+    const result = detectShaderProfile(`const int[] font = int[](1, 2);
+    void mainImage(out vec4 c, in vec2 p) {
+      switch (int(p.x)) { default: break; }
+      c = vec4(float((font[0] >> 1) & 1));
+    }`);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.dialect).toBe(300);
+      expect(result.es3Features).toEqual(
+        expect.arrayContaining(["整数数组", "位运算", "switch"]),
+      );
+    }
+  });
+
+  test("marks derivatives for the ES3 path", () => {
+    const result = detectShaderProfile(
+      `${SAMPLE}\nvec4 d = vec4(fwidth(fragCoord.x));`,
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.usesDerivatives).toBe(true);
+      expect(result.dialect).toBe(100);
+    }
+  });
+
+  test("marks explicit LOD sampling for the ES3 path", () => {
+    const result = detectShaderProfile(
+      `${SAMPLE}\nvec4 d = textureLod(iChannel0, vec2(0.5), 0.0);`,
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.usesTextureLod).toBe(true);
+      expect(result.dialect).toBe(100);
+    }
+  });
+
+  test("marks unsigned integers and global out declarations as ES3", () => {
+    const result = detectShaderProfile(`out vec4 fragColor;
+void main() { uint x = 1u; fragColor = vec4(float(x)); }`);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.dialect).toBe(300);
+      expect(result.es3Features).toEqual(
+        expect.arrayContaining(["无符号整数", "全局 in/out"]),
+      );
+    }
+  });
+
+  test("does not flag logical && as a bit operation", () => {
+    const result = detectShaderProfile(
+      `${SAMPLE}\nbool b = (1.0 > 0.0) && (2.0 > 1.0);`,
+    );
+    expect(result.ok).toBe(true);
   });
 
   test("accepts a raw fragment with custom main()", () => {
@@ -143,5 +224,37 @@ describe("detectShaderProfile", () => {
     const result = detectShaderProfile(`#include "common.glsl"\n${SAMPLE}`);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.diagnostic.code).toBe("unsupported-input");
+  });
+
+  test("accepts a mainVolume shader as the volume profile (ES3)", () => {
+    const result = detectShaderProfile(
+      "void mainVolume(out vec4 O, vec3 V) { O = vec4(V, 1.0); }",
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.profile).toBe("shadertoy-volume");
+      expect(result.dialect).toBe(300);
+    }
+  });
+
+  test("rejects mainVolume combined with mainImage or main", () => {
+    const volume = "void mainVolume(out vec4 O, vec3 V) { O = vec4(1.0); }";
+    for (const extra of [SAMPLE, "void main() {}"]) {
+      const result = detectShaderProfile(`${volume}\n${extra}`);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.diagnostic.code).toBe("unsupported-entry");
+    }
+  });
+
+  test("detects ES3 array constructors and round()", () => {
+    const result = detectShaderProfile(`${SAMPLE}
+const vec4 K[2] = vec4[2](vec4(0.0), vec4(1.0));
+float r = round(1.5);`);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.dialect).toBe(300);
+      expect(result.es3Features).toContain("数组构造器");
+      expect(result.es3Features).toContain("round");
+    }
   });
 });

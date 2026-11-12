@@ -62,7 +62,12 @@ export function createProgramHandle(
       gl.useProgram(program);
       const resolution = uniform("iResolution");
       if (resolution) {
-        gl.uniform3f(resolution, values.resolution[0], values.resolution[1], 1);
+        gl.uniform3f(
+          resolution,
+          values.resolution[0],
+          values.resolution[1],
+          values.resolutionZ ?? 1,
+        );
       }
       const time = uniform("iTime");
       if (time) gl.uniform1f(time, values.time);
@@ -97,13 +102,18 @@ export function createProgramHandle(
       for (let unit = 0; unit < CHANNEL_COUNT; unit += 1) {
         const binding = channels?.[unit] ?? null;
         gl.activeTexture(gl.TEXTURE0 + unit);
-        gl.bindTexture(gl.TEXTURE_2D, binding?.texture ?? null);
+        // Volume 通道绑定 TEXTURE_3D；WebGL1 没有 3D 纹理，运行时已提前拒绝。
+        const target =
+          binding?.kind === "3d"
+            ? (gl as WebGL2RenderingContext).TEXTURE_3D
+            : gl.TEXTURE_2D;
+        gl.bindTexture(target, binding?.texture ?? null);
         const sampler = uniform(`iChannel${unit}`);
         if (sampler) gl.uniform1i(sampler, unit);
 
         resolutions[unit * 3] = binding?.width ?? 1;
         resolutions[unit * 3 + 1] = binding?.height ?? 1;
-        resolutions[unit * 3 + 2] = 1;
+        resolutions[unit * 3 + 2] = binding?.depth ?? 1;
       }
 
       const channelResolution = uniform("iChannelResolution[0]");

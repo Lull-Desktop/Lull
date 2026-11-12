@@ -6,6 +6,8 @@
 
 export type UniformValues = {
   resolution: readonly [number, number];
+  /** iResolution.z；2D Pass 为 1，Volume Pass 为体积边长。默认 1。 */
+  resolutionZ?: number;
   time: number;
   timeDelta: number;
   frame: number;

@@ -11,6 +11,8 @@ export type FakeGlOptions = {
   failFragmentCompile?: boolean;
   failLink?: boolean;
   lost?: boolean;
+  /** 模拟 EXT_color_buffer_float（Volume 渲染目标必需）。 */
+  floatColorBuffer?: boolean;
 };
 
 export type FakeGlState = {
@@ -18,11 +20,16 @@ export type FakeGlState = {
   failFragmentCompile: boolean;
   failLink: boolean;
   lost: boolean;
+  floatColorBuffer: boolean;
   programs: number;
   deletedPrograms: number;
   textures: number;
   deletedTextures: number;
   texImages: { width: number; height: number }[];
+  texImages3D: { width: number; height: number; depth: number }[];
+  /** framebufferTextureLayer 绑定过的层索引（按调用顺序）。 */
+  framebufferLayers: number[];
+  shaderSources: string[];
   calls: string[];
 };
 
@@ -37,11 +44,15 @@ export function createFakeGl(options: FakeGlOptions = {}): FakeGl {
     failFragmentCompile: options.failFragmentCompile ?? false,
     failLink: options.failLink ?? false,
     lost: options.lost ?? false,
+    floatColorBuffer: options.floatColorBuffer ?? false,
     programs: 0,
     deletedPrograms: 0,
     textures: 0,
     deletedTextures: 0,
     texImages: [],
+    texImages3D: [],
+    framebufferLayers: [],
+    shaderSources: [],
     calls: [],
   };
 
@@ -59,6 +70,7 @@ export function createFakeGl(options: FakeGlOptions = {}): FakeGl {
     BLEND: 0x0be2,
     CULL_FACE: 0x0b44,
     TEXTURE_2D: 0x0de1,
+    TEXTURE_3D: 0x806f,
     TEXTURE0: 0x84c0,
     RGBA: 0x1908,
     UNSIGNED_BYTE: 0x1401,
@@ -66,6 +78,7 @@ export function createFakeGl(options: FakeGlOptions = {}): FakeGl {
     TEXTURE_MAG_FILTER: 0x2800,
     TEXTURE_WRAP_S: 0x2802,
     TEXTURE_WRAP_T: 0x2803,
+    TEXTURE_WRAP_R: 0x8072,
     LINEAR: 0x2601,
     NEAREST: 0x2600,
     CLAMP_TO_EDGE: 0x812f,
@@ -77,7 +90,9 @@ export function createFakeGl(options: FakeGlOptions = {}): FakeGl {
     HALF_FLOAT: 0x140b,
     isContextLost: () => state.lost,
     createShader: (type: number) => ({ kind: "shader", type }),
-    shaderSource: () => undefined,
+    shaderSource: (_shader: unknown, source: string) => {
+      state.shaderSources.push(source);
+    },
     compileShader: () => undefined,
     getShaderParameter: (shader: { type?: number }) =>
       shader.type === 0x8b30
@@ -127,6 +142,17 @@ export function createFakeGl(options: FakeGlOptions = {}): FakeGl {
       state.texImages.push({ width, height });
       state.calls.push("texImage2D");
     },
+    texImage3D: (
+      _target: number,
+      _level: number,
+      _internalFormat: number,
+      width: number,
+      height: number,
+      depth: number,
+    ) => {
+      state.texImages3D.push({ width, height, depth });
+      state.calls.push("texImage3D");
+    },
     texParameteri: () => state.calls.push("texParameteri"),
     activeTexture: () => state.calls.push("activeTexture"),
     deleteTexture: () => {
@@ -136,6 +162,17 @@ export function createFakeGl(options: FakeGlOptions = {}): FakeGl {
     createFramebuffer: () => ({ kind: "framebuffer" }),
     bindFramebuffer: () => state.calls.push("bindFramebuffer"),
     framebufferTexture2D: () => state.calls.push("framebufferTexture2D"),
+    framebufferTextureLayer: (
+      _target: number,
+      _attachment: number,
+      _texture: unknown,
+      _level: number,
+      layer: number,
+    ) => {
+      state.framebufferLayers.push(layer);
+      state.calls.push("framebufferTextureLayer");
+    },
+    copyTexSubImage3D: () => state.calls.push("copyTexSubImage3D"),
     checkFramebufferStatus: () => 0x8cd5,
     deleteFramebuffer: () => state.calls.push("deleteFramebuffer"),
     enableVertexAttribArray: () => undefined,
@@ -146,7 +183,8 @@ export function createFakeGl(options: FakeGlOptions = {}): FakeGl {
     clear: () => undefined,
     disable: () => undefined,
     deleteBuffer: () => undefined,
-    getExtension: () => null,
+    getExtension: (name: string) =>
+      name === "EXT_color_buffer_float" && state.floatColorBuffer ? {} : null,
   };
 
   return { gl: gl as unknown as WebGLRenderingContext, state };
