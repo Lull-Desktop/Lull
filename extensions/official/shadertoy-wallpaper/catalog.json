@@ -7,7 +7,7 @@
       "id": "lull.shadertoy-wallpaper",
       "name": "着色器 / Shadertoy",
       "version": "1.0.0",
-      "description": "把用户自己提供的 GLSL 源码（Shadertoy Image 风格 mainImage 或自定义 main() 的 fragment、单 Pass）作为动态壁纸运行；源码在壁纸设置的参数面板里粘贴，或从 .glsl/.frag 文本文件载入；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。Run user-provided single-pass GLSL as a wallpaper; external inputs are emulated with placeholder textures.",
+      "description": "把用户自己提供的 GLSL 源码（Shadertoy Image 风格 mainImage 或自定义 main() 的 fragment；支持单 Pass 或 Common + Buffer A-D + Image 多 Pass）作为动态壁纸运行；源码在壁纸设置的参数面板里粘贴，或从 .glsl/.frag 文本文件载入；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。Run user-provided single-pass or multipass GLSL as a wallpaper; external inputs are emulated with placeholder textures.",
       "author": "Lull",
       "license": "GPL-3.0-or-later",
       "capabilities": [
@@ -28,7 +28,7 @@
           "key": "source",
           "type": "text",
           "label": "着色器源码 / Shader source",
-          "description": "粘贴 GLSL 源码，或从本地 .glsl/.frag 文本文件载入。上限 128 KiB；支持 Shadertoy Image 风格的 mainImage 或自定义 main() 的 fragment；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。",
+          "description": "粘贴 GLSL 源码，或从本地 .glsl/.frag 文本文件载入。上限 128 KiB；支持 Shadertoy Image 风格的 mainImage 或自定义 main() 的 fragment；支持单 Pass 或多 Pass（Common + Buffer A-D + Image，分节标记）；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。",
           "default": ""
         },
         {

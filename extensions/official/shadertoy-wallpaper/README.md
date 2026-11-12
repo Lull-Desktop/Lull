@@ -5,7 +5,7 @@
 
 - 渲染：扩展内部原生 WebGL 1（GLSL ES 1.00），无第三方渲染库；
 - Profile：支持 Shadertoy Image（`mainImage`）与普通 fragment（自定义 `main()`），
-  单 Pass；外部输入使用占位值；
+  单 Pass 或多 Pass（Common + Buffer A-D + Image）；外部输入使用占位值；
 - 宿主边界：不新增 Rust 服务 / Tauri 命令 / Widget Bridge 路由 / Package，
   源码以普通字符串参数下发。
 
@@ -25,6 +25,38 @@
 | `source` | `text` | GLSL 源码，上限 128 KiB |
 | `render-scale` | `number` | 0.25–1，绘制分辨率比例；超过 4K 像素上限自动下调 |
 | `animation` | `boolean` | 关闭后冻结 `iTime`，画面停在当前帧 |
+
+## 多 Pass（Common / Buffer A-D / Image）
+
+在同一个 `source` 里用分节标记组织，shader 代码本体不用改：
+
+```glsl
+//---- Common ----
+float helper(float x) { return x * 2.0; }
+
+//---- Buffer A ----
+void mainImage(out vec4 c, in vec2 p) { /* ... */ }
+
+//---- Image ----
+void mainImage(out vec4 c, in vec2 p) { /* ... */ }
+
+//---- Bindings ----
+Image.iChannel0 = BufferA
+BufferA.iChannel1 = Noise
+```
+
+- 只有出现分节标记才进入多 Pass；否则按单 Pass 处理。
+- 顺序固定 Buffer A → B → C → D → Image；Common 自动拼到每个 Pass 前面。
+- 每个 Buffer 有独立 FBO 双缓冲；`iChannelN` 指向自己时读上一帧，形成 feedback。
+- 默认绑定：Buffer A 的 `iChannel0` = 自身上一帧；Buffer B 的 `iChannel0` = 自身、
+  `iChannel1` = BufferA；Buffer C/D 依此类推；Image 的 `iChannel0-3` = BufferA-D；
+  缺失目标绑定为黑色。
+- Bindings 可覆盖任意通道：目标为 `BufferA-D`、`Noise`、`Black`；`Image` 不能作为目标。
+- 所有 Pass 共享 `iResolution / iTime / iFrame / iMouse`，每个 Pass 独立编译；任一
+  Pass 失败时整条新管线都不替换，旧画面继续渲染。
+- 多 Pass 时按单 Pass 1080p 像素预算自动降采样（Render Scale 仍可再调低），避免
+  FBO 显存过大。
+- FBO 优先 half-float，失败回退 RGBA8 并在日志/提示中说明。
 
 ## 支持范围
 
@@ -58,7 +90,7 @@
 明确不支持（会在识别阶段报错，不会静默替换）：
 
 - `#version` 非 100、`#include`；
-- 整页 HTML/JS 示例、含多个 shader 块的多 Pass 页面（会提示只粘贴单个 GLSL）；
+- 整页 HTML/JS 示例（会提示只粘贴单个 GLSL）；多 Pass 请用上面的分节格式；
 - Common / Buffer A-D / Multipass / Feedback；
 - cubemap / 3D 纹理 / 真实音频、视频、摄像头输入与远程资源；
 - 点击、拖拽、滚轮、键盘（宿主指针通道没有按键字段）。
@@ -101,6 +133,7 @@ pnpm extensions:watch shadertoy-wallpaper  # Tier 1，改完在宿主里重选/�
 - `mouse.frag`：十字/圆环跟随 `iMouse.xy`，用于验收坐标与“离开保留”；
 - `channel.frag`：采样 `iChannel0` 噪声与 `iChannel1` 黑色，用于验收占位通道；
 - `raw.frag`：自定义 `main()` 的普通 fragment shader；
+- `multipass.frag`：Buffer A + Image 的多 Pass / Feedback 示例；
 - `invalid.frag`：故意编译失败（未知函数），用于验证错误日志。
 
 ## 与 RFC 的差异
@@ -109,8 +142,8 @@ pnpm extensions:watch shadertoy-wallpaper  # Tier 1，改完在宿主里重选/�
    壁纸窗口点击穿透，扩展无法打开文件对话框；
 2. 面板侧「Runtime Status / 当前文件名 / Reload」未实现，状态显示在壁纸内，
    Reload 等价于重新选择文件；
-3. 多 Pass 未实现；iChannel 只有占位纹理（iChannel0 噪声、其余黑色），
-   不是真实纹理/音频/键盘输入；
+3. 多 Pass 已实现，但通道绑定是运行配置（Bindings 或默认约定），无法从 shader
+   源码推断；iChannel 没有真实纹理/音频/键盘，未绑定到 buffer 时用噪声/黑色占位；
 4. 同步模式的时间锚定见上（RFC 要求「遵循 Lull 同步策略」，这里用墙钟相位实现）；
 5. `iMouse` 只有位置：宿主不读按键，`zw = 0`；指针离开绘制面后保留最后位置
    （Shadertoy 的 `xy` 语义），点击/拖拽类 shader 不会响应。

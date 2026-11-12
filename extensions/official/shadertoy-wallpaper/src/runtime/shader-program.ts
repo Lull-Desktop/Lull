@@ -9,15 +9,19 @@
 import { UNIFORM_NAMES } from "../adapter/shader-template";
 import type { UniformValues } from "../adapter/uniform-adapter";
 import {
-  CHANNEL_RESOLUTIONS,
+  CHANNEL_COUNT,
   CHANNEL_TIMES,
+  type ChannelTexture,
   DEFAULT_SAMPLE_RATE,
 } from "./channel-textures";
 
 export type ProgramHandle = {
   readonly program: WebGLProgram;
   readonly lineOffset: number;
-  setUniforms(values: UniformValues): void;
+  setUniforms(
+    values: UniformValues,
+    channels?: readonly (ChannelTexture | null)[],
+  ): void;
   draw(): void;
   dispose(): void;
 };
@@ -26,12 +30,6 @@ export type ProgramHandle = {
 export const QUAD_VERTICES = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
 
 const ATTRIBUTE_NAME = "aPosition";
-const CHANNEL_SAMPLERS = [
-  "iChannel0",
-  "iChannel1",
-  "iChannel2",
-  "iChannel3",
-] as const;
 const ARRAY_LOCATIONS = ["iChannelResolution[0]", "iChannelTime[0]"] as const;
 
 export function createProgramHandle(
@@ -59,7 +57,7 @@ export function createProgramHandle(
   return {
     program,
     lineOffset,
-    setUniforms(values) {
+    setUniforms(values, channels) {
       if (disposed) return;
       gl.useProgram(program);
       const resolution = uniform("iResolution");
@@ -94,13 +92,23 @@ export function createProgramHandle(
           values.date[3],
         );
       }
-      CHANNEL_SAMPLERS.forEach((name, unit) => {
-        const location = uniform(name);
-        if (location) gl.uniform1i(location, unit);
-      });
+
+      const resolutions = new Float32Array(CHANNEL_COUNT * 3);
+      for (let unit = 0; unit < CHANNEL_COUNT; unit += 1) {
+        const binding = channels?.[unit] ?? null;
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, binding?.texture ?? null);
+        const sampler = uniform(`iChannel${unit}`);
+        if (sampler) gl.uniform1i(sampler, unit);
+
+        resolutions[unit * 3] = binding?.width ?? 1;
+        resolutions[unit * 3 + 1] = binding?.height ?? 1;
+        resolutions[unit * 3 + 2] = 1;
+      }
+
       const channelResolution = uniform("iChannelResolution[0]");
       if (channelResolution) {
-        gl.uniform3fv(channelResolution, CHANNEL_RESOLUTIONS);
+        gl.uniform3fv(channelResolution, resolutions);
       }
       const channelTime = uniform("iChannelTime[0]");
       if (channelTime) gl.uniform1fv(channelTime, CHANNEL_TIMES);

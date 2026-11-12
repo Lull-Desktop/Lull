@@ -9,6 +9,8 @@ import { diagnostic, type ShaderDiagnostic } from "./diagnostics";
 export type GlContext = {
   gl: WebGLRenderingContext;
   canvas: HTMLCanvasElement;
+  /** 创建的是 WebGL1 还是 WebGL2 兜底上下文。 */
+  version: 1 | 2;
   /** 当前上下文是否支持 OES_standard_derivatives。 */
   derivativesSupported: boolean;
   isLost(): boolean;
@@ -34,6 +36,7 @@ export const CONTEXT_ATTRIBUTES: WebGLContextAttributes = {
 
 type ContextProbe = {
   gl: WebGLRenderingContext;
+  version: 1 | 2;
   derivativesSupported: boolean;
 };
 
@@ -45,6 +48,7 @@ function defaultFactory(canvas: HTMLCanvasElement): ContextProbe | null {
     const gl = webgl1 as WebGLRenderingContext;
     return {
       gl,
+      version: 1,
       derivativesSupported:
         gl.getExtension("OES_standard_derivatives") !== null,
     };
@@ -55,6 +59,7 @@ function defaultFactory(canvas: HTMLCanvasElement): ContextProbe | null {
     // 这里保守地当作「不支持」，让需要导数的 ES 1.00 源码得到明确错误。
     return {
       gl: webgl2 as unknown as WebGLRenderingContext,
+      version: 2,
       derivativesSupported: false,
     };
   }
@@ -88,7 +93,7 @@ export function createWebglContext(
     };
   }
 
-  const { gl, derivativesSupported } = probe;
+  const { gl, version, derivativesSupported } = probe;
   const lostListeners = new Set<() => void>();
   const restoredListeners = new Set<() => void>();
   let lost = false;
@@ -114,6 +119,7 @@ export function createWebglContext(
   const context: GlContext = {
     gl,
     canvas,
+    version,
     derivativesSupported,
     isLost() {
       return lost || gl.isContextLost();

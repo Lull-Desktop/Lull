@@ -2,13 +2,11 @@
  * Shadertoy 外部输入的占位纹理（RFC §7.1）。
  *
  * 宿主无法提供真实的纹理 / 音频 / 键盘通道，因此这里生成一组确定性的占位输入：
- * - `iChannel0`：256×256 RGBA 程序化噪声（白噪声，种子固定，跨启动一致）；
- * - `iChannel1-3`：1×1 黑色；
- * - `iChannelResolution[0] = 256×256×1`，其余为 1×1×1；
- * - `iChannelTime[*] = 0`、`iSampleRate = 44100`。
+ * - `Noise`：256×256 RGBA 程序化噪声（白噪声，种子固定，跨启动一致）；
+ * - `Black`：1×1 黑色。
  *
- * 它们只保证 shader 能编译并运行，不保证与 Shadertoy 上的真实通道视觉等价；
- * 运行时会向壁纸状态层提示“占位输入”。
+ * 单 Pass 模式下 `iChannel0` 默认绑定 Noise，其余通道 Black；多 Pass 模式下
+ * buffer 通道由反馈缓冲提供，这里只负责非 buffer 来源。
  */
 
 export const CHANNEL_COUNT = 4;
@@ -17,28 +15,18 @@ export const NOISE_SIZE = 256;
 export const DEFAULT_SAMPLE_RATE = 44_100;
 const NOISE_SEED = 0x51ed_270b;
 
-/** `uniform vec3 iChannelResolution[4]` 的值。 */
-export const CHANNEL_RESOLUTIONS = new Float32Array([
-  NOISE_SIZE,
-  NOISE_SIZE,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-]);
-
 /** `uniform float iChannelTime[4]`：静态纹理没有播放时间。 */
 export const CHANNEL_TIMES = new Float32Array(CHANNEL_COUNT);
 
+export type ChannelTexture = {
+  texture: WebGLTexture | null;
+  width: number;
+  height: number;
+};
+
 export type ChannelTextures = {
-  /** 把 4 个通道绑定到对应的 texture unit。 */
-  bind(): void;
+  noise: ChannelTexture;
+  black: ChannelTexture;
   dispose(): void;
 };
 
@@ -98,19 +86,13 @@ export function createChannelTextures(
 ): ChannelTextures {
   const noise = uploadTexture(gl, NOISE_SIZE, NOISE_SIZE, createNoisePixels());
   const black = uploadTexture(gl, 1, 1, new Uint8Array([0, 0, 0, 255]));
-  const units: (WebGLTexture | null)[] = [noise, black, black, black];
 
   return {
-    bind() {
-      for (let unit = 0; unit < CHANNEL_COUNT; unit += 1) {
-        gl.activeTexture(gl.TEXTURE0 + unit);
-        gl.bindTexture(gl.TEXTURE_2D, units[unit] ?? null);
-      }
-    },
+    noise: { texture: noise, width: NOISE_SIZE, height: NOISE_SIZE },
+    black: { texture: black, width: 1, height: 1 },
     dispose() {
       if (noise) gl.deleteTexture(noise);
       if (black) gl.deleteTexture(black);
-      units.fill(null);
     },
   };
 }

@@ -97,6 +97,44 @@ describe("createShaderRenderer", () => {
     expect(renderer.hasProgram()).toBe(true);
   });
 
+  test("loads and renders a multipass pipeline with feedback", () => {
+    const { fake, renderer } = setup();
+    renderer.resize({ width: 8, height: 8 });
+    const result = renderer.load(`//---- Buffer A ----
+void mainImage(out vec4 c, in vec2 p) {
+  c = vec4(p / iResolution.xy, 0.0, 1.0);
+}
+
+//---- Image ----
+void mainImage(out vec4 c, in vec2 p) {
+  c = texture2D(iChannel0, p / iResolution.xy);
+}`);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.passes).toEqual(["BufferA", "Image"]);
+    }
+    expect(renderer.hasProgram()).toBe(true);
+
+    fake.state.calls.length = 0;
+    renderer.render(UNIFORMS);
+    expect(
+      fake.state.calls.filter((call) => call === "drawArrays"),
+    ).toHaveLength(2);
+    expect(fake.state.calls).toContain("bindFramebuffer");
+    expect(fake.state.calls).toContain("framebufferTexture2D");
+
+    renderer.unload();
+    expect(renderer.hasProgram()).toBe(false);
+  });
+
+  test("rejects a multipass source without Image", () => {
+    const { renderer } = setup();
+    const result = renderer.load(`//---- Buffer A ----
+void mainImage(out vec4 c, in vec2 p) { c = vec4(1.0); }`);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.diagnostic.message).toContain("Image");
+  });
+
   test("keeps the previous program when a new shader fails to compile", () => {
     const { fake, renderer } = setup();
     expect(renderer.load(SOURCE).ok).toBe(true);

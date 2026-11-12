@@ -67,7 +67,14 @@ export function createFakeGl(options: FakeGlOptions = {}): FakeGl {
     TEXTURE_WRAP_S: 0x2802,
     TEXTURE_WRAP_T: 0x2803,
     LINEAR: 0x2601,
+    NEAREST: 0x2600,
+    CLAMP_TO_EDGE: 0x812f,
     REPEAT: 0x2901,
+    FRAMEBUFFER: 0x8d40,
+    COLOR_ATTACHMENT0: 0x8ce0,
+    FRAMEBUFFER_COMPLETE: 0x8cd5,
+    RGBA16F: 0x881a,
+    HALF_FLOAT: 0x140b,
     isContextLost: () => state.lost,
     createShader: (type: number) => ({ kind: "shader", type }),
     shaderSource: () => undefined,
@@ -126,6 +133,11 @@ export function createFakeGl(options: FakeGlOptions = {}): FakeGl {
       state.deletedTextures += 1;
       state.calls.push("deleteTexture");
     },
+    createFramebuffer: () => ({ kind: "framebuffer" }),
+    bindFramebuffer: () => state.calls.push("bindFramebuffer"),
+    framebufferTexture2D: () => state.calls.push("framebufferTexture2D"),
+    checkFramebufferStatus: () => 0x8cd5,
+    deleteFramebuffer: () => state.calls.push("deleteFramebuffer"),
     enableVertexAttribArray: () => undefined,
     vertexAttribPointer: () => undefined,
     drawArrays: () => state.calls.push("drawArrays"),
@@ -147,7 +159,11 @@ export type FakeContext = GlContext & {
 
 export function createFakeContext(
   gl: WebGLRenderingContext,
-  options: { derivativesSupported?: boolean; lost?: boolean } = {},
+  options: {
+    derivativesSupported?: boolean;
+    lost?: boolean;
+    version?: 1 | 2;
+  } = {},
 ): FakeContext {
   let lost = options.lost ?? false;
   const lostListeners = new Set<() => void>();
@@ -156,6 +172,7 @@ export function createFakeContext(
   return {
     gl,
     canvas: { width: 300, height: 150 } as HTMLCanvasElement,
+    version: options.version ?? 1,
     derivativesSupported: options.derivativesSupported ?? false,
     isLost: () => lost,
     onLost(listener) {

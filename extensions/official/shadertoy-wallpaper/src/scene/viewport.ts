@@ -8,6 +8,8 @@ export const MIN_RENDER_SCALE = 0.25;
 export const MAX_RENDER_SCALE = 1;
 /** 4K（3840×2160）像素数；超过就按比例缩小，避免壁纸常驻时把 GPU 打满。 */
 export const MAX_DRAW_PIXELS = 3_840 * 2_160;
+/** 多 Pass 时的单 Pass 像素预算（1080p）：每个 buffer 都有两张纹理，需控制显存。 */
+export const MAX_MULTIPASS_PIXELS = 1_920 * 1_080;
 
 export type ViewportInfo = {
   w: number;

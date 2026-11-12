@@ -15,7 +15,11 @@ import { createStatusOverlay, type StatusOverlay } from "../ui/status-overlay";
 import { readRuntimeParams, shouldPause } from "./lifecycle";
 import { createMouseTracker } from "./pointer";
 import { createShaderClock } from "./time";
-import { computeDrawSize, type DrawSize } from "./viewport";
+import {
+  computeDrawSize,
+  type DrawSize,
+  MAX_MULTIPASS_PIXELS,
+} from "./viewport";
 
 export type LogLevel = "log" | "warn" | "error";
 export type Reporter = (level: LogLevel, message: string) => void;
@@ -152,6 +156,21 @@ export function mountShaderScene(
   let viewport = { w: 1, h: 1, dpr: 1 };
   let draw: DrawSize = computeDrawSize(viewport, renderScale);
   let drawKey = "";
+  let passCount = 1;
+  let multipassScale = 1;
+
+  const updatePipelineScale = (): void => {
+    if (passCount <= 1) {
+      multipassScale = 1;
+      return;
+    }
+    const base = computeDrawSize(viewport, renderScale * guard.scaleFactor);
+    const pixels = base.width * base.height;
+    multipassScale =
+      pixels <= MAX_MULTIPASS_PIXELS
+        ? 1
+        : Math.sqrt(MAX_MULTIPASS_PIXELS / pixels);
+  };
 
   const pausedNow = (): boolean =>
     shouldPause({
@@ -163,7 +182,10 @@ export function mountShaderScene(
     });
 
   const applyDrawSize = (): void => {
-    draw = computeDrawSize(viewport, renderScale * guard.scaleFactor);
+    draw = computeDrawSize(
+      viewport,
+      renderScale * multipassScale * guard.scaleFactor,
+    );
     const key = `${draw.width}x${draw.height}`;
     if (key !== drawKey) {
       drawKey = key;
@@ -239,6 +261,8 @@ export function mountShaderScene(
     source = nextSource;
     if (nextSource.trim() === "") {
       renderer.unload();
+      passCount = 1;
+      multipassScale = 1;
       stopped = false;
       guard.reset();
       overlay.set({ kind: "empty" });
@@ -263,9 +287,20 @@ export function mountShaderScene(
     }
 
     for (const warning of result.warnings) report("warn", warning);
+    if (result.passes.length > 1) {
+      report("log", `多 Pass 管线：${result.passes.join(" → ")}`);
+    }
+    passCount = result.passes.length;
     guard.reset();
     stopped = false;
+    updatePipelineScale();
     applyDrawSize();
+    if (multipassScale < 1) {
+      report(
+        "log",
+        `多 Pass 显存保护：渲染尺寸限制为 ${draw.width}×${draw.height}`,
+      );
+    }
     clock.restart();
     notifyChannels(result.channels);
     syncLoop();
@@ -302,6 +337,9 @@ export function mountShaderScene(
     }
     guard.reset();
     stopped = false;
+    passCount = result.passes.length;
+    updatePipelineScale();
+    applyDrawSize();
     clock.restart();
     notifyChannels(result.channels);
     syncLoop();
@@ -325,6 +363,7 @@ export function mountShaderScene(
       const animationChanged = params.animation !== animation;
       renderScale = params.renderScale;
       animation = params.animation;
+      updatePipelineScale();
       applyDrawSize();
 
       if (params.source !== source) {
