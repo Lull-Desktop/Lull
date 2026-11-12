@@ -289,8 +289,9 @@ const prefs = useLullState("prefs", defaults);
 错误统一抛 `LullWidgetError`，按 `code` 分支，不要匹配文案。
 
 `openWindow` 需要 `widget.chrome` 能力：打开（或唤醒）宿主工具窗口，`kind` 由宿主壳白名单
-校验（当前仅 `"library"`），`tab` 可指定工具窗口打开后停留的页签（由工具窗口自行校验合法性）。
-官方播放器用它从「队列 / 收藏」页签跳到音乐管理窗口的对应页签。
+校验（`"library"` / `"settings"`），`tab` 可指定工具窗口打开后停留的页签（由工具窗口自行校验合法性）。
+官方播放器用它从「队列 / 收藏」页签跳到音乐管理窗口的对应页签，官方音境的齿轮用它把设置窗口
+唤起到「音境」页签（`tab: "noise"`）。
 
 `closeWindow` 隐藏同一个工具窗口（保留挂载，不销毁 WebView），权限与白名单同上；`isWindowOpen`
 拉一次真实可见性，`onWindowState` 订阅变化。用户在工具窗口里点关闭、或从托盘 / 设置页隐藏时，
@@ -358,6 +359,9 @@ iframe 不带 `allow-same-origin`，是一个**不透明源**：
 
 - 宽度请求夹在清单 `[minWidth, width]`；高度只在 `window.fit: "content"` 时生效，并受
   最小高度、1200px 与屏幕工作区限制。`requestResize` 返回宿主实际应用的尺寸；
+- `width` 同时是**初始宽度与改宽上限**：需要按内容贴宽的插件把 `minWidth` 设到内容下限、
+  `width` 只留作上限，挂载后自己量内容再发 `requestResize({ width })`（官方音境就是这么做的：
+  窗口宽度 = 标签列 + 玻璃轨道 + 舞台留白）。窗口要等首次尺寸应用后才显示，用户看不到初始宽度的跳变；
 - 关闭窗口 = 隐藏（Alt+F4 同样只隐藏），进程继续驻留托盘；
 - `window.transparent` 只决定**初始**背景，运行时用 `lull.setTransparent` 切换，不会重建窗口或刷新插件；
 - 透明是 WebView 背景色，不改变窗口尺寸或阴影，Windows 下透明窗口没有原生阴影；

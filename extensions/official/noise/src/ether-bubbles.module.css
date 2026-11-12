@@ -2,7 +2,8 @@
 
 .root {
   --ether-pulse: 0;
-  --stage-pad: clamp(18px, 4vw, 34px);
+  /* 舞台左右留白：窗口宽度按内容贴合，留白固定，不再随视口缩放。 */
+  --stage-pad: 16px;
   --ease-ether: cubic-bezier(0.22, 1, 0.36, 1);
   /* --flow-a/b/c 来自全局「主题流光」，由 <html> 的内联变量继承进来；
      设置窗口统一切换，这里不再维护第二份配色表。 */
@@ -17,6 +18,25 @@
   color: #edf7f3;
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  /* 交互护栏（CSS 侧）：文字与子元素不参与框选，右键菜单与原生拖拽由
+     `interaction-guard.ts` 在根节点上取消默认行为。user-select 会继承，
+     所以停靠栏、泡泡、提示标签一次性生效；规则只写在这个模块的
+     根类上，不会外溢到宿主页面或其他窗口。 */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 图标与图片不允许被拖起：避免按住泡泡 / 图标时出现拖影，或被拖出窗口。 */
+.root img,
+.root svg {
+  -webkit-user-drag: none;
+}
+
+/* 预留给后续可能出现的文字输入控件：整块关闭选中会让改名、全选、粘贴
+   这些键盘操作失效，这里把原生选区还回去（与护栏的 JS 判定保持一致）。 */
+.root :is(input, textarea, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* ── 顶部品牌 / 拖拽与窗口控制 ─────────────────────────────────── */
@@ -32,12 +52,8 @@
   align-self: flex-start;
   gap: 6px;
   margin-bottom: 5px;
-  margin-left: calc(
-    (100% - var(--rail-width)) *
-    var(--rail-offset) +
-    var(--rail-width) /
-    2
-  );
+  /* 玻璃轨道在缎带最右一列，顶栏横向中心对齐轨道中心。 */
+  margin-left: calc(100% - var(--rail-width) / 2);
   border: 1px solid
     color-mix(in srgb, var(--flow-b) 18%, rgba(200, 231, 255, 0.16));
   border-radius: 999px;
@@ -63,12 +79,7 @@
 }
 
 .root[data-side="left"] .dockTop {
-  margin-left: calc(
-    (100% - var(--rail-width)) *
-    0.3691 +
-    var(--rail-width) /
-    2
-  );
+  margin-left: calc(var(--rail-width) / 2);
 }
 
 /* 与播放器顶栏同一组成：拖拽点阵 + 双行品牌 + 分隔线 + 圆形窗口按钮。 */
@@ -215,15 +226,17 @@
   justify-content: flex-start;
 }
 
+/* 缎带宽度由内容决定（标签列 + 玻璃轨道），不再留固定画布：
+   窗口宽度 = 缎带宽 + 舞台左右留白，由组件测量后请求贴合（见 `useEtherFit`），
+   所以二级菜单搬走后不会再出现一条空白透明带。 */
 .ribbonGroup {
-  --child-size: 50px;
-  --mother-size: 68px;
-  --rail-width: 90px;
-  --row-gap: 5px;
-  --rail-offset: 0.6327;
+  --child-size: 46px;
+  --mother-size: 62px;
+  --rail-width: 84px;
+  --row-gap: 4px;
   position: relative;
   display: flex;
-  width: min(530px, 100%);
+  width: max-content;
   flex-direction: column;
   gap: var(--row-gap);
   padding: 3px 0;
@@ -235,7 +248,10 @@
   z-index: 0;
   top: 40px;
   bottom: 0;
-  left: calc((100% - var(--rail-width)) * var(--rail-offset));
+  /* 轨道就是最后那一列：贴着内容右端（左停靠时贴左端）。 */
+  left: calc(100% - var(--rail-width));
+  /* 含边框等于列宽：否则 1px 边框会把轨道撑成 86，中线比气泡偏右 1px。 */
+  box-sizing: border-box;
   width: var(--rail-width);
   overflow: hidden;
   border: 1px solid rgba(222, 250, 240, 0.16);
@@ -326,13 +342,16 @@
   display: none;
 }
 
+/* 两列：标签（1fr，吃掉缎带剩下的宽）+ 轨道列（定宽）。
+   标签列**不能**用 max-content：每行是各自独立的 grid，会按本行文案各算一份宽度，
+   于是状态文案一变（开/关、音量百分比、读数）气泡就左右跳。
+   缎带整体是 max-content（取最宽那行），每行被拉伸到同一宽，1fr 因此逐行相同；
+   文案长到超过清单上限时列可收缩，由 .glyphTitle / .rowMeta 省略号兜底。 */
 .soundRow {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns:
-    minmax(0, 1.71fr) var(--rail-width)
-    minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--rail-width);
   align-items: center;
   min-height: var(--child-size);
 }
@@ -346,35 +365,25 @@
   grid-row: 1;
   grid-column: 2;
 }
-.rowSpacer {
-  grid-row: 1;
-  grid-column: 3;
-}
 
 .root[data-side="left"] .soundRow {
-  grid-template-columns:
-    minmax(0, 1fr) var(--rail-width)
-    minmax(0, 1.71fr);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
 }
 
 .root[data-side="left"] .rowLabel {
-  grid-column: 3;
+  grid-column: 2;
   justify-self: start;
   padding-right: 0;
-  padding-left: 20px;
+  padding-left: 10px;
   text-align: left;
 }
 
 .root[data-side="left"] .rowBubble {
-  grid-column: 2;
-}
-
-.root[data-side="left"] .rowSpacer {
   grid-column: 1;
 }
 
 .root[data-side="left"] .rail {
-  left: calc((100% - var(--rail-width)) * 0.3691);
+  left: 0;
 }
 
 .masterRow {
@@ -387,21 +396,25 @@
   flex-direction: column;
   justify-self: end;
   gap: 3px;
-  padding-right: 12px;
+  padding-right: 10px;
   text-align: right;
   transition: opacity 0.7s ease;
 }
 
 .glyphTitle {
+  overflow: hidden;
+  max-width: 100%;
   color: rgba(239, 250, 245, 0.82);
   font-family: var(--font-serif);
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 400;
   letter-spacing: 0.12em;
   line-height: 1;
+  text-overflow: ellipsis;
   text-shadow:
     0 1px 3px rgba(0, 5, 3, 0.62),
     0 1px 18px rgba(3, 12, 8, 0.5);
+  white-space: nowrap;
 }
 
 .rowMeta {
@@ -418,10 +431,6 @@
 .rowBubble {
   display: flex;
   justify-self: center;
-}
-
-.rowSpacer {
-  min-width: 0;
 }
 
 .soundRow[data-active="false"] .rowLabel {
@@ -1135,11 +1144,12 @@
   justify-content: center;
   gap: 4px;
   padding: 1px 0 0;
-  margin-left: calc((100% - var(--rail-width)) * var(--rail-offset));
+  /* 齿轮行与轨道同列、同宽。 */
+  margin-left: calc(100% - var(--rail-width));
 }
 
 .root[data-side="left"] .gearRow {
-  margin-left: calc((100% - var(--rail-width)) * 0.3691);
+  margin-left: 0;
 }
 
 .gearButton {
@@ -1166,8 +1176,9 @@
   stroke-width: 1.35;
 }
 
+/* 齿轮只负责唤起设置窗口，所以没有「展开中」态，只有悬停与键盘焦点。 */
 .gearButton:hover,
-.gearButton[aria-expanded="true"] {
+.gearButton:focus-visible {
   border-color: rgba(219, 248, 237, 0.25);
   color: rgba(238, 253, 247, 0.86);
   background: rgba(212, 244, 233, 0.08);
@@ -1208,348 +1219,6 @@
   animation: veilWash 0.82s ease-out both;
 }
 
-/* ── 设置浮层 ─────────────────────────────────────────────────── */
-
-.scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 40;
-  border: 0;
-  background: transparent;
-  cursor: default;
-}
-
-.settingsPanel {
-  position: absolute;
-  right: calc(var(--stage-pad) + 264px);
-  bottom: 8px;
-  left: auto;
-  z-index: 50;
-  display: block;
-  width: min(280px, calc(100vw - 300px));
-  overflow: hidden;
-  border: 1px solid rgba(221, 250, 239, 0.18);
-  border-radius: 14px;
-  background:
-    radial-gradient(
-      ellipse 84% 36% at 14% 0%,
-      color-mix(in srgb, var(--flow-b) 10%, transparent),
-      transparent 72%
-    ),
-    linear-gradient(
-      150deg,
-      rgba(51, 72, 61, 0.62),
-      rgba(14, 28, 21, 0.78) 58%,
-      rgba(8, 18, 13, 0.8)
-    );
-  box-shadow:
-    inset 1px 1px 1px rgba(248, 255, 252, 0.17),
-    inset -1px -1px 1px rgba(255, 255, 255, 0.03),
-    0 2px 5px rgba(0, 6, 3, 0.52),
-    0 0 5px rgba(0, 15, 9, 0.2);
-  backdrop-filter: blur(24px) saturate(150%);
-  animation: panelInLeft 0.44s var(--ease-ether) both;
-}
-
-.settingsPanel::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(
-    138deg,
-    rgba(255, 255, 255, 0.28),
-    transparent 28%,
-    transparent 66%,
-    color-mix(in srgb, var(--flow-b) 32%, transparent)
-  );
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  pointer-events: none;
-}
-
-.settingsPanel::after {
-  content: "";
-  position: absolute;
-  top: 22%;
-  left: -1px;
-  width: 2px;
-  height: 48%;
-  border-radius: 999px;
-  background: linear-gradient(
-    180deg,
-    transparent,
-    var(--flow-b),
-    var(--flow-a),
-    transparent
-  );
-  filter: blur(2px);
-  opacity: 0.8;
-  pointer-events: none;
-}
-
-.root[data-side="left"] .settingsPanel {
-  right: auto;
-  left: calc(var(--stage-pad) + 264px);
-  animation-name: panelInRight;
-}
-
-.root[data-side="left"] .settingsPanel::after {
-  right: -1px;
-  left: auto;
-}
-
-.settingsBody {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  padding: 9px 11px 8px;
-}
-
-.settingsHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 0 4px;
-}
-
-.settingsHead strong {
-  color: rgba(238, 252, 246, 0.84);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-}
-
-.settingsHead button {
-  display: grid;
-  width: 17px;
-  height: 17px;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 50%;
-  color: rgba(221, 247, 237, 0.34);
-  background: transparent;
-  cursor: pointer;
-  transition:
-    color 0.25s ease,
-    border-color 0.25s ease;
-}
-
-.settingsHead button:hover {
-  border-color: rgba(221, 247, 237, 0.16);
-  color: rgba(242, 255, 250, 0.86);
-}
-
-.settingsHead button svg {
-  width: 9px;
-  height: 9px;
-}
-
-.settingInline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 0;
-  border-top: 1px solid rgba(220, 248, 237, 0.075);
-}
-
-.settingLabel {
-  color: rgba(230, 248, 241, 0.66);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-}
-
-.themeBadge {
-  padding: 2px 6px;
-  border: 1px solid color-mix(in srgb, var(--flow-b) 16%, transparent);
-  border-radius: 999px;
-  color: color-mix(in srgb, var(--flow-b) 49%, rgba(255, 255, 255, 0.42));
-  background: color-mix(in srgb, var(--flow-b) 5%, transparent);
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  line-height: 1.2;
-}
-
-.otherSection {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding-top: 6px;
-  border-top: 1px solid rgba(220, 248, 237, 0.075);
-}
-
-.sectionLabel {
-  margin-bottom: 3px;
-  color: rgba(214, 241, 230, 0.37);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-}
-
-.menuRow {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 3px;
-  border: 0;
-  border-radius: 7px;
-  color: inherit;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.25s ease;
-}
-
-.menuRow:hover {
-  background: rgba(224, 250, 239, 0.045);
-}
-
-.menuRow[data-static="true"] {
-  cursor: default;
-}
-
-.menuRow[data-static="true"]:hover {
-  background: transparent;
-}
-
-.menuIcon {
-  display: grid;
-  width: 17px;
-  height: 17px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid rgba(219, 247, 237, 0.12);
-  border-radius: 50%;
-  color: rgba(219, 245, 235, 0.42);
-  background: rgba(214, 243, 231, 0.035);
-}
-
-.menuIcon svg {
-  width: 9px;
-  height: 9px;
-  stroke-width: 1.3;
-}
-
-.menuText {
-  flex: 1;
-  color: rgba(231, 249, 242, 0.64);
-  font-size: 11px;
-  letter-spacing: 0.02em;
-}
-
-.menuValue {
-  color: rgba(206, 234, 223, 0.31);
-  font-size: 9px;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-.menuRow > svg {
-  width: 9px;
-  height: 9px;
-  flex: 0 0 auto;
-  color: rgba(207, 234, 223, 0.24);
-  stroke-width: 1.3;
-}
-
-.switch {
-  position: relative;
-  width: 26px;
-  height: 15px;
-  flex: 0 0 auto;
-  padding: 0;
-  border: 1px solid rgba(219, 248, 236, 0.14);
-  border-radius: 999px;
-  background: rgba(6, 16, 11, 0.4);
-  cursor: pointer;
-  transition:
-    background 0.3s ease,
-    border-color 0.3s ease;
-}
-
-.switch span {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: rgba(216, 239, 230, 0.45);
-  box-shadow: 0 2px 5px rgba(0, 5, 3, 0.35);
-  transition:
-    transform 0.32s var(--ease-ether),
-    background 0.3s ease;
-}
-
-.switch[aria-checked="true"] {
-  border-color: color-mix(in srgb, var(--flow-b) 28%, transparent);
-  background: linear-gradient(
-    120deg,
-    color-mix(in srgb, var(--flow-b) 31%, transparent),
-    color-mix(in srgb, var(--flow-a) 20%, transparent)
-  );
-}
-
-.switch[aria-checked="true"] span {
-  background: #e4fff3;
-  transform: translateX(11px);
-}
-
-.settingsFoot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding-top: 6px;
-  margin-top: 1px;
-  border-top: 1px solid rgba(220, 248, 237, 0.075);
-}
-
-.resetButton {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 7px;
-  border: 1px solid rgba(219, 248, 237, 0.1);
-  border-radius: 7px;
-  color: rgba(224, 246, 237, 0.46);
-  background: rgba(211, 242, 230, 0.035);
-  cursor: pointer;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  transition:
-    color 0.28s ease,
-    border-color 0.28s ease,
-    background 0.28s ease;
-}
-
-.resetButton:hover {
-  border-color: rgba(219, 248, 237, 0.24);
-  color: rgba(241, 255, 249, 0.88);
-  background: rgba(211, 242, 230, 0.08);
-}
-
-.resetButton svg {
-  width: 9px;
-  height: 9px;
-}
-
-.settingsNote {
-  margin: 0;
-  color: rgba(204, 232, 221, 0.22);
-  font-size: 8px;
-  letter-spacing: 0.03em;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
 /* ── 自动隐去 ─────────────────────────────────────────────────── */
 
 .root[data-dormant="true"] .rowLabel {
@@ -1569,68 +1238,6 @@
 .bubbleShell,
 .masterShell {
   transition: opacity 0.9s ease;
-}
-
-/* ── 响应式 ───────────────────────────────────────────────────── */
-
-@media (max-width: 680px) {
-  .root {
-    --stage-pad: 16px;
-  }
-
-  .ribbonGroup {
-    --child-size: 46px;
-    --mother-size: 62px;
-    --rail-width: 84px;
-    --row-gap: 4px;
-  }
-
-  .glyphTitle {
-    font-size: 18px;
-  }
-
-  .rowLabel {
-    padding-right: 10px;
-  }
-
-  .root[data-side="left"] .rowLabel {
-    padding-right: 0;
-    padding-left: 10px;
-  }
-}
-
-@media (max-width: 540px) {
-  .ribbonGroup {
-    --child-size: 42px;
-    --mother-size: 58px;
-    --rail-width: 78px;
-    --row-gap: 4px;
-  }
-
-  .glyphTitle {
-    font-size: 17px;
-  }
-
-  .rowMeta {
-    font-size: 9px;
-    letter-spacing: 0.06em;
-  }
-
-  .statusPill {
-    display: none;
-  }
-
-  .settingsPanel {
-    right: calc(var(--stage-pad) + 264px);
-    bottom: 8px;
-    left: auto;
-    width: min(280px, calc(100vw - 300px));
-  }
-
-  .root[data-side="left"] .settingsPanel {
-    right: auto;
-    left: calc(var(--stage-pad) + 264px);
-  }
 }
 
 /* ── 动效关键帧 ───────────────────────────────────────────────── */
@@ -1733,97 +1340,11 @@
   }
 }
 
-@keyframes panelInLeft {
-  from {
-    opacity: 0;
-    filter: blur(7px);
-    transform: translateX(-14px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateX(0) scale(1);
-  }
-}
-
-@keyframes panelInRight {
-  from {
-    opacity: 0;
-    filter: blur(7px);
-    transform: translateX(14px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateX(0) scale(1);
-  }
-}
-
-.presetRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 0;
-}
-
-.presetRow select {
-  min-width: 0;
-  flex: 1;
-  border: 1px solid
-    color-mix(in srgb, var(--ether-ink, #25302c) 16%, transparent);
-  border-radius: 8px;
-  padding: 5px 7px;
-  background: color-mix(in srgb, var(--ether-paper, #f6f3ec) 82%, transparent);
-  color: inherit;
-  font-size: 12px;
-}
-
-.presetRow button {
-  border: 0;
-  border-radius: 8px;
-  padding: 5px 9px;
-  background: color-mix(in srgb, var(--ether-accent, #5e9c86) 18%, transparent);
-  color: var(--ether-ink, #25302c);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.presetRow button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.playbackRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 0;
-}
-
-.playbackRow button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  border-radius: 8px;
-  padding: 5px 12px;
-  background: color-mix(in srgb, var(--ether-accent, #5e9c86) 18%, transparent);
-  color: var(--ether-ink, #25302c);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.playbackRow button svg {
-  width: 13px;
-  height: 13px;
-}
-
 /* ── 悬停标签 ───────────────────────────────────────────────── */
 
 /* 由 <TipHost /> 固定定位渲染：默认浮在元素正上方居中，
    顶部放不下时才翻到下方（data-below），永远避开指针。
-   z-index 要压过设置浮层（50），标签才能落在面板里的控件上。 */
+   z-index 压在停靠栏（4）与切换雾化层（20）之上，标签不会被玻璃件盖住。 */
 .tip {
   position: fixed;
   z-index: 60;

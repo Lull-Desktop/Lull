@@ -10,11 +10,7 @@
 import { m } from "virtual:lull-messages";
 import type { LullMediaClient } from "@lull/media-sdk";
 import type { LullWidgetClient } from "@lull/widget-sdk";
-import {
-  useLullTheme,
-  useWidgetFit as useSdkWidgetFit,
-} from "@lull/widget-sdk/react";
-import type { RefObject } from "react";
+import { useLullTheme } from "@lull/widget-sdk/react";
 
 let widget: LullWidgetClient | null = null;
 let media: LullMediaClient | null = null;
@@ -153,6 +149,29 @@ export const widgetHideWindow = (): Promise<void> =>
 export const widgetMinimizeWindow = (): Promise<void> =>
   widget?.minimize() ?? Promise.resolve();
 
+/** 打开（或唤醒）设置窗口并停在指定页签；需 `widget.chrome` 能力。 */
+export function widgetOpenSettings(tab: string): Promise<void> {
+  if (!widget) return Promise.resolve();
+  return widget.openWindow({ kind: "settings", tab }).catch(() => {});
+}
+
+/**
+ * 按内容贴合窗口。宽度夹在清单的 `[minWidth, width]` 之间，高度要求
+ * 清单声明 `window.fit = "content"`；`anchor` 决定改宽时固定哪一侧
+ * （停靠右则固定右边，视觉上只有左侧在动）。桥不可用时安静跳过。
+ */
+export function widgetRequestResize(options: {
+  width?: number;
+  height?: number;
+  anchor?: "left" | "right";
+}): Promise<void> {
+  if (!widget) return Promise.resolve();
+  return widget
+    .requestResize(options)
+    .then(() => {})
+    .catch(() => {});
+}
+
 export function widgetIsMinimizable(): Promise<boolean> {
   return Promise.resolve(widget?.minimizable ?? false);
 }
@@ -178,10 +197,6 @@ export function useWidgetTheme(): {
   const id = hostTheme?.id ?? "blueGold";
   const label = THEME_LABELS[id] ?? m.flow_theme_blue_gold;
   return { themeId: id, theme: { id, label } };
-}
-
-export function useWidgetFit(contentRef: RefObject<HTMLElement | null>): void {
-  useSdkWidgetFit(contentRef);
 }
 
 export { m };

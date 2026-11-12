@@ -35,7 +35,7 @@
   "window": {
     "width": 600,
     "height": 420,
-    "minWidth": 560,
+    "minWidth": 160,
     "minHeight": 320,
     "resizable": false,
     "transparent": true,

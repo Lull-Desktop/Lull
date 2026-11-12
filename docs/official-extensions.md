@@ -112,14 +112,15 @@ extensions/official/bamboo/
 
 `shadertoy-wallpaper` 同构（产物 id `lull.shadertoy-wallpaper`，`entry` 为
 `scenes/shadertoy-wallpaper/index.html`），源码里额外有 `fixtures/`（手工验证用示例，
-不进入构建产物）：
+目录本身不进入构建产物；其中 `default.frag` 是「未填源码」时的默认示例，
+构建时以 Vite `?raw` 内联进场景 JS）：
 
 ```text
 extensions/official/shadertoy-wallpaper/
   catalog.json                 # 参数：source(text) / render-scale(number) / animation(boolean)
   index.html
   src/                         # source/profile、adapter、WebGL runtime、Scene SDK
-  fixtures/*.frag              # gradient / flow / mouse / channel / raw / multipass / es3 / invalid
+  fixtures/*.frag              # default（默认示例）/ perspex-lattice / gradient / flow / mouse / channel / raw / multipass / es3 / invalid
 ```
 
 源码目录名可以与场景 id 不同（`bamboo` → 产物 id `lull.bamboo`）；构建后：
@@ -473,6 +474,7 @@ localStorage 偏好（启动静音、播放模式/音量）会一次性重置；
 - [ ] 扩展中心显示「官方」徽章；Widget 可停用 / 重新启用，Scene 可去素材管理；两者不能卸载。
 - [ ] 默认壁纸是官方竹影；薄雾参数、时钟、跨屏同步正常；缺包时回退媒体壁纸。
 - [ ] 着色器壁纸：粘贴 / 从文件载入 `mainImage` 或自定义 `main()` 源码均可运行；非法源码显示编译日志且不破坏旧画面；重启后源码恢复。
+- [ ] 着色器壁纸的默认示例：`source` 为空（首次选中、「恢复默认」）时自动运行内置示例 `fixtures/default.frag`，画面不是空白；填了源码后换成用户源码，清空后回到示例；`scene.log` 有「未填写源码」记录。
 - [ ] 着色器壁纸的鼠标位置：`iMouse.xy` 跟随桌面光标（左下原点、与 `iResolution` 同单位）；光标切到其他窗口或离开桌面后保持最后位置，不跳回负坐标；`zw` 为 0（无按键）。
 - [ ] 着色器壁纸的多 Pass：用 `//---- Buffer A ----` / `//---- Image ----` 分节可运行 Feedback；Buffer A 的 `iChannel0` 读到上一帧；参数/尺寸变化后反馈缓冲重建。
 - [ ] 着色器壁纸的 ES3：`#version 300 es` + `texelFetch` / `textureSize` / 整数数组 / 位运算在 WebGL2 上可运行；导数 shader 在 WebGL2 上自动走 ES3；只有 WebGL1 的环境给出“需要 WebGL2”诊断。

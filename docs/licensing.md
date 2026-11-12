@@ -43,7 +43,11 @@
 
 内置媒体场景（`src/scenes/video`）与官方场景包（`extensions/official/bamboo/**`、
 `extensions/official/shadertoy-wallpaper/**`）是应用代码，仍为 GPL；不要把它们当作
-CC BY 内容。着色器场景本身不随包分发任何第三方 shader 源码：用户源码由用户自行提供。
+CC BY 内容。着色器场景在「未填源码」时默认加载一份第三方示例 shader
+（`fixtures/default.frag`，Shadertoy「The Drive Home」，CC BY-NC-SA 3.0），
+它保留上游授权、不并入 GPL，登记在
+[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)；用户自行粘贴/载入的源码由
+用户自行负责授权。
 
 预构建的第三方随包扩展（`extensions/bundled/**`）保留各自许可：包内附 `LICENSE`，
 并登记在 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)；不要把它们并入

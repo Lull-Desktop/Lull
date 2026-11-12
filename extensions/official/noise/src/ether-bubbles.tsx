@@ -2,29 +2,21 @@
  * EtherBubbles（白噪音）：悬浮式环境声混音器，音轨行如实反映后端 Session 配置。
  *
  * 交互：点击泡泡开关声音，滚轮 / 上下拖动调节音量；点击主泡静音，滚轮调总音量。
+ * 齿轮不再展开窗内二级菜单，而是把设置窗口唤起到「音境」页签——睡眠定时、预设、
+ * 音轨明细都在那里，窗内只留混音本体。
  * 视觉：玻璃泡 + 发光液体 + 体积环；声场运行时由分析器驱动液体涟漪与呼吸。
  * 页面为工具窗定制的透明外壳：WebView 与 Tauri 窗口都不铺背景，桌面内容可透出。
  */
 "use client";
 
-import type {
-  NoisePresetSummary,
-  NoiseSession,
-  NoiseTrack,
-} from "@lull/media-sdk";
+import type { NoiseSession, NoiseTrack } from "@lull/media-sdk";
 import {
-  ChevronRight,
   ChevronsLeftRight,
-  Clock,
   CloudRain,
   Flame,
   Leaf,
   Minus,
-  Moon,
   Music2,
-  Pause,
-  Play,
-  RotateCcw,
   Settings2,
   Sparkles,
   Target,
@@ -38,21 +30,22 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
   WheelEvent as ReactWheelEvent,
+  RefObject,
 } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  m,
   onWidgetPrefsChanged,
   peekMediaClient,
   readWidgetStorage,
-  useWidgetFit,
   useWidgetTheme,
   widgetHideWindow,
   widgetIsMinimizable,
   widgetMinimizeWindow,
-  writeWidgetStorage,
+  widgetOpenSettings,
+  widgetRequestResize,
 } from "./compat";
 import styles from "./ether-bubbles.module.css";
+import { useInteractionGuard } from "./interaction-guard";
 import {
   buildDemoSession,
   clampLevel,
@@ -81,10 +74,9 @@ const TRACK_ICONS: Record<
   sparkles: Sparkles,
 };
 
-const SLEEP_OPTIONS = [0, 15, 30, 60] as const;
-type SleepMinutes = (typeof SLEEP_OPTIONS)[number];
+/** 设置窗口里白噪音页的页签 id（宿主 `SETTINGS_TABS` 之一）。 */
+const SETTINGS_NOISE_TAB = "noise";
 
-type StartupMode = "resume" | "silent";
 const NOISE_WIDGET_ID = "noise";
 const STARTUP_STORAGE_VERSION = "startup";
 
@@ -97,6 +89,84 @@ type BubbleStyle = CSSProperties & {
 };
 
 type ReadoutTarget = string | "master";
+
+/**
+ * 窗口贴合内容：宽度 = 标签列的自然宽 + 玻璃轨道 + 舞台左右留白，高度 = 根节点高度。
+ *
+ * 缎带宽度由内容决定（标签列 + 玻璃轨道），所以窗口不再固定 600px：
+ * 窗内二级菜单搬走后不会剩下一条透明空带，换成长音轨名时窗口也跟着长。
+ * 宽度要量**文案本身的 scrollWidth**而不是缎带的盒宽——标签被列宽夹住时
+ * 文字只是打省略号，盒宽不会再变，只看盒宽窗口就永远长不回去。
+ * 宽度按停靠侧固定对侧边（`anchor`），视觉上只有另一侧在动；
+ * 高度仍走 `window.fit = "content"`，改完尺寸宿主才显示窗口。
+ */
+function useEtherFit(
+  rootRef: RefObject<HTMLElement | null>,
+  stageRef: RefObject<HTMLElement | null>,
+  ribbonRef: RefObject<HTMLElement | null>,
+  side: "left" | "right",
+): void {
+  useEffect(() => {
+    const root = rootRef.current;
+    const stage = stageRef.current;
+    const ribbon = ribbonRef.current;
+    if (!root || !stage || !ribbon) return;
+    let frame = 0;
+    let lastWidth = 0;
+    let lastHeight = 0;
+
+    /** 标签列想要多宽：每行文案的自然宽 + 该行的左右内边距。 */
+    const labelWant = (): number => {
+      let want = 0;
+      for (const label of root.querySelectorAll<HTMLElement>(
+        "[data-ether-label]",
+      )) {
+        const style = getComputedStyle(label);
+        const pad =
+          (Number.parseFloat(style.paddingLeft) || 0) +
+          (Number.parseFloat(style.paddingRight) || 0);
+        let text = 0;
+        for (const child of label.children) {
+          text = Math.max(text, (child as HTMLElement).scrollWidth);
+        }
+        want = Math.max(want, text + pad);
+      }
+      return want;
+    };
+
+    const measure = (): void => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const style = getComputedStyle(stage);
+        const padX =
+          (Number.parseFloat(style.paddingLeft) || 0) +
+          (Number.parseFloat(style.paddingRight) || 0);
+        const railWidth =
+          Number.parseFloat(
+            getComputedStyle(ribbon).getPropertyValue("--rail-width"),
+          ) || 0;
+        // +1px 吸收 DPI 换算取整（125% / 150% 缩放会把逻辑宽截到小数），
+        // 否则最后那一列会被挤掉 0.2px 从而触发省略号。
+        const width = Math.ceil(labelWant() + railWidth + padX) + 1;
+        const height = Math.ceil(root.getBoundingClientRect().height);
+        // 首帧样式还没生效时量出 0，别把它发给宿主（会被夹成最小宽度）。
+        if (width <= 0 || height <= 0) return;
+        if (width === lastWidth && height === lastHeight) return;
+        lastWidth = width;
+        lastHeight = height;
+        void widgetRequestResize({ width, height, anchor: side });
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    observer.observe(ribbon);
+    measure();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [rootRef, stageRef, ribbonRef, side]);
+}
 
 /** 参考图里雨滴两侧展开的水翼，用 lucide 基础路径拼一个更轻盈的雨符号。 */
 function DropletGlyph({ className }: { className?: string }) {
@@ -462,25 +532,23 @@ export function EtherBubbles() {
   const [libraryMeta, setLibraryMeta] = useState<LibraryMeta | null>(null);
   const [master, setMaster] = useState(INITIAL_MASTER);
   const [muted, setMuted] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [dockSide, setDockSide] = useState<"left" | "right">("right");
-  const [autoFade, setAutoFade] = useState(true);
   const { theme: currentTheme } = useWidgetTheme();
-  const [sleepMinutes, setSleepMinutes] = useState<SleepMinutes>(0);
-  const [startupMode, setStartupMode] = useState<StartupMode>("resume");
   const [dormant, setDormant] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [readout, setReadout] = useState<ReadoutTarget | null>(null);
   const [canMinimize, setCanMinimize] = useState(false);
-  const [presets, setPresets] = useState<NoisePresetSummary[]>([]);
-  const [presetId, setPresetId] = useState("");
 
   const readoutTimer = useRef<number | null>(null);
   const switchTimer = useRef<number | null>(null);
-  const sleepLabel = sleepMinutes === 0 ? "关闭" : `${sleepMinutes} 分钟`;
-  const startupLabel = startupMode === "resume" ? "继续上次" : "静默启动";
+  const stageRef = useRef<HTMLElement | null>(null);
+  const ribbonRef = useRef<HTMLDivElement | null>(null);
 
-  useWidgetFit(rootRef);
+  // 窗口宽高都按内容贴合：缎带多宽，窗口就多宽（见 useEtherFit）。
+  useEtherFit(rootRef, stageRef, ribbonRef, dockSide);
+  // 整个音境模块内禁止框选 / 原生拖拽 / 右键菜单；监听只挂在根节点，
+  // 不进 document，因此其他窗口与宿主页面不受影响。
+  useInteractionGuard(rootRef);
 
   // 浏览器预览/单测没有 Media Client，保留纯 UI 的“正在播放”演示态；
   // 放到 effect 里避免 Tauri（有 client）与 SSR（无 window）首屏不一致。
@@ -505,9 +573,6 @@ export function EtherBubbles() {
       commitSession(next);
       setMaster(Math.round(next.masterVolume * 100));
       setMuted(next.muted);
-      setSleepMinutes(
-        SLEEP_OPTIONS.find((option) => option === next.sleep.timerMinutes) ?? 0,
-      );
       setAwake(next.state === "playing");
     },
     [commitSession],
@@ -563,13 +628,13 @@ export function EtherBubbles() {
     };
   }, [applySession]);
 
-  // 启动行为：挂载后读取偏好，选择「静默启动」时先保持主泡静音。
+  // 启动行为：沿用已保存的偏好。窗内不再有「启动设置」入口（那个二级菜单已移除），
+  // 但旧版本存下的「静默启动」继续生效，避免升级后突然出声。
   useEffect(() => {
     try {
       if (
         readWidgetStorage(NOISE_WIDGET_ID, STARTUP_STORAGE_VERSION) === "silent"
       ) {
-        setStartupMode("silent");
         setMuted(true);
       }
     } catch {
@@ -583,16 +648,6 @@ export function EtherBubbles() {
     root.classList.add("lull-transparent-window");
     return () => root.classList.remove("lull-transparent-window");
   }, []);
-
-  // 浏览器预览没有 Rust 服务时保留一个本地睡眠定时器；Tauri 里由服务端负责。
-  useEffect(() => {
-    if (sleepMinutes === 0 || clientRef.current) return;
-    const timer = window.setTimeout(() => {
-      setMuted(true);
-      setSleepMinutes(0);
-    }, sleepMinutes * 60_000);
-    return () => window.clearTimeout(timer);
-  }, [sleepMinutes]);
 
   // 滚轮只作用于泡泡，阻止页面在调节音量时滚动。
   useEffect(() => {
@@ -623,17 +678,10 @@ export function EtherBubbles() {
     };
   }, []);
 
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") setSettingsOpen(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, []);
-
   // 无操作 5 秒且声场运行时进入「微光」状态；任何指针 / 键盘活动立即唤醒。
+  // 窗内不再提供「自动隐去」开关，恒按默认（开）工作。
   useEffect(() => {
-    if (!autoFade || !audible || settingsOpen) {
+    if (!audible) {
       setDormant(false);
       return;
     }
@@ -653,7 +701,7 @@ export function EtherBubbles() {
       window.removeEventListener("pointerdown", arm);
       window.removeEventListener("keydown", arm);
     };
-  }, [autoFade, audible, settingsOpen]);
+  }, [audible]);
 
   useEffect(
     () => () => {
@@ -805,46 +853,6 @@ export function EtherBubbles() {
     })().catch(() => {});
   }, [applySession, awake, ensurePlaying, master, muted]);
 
-  const cycleSleep = useCallback((): void => {
-    const current = SLEEP_OPTIONS.indexOf(sleepMinutes);
-    const next = SLEEP_OPTIONS[(current + 1) % SLEEP_OPTIONS.length] ?? 0;
-    setSleepMinutes(next);
-    const client = clientRef.current;
-    if (client) {
-      void client.noise.session
-        .setSleepTimer(next)
-        .then(applySession)
-        .catch(() => {});
-    }
-  }, [applySession, sleepMinutes]);
-
-  const togglePlayback = useCallback((): void => {
-    const client = clientRef.current;
-    if (!client) return;
-    const playing = sessionRef.current?.state === "playing";
-    void (playing ? client.noise.session.pause() : client.noise.session.play())
-      .then(applySession)
-      .catch(() => {});
-  }, [applySession]);
-
-  const cycleStartup = useCallback((): void => {
-    const next: StartupMode = startupMode === "resume" ? "silent" : "resume";
-    setStartupMode(next);
-    setMuted(next === "silent");
-    const client = clientRef.current;
-    if (client) {
-      void client.noise.session
-        .setMuted(next === "silent")
-        .then(applySession)
-        .catch(() => {});
-    }
-    try {
-      writeWidgetStorage(NOISE_WIDGET_ID, STARTUP_STORAGE_VERSION, next);
-    } catch {
-      // 存储不可用时只在当前会话生效。
-    }
-  }, [applySession, startupMode]);
-
   const switchDock = useCallback(
     (side: "left" | "right"): void => {
       if (dockSide === side) return;
@@ -856,43 +864,16 @@ export function EtherBubbles() {
     [dockSide],
   );
 
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const client = clientRef.current;
-    if (!client) return;
-    let alive = true;
-    void client.noise.presets
-      .listPresets({ pageSize: 50 })
-      .then((page) => {
-        if (!alive) return;
-        setPresets(page.items);
-        setPresetId((current) =>
-          current && page.items.some((item) => item.id === current)
-            ? current
-            : (page.items[0]?.id ?? ""),
-        );
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [settingsOpen]);
-
-  const loadPreset = useCallback(
-    (id: string): void => {
-      const client = clientRef.current;
-      if (!client || !id) return;
-      void client.noise.presets
-        .loadPreset(id)
-        .then((result) => {
-          applySession(result.session);
-          setPresetId(id);
-          setSettingsOpen(false);
-        })
-        .catch(() => {});
-    },
-    [applySession],
-  );
+  /**
+   * 声场设置：直接把设置窗口唤起到「音境」页签，窗内不再展开二级菜单。
+   *
+   * `widget_open` 三种情形都由宿主兜住：窗口已在别处 → 事件切页签；
+   * 窗口已隐藏/关了 → 先显示再切；还没建过 → 页签暂存，挂载时取走。
+   * 所以关掉设置窗之后再点，仍然是同一页签。
+   */
+  const openSettingsWindow = useCallback((): void => {
+    void widgetOpenSettings(SETTINGS_NOISE_TAB);
+  }, []);
 
   /** 素材元数据（分类图标）拉取；失败静默，视觉派生回退纯哈希。 */
   const refreshLibrary = useCallback((): void => {
@@ -920,26 +901,6 @@ export function EtherBubbles() {
     refreshLibrary();
   }, [refreshLibrary]);
 
-  const resetMix = useCallback((): void => {
-    setSettingsOpen(false);
-    const client = clientRef.current;
-    if (!client) {
-      commitSession(buildDemoSession());
-      setMaster(INITIAL_MASTER);
-      setMuted(false);
-      setSleepMinutes(0);
-      return;
-    }
-    void client.noise.presets
-      .loadPreset("noise:preset:default")
-      .then(async (result) => {
-        applySession(result.session);
-        await client.noise.session.setMuted(false);
-        applySession(await client.noise.session.play());
-      })
-      .catch(() => {});
-  }, [applySession, commitSession]);
-
   const nextDockSide = dockSide === "right" ? "left" : "right";
   const dockSideLabel =
     nextDockSide === "left" ? "屏幕位置改到左侧" : "屏幕位置改到右侧";
@@ -955,10 +916,11 @@ export function EtherBubbles() {
       data-switching={switching ? "true" : "false"}
       data-theme={currentTheme.id}
     >
-      <main className={styles.stage}>
+      <main ref={stageRef} className={styles.stage}>
         <div className={styles.ribbonAnchor}>
           <div
             key={dockSide}
+            ref={ribbonRef}
             className={styles.ribbonGroup}
             data-switching={switching ? "true" : "false"}
           >
@@ -1019,7 +981,7 @@ export function EtherBubbles() {
               className={`${styles.soundRow} ${styles.masterRow}`}
               data-active="true"
             >
-              <div className={styles.rowLabel}>
+              <div className={styles.rowLabel} data-ether-label="true">
                 <span className={styles.glyphTitle}>音境</span>
                 <span className={styles.rowMeta}>
                   {awake
@@ -1040,7 +1002,6 @@ export function EtherBubbles() {
                   onAdjust={() => markReadout("master")}
                 />
               </div>
-              <div className={styles.rowSpacer} aria-hidden="true" />
             </div>
 
             <div className={styles.trackList}>
@@ -1053,7 +1014,7 @@ export function EtherBubbles() {
                     data-active={awake && view.effective > 0 ? "true" : "false"}
                     data-error={track.error ? "true" : "false"}
                   >
-                    <div className={styles.rowLabel}>
+                    <div className={styles.rowLabel} data-ether-label="true">
                       <span className={styles.glyphTitle}>{view.glyph}</span>
                       <span className={styles.rowMeta}>
                         {awake
@@ -1073,20 +1034,20 @@ export function EtherBubbles() {
                         onAdjust={markReadout}
                       />
                     </div>
-                    <div className={styles.rowSpacer} aria-hidden="true" />
                   </div>
                 );
               })}
             </div>
 
+            {/* 齿轮直接唤起设置窗口的「音境」页签：睡眠定时、预设、音轨明细都在那边，
+                窗内不再展开二级菜单，混音本体保持干净。 */}
             <div className={styles.gearRow}>
               <button
                 type="button"
                 className={styles.gearButton}
-                aria-label="泡泡设置"
-                aria-expanded={settingsOpen}
-                onClick={() => setSettingsOpen((open) => !open)}
-                {...tip(settingsOpen ? "收起声场设置" : "声场设置")}
+                aria-label="声场设置"
+                onClick={openSettingsWindow}
+                {...tip("打开设置窗口的「音境」页")}
               >
                 <Settings2 />
               </button>
@@ -1100,148 +1061,6 @@ export function EtherBubbles() {
         data-active={switching ? "true" : "false"}
         aria-hidden="true"
       />
-
-      {settingsOpen ? (
-        <>
-          <button
-            type="button"
-            className={styles.scrim}
-            aria-label="关闭泡泡设置"
-            onClick={() => setSettingsOpen(false)}
-          />
-          <section
-            className={styles.settingsPanel}
-            role="dialog"
-            aria-modal="true"
-            aria-label="泡泡设置"
-          >
-            <div className={styles.settingsBody}>
-              <div className={styles.settingsHead}>
-                <strong>更多设置</strong>
-                <button
-                  type="button"
-                  aria-label="关闭设置"
-                  onClick={() => setSettingsOpen(false)}
-                  {...tip("关闭设置")}
-                >
-                  <X />
-                </button>
-              </div>
-
-              <div className={styles.settingInline}>
-                <span className={styles.settingLabel}>主题流光</span>
-                <span
-                  className={styles.themeBadge}
-                  {...tip("在设置窗口的「主题流光」中统一调整")}
-                >
-                  {currentTheme.label()} · {m.common_global()}
-                </span>
-              </div>
-
-              <div className={styles.presetRow}>
-                <span className={styles.settingLabel}>预设</span>
-                <select
-                  value={presetId}
-                  onChange={(event) => setPresetId(event.target.value)}
-                >
-                  {presets.length === 0 ? (
-                    <option value="">暂无预设</option>
-                  ) : (
-                    presets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.name}
-                        {preset.sourceType === "builtin" ? "（内置）" : ""}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <button
-                  type="button"
-                  disabled={!presetId}
-                  onClick={() => loadPreset(presetId)}
-                >
-                  加载
-                </button>
-              </div>
-
-              <div className={styles.playbackRow}>
-                <span className={styles.settingLabel}>播放状态</span>
-                <button type="button" onClick={togglePlayback}>
-                  {session?.state === "playing" ? (
-                    <>
-                      <Pause aria-hidden="true" /> 暂停
-                    </>
-                  ) : (
-                    <>
-                      <Play aria-hidden="true" /> 播放
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className={styles.otherSection}>
-                <span className={styles.sectionLabel}>其他功能</span>
-                <button
-                  type="button"
-                  className={styles.menuRow}
-                  aria-label={`睡眠定时器，当前${sleepLabel}`}
-                  onClick={cycleSleep}
-                >
-                  <span className={styles.menuIcon}>
-                    <Clock />
-                  </span>
-                  <span className={styles.menuText}>睡眠定时器</span>
-                  <span className={styles.menuValue}>{sleepLabel}</span>
-                  <ChevronRight />
-                </button>
-                <button
-                  type="button"
-                  className={styles.menuRow}
-                  aria-label={`启动设置，当前${startupLabel}`}
-                  onClick={cycleStartup}
-                >
-                  <span className={styles.menuIcon}>
-                    <Play />
-                  </span>
-                  <span className={styles.menuText}>启动设置</span>
-                  <span className={styles.menuValue}>{startupLabel}</span>
-                  <ChevronRight />
-                </button>
-                <div className={styles.menuRow} data-static="true">
-                  <span className={styles.menuIcon}>
-                    <Moon />
-                  </span>
-                  <span className={styles.menuText}>自动隐去</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-label="自动隐去"
-                    aria-checked={autoFade}
-                    className={styles.switch}
-                    onClick={() => setAutoFade((value) => !value)}
-                  >
-                    <span />
-                  </button>
-                </div>
-              </div>
-
-              <div className={styles.settingsFoot}>
-                <button
-                  type="button"
-                  className={styles.resetButton}
-                  onClick={resetMix}
-                >
-                  <RotateCcw />
-                  重置混音
-                </button>
-                <p className={styles.settingsNote}>
-                  滚动调节 · 主题流光在设置窗口
-                </p>
-              </div>
-            </div>
-          </section>
-        </>
-      ) : null}
 
       <TipHost />
     </div>
