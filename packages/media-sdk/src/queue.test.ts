@@ -20,10 +20,7 @@ describe("queueTracksFor", () => {
       ["first", track("first")],
       ["last", track("last")],
     ]);
-    const resolved = queueTracksFor(
-      ["first", "missing-page-2", "last"],
-      byId,
-    );
+    const resolved = queueTracksFor(["first", "missing-page-2", "last"], byId);
     expect(resolved.map((item) => item.id)).toEqual([
       "first",
       "missing-page-2",

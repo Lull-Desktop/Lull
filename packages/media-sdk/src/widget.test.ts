@@ -4,20 +4,23 @@ import { createWidgetTransport } from "./widget.js";
 
 describe("createWidgetTransport", () => {
   test("routes calls through the widget bridge and forwards media events", async () => {
-    const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    const calls: Array<{ method: string; params?: Record<string, unknown> }> =
+      [];
     let listener: ((event: unknown) => void) | null = null;
     const bridge = {
-      request: vi.fn(async (method: string, params?: Record<string, unknown>) => {
-        calls.push({ method, params });
-        if (method === "media.disconnect") return { disconnected: true };
-        return {
-          protocol: 1,
-          requestId: "r",
-          ok: true,
-          revision: 1,
-          result: { ok: true },
-        };
-      }),
+      request: vi.fn(
+        async (method: string, params?: Record<string, unknown>) => {
+          calls.push({ method, params });
+          if (method === "media.disconnect") return { disconnected: true };
+          return {
+            protocol: 1,
+            requestId: "r",
+            ok: true,
+            revision: 1,
+            result: { ok: true },
+          };
+        },
+      ),
       onMediaEvent: (next: (event: unknown) => void) => {
         listener = next;
         return () => {

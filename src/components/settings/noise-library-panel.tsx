@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * Noise 素材库面板（白噪音库窗口「噪音素材库」页签）。
  *
@@ -22,7 +23,15 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { NoisePresetPanel } from "@/components/settings/noise-preset-panel";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -35,7 +44,6 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getMediaClient } from "@/hooks/use-media-client";
-import { NoisePresetPanel } from "@/components/settings/noise-preset-panel";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -68,6 +76,8 @@ function categoryDepth(
 
 export function NoiseLibraryPanel() {
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  // 同一窗口可能挂载多份面板，表单控件 id 必须实例唯一。
+  const formId = useId();
   const [client, setClient] = useState<LullMediaClient | null>(null);
   const [assets, setAssets] = useState<NoiseAsset[]>([]);
   const [categories, setCategories] = useState<NoiseCategory[]>([]);
@@ -102,6 +112,7 @@ export function NoiseLibraryPanel() {
   }, []);
 
   // 筛选条件 / 刷新变化时，重置为第 1 页并整体替换列表。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: version 只是手动刷新信号，不进查询参数
   useEffect(() => {
     if (!client) return;
     let alive = true;
@@ -366,14 +377,14 @@ export function NoiseLibraryPanel() {
               </Button>
               <div className="ml-auto flex flex-col items-center gap-2 text-sm text-ink-soft">
                 <Switch
-                  id="noise-favorite-only"
+                  id={`${formId}-favorite-only`}
                   checked={favoriteOnly}
                   onCheckedChange={(checked) => {
                     setPage(1);
                     setFavoriteOnly(checked);
                   }}
                 />
-                <Label htmlFor="noise-favorite-only">只看收藏</Label>
+                <Label htmlFor={`${formId}-favorite-only`}>只看收藏</Label>
               </div>
             </div>
 
@@ -439,10 +450,9 @@ export function NoiseLibraryPanel() {
                   {assets.map((asset) => (
                     <div
                       key={asset.id}
-                      className={`flex cursor-pointer flex-wrap items-center gap-3 px-3 py-1.5 text-sm hover:bg-muted/40 ${
+                      className={`flex flex-wrap items-center gap-3 px-3 py-1.5 text-sm hover:bg-muted/40 ${
                         selected?.id === asset.id ? "bg-muted/60" : ""
                       }`}
-                      onClick={() => setSelected(asset)}
                     >
                       <button
                         type="button"
@@ -461,9 +471,17 @@ export function NoiseLibraryPanel() {
                           }`}
                         />
                       </button>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium">{asset.name}</p>
-                        <p className="truncate text-xs text-ink-faint">
+                      {/* 选中整行：行内还有收藏/添加按钮，所以只有名称区是真正的 button。 */}
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left"
+                        aria-pressed={selected?.id === asset.id}
+                        onClick={() => setSelected(asset)}
+                      >
+                        <span className="block truncate font-medium">
+                          {asset.name}
+                        </span>
+                        <span className="block truncate text-xs text-ink-faint">
                           {asset.format.toUpperCase()} ·{" "}
                           {formatDuration(asset.durationMs)} ·{" "}
                           {formatSize(asset.sizeBytes)}
@@ -471,8 +489,8 @@ export function NoiseLibraryPanel() {
                           {asset.status !== "available"
                             ? ` · ${asset.status}`
                             : ""}
-                        </p>
-                      </div>
+                        </span>
+                      </button>
                       <div className="hidden gap-1 md:flex">
                         {asset.tags.slice(0, 3).map((tag) => (
                           <span
@@ -533,9 +551,9 @@ export function NoiseLibraryPanel() {
               <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto">
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-1">
-                    <Label htmlFor="noise-asset-name">名称</Label>
+                    <Label htmlFor={`${formId}-asset-name`}>名称</Label>
                     <input
-                      id="noise-asset-name"
+                      id={`${formId}-asset-name`}
                       className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
                       value={name}
                       disabled={selected.mediaKind === "procedural"}
@@ -543,9 +561,9 @@ export function NoiseLibraryPanel() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="noise-asset-category">分类</Label>
+                    <Label htmlFor={`${formId}-asset-category`}>分类</Label>
                     <select
-                      id="noise-asset-category"
+                      id={`${formId}-asset-category`}
                       className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
                       value={assetCategory}
                       disabled={selected.mediaKind === "procedural"}
@@ -561,9 +579,9 @@ export function NoiseLibraryPanel() {
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="noise-asset-description">描述</Label>
+                  <Label htmlFor={`${formId}-asset-description`}>描述</Label>
                   <input
-                    id="noise-asset-description"
+                    id={`${formId}-asset-description`}
                     className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
                     value={description}
                     disabled={selected.mediaKind === "procedural"}

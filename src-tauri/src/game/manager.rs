@@ -260,7 +260,7 @@ pub fn emit_events(app: &AppHandle, game_id: &str, events: &[GameEvent]) {
     for event in events {
       if allowed
         .as_ref()
-        .map_or(true, |kinds| kinds.contains(&event.kind))
+        .is_none_or(|kinds| kinds.contains(&event.kind))
       {
         emit(app, &label, EVENT_GAME_EVENT, event.clone());
       }

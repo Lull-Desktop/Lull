@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 设置窗「白噪音」页签的核心面板：主音量 / 静音 / 睡眠定时 + 预设下拉 +
  * 应用到当前音轨。会话控件（原白噪音库「噪音测试」的「主音量与睡眠」卡）
@@ -47,7 +48,11 @@ function optionLabel(preset: NoisePresetSummary): string {
   return `${preset.name}${suffix} · ${m.settings_noise_tracks_count({ count: preset.trackCount })}`;
 }
 
-export function NoiseSettingsPanel({ client }: { client: LullMediaClient | null }) {
+export function NoiseSettingsPanel({
+  client,
+}: {
+  client: LullMediaClient | null;
+}) {
   useLocale();
   const selectId = useId();
   const [presets, setPresets] = useState<NoisePresetSummary[]>([]);
@@ -60,6 +65,7 @@ export function NoiseSettingsPanel({ client }: { client: LullMediaClient | null 
   const refresh = useCallback(() => setVersion((value) => value + 1), []);
 
   // 懒加载预设列表；语言切换不影响后端数据，只影响展示。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: version 只是手动刷新信号，不进查询参数
   useEffect(() => {
     if (!client) return;
     let alive = true;
@@ -111,9 +117,7 @@ export function NoiseSettingsPanel({ client }: { client: LullMediaClient | null 
         );
       })
       .catch((reason: unknown) => {
-        setError(
-          m.settings_noise_preset_failed({ reason: errorText(reason) }),
-        );
+        setError(m.settings_noise_preset_failed({ reason: errorText(reason) }));
       })
       .finally(() => setBusy(false));
   }, [client, presetId]);
@@ -200,9 +204,7 @@ export function NoiseSettingsPanel({ client }: { client: LullMediaClient | null 
           </p>
         )}
         {!error && notice && (
-          <p role="status" className="text-xs text-emerald-700">
-            {notice}
-          </p>
+          <output className="block text-xs text-emerald-700">{notice}</output>
         )}
       </div>
 

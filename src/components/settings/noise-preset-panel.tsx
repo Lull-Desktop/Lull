@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * Noise Preset 管理区块（由白噪音库窗口的「噪音素材库」页签渲染）。
  *
@@ -14,7 +15,7 @@ import type {
   NoisePresetSummary,
 } from "@lull/media-sdk";
 import { Download, Loader2, Save, Star, Trash2, Upload } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -43,6 +44,8 @@ function sourceLabel(source: string): string {
 export function NoisePresetPanel() {
   useLocale();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  // 同一窗口可能挂载多份面板，表单控件 id 必须实例唯一。
+  const formId = useId();
   const [client, setClient] = useState<LullMediaClient | null>(null);
   const [presets, setPresets] = useState<NoisePresetSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -67,6 +70,7 @@ export function NoisePresetPanel() {
     setClient(getMediaClient());
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: version 只是手动刷新信号，不进查询参数
   useEffect(() => {
     if (!client) return;
     let alive = true;
@@ -297,14 +301,14 @@ export function NoisePresetPanel() {
             </Button>
             <div className="ml-auto flex items-center gap-2 text-sm text-ink-soft">
               <Switch
-                id="noise-preset-favorite-only"
+                id={`${formId}-favorite-only`}
                 checked={favoriteOnly}
                 onCheckedChange={(checked) => {
                   setPage(1);
                   setFavoriteOnly(checked);
                 }}
               />
-              <Label htmlFor="noise-preset-favorite-only">只看收藏</Label>
+              <Label htmlFor={`${formId}-favorite-only`}>只看收藏</Label>
             </div>
           </div>
 
@@ -320,10 +324,9 @@ export function NoisePresetPanel() {
               presets.map((preset) => (
                 <div
                   key={preset.id}
-                  className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-muted/40 ${
+                  className={`flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/40 ${
                     selected?.preset.id === preset.id ? "bg-muted/60" : ""
                   }`}
-                  onClick={() => selectPreset(preset.id)}
                 >
                   <button
                     type="button"
@@ -341,14 +344,22 @@ export function NoisePresetPanel() {
                       }`}
                     />
                   </button>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{preset.name}</p>
-                    <p className="truncate text-xs text-ink-faint">
+                  {/* 选中整行：行内还有收藏按钮，所以只有名称区是真正的 button。 */}
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    aria-pressed={selected?.preset.id === preset.id}
+                    onClick={() => selectPreset(preset.id)}
+                  >
+                    <span className="block truncate font-medium">
+                      {preset.name}
+                    </span>
+                    <span className="block truncate text-xs text-ink-faint">
                       {sourceLabel(preset.sourceType)} · {preset.trackCount}{" "}
                       条轨道
                       {preset.author ? ` · ${preset.author}` : ""}
-                    </p>
-                  </div>
+                    </span>
+                  </button>
                   <Button
                     type="button"
                     size="sm"
@@ -436,9 +447,9 @@ export function NoisePresetPanel() {
           <CardContent className="space-y-3">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
-                <Label htmlFor="noise-preset-name">名称</Label>
+                <Label htmlFor={`${formId}-preset-name`}>名称</Label>
                 <input
-                  id="noise-preset-name"
+                  id={`${formId}-preset-name`}
                   className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
                   value={name}
                   disabled={selected.preset.sourceType === "builtin"}
@@ -446,9 +457,9 @@ export function NoisePresetPanel() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="noise-preset-description">描述</Label>
+                <Label htmlFor={`${formId}-preset-description`}>描述</Label>
                 <input
-                  id="noise-preset-description"
+                  id={`${formId}-preset-description`}
                   className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
                   value={description}
                   disabled={selected.preset.sourceType === "builtin"}

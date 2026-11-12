@@ -182,9 +182,9 @@ describe("media client", () => {
       summary,
     ]);
     await expect(media.player.getShuffleProfile()).resolves.toEqual(profile);
-    await expect(media.player.activateShuffleProfile(profile.id)).resolves.toEqual(
-      profile,
-    );
+    await expect(
+      media.player.activateShuffleProfile(profile.id),
+    ).resolves.toEqual(profile);
     await expect(
       media.player.saveShuffleProfile({
         profileId: profile.id,
@@ -408,7 +408,10 @@ describe("media client", () => {
           sourceType: "user",
         };
       }
-      if (request.method === "createCategory" || request.method === "updateCategory") {
+      if (
+        request.method === "createCategory" ||
+        request.method === "updateCategory"
+      ) {
         return {
           id: "cat-1",
           name: "Weather",

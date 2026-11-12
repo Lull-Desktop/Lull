@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 开发调试面板：直接驱动 @lull/media-sdk 的 P3 API，并把结果与 media:event
  * 原样展示出来，方便在音乐管理窗口内手工验收歌单/收藏/历史/队列/M3U。
@@ -78,7 +79,7 @@ export function MediaApiTestPanel({
 
   useEffect(() => {
     if (!client) return;
-    const stop = client.events.on((event:any) => {
+    const stop = client.events.on((event: any) => {
       push(`event ${event.topic}`, {
         revision: event.revision,
         eventId: event.eventId,
@@ -117,7 +118,9 @@ export function MediaApiTestPanel({
     if (playlistId) {
       setPlaylist(await client.playlists.get(playlistId));
     }
-    const missing = queueState.trackIds.filter((id: string | number) => !queueTracks[id]);
+    const missing = queueState.trackIds.filter(
+      (id: string | number) => !queueTracks[id],
+    );
     if (missing.length > 0) {
       const loaded = await Promise.all(
         missing.map(async (id: string) => {
@@ -310,8 +313,6 @@ export function MediaApiTestPanel({
           错误：{error}
         </div>
       )}
-
-
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* <Card className="lg:col-span-1">

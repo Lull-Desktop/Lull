@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 import type { LullMediaClient, TrackSummary } from "@lull/media-sdk";
 import { render, screen, waitFor } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
@@ -13,7 +14,9 @@ const track: TrackSummary = {
 };
 
 test("读取封面 URL 并渲染图片", async () => {
-  const getCoverUrl = vi.fn().mockResolvedValue("https://example.test/cover.png");
+  const getCoverUrl = vi
+    .fn()
+    .mockResolvedValue("https://example.test/cover.png");
   const client = {
     library: { getCoverUrl },
   } as unknown as LullMediaClient;

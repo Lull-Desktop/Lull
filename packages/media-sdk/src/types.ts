@@ -19,11 +19,7 @@ export interface SourceView {
 }
 
 /** 物理目录（内部复用 music_sources 的 local 行）。 */
-export type MusicFolderStatus =
-  | "available"
-  | "scanning"
-  | "missing"
-  | "error";
+export type MusicFolderStatus = "available" | "scanning" | "missing" | "error";
 
 export interface MusicFolderView {
   id: string;

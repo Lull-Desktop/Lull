@@ -20,24 +20,35 @@ export interface WidgetMediaBridge {
   onMediaEvent?(listener: (event: unknown) => void): () => void;
 }
 
-export function createWidgetTransport(bridge: WidgetMediaBridge): MediaTransport {
+export function createWidgetTransport(
+  bridge: WidgetMediaBridge,
+): MediaTransport {
   return {
     async call(request: MediaRequest): Promise<MediaResponse> {
-      return bridge.request("media.call", { request }) as Promise<MediaResponse>;
+      return bridge.request("media.call", {
+        request,
+      }) as Promise<MediaResponse>;
     },
     async connect(request: MediaConnectRequest): Promise<MediaResponse> {
-      return bridge.request("media.connect", { request }) as Promise<MediaResponse>;
+      return bridge.request("media.connect", {
+        request,
+      }) as Promise<MediaResponse>;
     },
     async disconnect(): Promise<void> {
       await bridge.request("media.disconnect");
     },
     subscribe(listener: (event: MediaEvent) => void): () => void {
-      return bridge.onMediaEvent?.((event) => listener(event as MediaEvent)) ?? (() => {});
+      return (
+        bridge.onMediaEvent?.((event) => listener(event as MediaEvent)) ??
+        (() => {})
+      );
     },
   };
 }
 
 /** 一行创建 Widget 侧 client；widget 需已获得 `widget.media` 授权。 */
-export function createWidgetMediaClient(bridge: WidgetMediaBridge): LullMediaClient {
+export function createWidgetMediaClient(
+  bridge: WidgetMediaBridge,
+): LullMediaClient {
   return createMediaClient({ transport: createWidgetTransport(bridge) });
 }

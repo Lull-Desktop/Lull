@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 import type { LullMediaClient } from "@lull/media-sdk";
 import {
   fireEvent,

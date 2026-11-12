@@ -21,6 +21,8 @@ import type {
   ArtistSummary,
   BackupCounts,
   ConnectOptions,
+  DirectoryListing,
+  DirectoryQuery,
   FavoriteView,
   FolderTrack,
   HistoryEntry,
@@ -43,8 +45,6 @@ import type {
   NoiseState,
   NoiseTag,
   NoiseTrack,
-  DirectoryListing,
-  DirectoryQuery,
   Page,
   PlaybackSnapshot,
   PlayerState,
@@ -152,10 +152,7 @@ export interface LullMediaClient {
     removeTrack(folderId: string, trackId: string): Promise<boolean>;
     scan(folderId: string): Promise<ScanJobView>;
     cancelScan(folderId: string): Promise<boolean>;
-    getTracks(
-      folderId: string,
-      query?: TrackQuery,
-    ): Promise<Page<FolderTrack>>;
+    getTracks(folderId: string, query?: TrackQuery): Promise<Page<FolderTrack>>;
   };
   player: {
     getState(): Promise<PlayerState>;
@@ -312,7 +309,11 @@ export interface LullMediaClient {
       }): Promise<NoisePresetDetail>;
       updatePreset(
         presetId: string,
-        patch: { name?: string; description?: string | null; cover?: string | null },
+        patch: {
+          name?: string;
+          description?: string | null;
+          cover?: string | null;
+        },
       ): Promise<NoisePresetDetail>;
       deletePreset(presetId: string): Promise<void>;
       loadPreset(presetId: string): Promise<NoisePresetLoadResult>;
@@ -480,7 +481,8 @@ export function createMediaClient(
     listAlbums: () => call<AlbumSummary[]>("library", "listAlbums"),
     listGenres: () => call<string[]>("library", "listGenres"),
     listTags: () => call<TagView[]>("library", "listTags"),
-    createTag: (name: string) => call<TagView>("library", "createTag", { name }),
+    createTag: (name: string) =>
+      call<TagView>("library", "createTag", { name }),
     renameTag: (tagId: string, name: string) =>
       call<TagView>("library", "renameTag", { tagId, name }),
     deleteTag: async (tagId: string) => {
@@ -498,10 +500,14 @@ export function createMediaClient(
     updateTrackMetadata: (patch: TrackMetadataPatch) =>
       call<TrackSummary>("library", "updateTrackMetadata", patch),
     mergeArtists: (sourceId: string, targetId: string) =>
-      call<{ merged: boolean; artist: ArtistSummary }>("library", "mergeArtists", {
-        sourceId,
-        targetId,
-      }),
+      call<{ merged: boolean; artist: ArtistSummary }>(
+        "library",
+        "mergeArtists",
+        {
+          sourceId,
+          targetId,
+        },
+      ),
     splitArtist: (artistId: string, trackIds: string[], name: string) =>
       call<{ artist: { id: string; name: string } }>("library", "splitArtist", {
         artistId,
@@ -559,10 +565,8 @@ export function createMediaClient(
         playlistId,
         ...options,
       }),
-    exportBackup: () =>
-      call<BackupCounts | null>("library", "exportBackup"),
-    importBackup: () =>
-      call<BackupCounts | null>("library", "importBackup"),
+    exportBackup: () => call<BackupCounts | null>("library", "exportBackup"),
+    importBackup: () => call<BackupCounts | null>("library", "importBackup"),
   };
 
   const folders = {
@@ -576,11 +580,9 @@ export function createMediaClient(
     rename: (folderId: string, name: string) =>
       call<MusicFolderView>("folders", "rename", { folderId, name }),
     remove: async (folderId: string) => {
-      const result = await call<{ removed: boolean }>(
-        "folders",
-        "remove",
-        { folderId },
-      );
+      const result = await call<{ removed: boolean }>("folders", "remove", {
+        folderId,
+      });
       return result.removed;
     },
     removeTrack: async (folderId: string, trackId: string) => {

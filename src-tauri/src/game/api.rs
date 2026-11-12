@@ -313,12 +313,8 @@ pub fn game_connect(
       })
     }
     WindowRole::Controller => {
-      let binding = resolve_controller_binding(
-        &app,
-        &label,
-        token.as_deref(),
-        request.game_id.as_deref(),
-      )?;
+      let binding =
+        resolve_controller_binding(&app, &label, token.as_deref(), request.game_id.as_deref())?;
       let game_id = binding.game_id.clone();
       if let Some(requested) = request.game_id.as_deref() {
         if requested != game_id {
@@ -430,18 +426,14 @@ pub fn game_snapshot_get(
       )
     }
     WindowRole::Controller => {
-      let binding = permissions::require_controller(
-        &app,
-        &label,
-        token.as_deref(),
-        "game.state.read",
-      )?;
+      let binding =
+        permissions::require_controller(&app, &label, token.as_deref(), "game.state.read")?;
       let game_id = {
         let guard = manager();
-        guard
-          .controllers
-          .get(&label)
-          .map_or_else(|| binding.game_id.clone(), |controller| controller.game_id.clone())
+        guard.controllers.get(&label).map_or_else(
+          || binding.game_id.clone(),
+          |controller| controller.game_id.clone(),
+        )
       };
       Ok(
         instance_or_error(&game_id)
@@ -681,12 +673,7 @@ pub fn game_report_error(
       Ok(())
     }
     WindowRole::Controller => {
-      let _ = permissions::require_controller(
-        &app,
-        &label,
-        token.as_deref(),
-        "game.state.read",
-      )?;
+      let _ = permissions::require_controller(&app, &label, token.as_deref(), "game.state.read")?;
       Ok(())
     }
     _ => Err(GameError::new(
@@ -880,9 +867,9 @@ pub fn games_list(app: AppHandle) -> Vec<GameView> {
         .into_iter()
         .map(|controller| {
           let window_label = match controller.kind {
-            GameControllerKind::Widget => widget_package::label_for_id(
-              controller.widget_id.as_deref().unwrap_or_default(),
-            ),
+            GameControllerKind::Widget => {
+              widget_package::label_for_id(controller.widget_id.as_deref().unwrap_or_default())
+            }
             GameControllerKind::Package => controller::label_for(&package.id, &controller.id),
           };
           GameControllerView {
@@ -894,7 +881,9 @@ pub fn games_list(app: AppHandle) -> Vec<GameView> {
             installed: controller.installed,
             enabled: controller.enabled,
             auto_open: controller.auto_open,
-            window_open: manager_guard.controller_bindings.contains_key(&window_label),
+            window_open: manager_guard
+              .controller_bindings
+              .contains_key(&window_label),
             connected: manager_guard.controllers.contains_key(&window_label),
           }
         })

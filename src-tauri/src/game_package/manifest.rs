@@ -284,10 +284,7 @@ impl GameController {
 
   #[must_use]
   pub fn resizable(&self) -> bool {
-    self
-      .window
-      .as_ref()
-      .is_some_and(|window| window.resizable)
+    self.window.as_ref().is_some_and(|window| window.resizable)
   }
 
   #[must_use]
@@ -718,10 +715,7 @@ impl GameManifest {
       if label.trim().is_empty() || label.chars().count() > 64 {
         return Err(ManifestError::new(
           "game.manifest_invalid",
-          format!(
-            "controllers.{}.label 必须是 1-64 字符",
-            controller.id
-          ),
+          format!("controllers.{}.label 必须是 1-64 字符", controller.id),
         ));
       }
     }
@@ -880,9 +874,7 @@ fn validate_controller_window(
     if !min_height.is_finite() || !(MIN_CONTROLLER_HEIGHT..=window.height).contains(&min_height) {
       return Err(ManifestError::new(
         "game.manifest_invalid",
-        format!(
-          "controllers.{id}.window.minHeight 必须在 {MIN_CONTROLLER_HEIGHT} 到 height 之间"
-        ),
+        format!("controllers.{id}.window.minHeight 必须在 {MIN_CONTROLLER_HEIGHT} 到 height 之间"),
       ));
     }
   }
@@ -1020,14 +1012,15 @@ mod tests {
   #[test]
   fn controllers_reject_unknown_fields_and_invalid_declarations() {
     let mut value = default_manifest_value();
-    value["controllers"] = serde_json::json!([{ "id": "panel", "entry": "controllers/a.html", "unknown": 1 }]);
+    value["controllers"] =
+      serde_json::json!([{ "id": "panel", "entry": "controllers/a.html", "unknown": 1 }]);
     assert!(parse(value).is_err());
 
     for bad in [
-      serde_json::json!([{ "id": "panel" }]),                                        // 载体二选一
+      serde_json::json!([{ "id": "panel" }]), // 载体二选一
       serde_json::json!([{ "id": "panel", "entry": "controllers/a.html", "widgetId": "community-x" }]),
       serde_json::json!([{ "id": "Bad Id", "widgetId": "community-x" }]),
-      serde_json::json!([{ "id": "panel", "entry": "authority/index.html" }]),       // 不在 controllers/
+      serde_json::json!([{ "id": "panel", "entry": "authority/index.html" }]), // 不在 controllers/
       serde_json::json!([{ "id": "panel", "entry": "controllers/../escape.html" }]),
       serde_json::json!([{ "id": "panel", "entry": "controllers/a.html", "commands": ["unknown.cmd"] }]),
       serde_json::json!([{ "id": "panel", "entry": "controllers/a.html", "events": ["unknown.event"] }]),
@@ -1063,7 +1056,9 @@ mod tests {
     let mut value = default_manifest_value();
     value["controllers"] = serde_json::Value::Array(
       (0..=MAX_CONTROLLERS)
-        .map(|index| serde_json::json!({ "id": format!("c{index}"), "entry": "controllers/a.html" }))
+        .map(
+          |index| serde_json::json!({ "id": format!("c{index}"), "entry": "controllers/a.html" }),
+        )
         .collect(),
     );
     assert!(parse(value).is_err());

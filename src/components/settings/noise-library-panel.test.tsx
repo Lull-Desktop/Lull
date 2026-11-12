@@ -1,6 +1,7 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
+import type { LullMediaClient } from "@lull/media-sdk";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { LullMediaClient } from "@lull/media-sdk";
 import { NoiseLibraryPanel } from "./noise-library-panel";
 
 const mocks = vi.hoisted(() => ({

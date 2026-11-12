@@ -248,9 +248,7 @@ mod tests {
     config.display.scene = "lull.aurora".into();
     config.set_monitor_scene("\\\\.\\DISPLAY2", Some("lull.video".into()));
     config.set_monitor_game("\\\\.\\DISPLAY2", Some("community.local".into()));
-    config
-      .display
-      .set_game(Some("community.global".into()));
+    config.display.set_game(Some("community.global".into()));
     let url = monitor_url(&config, &ok_infos(), 1).unwrap();
     assert!(url.contains("game=community.local"));
     assert!(url.contains("scene=lull.video"));
@@ -261,9 +259,7 @@ mod tests {
     let mut config = WallpaperConfig::default();
     config.display.mode = DisplayMode::Independent;
     config.set_monitor_scene("\\\\.\\DISPLAY2", Some("lull.video".into()));
-    config
-      .display
-      .set_game(Some("community.global".into()));
+    config.display.set_game(Some("community.global".into()));
     let url = monitor_url(&config, &ok_infos(), 1).unwrap();
     assert!(!url.contains("game="));
     assert!(url.contains("scene=lull.video"));
@@ -273,9 +269,7 @@ mod tests {
   fn monitor_url_mirror_ignores_monitor_game() {
     let mut config = WallpaperConfig::default();
     config.set_monitor_game("\\\\.\\DISPLAY2", Some("community.local".into()));
-    config
-      .display
-      .set_game(Some("community.global".into()));
+    config.display.set_game(Some("community.global".into()));
     let url = monitor_url(&config, &ok_infos(), 1).unwrap();
     assert!(url.contains("game=community.global"));
   }

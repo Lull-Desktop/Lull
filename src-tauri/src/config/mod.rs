@@ -402,7 +402,7 @@ impl WallpaperConfig {
   /// 某个游戏是否仍被任何显示器实际使用（含全局与 independent 逐屏覆盖）。
   #[must_use]
   pub fn game_in_use(&self, game_id: &str) -> bool {
-    if self.display.game.as_deref() == Some(game_id) {
+    if self.display.game_content() == Some(game_id) {
       return true;
     }
     self.display.mode == DisplayMode::Independent

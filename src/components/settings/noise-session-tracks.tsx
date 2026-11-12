@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 当前白噪音混音的音轨列表（Session/Track API）。
  *
@@ -9,7 +10,11 @@
  */
 "use client";
 
-import type { LullMediaClient, NoiseSession, NoiseTrack } from "@lull/media-sdk";
+import type {
+  LullMediaClient,
+  NoiseSession,
+  NoiseTrack,
+} from "@lull/media-sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -26,7 +31,10 @@ function trackLabel(track: NoiseTrack): string {
 }
 
 /** 轨道状态文案与配色；未知状态按停止处理。 */
-function statePresentation(state: string): { label: string; className: string } {
+function statePresentation(state: string): {
+  label: string;
+  className: string;
+} {
   if (state === "playing") {
     return {
       label: m.noise_track_state_playing(),
@@ -204,8 +212,9 @@ export function NoiseSessionTracks({
                       checked={track.loop}
                       onCheckedChange={(next) => {
                         if (!client) return;
-                        void run(`noise.tracks.setLoop ${label} ${String(next)}`, () =>
-                          client.noise.tracks.setLoop(track.id, next),
+                        void run(
+                          `noise.tracks.setLoop ${label} ${String(next)}`,
+                          () => client.noise.tracks.setLoop(track.id, next),
                         );
                       }}
                     />

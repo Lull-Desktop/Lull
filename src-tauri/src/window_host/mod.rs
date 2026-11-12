@@ -21,8 +21,7 @@ pub const WIDGET_OPEN_TAB_EVENT: &str = "widget-open-tab";
 
 /// 新建窗口时事件会比前端监听器注册得早，先暂存「打开后停留页签」，
 /// 等工具窗挂载时通过 `widget_take_open_tab` 取走。值为 `(kind, tab)`。
-static PENDING_OPEN_TAB: std::sync::Mutex<Option<(String, String)>> =
-  std::sync::Mutex::new(None);
+static PENDING_OPEN_TAB: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
 
 /// 通知所有窗口：工具窗可见性可能变了。
 pub(crate) fn notify_changed(app: &AppHandle) {
@@ -169,11 +168,7 @@ pub fn open_async(app: &AppHandle, spec: &'static WidgetSpec) {
 /// `tab` 可指定工具窗打开后停留的页签：窗口已存在时直接 `emit_to` 通知；
 /// 新建窗口的监听器还没注册，暂存进 `PENDING_OPEN_TAB` 等挂载时取走。
 #[tauri::command]
-pub async fn widget_open(
-  app: AppHandle,
-  kind: String,
-  tab: Option<String>,
-) -> Result<(), String> {
+pub async fn widget_open(app: AppHandle, kind: String, tab: Option<String>) -> Result<(), String> {
   let spec = find(&kind).ok_or_else(|| format!("未知窗口: {kind}"))?;
   let existed = app.get_webview_window(spec.label).is_some();
   open(&app, spec);

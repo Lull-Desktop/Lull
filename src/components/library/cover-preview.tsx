@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 曲目封面预览：封面资产由扫描器从内嵌/文件夹写入，Rust 只在
  * `getCoverUrl` 中做 asset-protocol 授权并返回 URL；这里只读，不写文件。

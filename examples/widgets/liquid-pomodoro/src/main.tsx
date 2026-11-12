@@ -1,9 +1,9 @@
 import { connectLullWidget } from "@lull/widget-sdk";
 import { LullProvider, useLullTheme } from "@lull/widget-sdk/react";
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { LiquidPomodoro } from "./liquid-pomodoro";
 import { installWidgetBridge, preloadWidgetState } from "./compat";
+import { LiquidPomodoro } from "./liquid-pomodoro";
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("缺少 #root");

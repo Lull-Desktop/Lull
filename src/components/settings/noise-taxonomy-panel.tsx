@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 白噪音库「分类与标签」标签页。
  *
@@ -8,11 +9,7 @@
  */
 "use client";
 
-import type {
-  LullMediaClient,
-  NoiseCategory,
-  NoiseTag,
-} from "@lull/media-sdk";
+import type { LullMediaClient, NoiseCategory, NoiseTag } from "@lull/media-sdk";
 import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -71,6 +68,7 @@ export function NoiseTaxonomyPanel() {
     setClient(getMediaClient());
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: version 只是手动刷新信号，不进查询参数
   useEffect(() => {
     if (!client) return;
     let alive = true;

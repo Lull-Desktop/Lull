@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 设置窗口页面：偏好（语言 / 主题 / 窗口行为）、壁纸、音乐、白噪音、游戏、扩展、
  * 关于七个页签。壁纸页签承载壁纸层的全部设置（显示模式、场景、每屏配置），音乐
@@ -11,9 +12,9 @@
  */
 "use client";
 
+import type { LullMediaClient, PlaybackSnapshot } from "@lull/media-sdk";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import type { LullMediaClient, PlaybackSnapshot } from "@lull/media-sdk";
 import {
   AppWindow,
   AudioLines,

@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 设置窗「白噪音」页签的主音量、静音与睡眠定时。
  *

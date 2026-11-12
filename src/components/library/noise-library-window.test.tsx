@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 白噪音库窗口：三个子页签与“窗口级单次连接”的所有权。
  */
@@ -109,9 +110,7 @@ test("白噪音库三个子页签可切换", async () => {
   );
   expect(tabs).not.toContain("音境预设");
 
-  expect((await screen.findAllByText("音境素材库")).length).toBeGreaterThan(
-    0,
-  );
+  expect((await screen.findAllByText("音境素材库")).length).toBeGreaterThan(0);
   // 预设管理并入素材库页签，不再有独立页签。
   expect(await screen.findByText("预设管理")).toBeDefined();
 

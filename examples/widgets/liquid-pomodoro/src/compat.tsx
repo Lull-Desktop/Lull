@@ -4,9 +4,17 @@
 "use client";
 
 import type { LullWidgetClient } from "@lull/widget-sdk";
-import { useLullTheme, useWidgetFit as useSdkWidgetFit } from "@lull/widget-sdk/react";
+import {
+  useLullTheme,
+  useWidgetFit as useSdkWidgetFit,
+} from "@lull/widget-sdk/react";
 import type { RefObject } from "react";
-import { installStorageWriter, readStorage, seedStorage, writeStorage } from "./storage";
+import {
+  installStorageWriter,
+  readStorage,
+  seedStorage,
+  writeStorage,
+} from "./storage";
 
 let widget: LullWidgetClient | null = null;
 
@@ -65,8 +73,6 @@ export function useWidgetTheme(): { themeId: string } {
   return { themeId: theme?.id ?? "blueGold" };
 }
 
-export function useWidgetFit(
-  contentRef: RefObject<HTMLElement | null>,
-): void {
+export function useWidgetFit(contentRef: RefObject<HTMLElement | null>): void {
   useSdkWidgetFit(contentRef);
 }

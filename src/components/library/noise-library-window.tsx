@@ -1,3 +1,4 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
  * 白噪音库窗口：噪音素材库（含预设管理）/ 分类与标签 / 噪音测试三个子页签。
  *

@@ -1,7 +1,7 @@
 /**
  * 设置页交互测试：七页签信息架构、窗口开关、功能槽位与主题偏好。
  *
- * 三个库窗口的开关分别落在壁纸 / 音乐 / 白噪音页签；音乐播放器与白噪音两个
+ * 三个库窗口的开关分别落在壁纸 / 音乐 / 音境页签；音乐播放器与音境两个
  * 功能槽位也在这两个页签里。壁纸页签内部的交互测试在
  * app/(control)/setting/wallpaper-tab.test.tsx，壁纸管理窗口本身在
  * components/library/wallpaper-library-window.test.tsx。
@@ -58,7 +58,7 @@ const MUSIC_SLOT: SlotInfo = {
   ],
 };
 
-/** 白噪音页签固定用的白噪音 Slot。 */
+/** 音境页签固定用的音境 Slot。 */
 const NOISE_SLOT: SlotInfo = {
   id: "noise-controller",
   name: "音境",
@@ -110,14 +110,14 @@ test("Page renders in browser mode (no tauri)", () => {
   expect(screen.getByRole("main")).toBeDefined();
 });
 
-test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 环境游戏 / 扩展 / 关于 排列，壁纸与噪音内容不再内嵌", () => {
+test("设置页签按 偏好 / 壁纸 / 音乐 / 音境 / 环境游戏 / 扩展 / 关于 排列，壁纸与噪音内容不再内嵌", () => {
   renderSettingsPage();
 
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
     "偏好",
     "壁纸",
     "音乐",
-    "音境",
+    "音境(Beta)",
     "环境游戏",
     "扩展",
     "关于",
@@ -130,7 +130,7 @@ test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 环境游戏 / 扩�
   expect(screen.queryByText("关于 Lull")).toBeNull();
 });
 
-test("音乐页承载曲库分类，白噪音页承载会话控制、预设与音轨", () => {
+test("音乐页承载曲库分类，音境页承载会话控制、预设与音轨", () => {
   renderSettingsPage();
 
   fireEvent.click(screen.getByRole("tab", { name: "音乐" }));
@@ -160,7 +160,7 @@ test("音乐页承载曲库分类，白噪音页承载会话控制、预设与�
     "overflow-y-auto",
   );
 
-  fireEvent.click(screen.getByRole("tab", { name: "音境" }));
+  fireEvent.click(screen.getByRole("tab", { name: "音境(Beta)" }));
 
   const noise = screen.getByTestId("settings-noise-pane");
   expect(
@@ -254,7 +254,7 @@ test("窗口全局开关读取并保存 taskbarAndMinimize", async () => {
   });
 });
 
-test("三个库窗口开关分别位于壁纸 / 音乐 / 白噪音页签，并能打开对应窗口", async () => {
+test("三个库窗口开关分别位于壁纸 / 音乐 / 音境页签，并能打开对应窗口", async () => {
   mockInvoke({
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
     widget_states: () => [
@@ -277,7 +277,11 @@ test("三个库窗口开关分别位于壁纸 / 音乐 / 白噪音页签，并�
   const cases = [
     { label: "壁纸", testId: "settings-wallpaper-pane", kind: "backdrop" },
     { label: "音乐", testId: "settings-music-pane", kind: "library" },
-    { label: "音境", testId: "settings-noise-pane", kind: "noise-library" },
+    {
+      label: "音境(Beta)",
+      testId: "settings-noise-pane",
+      kind: "noise-library",
+    },
   ] as const;
 
   for (const item of cases) {
@@ -365,7 +369,7 @@ test("偏好页合并为一张卡片，功能槽位位于窗口分区内", () =>
   expect(within(card).queryByTestId("slot-panel")).toBeNull();
 });
 
-test("音乐 / 白噪音页签各自只显示对应的功能槽位", async () => {
+test("音乐 / 音境页签各自只显示对应的功能槽位", async () => {
   mockInvoke({
     window_prefs_get: () => ({ taskbarAndMinimize: true }),
     widget_states: () => [],
@@ -411,8 +415,8 @@ test("音乐 / 白噪音页签各自只显示对应的功能槽位", async () =>
     expect(invoke).toHaveBeenCalledWith("extensions_close", { id: "player" });
   });
 
-  // 白噪音页签：只有白噪音槽位。
-  fireEvent.click(screen.getByRole("tab", { name: "音境" }));
+  // 音境页签：只有音境槽位。
+  fireEvent.click(screen.getByRole("tab", { name: "音境(Beta)" }));
 
   const noisePane = screen.getByTestId("settings-noise-pane");
   const noisePanel = await within(noisePane).findByTestId("slot-panel");

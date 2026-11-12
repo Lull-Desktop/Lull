@@ -196,9 +196,9 @@ async fn open_one(
   controller: &GameController,
 ) -> GameResult<String> {
   let label = match controller.kind() {
-    GameControllerKind::Widget => widget_package::label_for_id(
-      controller.widget_id.as_deref().unwrap_or_default(),
-    ),
+    GameControllerKind::Widget => {
+      widget_package::label_for_id(controller.widget_id.as_deref().unwrap_or_default())
+    }
     GameControllerKind::Package => label_for(&manifest.id, &controller.id),
   };
   ensure_available(app, manifest, controller, &label)?;
@@ -218,14 +218,17 @@ async fn open_one(
   };
   {
     let mut guard = lock_manager();
-    guard.controller_bindings.insert(label.clone(), binding.clone());
+    guard
+      .controller_bindings
+      .insert(label.clone(), binding.clone());
   }
   let was_open = app.get_webview_window(&label).is_some();
   let opened = match controller.kind() {
     GameControllerKind::Widget => {
-      let widget_id = controller.widget_id.clone().ok_or_else(|| {
-        GameError::new(codes::MANIFEST_INVALID, "控制器缺少 widgetId")
-      })?;
+      let widget_id = controller
+        .widget_id
+        .clone()
+        .ok_or_else(|| GameError::new(codes::MANIFEST_INVALID, "控制器缺少 widgetId"))?;
       widget_package::open(app.clone(), widget_id)
         .await
         .map_err(|error| {
@@ -247,9 +250,7 @@ async fn open_one(
         )
       })
       .await
-      .map_err(|error| {
-        GameError::new(codes::IO_ERROR, format!("创建控制器窗口任务失败：{error}"))
-      });
+      .map_err(|error| GameError::new(codes::IO_ERROR, format!("创建控制器窗口任务失败：{error}")));
       match result {
         Ok(inner) => inner,
         Err(error) => {
@@ -259,9 +260,7 @@ async fn open_one(
       }
     }
   };
-  if let Err(error) = opened {
-    return Err(error);
-  }
+  opened?;
   // 窗口已存在时只 show/focus，不会重新执行页面脚本；显式 reload 让控制器按新的
   // 目标游戏重新 handshake（游戏重启后控制器必须重连）。
   if was_open {
@@ -310,9 +309,10 @@ fn open_package_window(
   }
   let dir = store::package_dir(app, &manifest.id)
     .map_err(|error| GameError::new(codes::IO_ERROR, error))?;
-  let entry = controller.entry.as_deref().ok_or_else(|| {
-    GameError::new(codes::MANIFEST_INVALID, "包内控制器缺少 entry")
-  })?;
+  let entry = controller
+    .entry
+    .as_deref()
+    .ok_or_else(|| GameError::new(codes::MANIFEST_INVALID, "包内控制器缺少 entry"))?;
   if !dir.join(entry).is_file() {
     return Err(GameError::new(
       codes::CONTROLLER_NOT_INSTALLED,
@@ -322,7 +322,10 @@ fn open_package_window(
   let (instance_id, limits) = {
     let guard = lock_manager();
     let instance = guard.instances.get(&manifest.id).ok_or_else(|| {
-      GameError::new(codes::CONTROLLER_NOT_ACTIVE, "游戏未运行，无法创建控制器窗口")
+      GameError::new(
+        codes::CONTROLLER_NOT_ACTIVE,
+        "游戏未运行，无法创建控制器窗口",
+      )
     })?;
     (instance.instance_id.clone(), instance.spec.limits)
   };
@@ -349,7 +352,8 @@ fn open_package_window(
       "alwaysOnTop": controller.always_on_top(),
     },
   });
-  let locale = serde_json::to_string(&crate::i18n::current()).unwrap_or_else(|_| "\"zh-CN\"".to_string());
+  let locale =
+    serde_json::to_string(&crate::i18n::current()).unwrap_or_else(|_| "\"zh-CN\"".to_string());
   let context_json = serde_json::to_string(&context).map_err(|error| {
     permissions::revoke_window_token(label);
     GameError::new(codes::IO_ERROR, format!("序列化控制器上下文失败：{error}"))
@@ -381,10 +385,7 @@ fn open_package_window(
     .devtools(crate::window_host::devtools_enabled());
   let window = builder.build().map_err(|error| {
     permissions::revoke_window_token(label);
-    GameError::new(
-      codes::IO_ERROR,
-      format!("创建控制器窗口失败：{error}"),
-    )
+    GameError::new(codes::IO_ERROR, format!("创建控制器窗口失败：{error}"))
   })?;
   let _ = window.set_background_color(Some(tauri::window::Color(246, 243, 236, 255)));
   // 壳页加载失败时兜底显示，避免控制器窗口永远隐藏。
@@ -424,7 +425,7 @@ fn close_labels(app: &AppHandle, labels: Vec<String>) {
 pub fn close(app: &AppHandle, game_id: &str, controller_id: Option<&str>) {
   let labels = manager::bindings_for_game(game_id)
     .into_iter()
-    .filter(|binding| controller_id.map_or(true, |id| binding.controller_id == id))
+    .filter(|binding| controller_id.is_none_or(|id| binding.controller_id == id))
     .map(|binding| binding.window_label)
     .collect();
   close_labels(app, labels);
@@ -448,7 +449,7 @@ pub fn close_orphaned(app: &AppHandle) {
         guard
           .instances
           .get(&binding.game_id)
-          .map_or(true, |instance| !instance.status.accepts_controller())
+          .is_none_or(|instance| !instance.status.accepts_controller())
       })
       .map(|binding| binding.window_label.clone())
       .collect()
@@ -550,7 +551,10 @@ mod tests {
         .entry
         .as_deref()
         .expect("package controller entry");
-      assert!(dir.join(entry).is_file(), "{name} 控制器入口不存在：{entry}");
+      assert!(
+        dir.join(entry).is_file(),
+        "{name} 控制器入口不存在：{entry}"
+      );
       let window_label = label_for(&manifest.id, &controller.id);
       assert!(
         window_labels.insert(window_label.clone()),
