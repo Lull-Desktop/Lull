@@ -52,7 +52,7 @@ export function NoisePresetPanel() {
   const [loadResult, setLoadResult] = useState<NoisePresetLoadResult | null>(
     null,
   );
-  const [saveName, setSaveName] = useState("我的音境工坊混音");
+  const [saveName, setSaveName] = useState("我的音境混音");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState("");

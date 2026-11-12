@@ -16,7 +16,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ lull.exe（Tauri / Rust）                                     │
-│  ├─ 托盘 + 设置窗 + 音乐库 / 壁纸素材库 / 音境工坊库窗口       │
+│  ├─ 托盘 + 设置窗 + 音乐管理 / 壁纸管理 / 音境管理窗口       │
 │  ├─ wallpaper runtime：每屏一个无边框 WebView 窗口            │
 │  └─ config：display.json（版本迁移 + 原子写盘）               │
 │                                                              │
@@ -35,7 +35,7 @@ Lull 采用 **模块化单体（Modular Monolith）+ 可版本化扩展协议**�
 
 - 单进程、多窗口；所有窗口关闭都只隐藏，托盘「退出」才结束进程。
 - 壁纸窗口 label 为 `wallpaper-<native-index>`，不进入任务栏、不参与窗口偏好。
-- 内置库窗口 label 为 `settings` / `library` / `backdrop` / `noise-library`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。`backdrop` 与 `noise-library` 沿用音乐库的 1080×760 / min 900×600 尺寸与标题 + 横向页签布局：`backdrop` 只承载「素材管理」（壁纸本身的设置在设置窗「壁纸」页签，因此没有页签导航），`noise-library` 为「音境工坊素材库 / 音境工坊预设 / 音境工坊测试」三页签；壁纸素材库不用 `wallpaper-*` 前缀，避免被壁纸渲染窗口的 capability glob 与媒体 token 前缀校验误识别。播放器与音境工坊已迁为官方 Widget 包，窗口 label 分别为 `widget-player`、`widget-noise`；番茄钟已迁为 `examples/widgets/liquid-pomodoro` 普通扩展，窗口 label 为 `widget-pomodoro`。
+- 内置库窗口 label 为 `settings` / `library` / `backdrop` / `noise-library`，每个窗口有独立的 capability 文件（`src-tauri/capabilities/window-<label>.json`，由清单生成）。`backdrop` 与 `noise-library` 沿用音乐管理的 1080×760 / min 900×600 尺寸与标题 + 横向页签布局：`backdrop` 只承载「素材管理」（壁纸本身的设置在设置窗「壁纸」页签，因此没有页签导航），`noise-library` 为「音境素材库 / 音境预设 / 音境测试」三页签；壁纸管理不用 `wallpaper-*` 前缀，避免被壁纸渲染窗口的 capability glob 与媒体 token 前缀校验误识别。播放器与音境已迁为官方 Widget 包，窗口 label 分别为 `widget-player`、`widget-noise`；番茄钟已迁为 `examples/widgets/liquid-pomodoro` 普通扩展，窗口 label 为 `widget-pomodoro`。
 - 第三方/官方插件窗口 label 为 `widget-<id>`：宿主壳页 `/embed` + `sandbox="allow-scripts"` iframe；`window.chrome` 为 `host` 时宿主绘制顶栏，为 `custom` 时插件自绘拖拽区/按钮（通过 `widget.chrome` 桥调用）。这类窗口共用 `window-widgets.json`（`widget-*` glob），只拿到自身状态命令与窗口操作，没有 `core:default`。
 - 壁纸窗口只有一条**只读** capability 基础（`window-wallpaper`：`content_packages` +
   事件订阅 + 视频会话命令）：
@@ -62,7 +62,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | `scene` | 场景 id（内置媒体 `lull.video`、官方竹影 `lull.bamboo`、外部 `community.*`） |
 | `canvas` | 跨屏共享画布（物理像素桌面坐标，可为负） |
 | `view` | 当前窗口对应的桌面矩形 |
-| `params` | JSON 后再 URI 编码的场景参数（字符串键值）；为空时省略 |
+| `params` | JSON 后再 URI 编码的场景参数（字符串键值）；为空时省略。independent 下按屏解析：`monitors[device].sceneParams[scene]` 覆盖优先（空覆盖 = 显式默认值），无覆盖回退全局 `display.sceneParams[scene]`；mirror/span 一律用全局 |
 
 前端 `src/core/wallpaper/params.ts` 负责解析与几何换算，`src/scenes/frame.ts` 负责合成本地帧（默认参数、能力与兼容性），`src/scenes/host.tsx` 负责选择内置组件或外部 iframe；`src/scenes/external-scene.tsx` + `scene-bridge.ts` 把帧推给声明 `wallpaper.script` 的外部场景，声明 `wallpaper.pointer` 的场景还会经 Rust `wallpaper/pointer.rs` 的 30Hz 位置采样、Tauri 定向事件与 `pointer` 消息收到只读鼠标位置（不含点击）。协议是纯函数，Rust/前端都有回归测试。
 
@@ -248,6 +248,8 @@ lib.rs
 | `wallpaper_set_game` | `gameId: string \| null` | `()` | `wallpaper::runtime`（全局游戏；同步覆盖逐屏游戏，`null` 清空全部游戏） |
 | `wallpaper_set_monitor_scene` | `device,scene` | `()` | `wallpaper::runtime`（仅 independent；同时清掉该屏游戏覆盖） |
 | `wallpaper_set_monitor_game` | `device,gameId` | `()` | `wallpaper::runtime`（仅 independent；每屏独立选择游戏） |
+| `wallpaper_set_scene_params` | `scene,params` | `()` | `wallpaper::runtime`（全局参数；mirror/span 唯一来源，independent 未覆盖屏的回退；空 map = 恢复默认） |
+| `wallpaper_set_monitor_scene_params` | `device,scene,params` | `()` | `wallpaper::runtime`（仅 independent；每屏参数覆盖，空 map = 本屏显式默认值，不回退全局） |
 | `media_capabilities` | — | `MediaCapabilities` | `media::video::commands` |
 | `media_assets` / `media_asset_pick` / `media_asset_pick_many` / `media_asset_remove` | `id` | `MediaAsset[]` / `MediaAsset \| null` / `MediaAssetImportResult` / `()` | `media::video`（settings/backdrop） |
 | `media_asset_url` / `media_asset_rename` / `media_asset_prune` | `id` / `id,name` | `string \| null` / `MediaAsset` / `number` | `media::video`（settings/backdrop） |
@@ -275,14 +277,14 @@ lib.rs
 | `wallpaper-changed` | Rust（拓扑重建 / 开关 / 场景） | 设置窗壁纸页签刷新显示器与场景 |
 | `widgets-changed` | Rust / 前端 | 设置页刷新库窗口 / 工具窗开关 |
 | `window-prefs-changed` | Rust | 所有顶栏重新读取 `isMinimizable` |
-| `flow-theme-changed` | 前端（跨窗口） | 设置 / 播放器 / 番茄钟 / 音境工坊 |
+| `flow-theme-changed` | 前端（跨窗口） | 设置 / 播放器 / 番茄钟 / 音境 |
 | `content-changed` | Rust（内容包安装 / 卸载） | 设置页、扩展中心与壁纸窗的场景目录 |
 | `extensions-changed` | Rust（安装 / 卸载 / 启用 / 改权限） | 扩展中心、托盘；兼容期同时发 `content-changed` |
 | `slots-changed` | Rust（选择 / 激活 / 停用 / 窗口销毁 / 失败回滚） | 扩展中心、设置页窗口列表 |
-| `media-changed` / `media-config-changed` | Rust（会话/配置/素材库） | 壁纸素材库窗口（素材列表订阅 `media-changed`）；设置窗壁纸页签的媒体壁纸面板订阅 `media-config-changed` |
+| `media-changed` / `media-config-changed` | Rust（会话/配置/素材库） | 壁纸管理窗口（素材列表订阅 `media-changed`）；设置窗壁纸页签的媒体壁纸面板订阅 `media-config-changed` |
 | `media-master-visible` | Rust（全局壁纸显隐） | 壁纸 MediaSurface 暂停/恢复 HTML video |
 | `media-degraded` | Rust（原生路径失败） | 壁纸 MediaSurface 切换 HTML 回退 |
-| `media:event` | Rust（资料库 revision、扫描进度、歌单/收藏/历史、播放/队列、Noise Session/Track/Library、输出音量） | 音乐库窗口、音境工坊库窗口、已订阅的播放器/音境工坊窗口 |
+| `media:event` | Rust（资料库 revision、扫描进度、歌单/收藏/历史、播放/队列、Noise Session/Track/Library、输出音量） | 音乐管理窗口、音境管理窗口、已订阅的播放器/音境窗口 |
 | `media-engine-command` | Rust（`media::engine`） | 隐藏 `media-engine` 窗口 |
 | `games-changed` | Rust（安装 / 启停 / 失败 / 授权变化） | 设置页「游戏」页签、扩展中心 |
 | `game:snapshot` / `game:event` / `game:render` | Rust（`game::manager`） | 游戏 authority / replica / controller 窗口（定向投递） |
@@ -388,7 +390,7 @@ form-action 'none'
 
 版本必须等于 `2`；不兼容版本回退默认值并记录警告，不覆盖原文件。旧版 `wallpaper.json` 不读取、不迁移。`display.media` 默认值不落盘，旧配置无需迁移；视频素材库单独存 `%APPDATA%\app.lull.desktop\media.json`，只登记路径，不复制大文件。详见 [Media Runtime](media-runtime.md)。
 
-音乐资料库独立于显示配置：`%APPDATA%\app.lull.desktop\music\music.db`（SQLite，WAL），`LULL_MUSIC_DIR` 可覆盖；封面/歌词资产按内容寻址保存在同级 `music/assets/`。它只登记本地音频路径与元数据，不复制、不改写用户文件；曲库、播放器、队列与音境工坊已统一走 Media Service，播放源只在隐藏引擎内解析。详见 [Media Service](media-service.md)。
+音乐资料库独立于显示配置：`%APPDATA%\app.lull.desktop\music\music.db`（SQLite，WAL），`LULL_MUSIC_DIR` 可覆盖；封面/歌词资产按内容寻址保存在同级 `music/assets/`。它只登记本地音频路径与元数据，不复制、不改写用户文件；曲库、播放器、队列与音境已统一走 Media Service，播放源只在隐藏引擎内解析。详见 [Media Service](media-service.md)。
 
 第三方插件相关路径：
 
@@ -446,8 +448,8 @@ Game Runtime（P1–P3）路径：
 ## 7. 构建与测试
 
 ```text
-pnpm test              前端 64 个测试文件（345 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、队列解析、seek 整数化、懒加载分页、单层目录浏览、P4 元数据/标签/标签管理 CRUD 与标签曲目关联/智能歌单/音乐库窗口曲库整理页签、壁纸素材库窗口、设置窗壁纸页签、音境工坊库窗口、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心、智能随机 Profile/设置面板/API 能力面板）
-cargo test             Rust 279 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 视频素材批量导入、重命名与失效清理、壁纸素材库配置读取鉴权 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、默认曲库移除 / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / P6 备份、歌词 sidecar / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照、自动续播列表、智能随机 Profile/Strategy/Engine 与模拟校准、引擎协议）
+pnpm test              前端 64 个测试文件（345 项，含 packages/{widget-sdk,scene-sdk,media-sdk}、音乐库筛选/扫描/歌单/收藏、共享音频增益、资料库窗口、Noise 素材库/分类标签/Preset 面板、Widget 媒体桥与 React hooks、队列解析、seek 整数化、懒加载分页、单层目录浏览、P4 元数据/标签/标签管理 CRUD 与标签曲目关联/智能歌单/音乐管理窗口曲库整理页签、壁纸管理窗口、设置窗壁纸页签、音境管理窗口、封面预览、场景桥、参数滑条、媒体表面、zip 打包、更新安装与扩展中心、智能随机 Profile/设置面板/API 能力面板）
+cargo test             Rust 279 项（配置 / 拓扑 / 协议 / 场景参数与 CSP / 包摘要与安装/更新 / Three.js 示例 / 开发模式 / 扩展管线 / 视频媒体会话 / 视频素材批量导入、重命名与失效清理、壁纸管理配置读取鉴权 / 音乐库迁移、扫描/取消、资产、筛选、歌单/收藏/历史、默认曲库移除 / Noise 迁移、catalog 与 Session、素材导入/hash/查询、分类标签 CRUD、Preset FK/CRUD、Widget token/权限矩阵 / P4 标签/智能歌单/扫描保护 / P6 备份、歌词 sidecar / 设置窗最大高度 / 播放状态、睡眠到点暂停、窗口权限、订阅/快照、自动续播列表、智能随机 Profile/Strategy/Engine 与模拟校准、引擎协议）
 pnpm lint              Biome（含 import 排序）
 pnpm content:check     内容目录 + 包摘要 + 目录签名
 pnpm content:hash      重算包摘要（--bundle <dir> 处理待分发内容包）/ content:sign 重新签名
@@ -492,5 +494,5 @@ pnpm build             prebuild → DLL → 静态导出 → Tauri 安装包
    没有自动更新、版本比较与回滚；安装目录由用户自行维护，卸载即删目录。
 8. **第三方隔离的边界**：插件运行在不透明源 iframe 中，存储/IPC/宿主 DOM 都被隔离；但 WebView2 会把 Tauri 初始化脚本应用到子帧，iframe 里仍能看到 `__TAURI_INTERNALS__`。ACL 只给该窗口状态命令与自身窗口操作，且状态按窗口 label 隔离；不要把它当成插件 API。安装器、签名、网络授权 UI 与崩溃隔离仍未完成。
 9. **视频壁纸的边界**：默认构建走 HTML `<video>` 回退，每个 WebView 自行解码；原生 media-pp/FFmpeg/WebView2 TextureStream 共享解码在可选 `native-media` feature 下实现，但本轮目标机器 WebView2 `CreateTextureStream` 返回 `0x80070032`，运行时自动回退。能力探测、构建依赖与验收门见 [Media Runtime](media-runtime.md)。不要把 HTML 回退描述成“单解码器”，也不要把“feature 已实现”描述成“原生已交付”。
-10. **音乐资料库/播放的边界**：P2 已把播放、队列、音境工坊迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。P3 已补歌单/喜欢/历史、M3U 导入导出与独立 `library` 资料库窗口（含队列视图）；N2 已把 Noise 从 `playback` 迁到独立 `media::noise`，引入 Asset/Track/Session 与旧 5 层兼容门面，Session/Track 不持久化；N3 已补 Noise 本地文件导入（受管复制 + SHA-256 + 缺失检测）、分类/标签/收藏/搜索与音境工坊库窗口功能页签，文件轨道通过 `<audio>` 接入 `noiseBus`；N3.5 补分类/标签独立 CRUD（内置只读、层级循环保护、删除分类不删素材）；N4 补 Preset 保存/加载/导入导出、收藏与缺失轨道映射，加载替换 Session 但不自动播放；N5/P5 补 Widget 媒体桥、Rust bridge token、8 个 Noise capability、redacted snapshot、React hooks、`noise-mixer` 示例；N6 把音境工坊窗口迁到 `NoiseSession` 动态轨道，支持内置泡泡 + 本地轨列表、Preset 选择/加载、播放/暂停，关闭窗口不停止 Session；P4 补元数据编辑与重扫保护、标签实体/多标签、艺术家/专辑合并拆分、智能歌单；P6 补 `.lrc/.txt/.srt` sidecar 歌词与组织数据备份/恢复，在线元数据、文件监听、缩略图未开始；随机播放已拆成 `playback::shuffle` 的 Profile / Strategy / Engine 三层：内置与用户配置可保存/切换，Strategy 用硬近期窗口 + softmax/均匀混合，Engine 管轮次袋与上一首历史；播放器只读写 Profile。详见 [Smart Shuffle](smart-shuffle.md)。`media_call` 对 `settings/player/noise/library/noise-library` 与带 token 的 `widget-*` 开放，`media_connect` 返回快照并通过 `media:event` 推送。多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md)、[Widget SDK](widget-sdk.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
+10. **音乐资料库/播放的边界**：P2 已把播放、队列、音境迁到 Rust Media Service，音频由隐藏 `media-engine` WebView 输出；N1 进一步把 Music/Noise 收进同一个 `AudioGraph`（musicBus/noiseBus/master/limiter），并补上全局输出音量、订阅总线与组合快照。P3 已补歌单/喜欢/历史、M3U 导入导出与独立 `library` 资料库窗口（含队列视图）；N2 已把 Noise 从 `playback` 迁到独立 `media::noise`，引入 Asset/Track/Session 与旧 5 层兼容门面，Session/Track 不持久化；N3 已补 Noise 本地文件导入（受管复制 + SHA-256 + 缺失检测）、分类/标签/收藏/搜索与音境管理窗口功能页签，文件轨道通过 `<audio>` 接入 `noiseBus`；N3.5 补分类/标签独立 CRUD（内置只读、层级循环保护、删除分类不删素材）；N4 补 Preset 保存/加载/导入导出、收藏与缺失轨道映射，加载替换 Session 但不自动播放；N5/P5 补 Widget 媒体桥、Rust bridge token、8 个 Noise capability、redacted snapshot、React hooks、`noise-mixer` 示例；N6 把音境窗口迁到 `NoiseSession` 动态轨道，支持内置泡泡 + 本地轨列表、Preset 选择/加载、播放/暂停，关闭窗口不停止 Session；P4 补元数据编辑与重扫保护、标签实体/多标签、艺术家/专辑合并拆分、智能歌单；P6 补 `.lrc/.txt/.srt` sidecar 歌词与组织数据备份/恢复，在线元数据、文件监听、缩略图未开始；随机播放已拆成 `playback::shuffle` 的 Profile / Strategy / Engine 三层：内置与用户配置可保存/切换，Strategy 用硬近期窗口 + softmax/均匀混合，Engine 管轮次袋与上一首历史；播放器只读写 Profile。详见 [Smart Shuffle](smart-shuffle.md)。`media_call` 对 `settings/player/noise/library/noise-library` 与带 token 的 `widget-*` 开放，`media_connect` 返回快照并通过 `media:event` 推送。多设备输出仍未接入。`media::video` 与本服务是两套独立运行时，不要混用。详见 [Media Service](media-service.md)、[Widget SDK](widget-sdk.md) 与 [Noise RFC](Lull%20Noise%20Service%20技术设计%20RFC.md)。
 11. **Game Runtime 已到 P3 部分 + P4 单包双入口与四类渲染适配器**：[Game Runtime 设计](game-runtime.md) 与 [Game SDK](game-sdk.md) 的 P1–P3 及 `@lull/game-adapter-{canvas,phaser,pixi,three}` 已实现：`game-authority-*` 隐藏窗口、27 条命令、`lullgame://`、`games/` 与 `game-data/` 目录、`game.json` 包格式（`controllers[]`：包内页面或 Widget，1–8 个；仅运行中实例可打开/连接）、Widget 控制器桥与示例、**`/game-controller` 宿主壳 + `@lull/game-sdk/controller` 包内控制器**、**设置页运行中实例操作区开关 + 托盘「设置 ▸ 游戏控制器」列出全部运行中游戏（壁纸激活排前）**、Scene 只读 Replica（`game` 绑定 + `game.*` 桥）、**游戏包自带 `entry.replica` 直接作为壁纸（`GameReplicaHost` + `display.game` + `wallpaper_set_game`）**、暂停/恢复与 hidden/background、`games.json` 偏好（自动启动/启动恢复/上限/控制器跟随）、`self-loop` authority（experimental）、租约 failover 硬化、提交 journal、稳定性诊断命令/探针，以及 `examples/games/{phaser,pixi,three}-demo` 三个"一个 zip = 逻辑 + 渲染"的引擎示例。**尚未完成**：游戏开发挂载（`.lull-dev.json` 对游戏包）、扩展中心的游戏详情/逐能力开关、引擎矩阵的真机长跑与 WebView 稳定性报告，不要按设计文档假设这些能力已可调用；实现边界见设计文档 §19。

@@ -100,23 +100,23 @@ beforeEach(() => {
 test("白噪音库三个子页签可切换", async () => {
   render(<NoiseLibraryWindow />);
 
-  expect(screen.getByRole("heading", { name: "音境工坊库" })).toBeDefined();
+  expect(screen.getByRole("heading", { name: "音境管理" })).toBeDefined();
   const tabs = screen
     .getAllByRole("button")
     .map((button) => button.textContent);
   expect(tabs).toEqual(
-    expect.arrayContaining(["音境工坊素材库", "分类与标签", "音境工坊测试"]),
+    expect.arrayContaining(["音境素材库", "分类与标签", "音境测试"]),
   );
-  expect(tabs).not.toContain("音境工坊预设");
+  expect(tabs).not.toContain("音境预设");
 
-  expect((await screen.findAllByText("音境工坊素材库")).length).toBeGreaterThan(
+  expect((await screen.findAllByText("音境素材库")).length).toBeGreaterThan(
     0,
   );
   // 预设管理并入素材库页签，不再有独立页签。
   expect(await screen.findByText("预设管理")).toBeDefined();
 
-  fireEvent.click(screen.getByRole("button", { name: "音境工坊测试" }));
-  expect(await screen.findByText("音境工坊 API 调试")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "音境测试" }));
+  expect(await screen.findByText("音境 API 调试")).toBeDefined();
 });
 
 test("窗口根节点只 connect 一次，切页签不会断开，卸载时才断开", async () => {
@@ -137,8 +137,8 @@ test("窗口根节点只 connect 一次，切页签不会断开，卸载时才�
   expect(topics.topics).toContain("output.changed");
 
   fireEvent.click(screen.getByRole("button", { name: "分类与标签" }));
-  fireEvent.click(screen.getByRole("button", { name: "音境工坊测试" }));
-  fireEvent.click(screen.getByRole("button", { name: "音境工坊素材库" }));
+  fireEvent.click(screen.getByRole("button", { name: "音境测试" }));
+  fireEvent.click(screen.getByRole("button", { name: "音境素材库" }));
 
   expect(client.connect).toHaveBeenCalledTimes(1);
   expect(client.disconnect).not.toHaveBeenCalled();
@@ -156,6 +156,6 @@ test("连接失败时显示窗口级错误横幅", async () => {
   render(<NoiseLibraryWindow />);
 
   const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toContain("音境工坊服务连接失败");
+  expect(alert.textContent).toContain("音境服务连接失败");
   expect(alert.textContent).toContain("media_connect denied");
 });

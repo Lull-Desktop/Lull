@@ -16,7 +16,7 @@
 
 我认为需要重新调整之前的设计思路。
 
-你现在真正要解决的，不只是「音乐播放器和音境工坊同一时间只能运行一个」，而是一个更完整的第三方扩展生态问题：
+你现在真正要解决的，不只是「音乐播放器和音境同一时间只能运行一个」，而是一个更完整的第三方扩展生态问题：
 
 > 当社区中存在几十个甚至上百个同类型 Widget 时，Lull 如何统一发现、安装、分类、选择、激活和管理它们，同时确保每种功能在运行时只有一个活动实现？
 
@@ -42,7 +42,7 @@
 
 ### Extension Category（扩展类别）——分类单位
 
-用于组织和筛选扩展，例如音乐播放器、音境工坊、时钟、番茄钟。
+用于组织和筛选扩展，例如音乐播放器、音境、时钟、番茄钟。
 
 ### Extension Slot（功能槽位）——运行单位
 
@@ -63,12 +63,12 @@
 | `noise-studio` | `noise-controller` | `noise-controller` |
 | `pomodoro-focus` | `productivity` | `pomodoro` |
 
-这样，用户可以安装 20 个音乐播放器、15 个音境工坊控制器，但运行时：
+这样，用户可以安装 20 个音乐播放器、15 个音境控制器，但运行时：
 
 - `music-player` 只有一个活动扩展。
 - `noise-controller` 只有一个活动扩展。
 - `pomodoro` 可以独立运行。
-- 音乐和音境工坊可以同时运行。
+- 音乐和音境可以同时运行。
 
 ## 二、整个扩展体系应该如何组织？
 
@@ -81,7 +81,7 @@ Lull Host（统一扩展管理中心）
 ├── Extension Manager                           安装、更新、卸载、启用、禁用、版本兼容性检查
 ├── Slot Manager
 │   ├── Music Slot    Music Vinyl（其他音乐扩展等待选择）
-│   └── Noise Slot    Noise Studio（其他音境工坊扩展等待选择）
+│   └── Noise Slot    Noise Studio（其他音境扩展等待选择）
 ├── Widget Runtime Manager                      窗口创建、iframe 加载、生命周期、实例回收
 └── Host Services                               Music Service / Noise Service / Audio Output Mixer
 ```
@@ -99,7 +99,7 @@ Lull Host（统一扩展管理中心）
 
 这里建议在现有 `widget.json` 中增加一个 `provides` 字段。
 
-不建议直接把 `type` 扩展成音乐播放器、音境工坊、时钟等大量业务类型，因为这样会让 Widget SDK 越来越依赖具体业务。
+不建议直接把 `type` 扩展成音乐播放器、音境、时钟等大量业务类型，因为这样会让 Widget SDK 越来越依赖具体业务。
 
 应该继续保留：
 
@@ -137,7 +137,7 @@ Lull Host（统一扩展管理中心）
 }
 ```
 
-### 2. 音境工坊 Manifest
+### 2. 音境 Manifest
 
 ```json
 {
@@ -251,7 +251,7 @@ Lull Host（统一扩展管理中心）
 | 功能槽位 | 当前实现 | 详情 | 状态 | 操作 |
 | --- | --- | --- | --- | --- |
 | 音乐播放器 | Vinyl Music Player | `music-vinyl` · v1.0.0 | 当前活动 | 管理 |
-| 音境工坊控制器 | Noise Studio | `noise-studio` · v1.0.0 | 当前活动 | 管理 |
+| 音境控制器 | Noise Studio | `noise-studio` · v1.0.0 | 当前活动 | 管理 |
 
 #### 社区扩展发现
 
@@ -494,7 +494,7 @@ CREATE TABLE extension_slot_selections (
 | SDK | 职责 | 使用者 |
 | --- | --- | --- |
 | Widget SDK | 窗口、主题、状态、生命周期 | 所有 Widget |
-| Media SDK | 音乐、音境工坊、曲库、混音服务 | 对应业务扩展 |
+| Media SDK | 音乐、音境、曲库、混音服务 | 对应业务扩展 |
 
 例如音乐：
 
@@ -512,7 +512,7 @@ await music.player.play(tracks[0].id);
 await music.player.pause();
 ```
 
-音境工坊：
+音境：
 
 ```ts
 import {
@@ -659,14 +659,14 @@ examples/
 必须通过的验收测试：
 
 1. 安装 10 个不同音乐播放器，全部可以被正确识别。
-2. 安装 10 个不同音境工坊扩展，全部可以被正确识别。
+2. 安装 10 个不同音境扩展，全部可以被正确识别。
 3. 选择 Music A 后，Music B 不会自动启动。
 4. 切换 Music A 到 Music B，不产生两个活动 Runtime。
 5. Music A 切换到 Music B 时，音乐播放状态由宿主服务保持。
 6. Music 和 Noise 可以同时运行。
 7. 卸载当前活动扩展时，宿主能够清理 Runtime 和 Slot 引用。
 8. 扩展启动失败时，不会产生重复窗口或错误的 Active 状态。
-9. 重启 Lull 后，能够恢复用户选择的扩展，但不会自动恢复音乐和音境工坊播放。
+9. 重启 Lull 后，能够恢复用户选择的扩展，但不会自动恢复音乐和音境播放。
 10. 普通 Widget 不受 Slot 独占规则影响，仍然按照原来的运行模式工作。
 
 ## 十一、最终架构决策
@@ -699,4 +699,4 @@ examples/
 
 **我的最终意见**：不要把 Lull 的第三方扩展体系设计成一个简单的插件加载器，而应该设计成一个具有 Provider 注册、Slot 调度和 Runtime 生命周期管理的扩展平台。
 
-这样未来无论是音乐播放器、音境工坊、时钟、天气、桌面信息面板，还是社区开发者提交的新功能，都能沿用同一套基础设施，而不需要每增加一种扩展就修改宿主核心架构。
+这样未来无论是音乐播放器、音境、时钟、天气、桌面信息面板，还是社区开发者提交的新功能，都能沿用同一套基础设施，而不需要每增加一种扩展就修改宿主核心架构。

@@ -59,7 +59,7 @@ SQLite · Repository · Assets Storage · Migrations
 - Music Track 与 Noise Track 数据模型。
 - Music Queue 与 Noise Session。
 - 歌单与混音预设。
-- 音乐收藏与音境工坊收藏。
+- 音乐收藏与音境收藏。
 - 音乐元数据与 Noise 分类标签。
 - 两个业务域的权限和 API 命名空间。
 2.3 共享 Mixer 的关键设计
@@ -112,7 +112,7 @@ Music Playback 负责：
 建议：
 音量	所属层	作用
 Music Volume	Music Service	音乐业务音量
-Noise Master Volume	Noise Service	音境工坊整体音量
+Noise Master Volume	Noise Service	音境整体音量
 Noise Track Volume	Noise Mixer	单条音轨音量
 Master Output Volume	Shared Audio Graph	Lull 全部音频的总增益
 Windows Device Volume	操作系统	系统音量
@@ -826,7 +826,7 @@ media.noise.presets.read	查询预设
 media.noise.presets.write	保存和管理预设
 建议权限申请遵循最小权限原则。
 
-例如，一个只显示当前音境工坊状态的 Widget，只需要：
+例如，一个只显示当前音境状态的 Widget，只需要：
 [
   "media.noise.session.read",
   "media.noise.tracks.read"
@@ -1276,7 +1276,7 @@ Widget 自行播放音频	无法由 Noise Service 完全控制	明确软约束�
 退出清理顺序错误	设备未释放或崩溃	统一 Media Lifecycle
 特别强调：共享 Audio Output 不代表必须共享解码器
 Music 和 Noise 可以有独立解码器，也可以使用相同的底层解码库，但最终输出到同一个 Audio Graph。
-建议先确定音频输出与混音协议，再选择解码后端。不要因为目前视频壁纸路径使用 media-pp，就直接把它作为音乐和音境工坊的音频引擎。
+建议先确定音频输出与混音协议，再选择解码后端。不要因为目前视频壁纸路径使用 media-pp，就直接把它作为音乐和音境的音频引擎。
 十五、最终建议：将 Media Service 设计成三个层次
 我认为 Lull 最终应该形成如下的模块边界：
 层次	模块	责任
@@ -1387,7 +1387,7 @@ N1 仍需手工验收：Music + 5 层 Noise 同时播放、独立音量、设备
 - 文件：`.lull-noise.json` 固定 `schemaVersion=1`、`type=lull-noise-preset`；最多 32 轨；名称/描述/音量/fade/order 校验；cover 只接受不透明 token；导入生成新本地 ID 并写 `origin_id`，不自动覆盖。
 - 加载：解析顺序 assetId → contentHash → 同名候选 → missing；替换 Session 轨道与 master、state=idle、不自动播放；缺失返回 candidates，可 `mapPresetTrack` 后重载。
 - 权限：内置 Preset 不可改删；加载/导出/收藏可用。删除 Preset 清 `last_preset_id` 并依赖 FK 级联 tracks/favorites。
-- SDK/UI：`noise.presets.*`、Preset 类型与事件 `noise.preset.created/updated/deleted`；音境工坊库窗口的「音境工坊预设」页签支持保存/加载/收藏/改元数据/删除/导入导出/缺失映射。
+- SDK/UI：`noise.presets.*`、Preset 类型与事件 `noise.preset.created/updated/deleted`；音境库窗口的「音境预设」页签支持保存/加载/收藏/改元数据/删除/导入导出/缺失映射。
 - 验证：Rust 181 项、前端 263 项、typecheck/build/clippy/docs sync 通过；真实社区 Preset 文件与缺失映射流程待手工验收。
 
 ### 16.9 N5/P5 Widget 媒体桥已落地
@@ -1405,7 +1405,7 @@ N1 仍需手工验收：Music + 5 层 Noise 同时播放、独立音量、设备
 - 5 个内置 procedural 继续渲染为泡泡，按 `noise:builtin:*` 映射 Session Track；缺失 Track 在点击泡泡时 `addTrack`。
 - 本地轨道以紧凑列表显示在主界面与设置面板，支持开关、音量、移除；播放/暂停、master/muted、睡眠与 Preset 加载走 N2/N4 API。
 - 关闭窗口只断开 `media_connect` 订阅，不发送 stop；重开取 snapshot；多窗口靠 session 事件同步。
-- 设置页 N3/N4 功能面板保留；N6 在音境工坊窗口增加 Preset 选择/加载与本地轨管理。加载后保持 idle，泡泡显示“待播放”、主泡显示暂停；`applySession` 按 revision 忽略过期命令结果。
+- 设置页 N3/N4 功能面板保留；N6 在音境窗口增加 Preset 选择/加载与本地轨管理。加载后保持 idle，泡泡显示“待播放”、主泡显示暂停；`applySession` 按 revision 忽略过期命令结果。
 - 验证：Rust 185 项、前端 267 项、typecheck/build/clippy/SDK checks 通过；真机听感、关闭/重开、多窗口同步待手工验收。
 
 

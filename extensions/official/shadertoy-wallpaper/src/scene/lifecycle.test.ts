@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { readRuntimeParams, shouldPause } from "./lifecycle";
+import { readRuntimeParams, resolveSource, shouldPause } from "./lifecycle";
 
 describe("readRuntimeParams", () => {
   test("applies defaults for missing or invalid values", () => {
@@ -21,6 +21,21 @@ describe("readRuntimeParams", () => {
     const source =
       "void mainImage(out vec4 c, in vec2 p) {\n c = vec4(1.0);\n}";
     expect(readRuntimeParams({ source }).source).toBe(source);
+  });
+});
+
+describe("resolveSource", () => {
+  const fallback = "void mainImage(out vec4 c, in vec2 p) { c = vec4(0.); }";
+
+  test("falls back to the built-in source when nothing was provided", () => {
+    expect(resolveSource("", fallback)).toBe(fallback);
+    expect(resolveSource("   \n\t ", fallback)).toBe(fallback);
+  });
+
+  test("keeps user source verbatim, including leading whitespace", () => {
+    const source = "\n// my shader\nvoid mainImage(out vec4 c, in vec2 p) {}";
+    expect(resolveSource(source, fallback)).toBe(source);
+    expect(resolveSource("  x", fallback)).toBe("  x");
   });
 });
 

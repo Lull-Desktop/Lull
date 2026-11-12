@@ -1,6 +1,6 @@
 {
   "name": "lull-extension-skill",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Lull extension development skill: fetch and compile @lull/widget-sdk / @lull/scene-sdk from packages/, scaffold and validate wallpaper scenes and tool widgets against the extension standard, pack installable zips, and install as an Agent Skill.",
   "keywords": [
     "lull",

@@ -131,7 +131,7 @@ beforeEach(() => {
 async function mount(): Promise<void> {
   render(<NoiseLibraryPanel />);
   await waitFor(() => expect(mocks.getCategories).toHaveBeenCalled());
-  await screen.findByText("音境工坊素材库");
+  await screen.findByText("音境素材库");
 }
 
 describe("NoiseLibraryPanel", () => {

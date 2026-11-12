@@ -1,6 +1,6 @@
 // biome-ignore-all lint/correctness/noUndeclaredDependencies: workspace package is resolved by the app build.
 /**
- * 音乐库窗口「曲库整理」调试页签：直接驱动 @lull/media-sdk 的 P4 编辑能力。
+ * 音乐管理窗口「曲库整理」调试页签：直接驱动 @lull/media-sdk 的 P4 编辑能力。
  *
  * 这是开发验收面板，不是资料库正式 UI；覆盖元数据覆盖、标签管理与标签曲目关联、
  * 实体合并/拆分、智能歌单，以及每一步的原始返回，方便手工核对 Rust 行为。
@@ -221,7 +221,7 @@ export function LibraryOrganizerPanel({
     setClient(getMediaClient());
   }, [providedClient]);
 
-  // 预览按钮依赖全局播放器状态：音乐库窗口已经订阅 player.state，这里只追加
+  // 预览按钮依赖全局播放器状态：音乐管理窗口已经订阅 player.state，这里只追加
   // 一个监听，并主动读一次快照，避免刚打开页签时按钮全部显示成“播放”。
   useEffect(() => {
     if (!client) return;

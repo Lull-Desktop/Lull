@@ -414,10 +414,10 @@ function MasterBubble({
         data-ether-wheel="true"
         aria-label={
           !playing
-            ? `音境工坊，已暂停，总音量 ${master}%。点击播放`
+            ? `音境，已暂停，总音量 ${master}%。点击播放`
             : muted
-              ? `音境工坊，总音量 ${master}%，已静音。点击恢复声音，滚轮或上下拖动调节总音量`
-              : `音境工坊，总音量 ${master}%。点击静音，滚轮或上下拖动调节总音量`
+              ? `音境，总音量 ${master}%，已静音。点击恢复声音，滚轮或上下拖动调节总音量`
+              : `音境，总音量 ${master}%。点击静音，滚轮或上下拖动调节总音量`
         }
         aria-pressed={playing && muted}
         onWheel={wheel}
@@ -1020,7 +1020,7 @@ export function EtherBubbles() {
               data-active="true"
             >
               <div className={styles.rowLabel}>
-                <span className={styles.glyphTitle}>音境工坊</span>
+                <span className={styles.glyphTitle}>音境</span>
                 <span className={styles.rowMeta}>
                   {awake
                     ? `${master}% · ${masterMood(master, muted)}`

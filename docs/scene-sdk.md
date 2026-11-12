@@ -395,6 +395,11 @@ if (game) {
 设置页显示场景名、版本、许可证与来源（内置 / 官方 / 随包内容包 / 已安装内容包），
 只对声明了 `wallpaper.params` 的场景渲染参数编辑器；参数按场景 id 持久化到配置，
 修改后热更新壁纸窗，再由 Scene SDK 桥或内置组件的 `SceneProps` 消费。
+独立（independent）模式下参数逐屏独立：每屏一份参数面板，写入
+`monitors[device].sceneParams[scene]` 覆盖（`wallpaper_set_monitor_scene_params`），
+只热更本屏壁纸窗；无覆盖的屏回退全局 `display.sceneParams[scene]`，
+"恢复默认"写入空覆盖 = 本屏显式使用 Manifest 默认值（不回退全局）。
+复制 / 跨屏模式忽略逐屏覆盖，只用全局参数。
 `number` 参数同时声明 `min` 与 `max` 时使用滑条（`step` 控制步进，未声明时按范围推断），
 无界或只有单边限制的仍用数字输入；`boolean` / `enum` / `color` 分别用开关 / 下拉 / 取色器。
 没有 `wallpaper.params` 的场景不会出现参数控件，避免“改了没反应”。

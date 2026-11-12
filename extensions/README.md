@@ -13,7 +13,7 @@
 
 ```text
 extensions/official/
-  noise/         # P3：音境工坊（React + 媒体 SDK）
+  noise/         # P3：音境（React + 媒体 SDK）
   player/        # P4：播放器（React + Media Hub 会话）
   bamboo/        # 竹影壁纸（场景包；构建产物 id=lull.bamboo）
   shadertoy-wallpaper/  # P8：着色器壁纸（场景包；构建产物 id=lull.shadertoy-wallpaper）

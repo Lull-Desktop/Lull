@@ -1,7 +1,7 @@
 # Game Runtime 设计
 
 > 状态：**v0.5.4 —— P1–P3 部分落地（含 background 策略），P4 单包双入口与四类渲染适配器（Canvas2D / Phaser / PixiJS / Three.js）已落地；控制器已支持每游戏多窗口、包内 UI 与激活门禁；真机长跑与多屏目视验收待补**。
-> 基线：[RFC `LULL-RFC-GAME-001`](./rfc/RFC-Game-Runtime.md)（Proposed）｜代码基线：`0.2.2`。
+> 基线：[RFC `LULL-RFC-GAME-001`](./rfc/RFC-Game-Runtime.md)（Proposed）｜代码基线：`0.3.0`。
 > 实现：`src-tauri/src/game/`、`src-tauri/src/game_package/`、`packages/game-sdk/`（含 `./scene`、`./widget`、`./controller`）、`src/games/`（authority / controller / bridge / replica）、`examples/games/living-world/`、`examples/scenes/living-world/`；未覆盖项见 §19。
 > 范围：Lull 宿主侧 —— 游戏包、实例与权威、状态仓储、命令/事件协议、多屏渲染副本、权限与窗口接线、阶段计划与验收。
 > 第三方开发者契约见 [Game SDK](./game-sdk.md)；本文的设计章节仍描述目标形态，未落地部分不要当成既有能力。
@@ -111,7 +111,7 @@ packages/game-sdk               →  游戏包内代码（authority / replica / 
 | Scene / `@lull/scene-sdk` | `init/frame/visibility` 只读帧 | 追加 `game.*` 消息（协议不升版）；scene manifest 增加可选 `game` 绑定 | `src/scenes/scene-bridge.ts`、`src/scenes/external-scene.tsx`、`packages/scene-sdk/src/protocol.ts` 增量扩展 |
 | Widget / `@lull/widget-sdk` | 插件窗口、能力授权、postMessage 桥 | Controller 复用；新增 3 个游戏能力与 4 个桥方法 | `src/sdk/widget/types.ts`、`packages/widget-sdk/src/protocol.ts`、`widget-plugin-shell` 增量扩展 |
 | Extension Center | 安装/启停/授权/开发模式 | 增加第三类包 `game`；运行状态按钮接 `game_start/stop` | `extension::{Kind,install,mod}`、`content_trust::PackageKind` 增量扩展 |
-| `media` | 音乐/音境工坊/视频壁纸 | **无耦合**；不复用 `media_call`，也不走 `media:event` | 不改 |
+| `media` | 音乐/音境/视频壁纸 | **无耦合**；不复用 `media_call`，也不走 `media:event` | 不改 |
 | `config` | `display.json` | 游戏运行偏好单独放 `games.json`，不塞进显示配置 | 不改 |
 | 托盘 | 内置窗口/扩展入口 | 首期不加游戏菜单；P5 再评估"当前游戏"子菜单 | 不改 |
 

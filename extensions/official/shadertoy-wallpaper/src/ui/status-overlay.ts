@@ -31,8 +31,9 @@ export type StatusOverlay = {
 };
 
 const EMPTY_DETAIL =
-  "在壁纸设置 → 着色器 → 源码中粘贴 GLSL，或从 .glsl/.frag 文件载入。\n" +
-  "Paste GLSL or load a .glsl/.frag file in Wallpaper settings.";
+  "未填写源码时壁纸运行内置示例（The Drive Home）。\n" +
+  "在壁纸设置 → 着色器 → 源码中粘贴 GLSL，或从 .glsl/.frag 文件载入即可替换。\n" +
+  "Paste GLSL or load a .glsl/.frag file in Wallpaper settings to replace the built-in demo.";
 
 export function createStatusOverlay(root: HTMLElement): StatusOverlay {
   const title = root.ownerDocument.createElement("p");
@@ -67,7 +68,7 @@ export function createStatusOverlay(root: HTMLElement): StatusOverlay {
         root.hidden = true;
         return;
       case "empty":
-        show("empty", "未加载着色器 / No shader loaded", EMPTY_DETAIL);
+        show("empty", "正在载入内置示例 / Loading built-in demo", EMPTY_DETAIL);
         return;
       case "compiling":
         show("compiling", "正在编译 / Compiling", "…");

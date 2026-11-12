@@ -458,9 +458,9 @@ mod tests {
     let zh = table.get(BASE_LOCALE).unwrap_or_else(|| unreachable!());
     let en = table.get("en-US").unwrap_or_else(|| unreachable!());
     for (key, chinese) in [
-      ("widget_library_name", "音乐库"),
-      ("widget_backdrop_name", "壁纸素材库"),
-      ("widget_noise_library_name", "音境工坊库"),
+      ("widget_library_name", "音乐管理"),
+      ("widget_backdrop_name", "壁纸管理"),
+      ("widget_noise_library_name", "音境管理"),
     ] {
       assert_eq!(zh.get(key).map(String::as_str), Some(chinese), "{key}");
       let translated = en.get(key).unwrap_or_else(|| panic!("en-US 缺少 {key}"));

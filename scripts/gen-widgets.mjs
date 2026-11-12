@@ -77,7 +77,7 @@ const GAME_CONTROLLER_PERMISSIONS = [
 ];
 
 /**
- * `backdrop` 是壁纸素材库窗口：壁纸设置已迁到设置窗，这里只做素材的导入、预览与
+ * `backdrop` 是壁纸管理窗口：壁纸设置已迁到设置窗，这里只做素材的导入、预览与
  * 管理，所以只需要素材登记、清理与「设为壁纸」这几条媒体命令。
  * 窗口 id 不能叫 `wallpaper-*`：`window-wallpaper` capability 与壁纸媒体 token
  * 校验都按这个前缀识别真正的渲染窗口，前缀重名会误授权/误判。

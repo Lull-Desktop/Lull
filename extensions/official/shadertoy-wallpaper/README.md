@@ -17,16 +17,32 @@
 2. 参数面板「着色器源码」里粘贴 GLSL，或点「从文件载入」选择 `.glsl` / `.frag` 文件；
 3. 源码会立即编译：成功即开始渲染，失败则在壁纸上显示原始编译日志。
 
+**没有填源码时**壁纸运行内置示例（`fixtures/default.frag`，Shadertoy 的
+「The Drive Home」），所以选了这个壁纸就能看到画面，不用先去别处找 shader。
+填了源码就立即换成自己的。
+
 源码随壁纸配置（`display.json` 的 `sceneParams`）保存，重启后自动恢复；
-参数面板「恢复默认」会把源码清空。
+参数面板「恢复默认」会把源码清空，等于回到内置示例。
 
 ## 参数
 
 | key | 类型 | 说明 |
 | --- | --- | --- |
-| `source` | `text` | GLSL 源码，上限 128 KiB |
+| `source` | `text` | GLSL 源码，上限 128 KiB；留空时运行内置示例 |
 | `render-scale` | `number` | 0.25–1，绘制分辨率比例；超过 4K 像素上限自动下调 |
 | `animation` | `boolean` | 关闭后冻结 `iTime`，画面停在当前帧 |
+
+## 内置示例
+
+`fixtures/default.frag`（Shadertoy「The Drive Home」，Martijn Steinrucken / BigWings）
+既是手工验证样例，也是**默认加载**的 shader：宿主下发的 `source` 为空（从未填写、
+「恢复默认」）时，场景直接编译它，并在 `scene.log` 写一行「未填写源码，运行内置示例
+着色器」。它在 WebGL1 / WebGL2 上都走单 Pass 的 Shadertoy Image 路径，不采样任何
+外部输入，所以不会出现占位通道提示。
+
+文件不进构建产物目录，构建时以 Vite `?raw` 内联成字符串（`src/scene/default-source.ts`）；
+改默认画面只需要改这一个 `.frag` 文件。第三方素材授权见仓库根目录
+`THIRD_PARTY_NOTICES.md`。
 
 ## 多 Pass（Common / Volume A-D / Buffer A-D / Image A-D / Image）
 
@@ -215,8 +231,11 @@ pnpm extensions:check                      # strict validator + 摘要校验
 pnpm extensions:watch shadertoy-wallpaper  # Tier 1，改完在宿主里重选/重载壁纸
 ```
 
-`fixtures/` 里是手工验证用的示例源码（不进入构建产物）：
+`fixtures/` 里是手工验证用的示例源码（目录不进入构建产物；仅 `default.frag`
+以 `?raw` 内联进场景包）：
 
+- `default.frag`：**默认加载**的示例（Shadertoy「The Drive Home」），单 Pass、无外部输入；
+- `default.frag`：Shadertoy「Perspex Web Lattice」Voronoi 场景，采样 `iChannel0`；
 - `gradient.frag`：最小 `iTime` 渐变；
 - `flow.frag`：噪声流动；
 - `mouse.frag`：十字/圆环跟随 `iMouse.xy`，用于验收坐标与“离开保留”；

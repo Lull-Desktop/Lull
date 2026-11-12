@@ -80,6 +80,7 @@ import {
   widgetSettingsVisible,
 } from "./compat";
 import { CoverArt } from "./cover-art";
+import { useInteractionGuard } from "./interaction-guard";
 import { LibraryImportActions } from "./library-import-actions";
 import styles from "./liquid-player.module.css";
 import {
@@ -611,6 +612,9 @@ export function LiquidPlayer(): React.ReactElement {
   // 播放器是固定画布的透明浮窗：只需要等字体就绪后显示窗口，
   // 不能再按内容高度贴合（100vh 内容叠加顶栏高度会让窗口反复长高）。
   useWidgetFit(rootRef, { fit: false });
+
+  // 模块内不参与框选 / 原生拖拽，右键也不弹系统菜单；只约束播放器根节点。
+  useInteractionGuard(rootRef);
 
   useEffect(() => {
     smartConfigRef.current = smartConfig;

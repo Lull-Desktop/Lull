@@ -23,6 +23,15 @@ export function readRuntimeParams(
   };
 }
 
+/**
+ * 解析实际要编译的源码：空源码（宿主从未下发，或用户点了「恢复默认」）回退到
+ * `fallback`（内置示例），否则原样返回用户源码 —— 不改写、不裁剪，行号偏移提示
+ * 依赖源码原文。
+ */
+export function resolveSource(source: string, fallback: string): string {
+  return source.trim() === "" ? fallback : source;
+}
+
 export type PauseInput = {
   animation: boolean;
   /** 宿主下发的窗口可见性（关闭/隐藏时为 false）。 */

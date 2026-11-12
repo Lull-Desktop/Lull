@@ -1,5 +1,5 @@
 /**
- * 壁纸素材库窗口：只剩媒体素材管理，不再有页签导航。
+ * 壁纸管理窗口：只剩媒体素材管理，不再有页签导航。
  *
  * 壁纸层本身的交互测试在 src/app/(control)/setting/wallpaper-tab.test.tsx。
  */
@@ -42,7 +42,7 @@ const VIDEO_ASSET: MediaAsset = {
 test("窗口只有素材管理，不再有页签导航", () => {
   render(<WallpaperLibraryWindow />);
 
-  expect(screen.getByRole("heading", { name: "壁纸素材库" })).toBeDefined();
+  expect(screen.getByRole("heading", { name: "壁纸管理" })).toBeDefined();
   expect(
     screen.getByText("导入、预览与管理壁纸使用的图片和视频素材。"),
   ).toBeDefined();

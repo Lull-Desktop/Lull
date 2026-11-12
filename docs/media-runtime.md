@@ -93,14 +93,14 @@ MediaSurface (src/scenes/media-surface.tsx)
 旧库没有 `kind` 时按 `path` 扩展名补算，不提升 `MEDIA_STORE_VERSION`，避免整库回退空库。
 
 `name` 是**显示名**：重命名只改这个字段，不动磁盘文件名、不动 `path`、不影响
-`available` 判定。`assets` 数组顺序就是登记顺序，壁纸素材库窗口的排序是前端视图排序，
+`available` 判定。`assets` 数组顺序就是登记顺序，壁纸管理窗口的排序是前端视图排序，
 不写回索引。清理失效素材只移除登记，**不会删除任何文件**。
 
 ### 2.3 安全边界
 
 | 入口 | 规则 |
 | --- | --- |
-| `media_asset_pick` / `media_asset_pick_many` / `media_asset_remove` / `media_asset_rename` / `media_asset_prune` / `media_config_set` / `media_activate` | 只允许 `settings` 与 `backdrop`（壁纸素材库）窗口 |
+| `media_asset_pick` / `media_asset_pick_many` / `media_asset_remove` / `media_asset_rename` / `media_asset_prune` / `media_config_set` / `media_activate` | 只允许 `settings` 与 `backdrop`（壁纸管理）窗口 |
 | `media_asset_url` / `media_config_get` | 只允许 `settings` 与 `backdrop`；`backdrop` 读配置不需要 token |
 | `media_open` / `media_attach` / `media_detach` / `media_degrade` | 壁纸窗口必须带顶层帧 token，且 `origin` 在白名单；`backdrop` 不在放行之列 |
 | 外部脚本 iframe | 运行在 opaque-origin sandbox；拿不到父页面 token；不新增媒体 ACL |
@@ -370,9 +370,9 @@ media: native stream stats stream=... abi=1 state=2 textures=0 created=4 transie
 media: native stream stalled stream=... session=media-... label=wallpaper-0 reason=stopped state=2 presented=9022 dropped=1
 ```
 
-### 4.9 壁纸素材库窗口的素材管理
+### 4.9 壁纸管理窗口的素材管理
 
-**这是什么**：壁纸素材库窗口（`backdrop`）只负责媒体素材的导入、预览与管理，不做裁剪、
+**这是什么**：壁纸管理窗口（`backdrop`）只负责媒体素材的导入、预览与管理，不做裁剪、
 滤镜或导出，也不生成缩略图或派生文件。壁纸本身的设置（显示模式、场景、每屏配置与媒体
 参数）在设置窗的「壁纸」页签，两者共用同一份素材索引与 `media-changed` 广播。
 

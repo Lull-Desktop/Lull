@@ -240,7 +240,7 @@ test("壁纸页签承载壁纸层设置，素材库窗口开关在面板下方",
   expect(within(pane).getByTestId("wallpaper-panel")).toBeDefined();
   expect(within(pane).getByRole("switch", { name: "显示壁纸" })).toBeDefined();
   expect(
-    within(pane).getByRole("button", { name: "壁纸素材库窗口" }),
+    within(pane).getByRole("button", { name: "壁纸管理窗口" }),
   ).toBeDefined();
   // 占位文案不再出现在壁纸页签。
   expect(within(pane).queryByText("功能开发中，后续版本补充。")).toBeNull();

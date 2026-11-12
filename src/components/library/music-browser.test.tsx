@@ -1,7 +1,7 @@
 /**
  * 设置页曲库浏览（MusicBrowser）测试：分类切换、按需加载、精简行与滚动容器。
  *
- * 六个分类原先在音乐库窗口的页签里，迁到设置页后由这个组件统一渲染；
+ * 六个分类原先在音乐管理窗口的页签里，迁到设置页后由这个组件统一渲染；
  * 分类是受控的，所以用一个最小外壳模拟设置页持有状态的写法。
  */
 import type {
@@ -255,7 +255,7 @@ test("精简行只保留喜欢 / 播放 / 加入队列", async () => {
   expect(screen.getByRole("button", { name: "播放" })).toBeDefined();
   expect(screen.getByRole("button", { name: "喜欢" })).toBeDefined();
   expect(screen.getByRole("button", { name: "加入队列" })).toBeDefined();
-  // 编辑元数据与「加入歌单」下拉只在音乐库窗口提供。
+  // 编辑元数据与「加入歌单」下拉只在音乐管理窗口提供。
   expect(screen.queryByTitle("编辑元数据与标签")).toBeNull();
   expect(screen.queryByLabelText("加入歌单")).toBeNull();
 });

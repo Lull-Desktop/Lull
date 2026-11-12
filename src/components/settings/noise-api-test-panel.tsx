@@ -217,7 +217,7 @@ export function NoiseApiTestPanel({
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
               <Wind className="h-5 w-5 text-bamboo" aria-hidden="true" />
-              音境工坊 API 调试
+              音境 API 调试
             </CardTitle>
             <CardDescription>
               驱动 N2 Session/Track 与旧 5 层兼容 API，并检查

@@ -50,7 +50,7 @@ describe("generated window capabilities", () => {
     expect(library.permissions).toContain("allow-media-call");
   });
 
-  test("壁纸素材库窗口只拿素材命令，白噪音库窗口拿媒体权限", () => {
+  test("壁纸管理窗口只拿素材命令，音境管理窗口拿媒体权限", () => {
     const backdrop = readCapability("backdrop");
     expect(backdrop.permissions).toContain("allow-window-set-frame");
     expect(backdrop.permissions).toContain("allow-media-assets");

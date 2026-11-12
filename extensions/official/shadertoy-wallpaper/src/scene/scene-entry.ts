@@ -12,7 +12,8 @@ import { createRenderLoop, type RenderLoop } from "../runtime/render-loop";
 import { createShaderRenderer } from "../runtime/renderer";
 import { createWebglContext } from "../runtime/webgl-context";
 import { createStatusOverlay, type StatusOverlay } from "../ui/status-overlay";
-import { readRuntimeParams, shouldPause } from "./lifecycle";
+import { DEFAULT_SHADER_NAME, DEFAULT_SHADER_SOURCE } from "./default-source";
+import { readRuntimeParams, resolveSource, shouldPause } from "./lifecycle";
 import { createMouseTracker } from "./pointer";
 import { createShaderClock } from "./time";
 import {
@@ -151,6 +152,9 @@ export function mountShaderScene(
   const clock = createShaderClock();
   const guard = createPerformanceGuard();
 
+  /** 上一次处理的宿主源码原文（`null` = 还没有收到过参数帧）。 */
+  let paramSource: string | null = null;
+  /** 当前已编译（或正在编译）的源码；空串表示还没有尝试过任何源码。 */
   let source = "";
   let renderScale = 1;
   let animation = true;
@@ -263,23 +267,20 @@ export function mountShaderScene(
   };
   onFrameHandler = onFrame;
 
+  /**
+   * 编译并启用一份源码。`nextSource` 是宿主下发的原文：空串（从未填写或点了
+   * 「恢复默认」）时改跑内置示例，否则用用户源码。
+   */
   const compile = (nextSource: string): void => {
-    source = nextSource;
-    if (nextSource.trim() === "") {
-      renderer.unload();
-      passCount = 1;
-      multipassScale = 1;
-      stopped = false;
-      guard.reset();
-      overlay.set({ kind: "empty" });
-      syncLoop();
-      return;
-    }
+    const resolved = resolveSource(nextSource, DEFAULT_SHADER_SOURCE);
+    if (resolved === source && renderer.hasProgram()) return;
+    const usingDefault = resolved !== nextSource;
+    source = resolved;
 
     const hadProgram = renderer.hasProgram();
     if (!hadProgram) overlay.set({ kind: "compiling" });
 
-    const result = renderer.load(nextSource);
+    const result = renderer.load(resolved);
     if (!result.ok) {
       // 关键：失败时不替换旧 Program，旧画面继续跑（RFC §8.3）。
       overlay.set({
@@ -293,6 +294,9 @@ export function mountShaderScene(
     }
 
     for (const warning of result.warnings) report("warn", warning);
+    if (usingDefault) {
+      report("log", `未填写源码，运行内置示例着色器「${DEFAULT_SHADER_NAME}」`);
+    }
     if (result.passes.length > 1) {
       report("log", `多 Pass 管线：${result.passes.join(" → ")}`);
     }
@@ -372,12 +376,13 @@ export function mountShaderScene(
       updatePipelineScale();
       applyDrawSize();
 
-      if (params.source !== source) {
+      if (params.source !== paramSource) {
+        paramSource = params.source;
         compile(params.source);
         return;
       }
-      if (!renderer.hasProgram() && params.source.trim() !== "") {
-        // 首次帧或 context 恢复前下发：补一次加载。
+      if (!renderer.hasProgram() && source === "") {
+        // 首次帧或 context 恢复前下发：补一次加载（空源码时就是内置示例）。
         compile(params.source);
         return;
       }

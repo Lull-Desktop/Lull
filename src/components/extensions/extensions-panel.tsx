@@ -13,7 +13,6 @@ import {
   Plus,
   RefreshCw,
   ShieldCheck,
-  Square,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -63,7 +62,6 @@ import {
   setDevMode as setDeveloperMode,
   setExtensionCapability,
   setExtensionEnabled,
-  stopExtension,
   toExtensionFailure,
 } from "@/lib/extensions";
 import { m } from "@/paraglide/messages";
@@ -133,6 +131,7 @@ function slotForItem(
 }
 
 type Props = {
+  /** Scene 的「素材管理」：交给宿主切到设置窗的壁纸页签。 */
   onOpenWallpaperSettings: () => void;
 };
 
@@ -397,6 +396,24 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
     [refresh, refreshSlots],
   );
 
+  // 工具条目的「打开 / 关闭」共用同一个按钮：开 = 显示窗口，关 = 隐藏（隐藏还是销毁看 lifecycle）。
+  const toggleWidgetOpen = useCallback(
+    (item: ExtensionInfo, on: boolean): void => {
+      if (on) {
+        runAction(
+          () => openExtension("widget", item.id),
+          m.ext_toast_opened({ name: item.name }),
+        );
+        return;
+      }
+      runAction(
+        () => closeExtension(item.id),
+        m.ext_toast_closed({ name: item.name }),
+      );
+    },
+    [runAction],
+  );
+
   const confirmEnable = useCallback((): void => {
     if (!enableTarget) return;
     const target = enableTarget;
@@ -640,6 +657,8 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 providerSlot?.providers.find(
                   (provider) => provider.id === item.id,
                 )?.eligible ?? false;
+              // 工具窗口当前是否显示：单个按钮据此切换「打开 / 关闭」两种文案与样式。
+              const widgetOpen = item.running === true && item.visible === true;
               // 说明、作者与许可合并成一行，列表更紧凑；完整内容仍放在 title 里。
               const summary = [
                 item.description,
@@ -758,73 +777,32 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                                 {m.slot_action_use()}
                               </Button>
                             ) : (
-                              <>
-                                {item.running && item.visible ? (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    disabled={busy}
-                                    aria-label={m.ext_aria_action({
-                                      action: m.ext_action_close(),
-                                      name: item.name,
-                                    })}
-                                    onClick={() =>
-                                      runAction(
-                                        () => closeExtension(item.id),
-                                        m.ext_toast_closed({ name: item.name }),
-                                      )
-                                    }
-                                  >
-                                    {m.ext_action_close()}
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    disabled={
-                                      busy ||
-                                      !item.enabled ||
-                                      (providerSlot !== undefined &&
-                                        !providerEligible)
-                                    }
-                                    aria-label={m.ext_aria_action({
-                                      action: m.ext_action_open(),
-                                      name: item.name,
-                                    })}
-                                    onClick={() =>
-                                      runAction(
-                                        () => openExtension("widget", item.id),
-                                        m.ext_toast_opened({ name: item.name }),
-                                      )
-                                    }
-                                  >
-                                    {m.ext_action_open()}
-                                  </Button>
-                                )}
-                                {item.running && (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="ghost"
-                                    disabled={busy}
-                                    aria-label={m.ext_aria_action({
-                                      action: m.ext_action_stop(),
-                                      name: item.name,
-                                    })}
-                                    onClick={() =>
-                                      runAction(
-                                        () => stopExtension(item.id),
-                                        m.ext_toast_stopped({
-                                          name: item.name,
-                                        }),
-                                      )
-                                    }
-                                  >
-                                    <Square className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
-                              </>
+                              // 打开 / 关闭共用一个按钮：文案、样式与 aria 跟着窗口状态切换。
+                              // 行内不再有图标式的「结束」按钮，结束运行资格统一走右侧「停用」。
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant={widgetOpen ? "outline" : "default"}
+                                disabled={
+                                  busy ||
+                                  !item.enabled ||
+                                  (providerSlot !== undefined &&
+                                    !providerEligible)
+                                }
+                                aria-label={m.ext_aria_action({
+                                  action: widgetOpen
+                                    ? m.ext_action_close()
+                                    : m.ext_action_open(),
+                                  name: item.name,
+                                })}
+                                onClick={() =>
+                                  toggleWidgetOpen(item, !widgetOpen)
+                                }
+                              >
+                                {widgetOpen
+                                  ? m.ext_action_close()
+                                  : m.ext_action_open()}
+                              </Button>
                             )}
                             <Button
                               type="button"

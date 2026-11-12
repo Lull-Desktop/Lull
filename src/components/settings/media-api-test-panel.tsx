@@ -1,6 +1,6 @@
 /**
  * 开发调试面板：直接驱动 @lull/media-sdk 的 P3 API，并把结果与 media:event
- * 原样展示出来，方便在音乐库窗口内手工验收歌单/收藏/历史/队列/M3U。
+ * 原样展示出来，方便在音乐管理窗口内手工验收歌单/收藏/历史/队列/M3U。
  *
  * 这不是面向用户的正式 UI；媒体连接由外层资料库窗口统一建立，这里只订阅事件。
  */
@@ -285,7 +285,7 @@ export function MediaApiTestPanel({
           <CardTitle>媒体 API 测试面板</CardTitle>
           <CardDescription>
             开发调试用：直接调用 @lull/media-sdk，下方日志显示 API 结果与
-            media:event。媒体连接由音乐库窗口统一维护，这里不会重复连接。
+            media:event。媒体连接由音乐管理窗口统一维护，这里不会重复连接。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-2">

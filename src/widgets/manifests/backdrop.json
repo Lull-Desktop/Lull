@@ -3,7 +3,7 @@
   "type": "widget",
   "role": "tool",
   "id": "backdrop",
-  "name": "壁纸素材库",
+  "name": "壁纸管理",
   "version": "1.0.0",
   "description": "导入、预览与管理壁纸使用的图片和视频素材。",
   "author": "Lull",
@@ -19,7 +19,7 @@
   "window": {
     "label": "backdrop",
     "route": "backdrop",
-    "title": "Lull 壁纸素材库",
+    "title": "Lull 壁纸管理",
     "width": 1080,
     "height": 760,
     "minWidth": 900,

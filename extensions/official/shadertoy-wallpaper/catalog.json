@@ -6,8 +6,8 @@
       "type": "scene",
       "id": "lull.shadertoy-wallpaper",
       "name": "着色器 / Shadertoy",
-      "version": "1.2.0",
-      "description": "把用户自己提供的 GLSL 源码（Shadertoy Image 风格 mainImage 或自定义 main() 的 fragment；支持单 Pass 或 Common + Volume A-D + Buffer A-D + Image A-D + Image 多 Pass；WebGL2 优先，支持 GLSL ES 1.00/3.00，Volume 3D 纹理需 WebGL2）作为动态壁纸运行；源码在壁纸设置的参数面板里粘贴，或从 .glsl/.frag 文本文件载入；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。Run user-provided single-pass or multipass GLSL as a wallpaper; WebGL2 is preferred and GLSL ES 1.00/3.00 are supported (3D volume passes need WebGL2); external inputs are emulated with placeholder textures.",
+      "version": "1.3.0",
+      "description": "把用户自己提供的 GLSL 源码（Shadertoy Image 风格 mainImage 或自定义 main() 的 fragment；支持单 Pass 或 Common + Volume A-D + Buffer A-D + Image A-D + Image 多 Pass；WebGL2 优先，支持 GLSL ES 1.00/3.00，Volume 3D 纹理需 WebGL2）作为动态壁纸运行；源码在壁纸设置的参数面板里粘贴，或从 .glsl/.frag 文本文件载入；未填写源码时运行内置示例（The Drive Home）；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。Run user-provided single-pass or multipass GLSL as a wallpaper; a built-in demo shader runs when no source is provided; WebGL2 is preferred and GLSL ES 1.00/3.00 are supported (3D volume passes need WebGL2); external inputs are emulated with placeholder textures.",
       "author": "Lull",
       "license": "GPL-3.0-or-later",
       "capabilities": [
@@ -28,7 +28,7 @@
           "key": "source",
           "type": "text",
           "label": "着色器源码 / Shader source",
-          "description": "粘贴 GLSL 源码，或从本地 .glsl/.frag 文本文件载入。上限 128 KiB；支持 Shadertoy Image 风格的 mainImage、Volume 的 mainVolume（3D 纹理，需 WebGL2）或自定义 main()，以及 GLSL ES 3.00（#version 300 es / texelFetch 等，需 WebGL2）；多 Pass 时每段前加 //==== Buffer A ====（Common / Volume A-D / Image A-D / Image 同理，顺序任意）；最终显示 Pass 为 Image，缺少 Image 时用最后一个 Image A-D；通道接线写在 //==== Bindings ==== 分节（如 BufferA.iChannel0 = VolumeA、VolumeA.size = 128）；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。",
+          "description": "粘贴 GLSL 源码，或从本地 .glsl/.frag 文本文件载入。留空时运行内置示例（The Drive Home）；上限 128 KiB；支持 Shadertoy Image 风格的 mainImage、Volume 的 mainVolume（3D 纹理，需 WebGL2）或自定义 main()，以及 GLSL ES 3.00（#version 300 es / texelFetch 等，需 WebGL2）；多 Pass 时每段前加 //==== Buffer A ====（Common / Volume A-D / Image A-D / Image 同理，顺序任意）；最终显示 Pass 为 Image，缺少 Image 时用最后一个 Image A-D；通道接线写在 //==== Bindings ==== 分节（如 BufferA.iChannel0 = VolumeA、VolumeA.size = 128）；iChannel 等外部输入使用内置占位纹理（iChannel0 噪声、其余黑色）。",
           "default": ""
         },
         {

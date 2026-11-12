@@ -3,7 +3,7 @@
  * 关于七个页签。壁纸页签承载壁纸层的全部设置（显示模式、场景、每屏配置），音乐
  * 页签除音乐播放器槽位与音乐库开关外，还承载曲库浏览的六个二级分类（全部歌曲 /
  * 我的收藏 / 队列 / 歌单 / 最近添加 / 最近播放）；白噪音页签承载预设下拉（选择并
- * 应用）与当前混音的音轨调节。三个库窗口的开关也各在自己的页签里（壁纸素材库
+ * 应用）与当前混音的音轨调节。三个库窗口的开关也各在自己的页签里（壁纸管理
  * 窗口只做媒体素材管理，白噪音库窗口做素材与预设的导入导出）。
  *
  * 媒体订阅由本页独占：音乐页与白噪音页共用一次 `media_connect`（topic 取并集），
@@ -503,14 +503,6 @@ export default function Settings() {
     [refreshWidgets],
   );
 
-  // 扩展页的「素材管理」直接打开壁纸素材库窗口；失败提示统一走 widgetMsg。
-  const openToolWindow = useCallback((kind: string): void => {
-    setWidgetMsg("");
-    void invoke("widget_open", { kind }).catch((error: unknown) => {
-      setWidgetMsg(m.settings_action_failed({ reason: localizeError(error) }));
-    });
-  }, []);
-
   // SlotPanel 的变更同时刷新扩展列表与槽位：扩展页的 Provider 徽章要跟着更新。
   const refreshSlotViews = useCallback(async (): Promise<void> => {
     await Promise.all([refreshExtensions(), refreshSlots()]);
@@ -533,6 +525,12 @@ export default function Settings() {
     if (value === "music" || value === "noise") setMediaEnabled(true);
     setTab(value);
   }, []);
+
+  // 扩展页 Scene 的「素材管理」切到壁纸页签，不再另开壁纸管理窗口。
+  const openWallpaperTab = useCallback((): void => {
+    setWidgetMsg("");
+    selectTab("wallpaper");
+  }, [selectTab]);
 
   /** 外部指定页签："music" 只切页签，"music:queue" 再定位到对应分类。 */
   const applyOpenTab = useCallback(
@@ -1139,9 +1137,7 @@ export default function Settings() {
               className="absolute inset-0"
               data-testid="settings-extensions-pane"
             >
-              <ExtensionsPanel
-                onOpenWallpaperSettings={() => openToolWindow("backdrop")}
-              />
+              <ExtensionsPanel onOpenWallpaperSettings={openWallpaperTab} />
             </main>
           )}
         </div>

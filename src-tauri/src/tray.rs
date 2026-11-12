@@ -68,7 +68,7 @@ fn window_label(spec: &WidgetSpec) -> String {
 }
 
 /// 归入「设置」子菜单的窗口入口：除设置窗自身以外的全部内置窗口
-/// （壁纸素材库 / 音乐库 / 白噪音库……，以后新增的工具窗同理）。
+/// （壁纸管理 / 音乐管理 / 音境管理……，以后新增的工具窗同理）。
 ///
 /// 顺序沿用清单的 `order`（`ALL_WIDGETS` 已由 build.rs 排好序）。
 fn window_entries() -> impl Iterator<Item = &'static WidgetSpec> {
@@ -147,10 +147,12 @@ fn controller_item_id(game_id: &str, controller_id: &str) -> String {
 /// 在「设置」子菜单里挂一个统一的「游戏控制器」子菜单：
 /// 列出全部运行中游戏的控制器，壁纸激活的游戏排在前；单游戏时直接列控制器，
 /// 多游戏时先按游戏分组。没有可打开的控制器时省略。
-fn append_controller_menu(app: &AppHandle, menu: &Submenu<Wry>) -> tauri::Result<()> {
+///
+/// 返回是否真的挂上了内容：调用方据此决定要不要再补分隔线。
+fn append_controller_menu(app: &AppHandle, menu: &Submenu<Wry>) -> tauri::Result<bool> {
   let controllers = tray_controllers(app);
   if controllers.is_empty() {
-    return Ok(());
+    return Ok(false);
   }
   menu.append(&PredefinedMenuItem::separator(app)?)?;
   let root = Submenu::with_id(
@@ -176,7 +178,7 @@ fn append_controller_menu(app: &AppHandle, menu: &Submenu<Wry>) -> tauri::Result
       )?)?;
     }
     menu.append(&root)?;
-    return Ok(());
+    return Ok(true);
   }
   // 多游戏（逐屏不同游戏 / 多个运行实例）时按游戏分组，菜单里仍只出现运行中的游戏。
   for game_id in games {
@@ -198,19 +200,18 @@ fn append_controller_menu(app: &AppHandle, menu: &Submenu<Wry>) -> tauri::Result
     root.append(&submenu)?;
   }
   menu.append(&root)?;
-  Ok(())
+  Ok(true)
 }
 
-/// 构建「设置」子菜单：显示/隐藏设置 + 分隔线 + 各窗口入口。
+/// 构建「设置」子菜单：游戏控制器（运行中才有）+ 分隔线 + 各窗口入口。
 ///
-/// 窗口入口不再平铺在一级菜单里，托盘右键的层级保持为
-/// 「设置 ▸ 壁纸素材库 / 音乐库 / 白噪音库」。
-fn build_settings_menu(app: &AppHandle, toggle: &MenuItem<Wry>) -> tauri::Result<Submenu<Wry>> {
+/// 「显示/隐藏设置」已经提到一级菜单第一位（见 `build_menu`），子菜单里只剩
+/// 「打开某个窗口」这一类动作，层级保持为「设置 ▸ 壁纸管理 / 音乐管理 / 音境管理」。
+fn build_settings_menu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
   let menu = Submenu::with_id(app, "settings", crate::i18n::t("tray_settings"), true)?;
-  menu.append(toggle)?;
 
   // 控制器入口列出全部运行中游戏，壁纸激活的排前；放在窗口入口前更显眼。
-  append_controller_menu(app, &menu)?;
+  let has_controllers = append_controller_menu(app, &menu)?;
 
   let windows = window_entries()
     .map(|spec| {
@@ -224,8 +225,10 @@ fn build_settings_menu(app: &AppHandle, toggle: &MenuItem<Wry>) -> tauri::Result
     })
     .collect::<tauri::Result<Vec<_>>>()?;
   if !windows.is_empty() {
-    // 分隔线把「控制器 / 显隐设置」与「打开各窗口」分成两组，避免误点。
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    // 只有在前面已有控制器时才补分隔线，避免菜单以一条线开头。
+    if has_controllers {
+      menu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
     for item in &windows {
       menu.append(item)?;
     }
@@ -245,7 +248,7 @@ struct TrayExtension {
 /// 托盘「扩展」子菜单的入选规则：只收组件（第三方工具）。
 ///
 /// - 工具（widget）：第三方、非 Provider；停用的仍显示但菜单项置灰。
-/// - 壁纸（scene）：不再进入该子菜单；素材管理仍走「设置 ▸ 壁纸素材库」。
+/// - 壁纸（scene）：不再进入该子菜单；素材管理仍走「设置 ▸ 壁纸管理」。
 /// - 游戏：由游戏页 / 「设置 ▸ 游戏控制器」管理，不进入扩展菜单。
 ///
 /// 这条规则只作用于托盘，和设置页的分类筛选互不共享状态。
@@ -300,9 +303,9 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
   )?;
   let quit = MenuItem::with_id(app, "quit", crate::i18n::t("tray_quit"), true, None::<&str>)?;
 
-  // 一级菜单只剩「设置」子菜单 + 功能槽位 + 扩展 + 退出；
-  // 窗口入口收进子菜单，事件 id 仍是 `open-<kind>`，处理器不用改。
-  let settings_menu = build_settings_menu(app, &toggle)?;
+  // 一级菜单：显示/隐藏设置 → 功能槽位 → 扩展 → 设置（子菜单）→ 退出；
+  // 窗口入口收进「设置」子菜单，事件 id 仍是 `open-<kind>`，处理器不用改。
+  let settings_menu = build_settings_menu(app)?;
 
   // 功能槽位与「设置」子菜单同级：每个 Slot 只出现一次，避免 10 个播放器塞满托盘。
   let mut tool_items: Vec<MenuItem<Wry>> = Vec::new();
@@ -369,14 +372,26 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     Some(menu)
   };
 
-  // 一级菜单：设置（子菜单）→ 功能槽位 / 官方扩展 → 扩展（子菜单）→ 退出。
-  let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&settings_menu];
+  // 一级菜单：显示/隐藏设置（第一位）→ 功能槽位 / 官方扩展 → 扩展（子菜单）→
+  // 设置（子菜单）→ 退出。显隐是高频动作，直接放在一级菜单最上方。
+  let has_middle = !tool_items.is_empty() || submenu.is_some();
+  // 分隔线把「显示/隐藏」与「打开某物」两组动作分开；没有中间项时不画。
+  let divider = if has_middle {
+    Some(PredefinedMenuItem::separator(app)?)
+  } else {
+    None
+  };
+  let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![&toggle];
+  if let Some(line) = &divider {
+    items.push(line);
+  }
   for item in &tool_items {
     items.push(item);
   }
   if let Some(menu) = &submenu {
     items.push(menu);
   }
+  items.push(&settings_menu);
   items.push(&quit);
   Menu::with_items(app, &items)
 }

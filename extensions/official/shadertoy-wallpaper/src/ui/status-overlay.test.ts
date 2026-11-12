@@ -21,7 +21,7 @@ describe("createStatusOverlay", () => {
     expect(root.hidden).toBe(true);
     overlay.set({ kind: "empty" });
     expect(root.hidden).toBe(false);
-    expect(root.textContent).toContain("未加载着色器");
+    expect(root.textContent).toContain("内置示例");
     overlay.set({ kind: "hidden" });
     expect(root.hidden).toBe(true);
   });

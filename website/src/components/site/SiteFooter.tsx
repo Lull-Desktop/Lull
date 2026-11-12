@@ -44,7 +44,7 @@ export default function SiteFooter() {
             <div className="inline-flex items-baseline gap-2.5 text-mist">
               <span className="font-serif text-[0.9rem] uppercase tracking-[0.42em] text-mist">{siteMeta.name}</span>
             </div>
-            <p className="mt-3 max-w-[30ch] text-small">开源的助眠与专注桌面应用。壁纸、音境工坊与计时都在本地运行。</p>
+            <p className="mt-3 max-w-[30ch] text-small">开源的助眠与专注桌面应用。壁纸、音境与计时都在本地运行。</p>
             <p className="m-0 text-small">应用 GPL-3.0-or-later · SDK Apache-2.0 · 内容与文档 CC BY 4.0</p>
           </div>
 

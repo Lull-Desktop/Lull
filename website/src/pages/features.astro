@@ -23,7 +23,7 @@ const modes = [
 ];
 
 const workbench = [
-  { title: "音境工坊", body: "雨、雷、风、海浪、篝火各有自己的推子与开关，主音量与静音是总闸，助眠定时到点淡出。" },
+  { title: "音境", body: "雨、雷、风、海浪、篝火各有自己的推子与开关，主音量与静音是总闸，助眠定时到点淡出。" },
   { title: "专注时钟", body: "以液态沙漏流转呈现剩余时间，专注、短休、长休三段节律自然衔接，偏好设置本地留存。" },
   { title: "气泡音乐", body: "播放器是一只液态气泡，在线氛围声与本地曲目共用播放控制，浮在桌面上但不抢焦点。" },
 ];
@@ -49,7 +49,7 @@ const capabilities = [
 
 <BaseLayout
   title="功能"
-  description="Lull 的功能细节：动态壁纸三种模式、音境工坊混音、番茄钟、播放器、托盘常驻，以及场景包与 Widget 插件的分层扩展体系。"
+  description="Lull 的功能细节：动态壁纸三种模式、音境混音、番茄钟、播放器、托盘常驻，以及场景包与 Widget 插件的分层扩展体系。"
 >
   <section class={section}>
     <div class={container}>
@@ -93,7 +93,7 @@ const capabilities = [
     <div class={container}>
       <div class="mb-[clamp(32px,4vw,52px)] max-w-[60ch]">
         <p class="mb-[18px] text-eyebrow font-medium uppercase tracking-[0.32em] text-green">Ambient Sound</p>
-        <h2 class="mb-2.5 text-h2 leading-[1.25] text-mist">音境工坊工作台</h2>
+        <h2 class="mb-2.5 text-h2 leading-[1.25] text-mist">音境工作台</h2>
       </div>
       <FeatureCards items={workbench} client:visible />
     </div>

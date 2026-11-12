@@ -234,6 +234,67 @@ test("扩展条目用紧凑两行合并说明、作者与许可", async () => {
   expect(summary.className).toContain("truncate");
 });
 
+test("工具类型的打开与关闭共用一个按钮，打开后按钮变成关闭", async () => {
+  const running: ExtensionInfo = {
+    ...widget,
+    enabled: true,
+    running: true,
+    visible: true,
+  };
+  mockCommands({
+    extensions_list: () => [running],
+    extensions_close: () => undefined,
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  // 窗口打开时按钮显示「关闭」，同一行没有第二个打开/关闭控件。
+  const toggle = await screen.findByRole("button", { name: "关闭：番茄钟" });
+  expect(toggle.textContent).toBe("关闭");
+  expect(screen.queryByRole("button", { name: "打开：番茄钟" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "结束：番茄钟" })).toBeNull();
+
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_close", {
+      id: "community-pomodoro",
+    });
+  });
+});
+
+test("工具未打开时同一个按钮显示打开并发起打开", async () => {
+  mockCommands({
+    extensions_list: () => [{ ...widget, enabled: true }],
+    extensions_open: () => undefined,
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  const toggle = await screen.findByRole("button", { name: "打开：番茄钟" });
+  expect(toggle.textContent).toBe("打开");
+
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("extensions_open", {
+      kind: "widget",
+      id: "community-pomodoro",
+    });
+  });
+});
+
+test("窗口关闭（后台运行）时按钮回到打开且不再多出图标按钮", async () => {
+  mockCommands({
+    extensions_list: () => [
+      { ...widget, enabled: true, running: true, visible: false },
+    ],
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+
+  const toggle = await screen.findByRole("button", { name: "打开：番茄钟" });
+  expect(toggle.textContent).toBe("打开");
+  expect(screen.getByText("后台运行")).toBeDefined();
+  // 关闭后只剩一个切换按钮与通用按钮，不再有孤立的「结束」方块按钮。
+  expect(screen.queryByRole("button", { name: "结束：番茄钟" })).toBeNull();
+});
+
 test("签名策略并入扩展卡片并可切换", async () => {
   mockCommands({
     content_trust_policy_get: () => ({ requireSignature: false }),
@@ -371,7 +432,7 @@ test("dev mode toggles through the dedicated command", async () => {
   });
 });
 
-test("scene action hands off to the asset library", async () => {
+test("scene action hands off to the wallpaper settings tab", async () => {
   const onOpenWallpaperSettings = vi.fn();
   mockCommands();
   render(<ExtensionsPanel onOpenWallpaperSettings={onOpenWallpaperSettings} />);

@@ -3,7 +3,7 @@
  *
  * 三个库窗口的开关分别落在壁纸 / 音乐 / 白噪音页签；音乐播放器与白噪音两个
  * 功能槽位也在这两个页签里。壁纸页签内部的交互测试在
- * app/(control)/setting/wallpaper-tab.test.tsx，壁纸素材库窗口本身在
+ * app/(control)/setting/wallpaper-tab.test.tsx，壁纸管理窗口本身在
  * components/library/wallpaper-library-window.test.tsx。
  */
 import { invoke } from "@tauri-apps/api/core";
@@ -61,8 +61,8 @@ const MUSIC_SLOT: SlotInfo = {
 /** 白噪音页签固定用的白噪音 Slot。 */
 const NOISE_SLOT: SlotInfo = {
   id: "noise-controller",
-  name: "音境工坊",
-  description: "选择音境工坊界面",
+  name: "音境",
+  description: "选择音境界面",
   category: "audio",
   status: "stopped",
   selected: "noise",
@@ -70,7 +70,7 @@ const NOISE_SLOT: SlotInfo = {
   providers: [
     {
       id: "noise",
-      name: "音境工坊",
+      name: "音境",
       version: "1.1.0",
       origin: "bundled",
       enabled: true,
@@ -117,7 +117,7 @@ test("设置页签按 偏好 / 壁纸 / 音乐 / 白噪音 / 环境游戏 / 扩�
     "偏好",
     "壁纸",
     "音乐",
-    "音境工坊",
+    "音境",
     "环境游戏",
     "扩展",
     "关于",
@@ -141,10 +141,10 @@ test("音乐页承载曲库分类，白噪音页承载会话控制、预设与�
   ).toBeDefined();
   expect(within(music).getByRole("heading", { name: "音乐" })).toBeDefined();
   // 卡片里只有该库窗口那一行开关。
-  expect(
-    within(music).getAllByRole("button", { name: /库窗口$/ }),
-  ).toHaveLength(1);
-  // 音乐库窗口的六个页签在这里变成二级分类标签。
+  expect(within(music).getAllByRole("button", { name: /窗口$/ })).toHaveLength(
+    1,
+  );
+  // 音乐管理窗口的六个页签在这里变成二级分类标签。
   for (const label of [
     "全部歌曲",
     "我的收藏",
@@ -160,12 +160,12 @@ test("音乐页承载曲库分类，白噪音页承载会话控制、预设与�
     "overflow-y-auto",
   );
 
-  fireEvent.click(screen.getByRole("tab", { name: "音境工坊" }));
+  fireEvent.click(screen.getByRole("tab", { name: "音境" }));
 
   const noise = screen.getByTestId("settings-noise-pane");
   expect(
     within(noise).getByText(
-      "调节主音量、静音与睡眠定时，选择预设并应用到当前混音；素材导入与预设管理在音境工坊库中完成。",
+      "调节主音量、静音与睡眠定时，选择预设并应用到当前混音；素材导入与预设管理在音境管理中完成。",
     ),
   ).toBeDefined();
   expect(within(noise).queryByText("功能开发中，后续版本补充。")).toBeNull();
@@ -182,7 +182,7 @@ test("音乐页承载曲库分类，白噪音页承载会话控制、预设与�
     within(sessionControls).getByRole("combobox", { name: "睡眠定时（分钟）" }),
   ).toBeDefined();
   const noisePreset = within(noise).getByRole("combobox", {
-    name: "音境工坊预设",
+    name: "音境预设",
   });
   // 主音量 / 静音 / 睡眠定时整体位于「白噪音预设」之上。
   expect(
@@ -191,9 +191,9 @@ test("音乐页承载曲库分类，白噪音页承载会话控制、预设与�
   ).toBeTruthy();
   expect(within(noise).getByRole("button", { name: "应用" })).toBeDefined();
   expect(within(noise).getByTestId("noise-session-tracks")).toBeDefined();
-  expect(
-    within(noise).getAllByRole("button", { name: /库窗口$/ }),
-  ).toHaveLength(1);
+  expect(within(noise).getAllByRole("button", { name: /窗口$/ })).toHaveLength(
+    1,
+  );
   expect(
     screen.getByTestId("settings-preferences-pane").getAttribute("aria-hidden"),
   ).toBe("true");
@@ -270,14 +270,14 @@ test("三个库窗口开关分别位于壁纸 / 音乐 / 白噪音页签，并�
   renderSettingsPage();
 
   // 库窗口入口已迁出偏好页：默认页签里三个按钮都不在。
-  for (const name of ["壁纸素材库窗口", "音乐库窗口", "音境工坊库窗口"]) {
+  for (const name of ["壁纸管理窗口", "音乐管理窗口", "音境管理窗口"]) {
     expect(screen.queryByRole("button", { name })).toBeNull();
   }
 
   const cases = [
     { label: "壁纸", testId: "settings-wallpaper-pane", kind: "backdrop" },
     { label: "音乐", testId: "settings-music-pane", kind: "library" },
-    { label: "音境工坊", testId: "settings-noise-pane", kind: "noise-library" },
+    { label: "音境", testId: "settings-noise-pane", kind: "noise-library" },
   ] as const;
 
   for (const item of cases) {
@@ -285,7 +285,7 @@ test("三个库窗口开关分别位于壁纸 / 音乐 / 白噪音页签，并�
 
     const pane = screen.getByTestId(item.testId);
     const toggles = within(pane).getAllByRole("button", {
-      name: /库窗口$/,
+      name: /窗口$/,
     });
     expect(toggles).toHaveLength(1);
 
@@ -327,7 +327,7 @@ test("库窗口已显示时按钮显示「关闭」，点击后关闭窗口", as
 
   const pane = screen.getByTestId("settings-wallpaper-pane");
   const toggle = within(pane).getByRole("button", {
-    name: "壁纸素材库窗口",
+    name: "壁纸管理窗口",
   }) as HTMLButtonElement;
 
   await waitFor(() => {
@@ -361,7 +361,7 @@ test("偏好页合并为一张卡片，功能槽位位于窗口分区内", () =>
   expect(
     within(windowSection).queryByTestId("settings-feature-slots"),
   ).toBeNull();
-  expect(within(card).queryByRole("button", { name: /库窗口$/ })).toBeNull();
+  expect(within(card).queryByRole("button", { name: /窗口$/ })).toBeNull();
   expect(within(card).queryByTestId("slot-panel")).toBeNull();
 });
 
@@ -399,7 +399,7 @@ test("音乐 / 白噪音页签各自只显示对应的功能槽位", async () =>
   ).toBeTruthy();
   expect(
     within(musicPane)
-      .getByRole("button", { name: "音乐库窗口" })
+      .getByRole("button", { name: "音乐管理窗口" })
       .compareDocumentPosition(screen.getByTestId("music-browser-categories")) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
@@ -412,11 +412,11 @@ test("音乐 / 白噪音页签各自只显示对应的功能槽位", async () =>
   });
 
   // 白噪音页签：只有白噪音槽位。
-  fireEvent.click(screen.getByRole("tab", { name: "音境工坊" }));
+  fireEvent.click(screen.getByRole("tab", { name: "音境" }));
 
   const noisePane = screen.getByTestId("settings-noise-pane");
   const noisePanel = await within(noisePane).findByTestId("slot-panel");
-  expect(within(noisePanel).getByText("音境工坊")).toBeDefined();
+  expect(within(noisePanel).getByText("音境")).toBeDefined();
   expect(within(noisePanel).queryByTestId("slot-music-player")).toBeNull();
 
   fireEvent.click(within(noisePanel).getByRole("button", { name: "打开" }));
@@ -479,7 +479,7 @@ test("扩展页合并为单卡片，并保留偏好卡片作为高度基准", as
   expect(extensionsPane.contains(card)).toBe(true);
 });
 
-test("扩展页的「素材管理」打开壁纸素材库窗口", async () => {
+test("扩展页的「素材管理」切到壁纸页签", async () => {
   mockInvoke({
     extensions_list: () => [
       {
@@ -500,11 +500,20 @@ test("扩展页的「素材管理」打开壁纸素材库窗口", async () => {
   renderSettingsPage();
 
   fireEvent.click(screen.getByRole("tab", { name: "扩展" }));
+  const callsBefore = vi.mocked(invoke).mock.calls.length;
   fireEvent.click(await screen.findByRole("button", { name: "素材管理" }));
 
+  // 只在设置窗内切页签，不再额外打开壁纸管理窗口。
+  const wallpaperTab = await screen.findByRole("tab", { name: "壁纸" });
   await waitFor(() => {
-    expect(invoke).toHaveBeenCalledWith("widget_open", { kind: "backdrop" });
+    expect(wallpaperTab.getAttribute("aria-selected")).toBe("true");
   });
+  expect(screen.getByTestId("settings-wallpaper-pane")).toBeDefined();
+  const clickedCommands = vi
+    .mocked(invoke)
+    .mock.calls.slice(callsBefore)
+    .map(([command]) => command);
+  expect(clickedCommands).not.toContain("widget_open");
 });
 
 test("主题流光卡片切换全局主题并立即写入存储", () => {

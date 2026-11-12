@@ -3,7 +3,7 @@
   "type": "widget",
   "role": "tool",
   "id": "library",
-  "name": "音乐库",
+  "name": "音乐管理",
   "version": "1.0.0",
   "description": "本地音乐库管理和编辑工具",
   "author": "Lull",
@@ -19,7 +19,7 @@
   "window": {
     "label": "library",
     "route": "library",
-    "title": "Lull 音乐库",
+    "title": "Lull 音乐管理",
     "width": 1080,
     "height": 760,
     "minWidth": 900,

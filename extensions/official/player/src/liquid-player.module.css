@@ -42,6 +42,25 @@
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   background: transparent;
+  /* 交互护栏（CSS 侧）：文字与元素不参与框选，右键菜单与原生拖拽由
+     `interaction-guard.ts` 在根节点上取消默认行为。user-select 会继承，
+     所以整棵子树一次性生效，不会外溢到其他窗口。 */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 封面既是 `<img>`（有真实封面时）也是现绘 SVG：单独关掉原生拖拽，
+   避免按住封面时出现拖影或把图片拖到窗口外。 */
+.root img,
+.root svg {
+  -webkit-user-drag: none;
+}
+
+/* 唯一例外：智能随机的「新配置名称」输入框保留原生选区与光标，
+   否则改名、全选、粘贴这些键盘操作都会被护栏吃掉。 */
+.root :is(input, textarea, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* 背景保持 100% 透明：不再铺全窗噪点 / 氛围光层，

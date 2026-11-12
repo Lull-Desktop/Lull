@@ -67,6 +67,7 @@ export const CoverArt = memo(function CoverArt({
         alt=""
         className={className}
         style={{ objectFit: "cover" }}
+        draggable={false}
         onError={() => setFailedUrl(imageUrl)}
       />
     );
