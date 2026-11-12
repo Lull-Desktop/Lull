@@ -544,3 +544,48 @@ test("global scene group hidden in independent mode", async () => {
   await within(pane).findByText("显示模式");
   expect(within(pane).queryByText(m.wallpaper_scene_global())).toBeNull();
 });
+
+test("independent mode: moving one monitor's param slider writes only that monitor's override", async () => {
+  mockInvoke({
+    ...PAGE_COMMANDS,
+    wallpaper_get_visible: () => true,
+    wallpaper_monitors: () => MONITORS,
+    wallpaper_display_get: () => ({
+      mode: "independent",
+      sync: true,
+      scene: "lull.bamboo",
+    }),
+    wallpaper_set_monitor_visible: () => undefined,
+    wallpaper_set_visible: () => true,
+    wallpaper_set_display: () => undefined,
+    wallpaper_set_monitor_scene: () => undefined,
+    wallpaper_set_scene_params: () => undefined,
+    wallpaper_set_monitor_scene_params: () => undefined,
+  });
+  // 本文件的 invoke mock 跨用例共享调用历史；先清空，避免前面 mirror 用例的
+  // 全局参数写入污染下面的"未调用全局命令"断言。
+  vi.mocked(invoke).mockClear();
+  renderSettingsPage();
+
+  const pane = await openWallpaperPane();
+  // 两屏同为竹影：各自渲染一份参数面板。
+  const sliders = await within(pane).findAllByRole("slider", {
+    name: "薄雾浓度",
+  });
+  expect(sliders).toHaveLength(2);
+  // 几何排序：DISPLAY2（x=-2560）在前。改第一屏只应写该屏覆盖。
+  fireEvent.keyDown(sliders[0], { key: "End" });
+  fireEvent.keyUp(sliders[0], { key: "End" });
+
+  await waitFor(() => {
+    expect(invoke).toHaveBeenCalledWith("wallpaper_set_monitor_scene_params", {
+      device: "\\\\.\\DISPLAY2",
+      scene: "lull.bamboo",
+      params: { mist: "1.00" },
+    });
+  });
+  expect(invoke).not.toHaveBeenCalledWith(
+    "wallpaper_set_scene_params",
+    expect.anything(),
+  );
+});

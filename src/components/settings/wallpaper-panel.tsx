@@ -57,6 +57,8 @@ type MonitorView = {
   scene: string;
   /** 生效游戏（independent 下每屏覆盖优先；null = 使用场景）。 */
   game?: string | null;
+  /** 生效场景参数（independent 下每屏覆盖 → 全局回退）；每屏参数控件据此渲染。 */
+  params?: Record<string, string>;
 };
 
 const GAME_PREFIX = "game:";
@@ -391,6 +393,38 @@ export function WallpaperPanel() {
     [commitSceneParams, display],
   );
 
+  // 逐屏参数：只写本屏覆盖（monitors[device].sceneParams），不影响其它显示器。
+  // 与全局提交同构：先乐观更新本屏控件，再写盘并热更壁纸窗；失败用后端值回滚。
+  const commitMonitorSceneParams = useCallback(
+    (device: string, scene: string, params: Record<string, string>): void => {
+      setMonitors((current) =>
+        current
+          ? current.map((monitor) =>
+              monitor.device === device ? { ...monitor, params } : monitor,
+            )
+          : current,
+      );
+      invoke("wallpaper_set_monitor_scene_params", { device, scene, params })
+        .then(() => {
+          void refreshWallpaper();
+        })
+        .catch((err: unknown) => {
+          setWallpaperError(localizeError(err));
+          void refreshWallpaper();
+        });
+    },
+    [refreshWallpaper],
+  );
+
+  const updateMonitorSceneParam = useCallback(
+    (device: string, scene: string, key: string, value: string): void => {
+      const current =
+        monitors?.find((monitor) => monitor.device === device)?.params ?? {};
+      commitMonitorSceneParams(device, scene, { ...current, [key]: value });
+    },
+    [commitMonitorSceneParams, monitors],
+  );
+
   // 默认场景固定排在下拉第一位：新配置和目录加载完成前都优先展示竹影。
   const sceneOptions = useMemo(() => {
     const list = [...sceneEntries];
@@ -602,14 +636,30 @@ export function WallpaperPanel() {
                     monitorScene?.manifest.params &&
                     monitorScene.manifest.params.length > 0 &&
                     sceneSupportsParams(monitorScene.manifest) && (
-                      <SceneParamFields
-                        definitions={monitorScene.manifest.params}
-                        values={display?.sceneParams?.[monitor.scene] ?? {}}
-                        onChange={(key, value) =>
-                          updateSceneParam(monitor.scene, key, value)
-                        }
-                        onReset={() => commitSceneParams(monitor.scene, {})}
-                      />
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          {m.wallpaper_params_monitor_hint()}
+                        </p>
+                        <SceneParamFields
+                          definitions={monitorScene.manifest.params}
+                          values={monitor.params ?? {}}
+                          onChange={(key, value) =>
+                            updateMonitorSceneParam(
+                              monitor.device,
+                              monitor.scene,
+                              key,
+                              value,
+                            )
+                          }
+                          onReset={() =>
+                            commitMonitorSceneParams(
+                              monitor.device,
+                              monitor.scene,
+                              {},
+                            )
+                          }
+                        />
+                      </div>
                     )}
                 </div>
               );

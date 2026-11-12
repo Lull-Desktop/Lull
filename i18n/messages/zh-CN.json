@@ -95,6 +95,7 @@
   "wallpaper_game_switch_stop": "停止游戏",
   "wallpaper_game_switch_background": "后台继续运行",
   "wallpaper_params_hint": "参数由壁纸设置实时下发到{target}",
+  "wallpaper_params_monitor_hint": "参数仅对本显示器生效，其他显示器不受影响",
   "wallpaper_params_target_builtin": "内置场景",
   "wallpaper_params_target_bridge": "场景桥（@lull/scene-sdk）",
   "wallpaper_params_unsupported": "该场景声明了参数，但没有声明 wallpaper.params，壁纸设置不会下发这些值。",

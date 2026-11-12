@@ -356,3 +356,208 @@ describe("WallpaperPanel external params", () => {
     expect(screen.queryByLabelText("光晕强度")).toBeNull();
   });
 });
+
+describe("WallpaperPanel independent per-monitor params", () => {
+  const sceneId = "demo.param-scene";
+
+  function monitorRow(
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      device: "\\\\.\\DISPLAY1",
+      index: 0,
+      x: 0,
+      y: 0,
+      w: 1920,
+      h: 1080,
+      dpi: 96,
+      primary: true,
+      enabled: true,
+      scene: sceneId,
+      game: null,
+      ...overrides,
+    };
+  }
+
+  /** 有状态后端 mock：逐屏参数写入只改该屏覆盖；wallpaper_monitors 与 Rust
+   *  effective_params 同构——有覆盖用覆盖，无覆盖回退全局 sceneParams。 */
+  function mockIndependentMonitors(
+    monitors: Array<Record<string, unknown>>,
+    sceneParams: Record<string, Record<string, string>> = {},
+  ): void {
+    let rows = monitors;
+    invoke.mockImplementation(
+      async (command: string, args?: Record<string, unknown>) => {
+        switch (command) {
+          case "wallpaper_get_visible":
+            return true;
+          case "wallpaper_monitors":
+            return rows.map((row) => ({
+              ...row,
+              params:
+                (row.params as Record<string, string> | undefined) ??
+                sceneParams[sceneId] ??
+                {},
+            }));
+          case "wallpaper_display_get":
+            return {
+              mode: "independent",
+              sync: true,
+              scene: sceneId,
+              sceneParams,
+            };
+          case "games_list":
+            return [];
+          case "games_config_get":
+            return undefined;
+          case "wallpaper_set_monitor_scene_params": {
+            const { device, params } = args as {
+              device: string;
+              params: Record<string, string>;
+            };
+            rows = rows.map((row) =>
+              row.device === device ? { ...row, params } : row,
+            );
+            return undefined;
+          }
+          default:
+            return undefined;
+        }
+      },
+    );
+  }
+
+  test("独立模式两屏同场景：改一屏参数只写该屏覆盖，另一屏不受影响", async () => {
+    mockIndependentMonitors(
+      [
+        monitorRow({
+          device: "\\\\.\\DISPLAY2",
+          index: 1,
+          x: -2560,
+          primary: false,
+          params: { glow: "0.20" },
+        }),
+        monitorRow({ params: { glow: "0.80" } }),
+      ],
+      { [sceneId]: { glow: "0.50" } },
+    );
+    render(<WallpaperPanel />);
+
+    const sliders = await screen.findAllByRole("slider", { name: "光晕强度" });
+    expect(sliders).toHaveLength(2);
+    // 每屏各有一份「仅对本屏生效」提示。
+    expect(screen.getAllByText(m.wallpaper_params_monitor_hint())).toHaveLength(
+      2,
+    );
+    // 几何排序：DISPLAY2（x=-2560）在前；两屏各自显示自己的覆盖值。
+    expect(sliders[0].getAttribute("aria-valuenow")).toBe("0.2");
+    expect(sliders[1].getAttribute("aria-valuenow")).toBe("0.8");
+
+    fireEvent.keyDown(sliders[0], { key: "End" });
+    fireEvent.keyUp(sliders[0], { key: "End" });
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "wallpaper_set_monitor_scene_params",
+        {
+          device: "\\\\.\\DISPLAY2",
+          scene: sceneId,
+          params: { glow: "1.00" },
+        },
+      );
+    });
+    // 不再走全局参数命令。
+    expect(invoke).not.toHaveBeenCalledWith(
+      "wallpaper_set_scene_params",
+      expect.anything(),
+    );
+
+    // 写盘生效后：只有第一屏变 1，第二屏保持 0.8。
+    await waitFor(() => {
+      const updated = screen.getAllByRole("slider", { name: "光晕强度" });
+      expect(updated[0].getAttribute("aria-valuenow")).toBe("1");
+      expect(updated[1].getAttribute("aria-valuenow")).toBe("0.8");
+    });
+  });
+
+  test("独立模式恢复默认只清空本屏覆盖（显式默认值），另一屏不受影响", async () => {
+    mockIndependentMonitors(
+      [
+        monitorRow({
+          device: "\\\\.\\DISPLAY2",
+          index: 1,
+          x: -2560,
+          primary: false,
+          params: { glow: "0.20" },
+        }),
+        monitorRow({ params: { glow: "0.80" } }),
+      ],
+      // 全局刻意不同于 Manifest 默认 0.5：恢复默认应回 0.5 而不是全局 0.9。
+      { [sceneId]: { glow: "0.90" } },
+    );
+    render(<WallpaperPanel />);
+
+    const resets = await screen.findAllByRole("button", {
+      name: m.scene_params_reset(),
+    });
+    expect(resets).toHaveLength(2);
+    fireEvent.click(resets[0]);
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "wallpaper_set_monitor_scene_params",
+        {
+          device: "\\\\.\\DISPLAY2",
+          scene: sceneId,
+          params: {},
+        },
+      );
+    });
+
+    await waitFor(() => {
+      const updated = screen.getAllByRole("slider", { name: "光晕强度" });
+      expect(updated[0].getAttribute("aria-valuenow")).toBe("0.5");
+      expect(updated[1].getAttribute("aria-valuenow")).toBe("0.8");
+    });
+  });
+
+  test("独立模式无覆盖的屏显示全局参数，编辑后只创建该屏覆盖", async () => {
+    mockIndependentMonitors(
+      [
+        // DISPLAY2 没有 params 字段 → 回退全局 0.30。
+        monitorRow({
+          device: "\\\\.\\DISPLAY2",
+          index: 1,
+          x: -2560,
+          primary: false,
+        }),
+        monitorRow({ params: { glow: "0.80" } }),
+      ],
+      { [sceneId]: { glow: "0.30" } },
+    );
+    render(<WallpaperPanel />);
+
+    const sliders = await screen.findAllByRole("slider", { name: "光晕强度" });
+    expect(sliders[0].getAttribute("aria-valuenow")).toBe("0.3");
+    expect(sliders[1].getAttribute("aria-valuenow")).toBe("0.8");
+
+    fireEvent.keyDown(sliders[0], { key: "End" });
+    fireEvent.keyUp(sliders[0], { key: "End" });
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith(
+        "wallpaper_set_monitor_scene_params",
+        {
+          device: "\\\\.\\DISPLAY2",
+          scene: sceneId,
+          params: { glow: "1.00" },
+        },
+      );
+    });
+    await waitFor(() => {
+      const updated = screen.getAllByRole("slider", { name: "光晕强度" });
+      expect(updated[0].getAttribute("aria-valuenow")).toBe("1");
+      expect(updated[1].getAttribute("aria-valuenow")).toBe("0.8");
+    });
+  });
+});

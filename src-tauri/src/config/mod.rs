@@ -28,6 +28,16 @@ pub struct MonitorConfig {
   /// 与场景覆盖同时存在时游戏优先；显式选场景会清掉该屏游戏。
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub game: Option<String>,
+  /// 每屏场景参数覆盖（仅 independent 模式消费），键为场景 id。
+  /// 场景键缺失 = 跟随全局 `display.sceneParams`；键存在即为本屏覆盖，
+  /// **空 map = 显式使用 Manifest 默认值**（全局被自定义过时，"恢复默认"
+  /// 仍回到默认而不是弹回全局值）。内层空 map 必须落盘，不能 skip。
+  #[serde(
+    default,
+    skip_serializing_if = "BTreeMap::is_empty",
+    rename = "sceneParams"
+  )]
+  pub scene_params: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl Default for MonitorConfig {
@@ -36,6 +46,7 @@ impl Default for MonitorConfig {
       enabled: true,
       scene: None,
       game: None,
+      scene_params: BTreeMap::new(),
     }
   }
 }
@@ -289,6 +300,25 @@ impl WallpaperConfig {
     self.monitors.entry(device.to_string()).or_default().game = game;
   }
 
+  /// 记录该显示器某个场景的参数覆盖（仅 independent 模式消费）。
+  ///
+  /// 与全局 `DisplayConfig::set_scene_params` 的"空 map = 删除记录"不同：
+  /// 这里空 map 也插入，表示"本屏显式使用 Manifest 默认值"，与"键缺失 =
+  /// 跟随全局参数"区分开。覆盖按场景 id 留存，切走再切回仍然生效。
+  pub fn set_monitor_scene_params(
+    &mut self,
+    device: &str,
+    scene: &str,
+    params: BTreeMap<String, String>,
+  ) {
+    self
+      .monitors
+      .entry(device.to_string())
+      .or_default()
+      .scene_params
+      .insert(scene.to_string(), params);
+  }
+
   /// 全局设置游戏：同步覆盖每屏的逐屏游戏。
   ///
   /// 显式“设为壁纸 / 取消游戏壁纸”是全局动作；如果只改 `display.game`，旧逐屏游戏
@@ -405,6 +435,27 @@ impl WallpaperConfig {
     } else {
       self.display.scene.clone()
     }
+  }
+
+  /// 该屏**实际生效**的场景参数，与 `wallpaper::protocol::monitor_url` 同一套解析：
+  /// - independent：该屏对生效场景的参数覆盖优先（空覆盖 = 显式默认值），
+  ///   没有覆盖时回退全局 `display.sceneParams`；
+  /// - mirror / span：一律用全局参数，忽略每屏覆盖。
+  ///
+  /// 场景解析复用 [`Self::effective_scene`]，保证参数与画面场景始终同源。
+  #[must_use]
+  pub fn effective_params(&self, device: &str) -> BTreeMap<String, String> {
+    let scene = self.effective_scene(device);
+    if self.display.mode == DisplayMode::Independent {
+      if let Some(params) = self
+        .monitors
+        .get(device)
+        .and_then(|monitor| monitor.scene_params.get(&scene))
+      {
+        return params.clone();
+      }
+    }
+    self.display.params_for_scene(&scene)
   }
 
   /// 场景是否仍在任何屏幕上实际生效。
@@ -752,6 +803,95 @@ mod tests {
   }
 
   #[test]
+  fn monitor_scene_params_roundtrip_including_empty_override() {
+    let path = temp_path("monitor_scene_params");
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Independent;
+    c.display.scene = "community.the-hill".into();
+    c.set_monitor_scene_params(
+      D1,
+      "community.the-hill",
+      BTreeMap::from([("hill-color".to_string(), "#ff0000".to_string())]),
+    );
+    // 空覆盖 = 显式默认值，必须落盘（与"键缺失 = 跟随全局"区分）。
+    c.set_monitor_scene_params(D2, "community.the-hill", BTreeMap::new());
+    c.save(&path).unwrap();
+
+    let json = std::fs::read_to_string(&path).unwrap();
+    assert!(json.contains("\"sceneParams\""));
+    // 空覆盖必须显式落盘为 {}，否则加载后会退回"跟随全局"。
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+      value["monitors"][D2]["sceneParams"]["community.the-hill"],
+      serde_json::json!({})
+    );
+
+    let loaded = WallpaperConfig::load_outcome(&path).config;
+    assert_eq!(loaded, c);
+    assert_eq!(
+      loaded.effective_params(D1),
+      BTreeMap::from([("hill-color".to_string(), "#ff0000".to_string())])
+    );
+    assert!(loaded.effective_params(D2).is_empty());
+  }
+
+  #[test]
+  fn monitor_scene_params_field_omitted_when_empty() {
+    let json = serde_json::to_string(&MonitorConfig::default()).unwrap();
+    assert!(!json.contains("sceneParams"));
+  }
+
+  #[test]
+  fn effective_params_independent_prefers_monitor_override() {
+    let mut c = WallpaperConfig::default();
+    c.display.mode = DisplayMode::Independent;
+    c.display.set_scene_params(
+      DEFAULT_SCENE_ID,
+      BTreeMap::from([("mist".to_string(), "0.8".to_string())]),
+    );
+    // 两屏同场景：D1 有自己的覆盖，D2 没有 → 各取各的。
+    c.set_monitor_scene_params(
+      D1,
+      DEFAULT_SCENE_ID,
+      BTreeMap::from([("mist".to_string(), "0.2".to_string())]),
+    );
+    assert_eq!(
+      c.effective_params(D1),
+      BTreeMap::from([("mist".to_string(), "0.2".to_string())])
+    );
+    assert_eq!(
+      c.effective_params(D2),
+      BTreeMap::from([("mist".to_string(), "0.8".to_string())])
+    );
+
+    // 空覆盖 = 显式默认值，不回退全局。
+    c.set_monitor_scene_params(D2, DEFAULT_SCENE_ID, BTreeMap::new());
+    assert!(c.effective_params(D2).is_empty());
+
+    // 覆盖按生效场景解析：D2 切到别的场景后跟随该场景的全局参数。
+    c.set_monitor_scene(D2, Some("lull.video".into()));
+    assert!(c.effective_params(D2).is_empty());
+  }
+
+  #[test]
+  fn effective_params_mirror_and_span_ignore_monitor_override() {
+    let mut c = WallpaperConfig::default();
+    c.display.set_scene_params(
+      DEFAULT_SCENE_ID,
+      BTreeMap::from([("mist".to_string(), "0.8".to_string())]),
+    );
+    c.set_monitor_scene_params(
+      D1,
+      DEFAULT_SCENE_ID,
+      BTreeMap::from([("mist".to_string(), "0.2".to_string())]),
+    );
+    let global = BTreeMap::from([("mist".to_string(), "0.8".to_string())]);
+    assert_eq!(c.effective_params(D1), global);
+    c.display.mode = DisplayMode::Span;
+    assert_eq!(c.effective_params(D1), global);
+  }
+
+  #[test]
   fn game_content_roundtrips_and_scene_selection_clears_it() {
     let path = temp_path("game_content");
     let mut c = WallpaperConfig::default();
@@ -895,6 +1035,7 @@ mod tests {
         enabled: true,
         scene: Some("lull.aurora".into()),
         game: Some("community.old".into()),
+        scene_params: BTreeMap::new(),
       },
     );
     c.monitors.insert(
@@ -903,6 +1044,7 @@ mod tests {
         enabled: false,
         scene: Some("lull.bamboo".into()),
         game: Some("community.two".into()),
+        scene_params: BTreeMap::new(),
       },
     );
     c.monitors.insert(
@@ -911,6 +1053,7 @@ mod tests {
         enabled: false,
         scene: Some("lull.aurora".into()),
         game: Some("community.offline".into()),
+        scene_params: BTreeMap::new(),
       },
     );
 

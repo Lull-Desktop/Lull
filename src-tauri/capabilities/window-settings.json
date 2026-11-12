@@ -104,6 +104,7 @@
     "allow-wallpaper-set-game",
     "allow-wallpaper-set-monitor-game",
     "allow-wallpaper-set-monitor-scene",
+    "allow-wallpaper-set-monitor-scene-params",
     "allow-wallpaper-set-monitor-visible",
     "allow-wallpaper-set-scene-params",
     "allow-wallpaper-set-visible",

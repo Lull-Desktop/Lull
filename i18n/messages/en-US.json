@@ -95,6 +95,7 @@
   "wallpaper_game_switch_stop": "Stop game",
   "wallpaper_game_switch_background": "Keep in background",
   "wallpaper_params_hint": "Parameters are pushed live from wallpaper settings to {target}",
+  "wallpaper_params_monitor_hint": "Parameters apply to this monitor only; other monitors are unaffected",
   "wallpaper_params_target_builtin": "the built-in scene",
   "wallpaper_params_target_bridge": "the scene bridge (@lull/scene-sdk)",
   "wallpaper_params_unsupported": "This scene declares parameters but not wallpaper.params, so wallpaper settings will not push them.",

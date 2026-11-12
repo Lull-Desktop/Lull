@@ -81,7 +81,8 @@ pub(crate) fn monitor_url(
   // 唯一事实源：媒体生命周期判断“这屏还在不在视频”也用 effective_scene。
   let scene = config.effective_scene(&monitor.device);
   let game = config.effective_game(&monitor.device);
-  let params = config.display.params_for_scene(&scene);
+  // 参数与场景同源解析：independent 下每屏覆盖优先，两屏同场景也各自独立。
+  let params = config.effective_params(&monitor.device);
   Ok(format!(
     "/{}",
     wallpaper_hash(
@@ -298,6 +299,82 @@ mod tests {
     assert!(url.contains("scene=lull.aurora"));
     let primary = monitor_url(&config, &ok_infos(), 0).unwrap();
     assert!(primary.contains("scene=lull.bamboo"));
+  }
+
+  #[test]
+  fn monitor_url_independent_same_scene_uses_per_monitor_params() {
+    let mut config = WallpaperConfig::default();
+    config.display.mode = DisplayMode::Independent;
+    config.display.set_scene_params(
+      "lull.bamboo",
+      BTreeMap::from([("mist".to_string(), "0.8".to_string())]),
+    );
+    // 两屏同场景：各写各的参数覆盖，URL 必须不同。
+    config.set_monitor_scene_params(
+      "\\\\.\\DISPLAY1",
+      "lull.bamboo",
+      BTreeMap::from([("mist".to_string(), "0.2".to_string())]),
+    );
+    config.set_monitor_scene_params(
+      "\\\\.\\DISPLAY2",
+      "lull.bamboo",
+      BTreeMap::from([("mist".to_string(), "0.5".to_string())]),
+    );
+    let primary = monitor_url(&config, &ok_infos(), 0).unwrap();
+    let secondary = monitor_url(&config, &ok_infos(), 1).unwrap();
+    assert!(primary.contains("params=%7B%22mist%22%3A%220.2%22%7D"));
+    assert!(secondary.contains("params=%7B%22mist%22%3A%220.5%22%7D"));
+    assert_ne!(primary, secondary);
+  }
+
+  #[test]
+  fn monitor_url_independent_params_fall_back_to_global_without_override() {
+    let mut config = WallpaperConfig::default();
+    config.display.mode = DisplayMode::Independent;
+    config.display.set_scene_params(
+      "lull.bamboo",
+      BTreeMap::from([("mist".to_string(), "0.8".to_string())]),
+    );
+    config.set_monitor_scene_params(
+      "\\\\.\\DISPLAY1",
+      "lull.bamboo",
+      BTreeMap::from([("mist".to_string(), "0.2".to_string())]),
+    );
+    let secondary = monitor_url(&config, &ok_infos(), 1).unwrap();
+    assert!(secondary.contains("params=%7B%22mist%22%3A%220.8%22%7D"));
+  }
+
+  #[test]
+  fn monitor_url_independent_empty_override_omits_params() {
+    let mut config = WallpaperConfig::default();
+    config.display.mode = DisplayMode::Independent;
+    config.display.set_scene_params(
+      "lull.bamboo",
+      BTreeMap::from([("mist".to_string(), "0.8".to_string())]),
+    );
+    // 空覆盖 = 显式 Manifest 默认值：哈希不带 params，而不是回退全局。
+    config.set_monitor_scene_params("\\\\.\\DISPLAY2", "lull.bamboo", BTreeMap::new());
+    let secondary = monitor_url(&config, &ok_infos(), 1).unwrap();
+    assert!(!secondary.contains("params="));
+    let primary = monitor_url(&config, &ok_infos(), 0).unwrap();
+    assert!(primary.contains("params=%7B%22mist%22%3A%220.8%22%7D"));
+  }
+
+  #[test]
+  fn monitor_url_mirror_ignores_per_monitor_params() {
+    let mut config = WallpaperConfig::default();
+    config.display.set_scene_params(
+      "lull.bamboo",
+      BTreeMap::from([("mist".to_string(), "0.8".to_string())]),
+    );
+    config.set_monitor_scene_params(
+      "\\\\.\\DISPLAY1",
+      "lull.bamboo",
+      BTreeMap::from([("mist".to_string(), "0.2".to_string())]),
+    );
+    let primary = monitor_url(&config, &ok_infos(), 0).unwrap();
+    assert!(primary.contains("mode=mirror"));
+    assert!(primary.contains("params=%7B%22mist%22%3A%220.8%22%7D"));
   }
 
   #[test]

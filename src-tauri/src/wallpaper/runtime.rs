@@ -292,6 +292,8 @@ pub struct MonitorView {
   pub scene: String,
   /// 生效游戏（independent 下每屏覆盖优先；没有游戏时为 null）。
   pub game: Option<String>,
+  /// 生效场景参数（independent 下每屏覆盖 → 全局回退）；UI 据此渲染每行参数控件。
+  pub params: BTreeMap<String, String>,
 }
 
 #[tauri::command]
@@ -309,6 +311,8 @@ pub fn wallpaper_monitors() -> Result<Vec<MonitorView>, String> {
           // 生效场景/游戏：mirror/span 用全局，independent 才看每屏覆盖。
           scene: config.data.effective_scene(&monitor.device),
           game: config.data.effective_game(&monitor.device),
+          // 生效参数与画面同源：independent 下每屏覆盖优先，两屏同场景也各自独立。
+          params: config.data.effective_params(&monitor.device),
           device: monitor.device,
           index,
           x: monitor.x,
@@ -505,6 +509,40 @@ pub async fn wallpaper_set_scene_params(
         config.data.display.scene_params.insert(scene.clone(), old);
       } else {
         config.data.display.scene_params.remove(&scene);
+      }
+      return Err(format!("保存配置失败: {error}"));
+    }
+  }
+  crate::media::video::lifecycle::on_display_config_changed();
+  windows::reapply_display(&app)
+}
+
+/// 每屏场景参数覆盖（仅 independent 模式消费）。空 map = 本屏显式使用 Manifest
+/// 默认值（不回退全局参数）；键缺失才是跟随全局。写盘失败回滚。
+///
+/// 与全局 `wallpaper_set_scene_params` 分开两条命令：全局参数是 mirror/span 的
+/// 唯一来源，也是 independent 未覆盖显示器的回退；逐屏覆盖只影响本屏。
+#[tauri::command]
+pub async fn wallpaper_set_monitor_scene_params(
+  app: AppHandle,
+  device: String,
+  scene: String,
+  params: BTreeMap<String, String>,
+) -> Result<(), String> {
+  {
+    let mut config = config()?;
+    let old = config.data.monitors.get(&device).cloned();
+    config
+      .data
+      .set_monitor_scene_params(&device, &scene, params);
+    if let Err(error) = config.data.save(&config.path) {
+      match old {
+        Some(monitor) => {
+          config.data.monitors.insert(device, monitor);
+        }
+        None => {
+          config.data.monitors.remove(&device);
+        }
       }
       return Err(format!("保存配置失败: {error}"));
     }

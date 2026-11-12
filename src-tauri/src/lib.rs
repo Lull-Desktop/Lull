@@ -95,6 +95,7 @@ pub fn run() {
       wallpaper::runtime::wallpaper_set_display,
       wallpaper::runtime::wallpaper_set_game,
       wallpaper::runtime::wallpaper_set_scene_params,
+      wallpaper::runtime::wallpaper_set_monitor_scene_params,
       wallpaper::runtime::wallpaper_set_monitor_scene,
       wallpaper::runtime::wallpaper_set_monitor_game,
       media::video::commands::media_capabilities,

@@ -77,6 +77,7 @@ const APP_COMMANDS: &[&str] = &[
   "wallpaper_set_display",
   "wallpaper_set_game",
   "wallpaper_set_scene_params",
+  "wallpaper_set_monitor_scene_params",
   "wallpaper_set_monitor_scene",
   "wallpaper_set_monitor_game",
   "media_capabilities",
