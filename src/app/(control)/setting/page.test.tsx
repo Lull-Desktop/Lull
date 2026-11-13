@@ -213,7 +213,7 @@ test("音乐页承载曲库分类，音境页承载会话控制、预设与音�
   ).toBe("true");
 });
 
-test("关于页签展示版本与扩展模型", () => {
+test("关于页签展示软件介绍、版本与扩展模型", () => {
   renderSettingsPage();
 
   fireEvent.click(screen.getByRole("tab", { name: "关于" }));
@@ -223,6 +223,14 @@ test("关于页签展示版本与扩展模型", () => {
   expect(
     within(pane).getByRole("heading", { name: "关于 Lull" }),
   ).toBeDefined();
+  // 软件介绍按语义分成四段，措辞与文案表一致。
+  const intro = within(pane).getByTestId("settings-about-intro");
+  expect(
+    within(intro).getByText(/^Lull（云栖），Windows 上的安静桌面/),
+  ).toBeDefined();
+  expect(within(intro).getByText(/^壁纸默认竹影/)).toBeDefined();
+  expect(within(intro).getByText(/^番茄钟、环境游戏按需加装/)).toBeDefined();
+  expect(within(intro).getByText(/^仅支持 Windows 10\/11。/)).toBeDefined();
   expect(within(pane).getByText(/版本 .*GPL-3.0-or-later/)).toBeDefined();
   expect(within(pane).getByText(/扩展模型/)).toBeDefined();
   expect(screen.queryByTestId("settings-preferences-card")).toBeNull();

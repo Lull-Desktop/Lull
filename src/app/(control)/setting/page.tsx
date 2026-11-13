@@ -1156,7 +1156,24 @@ export default function Settings() {
               className="mt-3 space-y-3"
               data-testid="settings-about-section"
             >
-              <p className="text-xs text-muted-foreground">
+              {/* 软件介绍：原文按语义拆成四段，段距交给 space-y-2；长段落靠
+                  break-words 在窄窗口里折行，leading-relaxed 保证中文读起来不挤。
+                  首段用正文色作引子，其余略弱，与版本/扩展说明之间用细线分隔。 */}
+              <div className="space-y-2" data-testid="settings-about-intro">
+                <p className="text-xs leading-relaxed text-ink break-words">
+                  {m.settings_about_intro_1()}
+                </p>
+                <p className="text-xs leading-relaxed text-ink-soft break-words">
+                  {m.settings_about_intro_2()}
+                </p>
+                <p className="text-xs leading-relaxed text-ink-soft break-words">
+                  {m.settings_about_intro_3()}
+                </p>
+                <p className="text-xs leading-relaxed text-ink-soft break-words">
+                  {m.settings_about_intro_4()}
+                </p>
+              </div>
+              <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">
                 {m.settings_about_version({ version: appVersion })}
               </p>
               <p className="border-t border-border/60 pt-3 text-xs leading-relaxed text-muted-foreground">
