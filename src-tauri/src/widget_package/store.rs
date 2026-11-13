@@ -714,6 +714,20 @@ pub fn install_from_staged(
   root: &Path,
   staged: &install::Staged,
 ) -> Result<PackageInfo, ExtensionError> {
+  let manifest = validate_staged(staged)?;
+  let target = staged.commit(root, &manifest.id)?;
+  Ok(info_from(
+    &target,
+    &manifest,
+    None,
+    false,
+    "user",
+    entry_url(&manifest.id, &manifest.entry),
+    &TrustPolicy::default(),
+  ))
+}
+
+pub(crate) fn validate_staged(staged: &install::Staged) -> Result<PackageManifest, ExtensionError> {
   let manifest = PackageManifest::from_dir(staged.bundle())
     .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
   if official::is_reserved(&manifest.id) {
@@ -754,16 +768,7 @@ pub fn install_from_staged(
     }
   }
 
-  let target = staged.commit(root, &manifest.id)?;
-  Ok(info_from(
-    &target,
-    &manifest,
-    None,
-    false,
-    "user",
-    entry_url(&manifest.id, &manifest.entry),
-    &TrustPolicy::default(),
-  ))
+  Ok(manifest)
 }
 
 /// 启动协调：官方包首次默认启用、升级补授新增能力、保留用户撤销。
@@ -1037,6 +1042,29 @@ mod tests {
     std::fs::write(dir.join("index.html"), b"<html></html>")?;
     std::fs::write(dir.join("assets/app.css"), b"body{}")?;
     Ok(())
+  }
+
+  #[test]
+  fn validated_widget_replacement_preserves_old_package_until_commit() {
+    let Some(root) = temp_root("update-rollback") else {
+      return;
+    };
+    let source = root.join("source");
+    write_widget_package(&source).expect("source package");
+    let packages = root.join("packages");
+    let old = packages.join("community-test");
+    write_widget_package(&old).expect("old package");
+    std::fs::write(old.join("old-marker"), b"old").expect("marker");
+    let staged = install::stage(&packages, &source).expect("stage");
+    let manifest = validate_staged(&staged).expect("validate");
+    let replacement = staged.replace(&packages, &manifest.id).expect("replace");
+    assert!(!old.join("old-marker").exists());
+    replacement.rollback().expect("rollback");
+    assert_eq!(
+      std::fs::read(old.join("old-marker")).ok().as_deref(),
+      Some(&b"old"[..])
+    );
+    let _ = std::fs::remove_dir_all(root);
   }
 
   #[test]

@@ -50,6 +50,63 @@ pub struct Staged {
   bundle: PathBuf,
 }
 
+/// An installed package replacement whose previous directory is retained until
+/// the caller has validated and committed the whole update.
+#[must_use = "replacement must be committed or rolled back"]
+pub struct Replacement {
+  target: PathBuf,
+  backup: Option<PathBuf>,
+}
+
+impl Replacement {
+  #[must_use]
+  pub fn target(&self) -> &Path {
+    &self.target
+  }
+
+  #[must_use]
+  pub fn has_backup(&self) -> bool {
+    self.backup.is_some()
+  }
+
+  /// Finish a replacement. A backup which cannot be removed is harmless and
+  /// remains available for manual recovery.
+  pub fn commit(self) {
+    if let Some(backup) = self.backup {
+      let _ = std::fs::remove_dir_all(backup);
+    }
+  }
+
+  /// Restore the previous package, preserving its backup if restoration fails.
+  pub fn rollback(self) -> Result<(), ExtensionError> {
+    if self.target.exists() {
+      std::fs::remove_dir_all(&self.target).map_err(|error| {
+        let location = self.backup.as_ref().map_or_else(
+          || "无旧版本备份".to_string(),
+          |path| format!("旧版本备份位于 {}", path.display()),
+        );
+        ExtensionError::new(
+          "extension.rollback-failed",
+          format!("无法移除未完成的安装：{error}；{location}"),
+        )
+      })?;
+    }
+    if let Some(backup) = self.backup {
+      std::fs::rename(&backup, &self.target).map_err(|error| {
+        ExtensionError::new(
+          "extension.rollback-failed",
+          format!(
+            "恢复旧版本失败：{error}。旧版本备份位于 {}",
+            backup.display()
+          ),
+        )
+        .with_detail(backup.display().to_string())
+      })?;
+    }
+    Ok(())
+  }
+}
+
 impl Staged {
   #[must_use]
   pub fn bundle(&self) -> &Path {
@@ -85,6 +142,14 @@ impl Staged {
   /// 仅用于支持本地更新的包类型（当前是 scene）；widget 仍走 `commit`，
   /// 因为覆盖正在运行/已授权的插件需要额外的授权与状态迁移设计。
   pub fn commit_replace(&self, root: &Path, id: &str) -> Result<PathBuf, ExtensionError> {
+    let replacement = self.replace(root, id)?;
+    let target = replacement.target().to_path_buf();
+    replacement.commit();
+    Ok(target)
+  }
+
+  /// Install a candidate while retaining the old directory for explicit rollback.
+  pub fn replace(&self, root: &Path, id: &str) -> Result<Replacement, ExtensionError> {
     if !safe_component(id) {
       return Err(ExtensionError::new(
         "manifest.id-invalid",
@@ -95,25 +160,37 @@ impl Staged {
       .map_err(|error| ExtensionError::new("io.error", format!("创建安装目录失败：{error}")))?;
     let target = root.join(id);
     if !target.exists() {
-      return self.commit(root, id);
+      let target = self.commit(root, id)?;
+      return Ok(Replacement {
+        target,
+        backup: None,
+      });
     }
 
     let backup = root.join(format!(".replaced-{id}-{}", unique_suffix()));
     std::fs::rename(&target, &backup)
       .map_err(|error| ExtensionError::new("io.error", format!("备份旧版本失败：{error}")))?;
     match std::fs::rename(&self.bundle, &target) {
-      Ok(()) => {
-        // 备份删除失败只会留下点号目录，扫描会忽略，不影响新版本。
-        let _ = std::fs::remove_dir_all(&backup);
-        Ok(target)
-      }
-      Err(error) => {
-        let _ = std::fs::rename(&backup, &target);
-        Err(
-          ExtensionError::new("io.error", format!("覆盖安装失败：{error}"))
-            .with_detail(self.bundle.display().to_string()),
-        )
-      }
+      Ok(()) => Ok(Replacement {
+        target,
+        backup: Some(backup),
+      }),
+      Err(error) => match std::fs::rename(&backup, &target) {
+        Ok(()) => Err(ExtensionError::new(
+          "extension.update-failed",
+          format!("覆盖安装失败，已恢复旧版本：{error}"),
+        )),
+        Err(restore_error) => Err(
+          ExtensionError::new(
+            "extension.rollback-failed",
+            format!(
+              "覆盖安装失败：{error}；恢复旧版本失败：{restore_error}。旧版本备份位于 {}",
+              backup.display()
+            ),
+          )
+          .with_detail(backup.display().to_string()),
+        ),
+      },
     }
   }
 }
@@ -580,6 +657,95 @@ mod tests {
       })
       .count();
     assert_eq!(leftovers, 0, "暂存目录没有清理");
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn failed_replacement_restores_old_directory() {
+    let Some(root) = temp_root("replace-rollback") else {
+      return;
+    };
+    let source = root.join("source");
+    let packages = root.join("packages");
+    assert!(write_package(&source).is_ok());
+    let old = packages.join("community.test");
+    assert!(std::fs::create_dir_all(&old).is_ok());
+    assert!(std::fs::write(old.join("old.txt"), b"old version").is_ok());
+    let staged = stage(&packages, &source).expect("stage package");
+    // Simulate the final rename failing after the old directory was backed up.
+    assert!(std::fs::remove_dir_all(staged.bundle()).is_ok());
+    let error = staged.commit_replace(&packages, "community.test").err();
+    assert_eq!(
+      error.map(|value| value.code),
+      Some("extension.update-failed".to_string())
+    );
+    assert_eq!(
+      std::fs::read(old.join("old.txt")).ok().as_deref(),
+      Some(&b"old version"[..])
+    );
+    drop(staged);
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn replacement_retains_backup_until_commit_or_rollback() {
+    let Some(root) = temp_root("replacement-transaction") else {
+      return;
+    };
+    let source = root.join("source");
+    let packages = root.join("packages");
+    assert!(write_package(&source).is_ok());
+    let old = packages.join("community.test");
+    assert!(std::fs::create_dir_all(&old).is_ok());
+    assert!(std::fs::write(old.join("old.txt"), b"old version").is_ok());
+
+    let staged = stage(&packages, &source).expect("stage package");
+    let replacement = staged
+      .replace(&packages, "community.test")
+      .expect("replace");
+    assert!(replacement.target().join("widget.json").is_file());
+    replacement.rollback().expect("restore old package");
+    assert_eq!(
+      std::fs::read(old.join("old.txt")).ok().as_deref(),
+      Some(&b"old version"[..])
+    );
+
+    let staged = stage(&packages, &source).expect("stage package again");
+    let replacement = staged
+      .replace(&packages, "community.test")
+      .expect("replace again");
+    replacement.commit();
+    assert!(old.join("widget.json").is_file());
+    assert!(!old.join("old.txt").exists());
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn failed_rollback_keeps_backup_and_reports_its_location() {
+    let Some(root) = temp_root("replacement-rollback-failure") else {
+      return;
+    };
+    let source = root.join("source");
+    let packages = root.join("packages");
+    assert!(write_package(&source).is_ok());
+    let old = packages.join("community.test");
+    assert!(std::fs::create_dir_all(&old).is_ok());
+    assert!(std::fs::write(old.join("old.txt"), b"old version").is_ok());
+    let staged = stage(&packages, &source).expect("stage package");
+    let replacement = staged
+      .replace(&packages, "community.test")
+      .expect("replace");
+    let backup = replacement.backup.clone().expect("old package backup");
+    assert!(std::fs::remove_dir_all(&old).is_ok());
+    // Replacing the installed directory with a file forces remove_dir_all to fail.
+    assert!(std::fs::write(&old, b"blocking file").is_ok());
+    let error = replacement.rollback().expect_err("rollback must fail");
+    assert_eq!(error.code, "extension.rollback-failed");
+    assert!(error.message.contains(&backup.display().to_string()));
+    assert_eq!(
+      std::fs::read(backup.join("old.txt")).ok().as_deref(),
+      Some(&b"old version"[..])
+    );
     let _ = std::fs::remove_dir_all(&root);
   }
 

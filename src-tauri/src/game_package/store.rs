@@ -443,6 +443,16 @@ fn inspect(dir: &Path, dir_name: &str, grants: &GrantsFile) -> GamePackageInfo {
 
 /// 安装：校验清单/入口/摘要，原子落地到 `<root>/<id>`。
 pub fn install_from_staged(root: &Path, staged: &install::Staged) -> Result<GameManifest, String> {
+  let (manifest, replacement) = install_from_staged_transaction(root, staged)?;
+  replacement.commit();
+  Ok(manifest)
+}
+
+/// Keep the old package until the caller has finished validating the installed game.
+pub(crate) fn install_from_staged_transaction(
+  root: &Path,
+  staged: &install::Staged,
+) -> Result<(GameManifest, install::Replacement), String> {
   let manifest = GameManifest::from_dir(staged.bundle()).map_err(|error| error.message)?;
   if !staged.bundle().join(&manifest.entry.authority).is_file() {
     return Err(format!(
@@ -472,10 +482,10 @@ pub fn install_from_staged(root: &Path, staged: &install::Staged) -> Result<Game
     }
     Err(error) => return Err(format!("游戏包摘要不匹配：{error}")),
   }
-  staged
-    .commit_replace(root, &manifest.id)
+  let replacement = staged
+    .replace(root, &manifest.id)
     .map_err(|error| error.to_string())?;
-  Ok(manifest)
+  Ok((manifest, replacement))
 }
 
 /// 卸载：删授权记录与包目录；**保留** `game-data` 存档。
@@ -531,6 +541,30 @@ mod tests {
       ),
     )
     .expect("manifest");
+  }
+
+  #[test]
+  fn game_install_can_restore_previous_package_before_commit() {
+    let root = temp_root("transaction");
+    let source = temp_root("transaction-source");
+    let staging = temp_root("transaction-staging");
+    let id = "community.transaction-test";
+    write_package(&root, id);
+    write_package(&source, id);
+    std::fs::write(root.join(id).join("old-marker"), b"old").expect("old marker");
+    let staged = install::stage(&staging, &source.join(id)).expect("stage");
+    let (_, replacement) = install_from_staged_transaction(&root, &staged).expect("install");
+    assert!(!root.join(id).join("old-marker").exists());
+    replacement.rollback().expect("rollback");
+    assert_eq!(
+      std::fs::read(root.join(id).join("old-marker"))
+        .ok()
+        .as_deref(),
+      Some(&b"old"[..])
+    );
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(source);
+    let _ = std::fs::remove_dir_all(staging);
   }
 
   #[test]

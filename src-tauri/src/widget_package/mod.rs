@@ -494,6 +494,7 @@ pub(crate) async fn open_for_slot(app: AppHandle, id: String) -> Result<(), Stri
 }
 
 fn open_window(app: &AppHandle, id: &str, reveal_fallback: bool) -> Result<(), String> {
+  let _mutation = crate::extension::begin_package_mutation().map_err(|error| error.message)?;
   let manifest = store::ensure_intact(app, id)?;
   if !store::is_enabled(app, id) {
     return Err("插件未启用，请先在设置中授权".to_string());
@@ -563,6 +564,7 @@ fn open_window(app: &AppHandle, id: &str, reveal_fallback: bool) -> Result<(), S
 }
 
 pub fn close(app: &AppHandle, id: &str) -> Result<(), String> {
+  let _mutation = crate::extension::begin_package_mutation().map_err(|error| error.message)?;
   if !manifest::valid_id(id) {
     return Err("插件 id 非法".to_string());
   }
@@ -575,6 +577,11 @@ pub fn close(app: &AppHandle, id: &str) -> Result<(), String> {
 
 /// 结束运行：销毁窗口，状态 KV 保留，下次打开冷启动。
 pub fn stop(app: &AppHandle, id: &str) -> Result<(), String> {
+  let _mutation = crate::extension::begin_package_mutation().map_err(|error| error.message)?;
+  stop_during_update(app, id)
+}
+
+pub(crate) fn stop_during_update(app: &AppHandle, id: &str) -> Result<(), String> {
   if !manifest::valid_id(id) {
     return Err("插件 id 非法".to_string());
   }

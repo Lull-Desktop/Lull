@@ -68,6 +68,7 @@ pub fn is_open(app: &AppHandle, id: &str) -> bool {
 }
 
 pub fn show(app: &AppHandle, id: &str) -> Result<(), String> {
+  let _mutation = crate::extension::begin_package_mutation().map_err(|error| error.message)?;
   let window = app
     .get_webview_window(&super::label_for(id))
     .ok_or_else(|| "扩展窗口不存在".to_string())?;

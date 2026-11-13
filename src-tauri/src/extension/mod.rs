@@ -18,14 +18,43 @@ use crate::game;
 use crate::game_package;
 use crate::package_hash;
 use crate::widget_package;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
 /// 扩展增删、授权、开发包变化后广播。
 pub const EXTENSIONS_CHANGED_EVENT: &str = "extensions-changed";
+
+// Serialise package mutations while a replacement may need its backup.
+static PACKAGE_MUTATION: Mutex<()> = Mutex::new(());
+
+pub(crate) fn begin_package_mutation() -> Result<MutexGuard<'static, ()>, ExtensionError> {
+  PACKAGE_MUTATION
+    .try_lock()
+    .map_err(|_| ExtensionError::new("extension.busy", "扩展安装或卸载正在进行，请稍后再试"))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetUpdateConfirmation {
+  id: String,
+  version: String,
+  running: bool,
+  visible: bool,
+}
+
+fn widget_confirmation_matches(
+  snapshot: &WidgetUpdateConfirmation,
+  installed: &ExtensionInfo,
+) -> bool {
+  snapshot.id == installed.id
+    && snapshot.version == installed.version
+    && snapshot.running == installed.running.unwrap_or(false)
+    && snapshot.visible == installed.visible.unwrap_or(false)
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -174,6 +203,27 @@ fn kind_from_str(kind: &str) -> Result<Kind, ExtensionError> {
   }
 }
 
+/// Compare SemVer precedence (build metadata does not make a version newer).
+fn validate_update_version(current: &str, next: &str) -> Result<(), ExtensionError> {
+  let parse = |version: &str| {
+    semver::Version::parse(version).map_err(|_| {
+      ExtensionError::new(
+        "extension.version-invalid",
+        format!("无法比较版本：当前版本 {current}；所选版本 {next}"),
+      )
+    })
+  };
+  let current_version = parse(current)?;
+  let next_version = parse(next)?;
+  if next_version.cmp_precedence(&current_version) != std::cmp::Ordering::Greater {
+    return Err(ExtensionError::new(
+      "extension.version-not-newer",
+      format!("只能安装高于当前版本的更新。当前版本：{current}；所选版本：{next}"),
+    ));
+  }
+  Ok(())
+}
+
 fn io_error(message: impl Into<String>) -> ExtensionError {
   ExtensionError::new("io.error", message)
 }
@@ -268,6 +318,8 @@ fn widget_info(app: &AppHandle, package: widget_package::store::PackageInfo) -> 
     "invalid"
   } else if package.tampered {
     "tampered"
+  } else if package.review_required {
+    "needs-review"
   } else if !package.verified {
     "unverified"
   } else {
@@ -755,17 +807,87 @@ fn pick_source() -> Option<PathBuf> {
 
 /// 安装；`source_digest` 来自预览，用于拒绝“确认后包被替换”。
 #[tauri::command]
-pub fn extensions_install(
+pub async fn extensions_install(
   app: AppHandle,
   path: String,
   source_digest: Option<String>,
+  widget_confirmation: Option<WidgetUpdateConfirmation>,
 ) -> Result<ExtensionInfo, ExtensionError> {
+  let worker_app = app.clone();
+  let (result, restore) = tauri::async_runtime::spawn_blocking(move || {
+    let mut restore = None;
+    let result = install_inner(
+      &worker_app,
+      path,
+      source_digest,
+      widget_confirmation,
+      &mut restore,
+    );
+    (result, restore)
+  })
+  .await
+  .map_err(|error| io_error(format!("安装任务失败：{error}")))?;
+  match (result, restore) {
+    (Err(mut error), Some(snapshot)) => {
+      if error.code == "extension.rollback-failed" {
+        emit_changed(&app);
+        slots::emit_changed(&app);
+        return Err(error);
+      }
+      if !widget_package::runtime::is_open(&app, &snapshot.id) {
+        let restored = if let Some(slot) = slots::provider_slot_for_id(&app, &snapshot.id) {
+          if slots::selected_provider(&app, slot.id).as_deref() == Some(snapshot.id.as_str()) {
+            slots::activate(&app, slot.id)
+              .await
+              .map(|_| ())
+              .map_err(|e| e.message)
+          } else {
+            widget_package::open(app.clone(), snapshot.id.clone()).await
+          }
+        } else {
+          widget_package::open(app.clone(), snapshot.id.clone()).await
+        };
+        match restored {
+          Ok(()) => error.message.push_str("；已恢复原组件运行"),
+          Err(reason) => error
+            .message
+            .push_str(&format!("；恢复原组件运行失败：{reason}")),
+        }
+      }
+      if !snapshot.visible && widget_package::runtime::is_open(&app, &snapshot.id) {
+        if let Err(reason) = widget_package::close(&app, &snapshot.id) {
+          error
+            .message
+            .push_str(&format!("；恢复隐藏状态失败：{reason}"));
+        }
+      }
+      emit_changed(&app);
+      slots::emit_changed(&app);
+      Err(error)
+    }
+    (Err(error), None) => {
+      emit_changed(&app);
+      slots::emit_changed(&app);
+      Err(error)
+    }
+    (result, _) => result,
+  }
+}
+
+fn install_inner(
+  app: &AppHandle,
+  path: String,
+  source_digest: Option<String>,
+  widget_confirmation: Option<WidgetUpdateConfirmation>,
+  restore: &mut Option<WidgetUpdateConfirmation>,
+) -> Result<ExtensionInfo, ExtensionError> {
+  let _mutation = begin_package_mutation()?;
   let base = staging_base(&app)?;
   let staged = install::stage(&base, Path::new(&path))?;
-  if let Some(expected) = source_digest {
+  if let Some(expected) = &source_digest {
     let actual = package_hash::source_digest(staged.bundle())
       .map_err(|error| io_error(format!("计算源指纹失败：{error}")))?;
-    if actual != expected {
+    if &actual != expected {
       return Err(ExtensionError::new(
         "package.changed",
         "确认安装后包内容发生变化，请重新选择",
@@ -775,6 +897,18 @@ pub fn extensions_install(
 
   let kind = detect_kind(staged.bundle())?;
   let claim = claim_for_bundle(kind, staged.bundle())?;
+  let installed = extensions_list(app.clone())
+    .into_iter()
+    .find(|item| item.kind == kind.as_str() && item.id == claim.id);
+  if kind == Kind::Widget && installed.is_none() && widget_confirmation.is_some() {
+    return Err(ExtensionError::new(
+      "extension.state-changed",
+      "扩展状态已变化，请重新预览并确认更新",
+    ));
+  }
+  if let Some(installed) = &installed {
+    validate_update_version(&installed.version, &claim.version)?;
+  }
   if kind == Kind::Scene && content_package::store::is_reserved(&claim.id) {
     return Err(ExtensionError::new(
       "manifest.id-reserved",
@@ -801,12 +935,85 @@ pub fn extensions_install(
 
   let info = match kind {
     Kind::Widget => {
-      let manifest = widget_package::manifest::PackageManifest::from_dir(staged.bundle())
-        .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
+      let manifest = widget_package::store::validate_staged(&staged)?;
       validate_provider_install(&manifest)?;
       let root = widget_package::store::root(&app).map_err(io_error)?;
-      let package = widget_package::store::install_from_staged(&root, &staged)?;
-      widget_info(&app, package)
+      if let Some(installed) = installed {
+        if installed.dev || installed.origin != "user" {
+          return Err(ExtensionError::new(
+            "extension.official-readonly",
+            "该扩展不能从文件覆盖更新",
+          ));
+        }
+        let snapshot = widget_confirmation.ok_or_else(|| {
+          ExtensionError::new("extension.confirmation-required", "请重新预览并确认更新")
+        })?;
+        if source_digest.is_none() || !widget_confirmation_matches(&snapshot, &installed) {
+          return Err(ExtensionError::new(
+            "extension.state-changed",
+            "扩展状态已变化，请重新预览并确认更新",
+          ));
+        }
+        if snapshot.running {
+          *restore = Some(snapshot.clone());
+          widget_package::stop_during_update(app, &manifest.id).map_err(|error| {
+            ExtensionError::new(
+              "extension.stop-failed",
+              format!("停止组件失败，未安装新版本：{error}"),
+            )
+          })?;
+          widget_package::runtime::wait_closed(
+            app,
+            &manifest.id,
+            std::time::Duration::from_secs(2),
+          )
+          .map_err(|error| {
+            ExtensionError::new(
+              "extension.stop-failed",
+              format!("停止组件失败，未安装新版本：{error}"),
+            )
+          })?;
+        }
+        let replacement = staged.replace(&root, &manifest.id)?;
+        let verified = find_widget(app, &manifest.id).and_then(|info| {
+          if info.status == "invalid"
+            || info.status == "tampered"
+            || info.version != manifest.version
+          {
+            return Err(ExtensionError::new(
+              "extension.update-failed",
+              "安装后的工具包验证失败",
+            ));
+          }
+          Ok(info)
+        });
+        match verified {
+          Ok(info) => {
+            replacement.commit();
+            *restore = None;
+            slots::emit_changed(app);
+            info
+          }
+          Err(error) => {
+            return match replacement.rollback() {
+              Ok(()) => Err(ExtensionError::new(
+                "extension.update-failed",
+                format!("更新失败，已恢复旧版本：{}", error.message),
+              )),
+              Err(rollback) => {
+                *restore = None;
+                Err(ExtensionError::new(
+                  "extension.rollback-failed",
+                  format!("更新失败：{}；{}", error.message, rollback.message),
+                ))
+              }
+            };
+          }
+        }
+      } else {
+        let package = widget_package::store::install_from_staged(&root, &staged)?;
+        widget_info(app, package)
+      }
     }
     Kind::Scene => {
       let root = content_package::store::root(&app).map_err(io_error)?;
@@ -816,9 +1023,41 @@ pub fn extensions_install(
     }
     Kind::Game => {
       let root = game_package::store::root(&app).map_err(io_error)?;
-      let manifest = game_package::store::install_from_staged(&root, &staged)
-        .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
-      find_game(&app, &manifest.id)?
+      let (manifest, replacement) =
+        game_package::store::install_from_staged_transaction(&root, &staged)
+          .map_err(|error| ExtensionError::new("manifest.field-invalid", error))?;
+      let installed = find_game(&app, &manifest.id).and_then(|info| {
+        if info.status == "invalid" || info.version != manifest.version {
+          return Err(ExtensionError::new(
+            "extension.update-failed",
+            "安装后的游戏包验证失败",
+          ));
+        }
+        Ok(info)
+      });
+      match installed {
+        Ok(info) => {
+          replacement.commit();
+          info
+        }
+        Err(error) => {
+          let had_previous = replacement.has_backup();
+          return match replacement.rollback() {
+            Ok(()) => Err(ExtensionError::new(
+              "extension.update-failed",
+              if had_previous {
+                format!("安装验证失败，已恢复旧版本：{}", error.message)
+              } else {
+                format!("安装验证失败，已移除未完成的安装：{}", error.message)
+              },
+            )),
+            Err(restore_error) => Err(ExtensionError::new(
+              "extension.rollback-failed",
+              format!("安装验证失败：{}；{}", error.message, restore_error.message),
+            )),
+          };
+        }
+      }
     }
   };
   emit_changed(&app);
@@ -827,6 +1066,7 @@ pub fn extensions_install(
 
 #[tauri::command]
 pub fn extensions_remove(app: AppHandle, kind: String, id: String) -> Result<(), ExtensionError> {
+  let _mutation = begin_package_mutation()?;
   match kind_from_str(&kind)? {
     Kind::Widget => {
       if widget_package::store::is_official(&app, &id) {
@@ -883,6 +1123,7 @@ pub fn extensions_set_enabled(
   enabled: bool,
   kind: Option<String>,
 ) -> Result<ExtensionInfo, ExtensionError> {
+  let _mutation = begin_package_mutation()?;
   match kind_from_str(kind.as_deref().unwrap_or("widget"))? {
     Kind::Widget => {
       widget_package::store::set_enabled(&app, &id, enabled)
@@ -913,6 +1154,7 @@ pub fn extensions_set_capability(
   granted: bool,
   kind: Option<String>,
 ) -> Result<ExtensionInfo, ExtensionError> {
+  let _mutation = begin_package_mutation()?;
   match kind_from_str(kind.as_deref().unwrap_or("widget"))? {
     Kind::Widget => {
       widget_package::store::set_capability(&app, &id, &capability, granted)
@@ -1150,6 +1392,38 @@ fn pick_dev_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn package_mutations_are_serialized() {
+    let guard = begin_package_mutation().expect("first mutation");
+    assert_eq!(
+      begin_package_mutation().err().map(|error| error.code),
+      Some("extension.busy".to_string())
+    );
+    drop(guard);
+    assert!(begin_package_mutation().is_ok());
+  }
+
+  #[test]
+  fn update_requires_strictly_newer_semver_precedence() {
+    assert!(validate_update_version("1.2.3", "1.2.4").is_ok());
+    assert!(validate_update_version("1.2.3-beta.2", "1.2.3-beta.11").is_ok());
+    assert!(validate_update_version("1.2.3-rc.1", "1.2.3").is_ok());
+    for next in ["1.2.3", "1.2.2", "1.2.3+other", "1.2.3-rc.1"] {
+      assert_eq!(
+        validate_update_version("1.2.3", next)
+          .err()
+          .map(|error| error.code),
+        Some("extension.version-not-newer".to_string())
+      );
+    }
+    assert_eq!(
+      validate_update_version("bad", "1.2.4")
+        .err()
+        .map(|error| error.code),
+      Some("extension.version-invalid".to_string())
+    );
+  }
 
   #[test]
   fn kind_parser_rejects_unknown() {

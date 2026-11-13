@@ -356,6 +356,7 @@ test("enable asks for permission confirmation before invoking", async () => {
 
 test("install previews the package and submits the source digest", async () => {
   mockCommands({
+    extensions_list: () => [scene],
     extensions_pick: () => ({ path: "C:\\tmp\\demo.zip", preview }),
   });
   render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
@@ -371,6 +372,134 @@ test("install previews the package and submits the source digest", async () => {
       sourceDigest: preview.sourceDigest,
     });
   });
+});
+
+test("widget updates submit the confirmed version and running state", async () => {
+  mockCommands({
+    extensions_pick: () => ({
+      path: "C:\\tmp\\widget.zip",
+      preview: { ...preview, version: "1.3.0" },
+    }),
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "从文件安装" }));
+  fireEvent.click(await screen.findByRole("button", { name: "确认更新" }));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("extensions_install", {
+      path: "C:\\tmp\\widget.zip",
+      sourceDigest: preview.sourceDigest,
+      widgetConfirmation: {
+        id: widget.id,
+        version: widget.version,
+        running: false,
+        visible: false,
+      },
+    }),
+  );
+});
+
+test("running widget update warns before stopping and cancellation does nothing", async () => {
+  mockCommands({
+    extensions_list: () => [{ ...widget, running: true, visible: true }],
+    extensions_pick: () => ({
+      path: "C:\\tmp\\widget.zip",
+      preview: { ...preview, version: "1.3.0" },
+    }),
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "从文件安装" }));
+  expect(
+    await screen.findByText(/更新前将停止正在运行的\s*番茄钟/),
+  ).toBeDefined();
+  expect(screen.getByRole("button", { name: "停止并更新" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(invoke).not.toHaveBeenCalledWith(
+    "extensions_install",
+    expect.anything(),
+  );
+});
+
+test("running widget update sends the confirmed running state", async () => {
+  mockCommands({
+    extensions_list: () => [{ ...widget, running: true, visible: true }],
+    extensions_pick: () => ({
+      path: "C:\\tmp\\widget.zip",
+      preview: { ...preview, version: "1.3.0" },
+    }),
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "从文件安装" }));
+  fireEvent.click(await screen.findByRole("button", { name: "停止并更新" }));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("extensions_install", {
+      path: "C:\\tmp\\widget.zip",
+      sourceDigest: preview.sourceDigest,
+      widgetConfirmation: {
+        id: widget.id,
+        version: widget.version,
+        running: true,
+        visible: true,
+      },
+    }),
+  );
+});
+
+test("updated widget can be enabled after permission review", async () => {
+  const reviewWidget = {
+    ...widget,
+    status: "needs-review" as const,
+    enabled: false,
+  };
+  mockCommands({ extensions_list: () => [reviewWidget] });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "启用：番茄钟" }));
+  expect(await screen.findByText("启用 番茄钟")).toBeDefined();
+  expect(screen.getByRole("button", { name: "确认启用" })).toBeDefined();
+});
+
+test("running game update is blocked until it is stopped", async () => {
+  mockCommands({
+    extensions_list: () => [{ ...game, running: true }],
+    extensions_pick: () => ({
+      path: "C:\\tmp\\game.zip",
+      preview: { ...preview, kind: "game", id: game.id, version: "1.3.0" },
+    }),
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "从文件安装" }));
+  expect(
+    await screen.findByText("自动停止并更新游戏尚不可用，请先停止游戏。"),
+  ).toBeDefined();
+  expect(
+    screen.getByRole("button", { name: "确认更新" }).hasAttribute("disabled"),
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(invoke).not.toHaveBeenCalledWith(
+    "extensions_install",
+    expect.anything(),
+  );
+});
+
+test("version rejection is localized with the compared versions", async () => {
+  mockCommands({
+    extensions_pick: () => ({
+      path: "C:\\tmp\\mist.zip",
+      preview: scenePreview,
+    }),
+    extensions_install: () =>
+      Promise.reject({
+        code: "extension.version-not-newer",
+        message: "fallback",
+      }),
+  });
+  render(<ExtensionsPanel onOpenWallpaperSettings={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "从文件安装" }));
+  fireEvent.click(await screen.findByRole("button", { name: "确认更新" }));
+  expect(
+    await screen.findByText(
+      /只能安装高于当前版本的更新。当前版本：1\.0\.0；所选版本：1\.1\.0/,
+    ),
+  ).toBeDefined();
 });
 
 test("scene update preview shows installed version and updates", async () => {

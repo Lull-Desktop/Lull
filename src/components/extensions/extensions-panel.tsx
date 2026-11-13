@@ -111,7 +111,6 @@ function canEnable(item: ExtensionInfo): boolean {
   return (
     item.status !== "invalid" &&
     item.status !== "tampered" &&
-    item.status !== "needs-review" &&
     (item.signature ?? UNSIGNED_SIGNATURE).decision !== "block"
   );
 }
@@ -167,8 +166,15 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
           item.kind === preview.preview.kind && item.id === preview.preview.id,
       )
     : undefined;
-  const isSceneUpdate =
-    preview?.preview.kind === "scene" && installedPreview !== undefined;
+  const isUpdate = installedPreview !== undefined;
+  const runningWidgetUpdate =
+    isUpdate &&
+    preview?.preview.kind === "widget" &&
+    installedPreview?.running === true;
+  const runningGameUpdate =
+    isUpdate &&
+    preview?.preview.kind === "game" &&
+    installedPreview?.running === true;
   const previewSignature = preview?.preview.signature ?? UNSIGNED_SIGNATURE;
 
   useEffect(() => {
@@ -263,6 +269,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
     let disposed = false;
     void getCurrentWindow()
       .onDragDropEvent((event) => {
+        if (busy || preview) return;
         if (event.payload.type === "enter" || event.payload.type === "over") {
           setDragging(true);
           return;
@@ -291,7 +298,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       disposed = true;
       stop?.();
     };
-  }, [previewPath]);
+  }, [busy, preview, previewPath]);
 
   const pickAndPreview = useCallback((): void => {
     setMessage("");
@@ -353,29 +360,55 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
   const confirmInstall = useCallback((): void => {
     if (!preview) return;
     setBusy(true);
-    installExtension(preview.path, preview.preview.sourceDigest)
+    installExtension(
+      preview.path,
+      preview.preview.sourceDigest,
+      preview.preview.kind === "widget" && installedPreview
+        ? {
+            id: installedPreview.id,
+            version: installedPreview.version,
+            running: installedPreview.running === true,
+            visible: installedPreview.visible === true,
+          }
+        : undefined,
+    )
       .then(async (installed) => {
         const toastArgs = {
           name: installed.name,
           version: installed.version,
         };
         setMessage(
-          isSceneUpdate
-            ? m.ext_toast_updated(toastArgs)
-            : m.ext_toast_installed(toastArgs),
+          isUpdate && installed.status === "needs-review"
+            ? m.ext_toast_updated_review(toastArgs)
+            : isUpdate
+              ? m.ext_toast_updated(toastArgs)
+              : m.ext_toast_installed(toastArgs),
         );
         setPreview(null);
-        await refresh();
+        await Promise.all([refresh(), refreshSlots()]);
       })
-      .catch((error: unknown) => {
-        setMessage(
-          m.ext_error_install({ reason: toExtensionFailure(error).message }),
-        );
+      .catch(async (error: unknown) => {
+        const failure = toExtensionFailure(error);
+        const versions = {
+          current: installedPreview?.version ?? "",
+          next: preview.preview.version,
+        };
+        const reason =
+          failure.code === "extension.version-not-newer"
+            ? m.ext_update_version_not_newer(versions)
+            : failure.code === "extension.version-invalid"
+              ? m.ext_update_version_invalid(versions)
+              : failure.code === "extension.state-changed" ||
+                  failure.code === "extension.confirmation-required"
+                ? m.ext_update_state_changed()
+                : failure.message;
+        setMessage(m.ext_error_install({ reason }));
+        await Promise.all([refresh(), refreshSlots()]);
       })
       .finally(() => {
         setBusy(false);
       });
-  }, [isSceneUpdate, preview, refresh]);
+  }, [installedPreview, isUpdate, preview, refresh, refreshSlots]);
 
   const runAction = useCallback(
     (action: () => Promise<unknown>, success: string): void => {
@@ -954,7 +987,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
           )}
         </div>
 
-        {message && (
+        {message && !preview && (
           <p className="shrink-0 text-xs text-muted-foreground break-all">
             {message}
           </p>
@@ -964,17 +997,22 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
       <Sheet
         open={preview !== null}
         onOpenChange={(open) => {
-          if (!open) setPreview(null);
+          if (!open && !busy) {
+            setPreview(null);
+            setMessage("");
+          }
         }}
       >
-        <SheetContent side="right" className="w-full sm:max-w-md">
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md"
+          showCloseButton={!busy}
+        >
           {preview && (
             <>
               <SheetHeader>
                 <SheetTitle>
-                  {isSceneUpdate
-                    ? m.ext_confirm_update()
-                    : m.ext_confirm_install()}{" "}
+                  {isUpdate ? m.ext_confirm_update() : m.ext_confirm_install()}{" "}
                   {preview.preview.name}
                 </SheetTitle>
                 <SheetDescription>
@@ -983,12 +1021,24 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 </SheetDescription>
               </SheetHeader>
               <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4 text-sm">
-                {isSceneUpdate && installedPreview && (
+                {isUpdate && installedPreview && (
                   <p className="rounded-lg border border-bamboo/30 bg-bamboo/5 p-2 text-[11px] text-ink-soft">
                     {m.ext_update_notice({
                       current: installedPreview.version,
                       next: preview.preview.version,
                     })}
+                  </p>
+                )}
+                {runningWidgetUpdate && (
+                  <p className="text-xs text-destructive">
+                    {m.ext_update_widget_running({
+                      name: installedPreview?.name ?? "",
+                    })}
+                  </p>
+                )}
+                {runningGameUpdate && (
+                  <p className="text-xs text-destructive">
+                    {m.ext_update_game_running()}
                   </p>
                 )}
                 {preview.preview.description && (
@@ -1083,7 +1133,7 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                   </ul>
                 )}
                 <p className="text-[11px] text-muted-foreground">
-                  {isSceneUpdate
+                  {isUpdate
                     ? m.ext_install_note_update()
                     : m.ext_install_note()}
                 </p>
@@ -1095,7 +1145,10 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setPreview(null)}
+                  onClick={() => {
+                    setPreview(null);
+                    setMessage("");
+                  }}
                   disabled={busy}
                 >
                   {m.ext_cancel()}
@@ -1103,13 +1156,19 @@ export function ExtensionsPanel({ onOpenWallpaperSettings }: Props) {
                 <Button
                   type="button"
                   onClick={confirmInstall}
-                  disabled={busy || previewSignature.decision === "block"}
+                  disabled={
+                    busy ||
+                    previewSignature.decision === "block" ||
+                    runningGameUpdate
+                  }
                 >
                   {busy
                     ? m.ext_installing()
-                    : isSceneUpdate
-                      ? m.ext_confirm_update()
-                      : m.ext_confirm_install()}
+                    : runningWidgetUpdate
+                      ? m.ext_stop_and_update()
+                      : isUpdate
+                        ? m.ext_confirm_update()
+                        : m.ext_confirm_install()}
                 </Button>
               </div>
             </>

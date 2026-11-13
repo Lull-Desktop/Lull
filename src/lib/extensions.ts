@@ -222,8 +222,18 @@ export async function pickExtension(): Promise<PickedExtension | null> {
 export async function installExtension(
   path: string,
   sourceDigest: string,
+  widgetConfirmation?: {
+    id: string;
+    version: string;
+    running: boolean;
+    visible: boolean;
+  },
 ): Promise<ExtensionInfo> {
-  return invoke<ExtensionInfo>("extensions_install", { path, sourceDigest });
+  return invoke<ExtensionInfo>("extensions_install", {
+    path,
+    sourceDigest,
+    ...(widgetConfirmation ? { widgetConfirmation } : {}),
+  });
 }
 
 export async function removeExtension(
