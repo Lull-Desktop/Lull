@@ -16,6 +16,7 @@ function setupDom(): void {
   document.body.innerHTML = `
     <div id="scene">
       <div id="moon"></div>
+      <div id="fireflies"></div>
       <div id="mist-veil"></div>
       ${BAND_IDS.map((id) => `<div id="${id}" class="mist-band"></div>`).join("")}
       ${STALK_IDS.map(
@@ -93,6 +94,7 @@ describe("竹影同步相位", () => {
       frame({ sync: { enabled: true, epochMs: 30000 } }),
     );
     expect(styleOf("moon").animationDelay).toBe("-3000ms");
+    expect(styleOf("fireflies").animationDelay).toBe("-6000ms");
     expect(styleOf("mist-band-0").animationDelay).toBe("-4000ms");
     expect(styleOf("stalk-0").animationDelay).toBe("-8000ms");
     expect(styleOf("stalk-0").animationDuration).toBe("11s");

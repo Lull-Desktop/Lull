@@ -8,167 +8,75 @@
   </head>
   <body>
     <div id="scene" class="scene" data-layout="viewport" data-reduced-motion="false">
-      <!-- 夜色底：深青绿到近乎黑，保证长时间亮屏不刺眼。 -->
-      <div class="night"></div>
-
-      <!-- 月晕 -->
-      <div id="moon" class="moon"></div>
-
-      <!-- 星点 -->
+      <div class="night" aria-hidden="true"></div>
+      <div id="moon" class="moon" aria-hidden="true"><div class="moon-disc"></div></div>
       <div class="stars" aria-hidden="true">
-        <span style="left: 8%; top: 14%; opacity: 0.52"></span>
-        <span style="left: 16%; top: 8%; opacity: 0.66"></span>
-        <span style="left: 24%; top: 22%; opacity: 0.4"></span>
-        <span style="left: 33%; top: 11%; opacity: 0.58"></span>
-        <span style="left: 41%; top: 18%; opacity: 0.46"></span>
-        <span style="left: 52%; top: 7%; opacity: 0.7"></span>
-        <span style="left: 61%; top: 16%; opacity: 0.5"></span>
-        <span style="left: 69%; top: 10%; opacity: 0.62"></span>
-        <span style="left: 77%; top: 21%; opacity: 0.44"></span>
-        <span style="left: 86%; top: 13%; opacity: 0.56"></span>
-        <span style="left: 93%; top: 24%; opacity: 0.38"></span>
-        <span style="left: 29%; top: 31%; opacity: 0.48"></span>
-        <span style="left: 57%; top: 28%; opacity: 0.54"></span>
+        <span style="left: 8%; top: 14%"></span><span style="left: 16%; top: 8%"></span>
+        <span style="left: 24%; top: 22%"></span><span style="left: 33%; top: 11%"></span>
+        <span style="left: 41%; top: 18%"></span><span style="left: 52%; top: 7%"></span>
+        <span style="left: 61%; top: 16%"></span><span style="left: 69%; top: 10%"></span>
+        <span style="left: 77%; top: 21%"></span><span style="left: 86%; top: 13%"></span>
+        <span style="left: 93%; top: 24%"></span><span style="left: 57%; top: 28%"></span>
       </div>
 
-      <!-- 远山：两层剪影制造纵深 -->
-      <svg
-        class="mountains"
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        aria-hidden="true"
-      >
-        <path
-          d="M0 78 L12 66 L22 72 L36 52 L48 62 L62 44 L76 60 L88 54 L100 70 L100 100 L0 100 Z"
-          fill="rgba(9, 24, 24, 0.78)"
-        ></path>
-        <path
-          d="M0 88 L14 78 L28 84 L42 72 L58 82 L72 68 L86 80 L100 74 L100 100 L0 100 Z"
-          fill="rgba(5, 15, 16, 0.92)"
-        ></path>
+      <!-- 远山、水面与岸线共用画布，使不同屏幕上的构图连续。 -->
+      <svg class="landscape" viewBox="0 0 1600 900" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="far-mountain" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#567569"/><stop offset="1" stop-color="#192e29"/></linearGradient>
+          <linearGradient id="near-mountain" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#294c40"/><stop offset="1" stop-color="#0c1d19"/></linearGradient>
+          <linearGradient id="water" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#314e40"/><stop offset="1" stop-color="#0a1915"/></linearGradient>
+          <linearGradient id="bamboo-stem" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#1a372a"/><stop offset="0.36" stop-color="#658767"/><stop offset="0.55" stop-color="#8aa47d"/><stop offset="1" stop-color="#203b2b"/></linearGradient>
+          <symbol id="bamboo-spray" viewBox="0 0 260 900">
+            <path d="M123 900 C120 660 125 346 132 -10 L150 -10 C143 333 141 664 144 900Z" fill="url(#bamboo-stem)"/>
+            <path d="M132 4 C127 323 126 628 129 900" fill="none" stroke="#d2dbb5" stroke-opacity=".2" stroke-width="2"/>
+            <g fill="none" stroke="#a6bd91" stroke-opacity=".48" stroke-width="3"><path d="M124 158 q12 5 22 -1"/><path d="M123 314 q12 5 22 -1"/><path d="M123 471 q12 5 21 -1"/><path d="M122 628 q12 5 21 -1"/><path d="M122 784 q12 5 21 -1"/></g>
+            <g fill="none" stroke="#729674" stroke-width="3" stroke-linecap="round"><path d="M134 171 Q94 136 33 93"/><path d="M141 317 Q185 263 242 238"/><path d="M131 467 Q80 418 20 394"/><path d="M140 623 Q193 573 247 557"/><path d="M130 775 Q84 735 30 716"/></g>
+            <g fill="#769b77">
+              <path d="M91 141 Q65 102 29 94 Q47 121 91 141Z"/><path d="M79 132 Q51 120 17 128 Q45 141 79 132Z"/><path d="M68 122 Q53 87 30 76 Q37 105 68 122Z"/><path d="M109 151 Q96 112 69 94 Q76 130 109 151Z"/>
+              <path d="M174 282 Q198 245 242 237 Q220 265 174 282Z"/><path d="M190 269 Q218 263 252 274 Q225 282 190 269Z"/><path d="M199 260 Q213 226 240 215 Q229 246 199 260Z"/><path d="M158 299 Q170 259 199 243 Q188 278 158 299Z"/>
+              <path d="M88 435 Q58 398 20 394 Q42 420 88 435Z"/><path d="M72 426 Q45 418 9 431 Q38 439 72 426Z"/><path d="M64 416 Q51 382 22 369 Q32 401 64 416Z"/><path d="M108 451 Q96 412 65 393 Q74 430 108 451Z"/>
+              <path d="M177 590 Q202 558 247 556 Q224 581 177 590Z"/><path d="M193 580 Q220 573 255 588 Q225 596 193 580Z"/><path d="M206 571 Q220 537 246 527 Q237 559 206 571Z"/><path d="M160 607 Q174 570 205 555 Q192 589 160 607Z"/>
+              <path d="M86 750 Q60 720 30 716 Q43 741 86 750Z"/><path d="M69 740 Q43 735 11 746 Q39 753 69 740Z"/><path d="M105 765 Q91 730 66 716 Q73 745 105 765Z"/>
+            </g>
+            <g fill="none" stroke="#c4d2aa" stroke-opacity=".23" stroke-width="1"><path d="M30 94 Q66 116 102 148"/><path d="M240 237 Q200 259 153 305"/><path d="M22 394 Q65 415 116 457"/><path d="M245 556 Q208 572 153 615"/></g>
+          </symbol>
+        </defs>
+        <path d="M0 541 C98 506 160 461 249 475 C319 485 367 433 434 416 C511 394 557 449 627 440 C706 429 761 358 837 381 C917 406 950 449 1010 433 C1092 410 1154 344 1232 376 C1306 407 1363 459 1432 441 C1508 421 1548 440 1600 457 L1600 720 L0 720Z" fill="url(#far-mountain)" opacity=".57"/>
+        <path d="M0 585 C99 551 157 536 232 552 C304 566 375 501 450 507 C540 514 595 565 664 545 C747 521 796 473 879 496 C964 520 1023 548 1092 521 C1181 487 1251 490 1333 527 C1440 576 1513 526 1600 541 L1600 734 L0 734Z" fill="url(#near-mountain)" opacity=".85"/>
+        <g fill="none" stroke="#91ad97" stroke-opacity=".1" stroke-width="2"><path d="M272 532 Q345 491 413 480 M328 549 Q377 523 432 519"/><path d="M703 509 Q770 456 825 463 M744 526 Q793 498 847 498"/><path d="M1107 482 Q1174 448 1229 460 M1161 501 Q1215 481 1269 499"/></g>
+        <g fill="#102d23" opacity=".58"><path d="M35 617 l10 -48 6 48 9 -34 6 34 12 -55 9 55 11 -43 8 43 12 -62 8 62 10 -39 7 39 15 -45 8 45Z"/><path d="M1284 613 l12 -48 8 48 10 -39 6 39 14 -58 9 58 10 -42 7 42 12 -51 8 51 12 -34 7 34 13 -48 8 48Z"/></g>
+        <path d="M0 624 C135 597 214 619 301 603 C413 579 490 604 579 605 C665 605 737 568 839 589 C960 612 1033 586 1127 585 C1248 585 1346 625 1444 601 C1509 586 1563 592 1600 601 L1600 900 L0 900Z" fill="url(#water)"/>
+        <g fill="none" stroke="#a7bea3" stroke-linecap="round" opacity=".19"><path d="M490 670 h174 m63 0 h96 m82 0 h214"/><path d="M596 696 h174 m51 0 h97 m64 0 h120"/><path d="M394 733 h129 m151 0 h290 m49 0 h159"/><path d="M566 776 h183 m38 0 h149"/></g>
+        <path d="M0 822 C156 790 223 829 315 818 C393 809 440 838 518 849 C647 868 736 852 849 871 L849 900 L0 900Z" fill="#071410"/>
+        <path d="M1600 793 C1500 797 1437 825 1345 819 C1273 816 1230 849 1148 856 C1061 864 1013 880 970 900 L1600 900Z" fill="#071410"/>
+        <g fill="none" stroke="#739276" stroke-opacity=".35" stroke-width="2"><path d="M0 821 Q119 798 231 817"/><path d="M1379 817 Q1492 797 1600 799"/></g>
+        <g fill="#183026" stroke="#77977a" stroke-opacity=".22" stroke-width="1.5"><path d="M195 824 q15 -22 41 -20 q24 1 38 23Z"/><path d="M231 829 q15 -14 36 -12 q15 1 26 14Z"/><path d="M1312 823 q22 -19 51 -17 q24 2 38 21Z"/></g>
+        <g fill="none" stroke="#779878" stroke-opacity=".42" stroke-width="2" stroke-linecap="round"><path d="M318 831 Q313 792 294 768 M318 831 Q324 799 337 781 M318 831 Q306 805 281 800"/><path d="M1283 835 Q1288 797 1308 773 M1283 835 Q1276 807 1260 789 M1283 835 Q1300 811 1320 808"/><path d="M89 817 Q82 794 72 781 M89 817 Q98 799 111 790"/></g>
       </svg>
 
-      <!-- 薄雾：整屏雾幔 + 三层带状雾；不透明度与高度由 Scene SDK 帧驱动。 -->
-      <div id="mist-veil" class="mist-veil"></div>
-      <div id="mist-band-0" class="mist-band band-0"></div>
-      <div id="mist-band-1" class="mist-band band-1"></div>
-      <div id="mist-band-2" class="mist-band band-2"></div>
+      <div id="mist-veil" class="mist-veil" aria-hidden="true"></div>
+      <div id="mist-band-0" class="mist-band band-0" aria-hidden="true"></div>
+      <div id="mist-band-1" class="mist-band band-1" aria-hidden="true"></div>
+      <div id="mist-band-2" class="mist-band band-2" aria-hidden="true"></div>
 
-      <!-- 竹竿与竹叶 -->
+      <!-- 六株竹子各自跟随宿主同步相位，叶片与竹节随竹竿整体摇曳。 -->
       <div class="stalks" aria-hidden="true">
-        <div
-          id="stalk-0"
-          class="stalk"
-          data-static-delay="-2s"
-          style="
-            left: 4%;
-            width: 10px;
-            height: 86%;
-            opacity: 0.7;
-            background-image: linear-gradient(90deg, #6f8f6a00, #6f8f6a 32%, #b7c9a8 50%, #6f8f6a 68%, #6f8f6a00);
-          "
-        >
-          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
-          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
-          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
-          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
-        </div>
-        <div
-          id="stalk-1"
-          class="stalk"
-          data-static-delay="-5s"
-          style="
-            left: 11%;
-            width: 5px;
-            height: 62%;
-            opacity: 0.45;
-            background-image: linear-gradient(90deg, #58775b00, #58775b 32%, #b7c9a8 50%, #58775b 68%, #58775b00);
-          "
-        >
-          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
-          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
-          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
-          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
-        </div>
-        <div
-          id="stalk-2"
-          class="stalk"
-          data-static-delay="-1s"
-          style="
-            left: 17%;
-            width: 3px;
-            height: 48%;
-            opacity: 0.35;
-            background-image: linear-gradient(90deg, #4e6a5100, #4e6a51 32%, #b7c9a8 50%, #4e6a51 68%, #4e6a5100);
-          "
-        >
-          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
-          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
-          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
-          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
-        </div>
-        <div
-          id="stalk-3"
-          class="stalk"
-          data-static-delay="-6s"
-          style="
-            left: 84%;
-            width: 8px;
-            height: 78%;
-            opacity: 0.6;
-            background-image: linear-gradient(90deg, #647f6000, #647f60 32%, #b7c9a8 50%, #647f60 68%, #647f6000);
-          "
-        >
-          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
-          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
-          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
-          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
-        </div>
-        <div
-          id="stalk-4"
-          class="stalk"
-          data-static-delay="-3s"
-          style="
-            left: 91%;
-            width: 4px;
-            height: 56%;
-            opacity: 0.4;
-            background-image: linear-gradient(90deg, #526d5400, #526d54 32%, #b7c9a8 50%, #526d54 68%, #526d5400);
-          "
-        >
-          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
-          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
-          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
-          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
-        </div>
-        <div
-          id="stalk-5"
-          class="stalk"
-          data-static-delay="-8s"
-          style="
-            left: 96%;
-            width: 2.5px;
-            height: 42%;
-            opacity: 0.3;
-            background-image: linear-gradient(90deg, #46604900, #466049 32%, #b7c9a8 50%, #466049 68%, #46604900);
-          "
-        >
-          <span style="top: 18%; left: 52%; width: 26px; transform: rotate(-26deg)"></span>
-          <span style="top: 38%; left: -46%; width: 33px; transform: rotate(24deg)"></span>
-          <span style="top: 62%; left: 52%; width: 40px; transform: rotate(-26deg)"></span>
-          <span style="top: 82%; left: -46%; width: 47px; transform: rotate(24deg)"></span>
-        </div>
+        <div id="stalk-0" class="stalk stalk-0" data-static-delay="-2s"><svg aria-hidden="true" viewBox="0 0 260 900" preserveAspectRatio="none"><use href="#bamboo-spray" /></svg></div>
+        <div id="stalk-1" class="stalk stalk-1" data-static-delay="-5s"><svg aria-hidden="true" viewBox="0 0 260 900" preserveAspectRatio="none"><use href="#bamboo-spray" /></svg></div>
+        <div id="stalk-2" class="stalk stalk-2" data-static-delay="-1s"><svg aria-hidden="true" viewBox="0 0 260 900" preserveAspectRatio="none"><use href="#bamboo-spray" /></svg></div>
+        <div id="stalk-3" class="stalk stalk-3" data-static-delay="-6s"><svg aria-hidden="true" viewBox="0 0 260 900" preserveAspectRatio="none"><use href="#bamboo-spray" /></svg></div>
+        <div id="stalk-4" class="stalk stalk-4" data-static-delay="-3s"><svg aria-hidden="true" viewBox="0 0 260 900" preserveAspectRatio="none"><use href="#bamboo-spray" /></svg></div>
+        <div id="stalk-5" class="stalk stalk-5" data-static-delay="-8s"><svg aria-hidden="true" viewBox="0 0 260 900" preserveAspectRatio="none"><use href="#bamboo-spray" /></svg></div>
       </div>
+      <div id="fireflies" class="fireflies" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="foreground" aria-hidden="true"></div>
 
-      <!-- 时间与文案 -->
       <div id="copy" class="copy">
         <div class="wordmark">LULL</div>
         <div id="clock" class="clock">--:--:--</div>
         <div class="subtitle">云栖之处，安然入眠</div>
-        <div class="tagline">竹影 · 山风 · 远处磬声</div>
+        <div class="tagline">竹影 · 山风 · 夜色</div>
       </div>
-
-      <!-- 跨屏接缝之外的角落标记，便于真机确认窗口/画布对应关系 -->
       <div id="canvas-label" class="canvas-label" hidden></div>
     </div>
     <script type="module" src="./src/main.ts"></script>

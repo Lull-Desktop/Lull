@@ -34,6 +34,7 @@ export const STALKS: readonly Stalk[] = [
 ];
 
 const MOON_PERIOD_MS = 9000;
+const FIREFLY_PERIOD_MS = 12000;
 const DEFAULT_MIST = 0.5;
 
 function clamp01(value: number): number {
@@ -85,6 +86,12 @@ export function applySceneFrame(root: Document, frame: SceneFrame): void {
   if (moon) {
     moon.style.animationDuration = `${MOON_PERIOD_MS / 1000}s`;
     setSyncDelay(moon, MOON_PERIOD_MS, frame, null);
+  }
+
+  const fireflies = element(root, "fireflies");
+  if (fireflies) {
+    fireflies.style.animationDuration = `${FIREFLY_PERIOD_MS / 1000}s`;
+    setSyncDelay(fireflies, FIREFLY_PERIOD_MS, frame, null);
   }
 
   for (const stalk of STALKS) {

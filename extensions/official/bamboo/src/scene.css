@@ -1,9 +1,4 @@
-/*
- * 竹影（lull.bamboo）官方场景：深夜竹林、薄雾与远山。
- *
- * 所有动画只使用 CSS transform / opacity；Scene SDK 帧只负责写入
- * 雾浓度、同步相位、画布字号与减少动态标记，避免逐帧 JS 动画。
- */
+/* 竹影：层叠的山、水、薄雾与月下竹林。动画由宿主相位对齐。 */
 :root {
   color-scheme: dark;
   font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
@@ -13,7 +8,6 @@
 * {
   box-sizing: border-box;
 }
-
 html,
 body {
   width: 100%;
@@ -21,7 +15,6 @@ body {
   margin: 0;
   overflow: hidden;
 }
-
 body {
   background: #07110f;
 }
@@ -32,7 +25,6 @@ body {
   overflow: hidden;
   background: #07110f;
   color: #e9efe4;
-  font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
   --wordmark-size: 40px;
   --clock-size: 88px;
   --subtitle-size: 20px;
@@ -43,55 +35,63 @@ body {
   inset: 0;
   background:
     radial-gradient(
-      1200px 820px at 78% 8%,
-      rgba(184, 214, 181, 0.16),
-      transparent 62%
+      ellipse 32% 39% at 75% 22%,
+      rgba(156, 190, 151, 0.23),
+      transparent 75%
     ),
     radial-gradient(
-      900px 700px at 16% 86%,
-      rgba(36, 78, 64, 0.42),
-      transparent 70%
+      ellipse 66% 40% at 52% 72%,
+      rgba(76, 126, 95, 0.2),
+      transparent 76%
     ),
-    linear-gradient(158deg, #0a1714 0%, #0b1d18 45%, #06100e 100%);
+    linear-gradient(180deg, #091a17 0%, #152b22 49%, #0a1b15 100%);
 }
 
 .moon {
   position: absolute;
-  right: 10%;
-  top: 8%;
+  left: 68%;
+  top: 11%;
   width: 18vmin;
   height: 18vmin;
-  border-radius: 9999px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
   background: radial-gradient(
     circle,
-    rgba(232, 241, 219, 0.72),
-    rgba(232, 241, 219, 0.18) 42%,
-    rgba(232, 241, 219, 0) 70%
+    rgba(226, 235, 200, 0.28),
+    rgba(200, 218, 182, 0.08) 42%,
+    transparent 72%
   );
-  filter: blur(6px);
   animation: lull-breath 9s ease-in-out infinite;
-  will-change: transform, opacity;
 }
-
+.moon-disc {
+  width: 32%;
+  height: 32%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 35%, #f0f1d5, #c7d6b3 75%);
+  box-shadow: 0 0 28px 7px rgba(214, 229, 192, 0.22);
+  opacity: 0.87;
+}
 .stars {
   position: absolute;
   inset: 0;
 }
-
 .stars span {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  border-radius: 9999px;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
   background: #dcead8;
+  opacity: 0.4;
 }
-
-.mountains {
+.stars span:nth-child(3n) {
+  opacity: 0.2;
+}
+.landscape {
   position: absolute;
-  inset: auto 0 0 0;
+  inset: 0;
   width: 100%;
-  height: 58%;
-  opacity: 0.85;
+  height: 100%;
 }
 
 .mist-veil {
@@ -99,48 +99,44 @@ body {
   inset: 0;
   background: linear-gradient(
     180deg,
-    transparent 32%,
-    rgba(198, 218, 203, 0.34) 56%,
-    rgba(178, 204, 190, 0.16) 100%
+    transparent 38%,
+    rgba(175, 205, 180, 0.14) 62%,
+    transparent 91%
   );
   opacity: 0.31;
   pointer-events: none;
 }
-
 .mist-band {
   position: absolute;
-  left: -10%;
-  right: -10%;
-  border-radius: 9999px;
+  left: -15%;
+  right: -15%;
+  border-radius: 50%;
   background: linear-gradient(
     90deg,
-    transparent,
-    rgba(214, 230, 216, 0.55),
-    transparent
+    transparent 5%,
+    rgba(195, 221, 194, 0.28) 35%,
+    rgba(195, 221, 194, 0.34) 65%,
+    transparent 95%
   );
-  filter: blur(26px);
+  filter: blur(24px);
   animation: lull-mist 24s ease-in-out infinite;
-  will-change: transform, opacity;
   pointer-events: none;
 }
-
 .band-0 {
-  top: 54%;
+  top: 52%;
   height: 21%;
   opacity: 0.25;
   animation-duration: 26s;
 }
-
 .band-1 {
-  top: 68%;
+  top: 65%;
   height: 17%;
   opacity: 0.21;
   animation-duration: 31s;
   animation-direction: reverse;
 }
-
 .band-2 {
-  top: 79%;
+  top: 76%;
   height: 14%;
   opacity: 0.17;
   animation-duration: 23s;
@@ -149,24 +145,117 @@ body {
 .stalks {
   position: absolute;
   inset: 0;
+  pointer-events: none;
 }
-
 .stalk {
   position: absolute;
-  bottom: -6%;
-  border-radius: 9999px;
+  bottom: -8%;
+  transform-origin: 50% 100%;
   animation: lull-sway 10s ease-in-out infinite;
-  transform-origin: bottom center;
-  will-change: transform;
+}
+.stalk svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  mask-image: linear-gradient(transparent, #000 5%);
+}
+.stalk-0 {
+  left: -6%;
+  width: 22%;
+  height: 116%;
+  opacity: 0.75;
+}
+.stalk-1 {
+  left: 5%;
+  width: 17%;
+  height: 82%;
+  opacity: 0.48;
+}
+.stalk-2 {
+  left: 14%;
+  width: 13%;
+  height: 69%;
+  opacity: 0.27;
+}
+.stalk-3 {
+  right: -5%;
+  width: 24%;
+  height: 122%;
+  opacity: 0.8;
+}
+.stalk-4 {
+  right: 7%;
+  width: 17%;
+  height: 88%;
+  opacity: 0.48;
+}
+.stalk-5 {
+  right: 18%;
+  width: 12%;
+  height: 67%;
+  opacity: 0.25;
+}
+.stalk-1 svg,
+.stalk-3 svg,
+.stalk-5 svg {
+  transform: scaleX(-1);
 }
 
-.stalk span {
+.fireflies {
   position: absolute;
-  display: block;
-  height: 1px;
-  border-radius: 9999px;
-  background: #a9bf9b;
+  inset: 0;
+  animation: lull-fireflies 12s ease-in-out infinite;
+  pointer-events: none;
+}
+.fireflies i {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #d8e9ad;
+  box-shadow: 0 0 8px 2px rgba(205, 231, 159, 0.55);
+}
+.fireflies i:nth-child(1) {
+  left: 27%;
+  top: 69%;
+  opacity: 0.45;
+}
+.fireflies i:nth-child(2) {
+  left: 37%;
+  top: 76%;
+  opacity: 0.3;
+}
+.fireflies i:nth-child(3) {
+  left: 47%;
+  top: 62%;
+  opacity: 0.5;
+}
+.fireflies i:nth-child(4) {
+  left: 59%;
+  top: 79%;
   opacity: 0.36;
+}
+.fireflies i:nth-child(5) {
+  left: 72%;
+  top: 67%;
+  opacity: 0.5;
+}
+.fireflies i:nth-child(6) {
+  left: 80%;
+  top: 78%;
+  opacity: 0.27;
+}
+.fireflies i:nth-child(7) {
+  left: 54%;
+  top: 72%;
+  opacity: 0.26;
+}
+.foreground {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 75%, rgba(2, 10, 7, 0.45));
+  pointer-events: none;
 }
 
 .copy {
@@ -174,8 +263,8 @@ body {
   left: 3rem;
   top: 2.75rem;
   max-width: 70vw;
+  text-shadow: 0 2px 18px rgba(2, 10, 7, 0.4);
 }
-
 .wordmark {
   font-family:
     "Noto Sans SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
@@ -185,7 +274,6 @@ body {
   color: #c7d6bf;
   opacity: 0.9;
 }
-
 .clock {
   margin-top: 12px;
   font-size: var(--clock-size);
@@ -195,7 +283,6 @@ body {
   color: #f0f4e9;
   font-variant-numeric: tabular-nums;
 }
-
 .subtitle {
   margin-top: 18px;
   font-size: var(--subtitle-size);
@@ -203,17 +290,15 @@ body {
   color: #c3d2bb;
   opacity: 0.82;
 }
-
 .tagline {
   margin-top: 12px;
   font-family:
     "Noto Sans SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   font-size: 12px;
   letter-spacing: 0.3em;
-  color: #8fa38a;
+  color: #a9bca0;
   opacity: 0.8;
 }
-
 .canvas-label {
   position: absolute;
   right: 20px;
@@ -224,20 +309,36 @@ body {
   letter-spacing: 0.2em;
   color: rgba(143, 163, 138, 0.7);
 }
-
 [data-layout="canvas"] .copy {
   left: 48px;
   top: 44px;
 }
-
 [data-layout="canvas"] .canvas-label {
   display: block;
 }
 
+@media (max-width: 600px) {
+  .copy {
+    left: 6%;
+    top: 6%;
+  }
+  .wordmark {
+    font-size: min(var(--wordmark-size), 24px);
+  }
+  .clock {
+    font-size: min(var(--clock-size), 54px);
+  }
+  .subtitle {
+    font-size: min(var(--subtitle-size), 15px);
+  }
+  .tagline {
+    font-size: 10px;
+  }
+}
 @keyframes lull-breath {
   0%,
   100% {
-    opacity: 0.78;
+    opacity: 0.8;
     transform: scale(1);
   }
   50% {
@@ -245,19 +346,15 @@ body {
     transform: scale(1.035);
   }
 }
-
 @keyframes lull-mist {
-  0% {
-    transform: translate3d(-4%, 0, 0);
+  0%,
+  100% {
+    transform: translate3d(-3%, 0, 0);
   }
   50% {
-    transform: translate3d(4%, 0, 0);
-  }
-  100% {
-    transform: translate3d(-4%, 0, 0);
+    transform: translate3d(3%, 0, 0);
   }
 }
-
 @keyframes lull-sway {
   0%,
   100% {
@@ -267,17 +364,28 @@ body {
     transform: rotate(0.7deg);
   }
 }
-
+@keyframes lull-fireflies {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    opacity: 1;
+    transform: translate3d(8px, -12px, 0);
+  }
+}
 [data-reduced-motion="true"] .moon,
 [data-reduced-motion="true"] .mist-band,
-[data-reduced-motion="true"] .stalk {
+[data-reduced-motion="true"] .stalk,
+[data-reduced-motion="true"] .fireflies {
   animation: none !important;
 }
-
 @media (prefers-reduced-motion: reduce) {
   .moon,
   .mist-band,
-  .stalk {
+  .stalk,
+  .fireflies {
     animation: none !important;
   }
 }
