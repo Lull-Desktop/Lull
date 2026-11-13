@@ -58,6 +58,18 @@ const NOT_ON_SITE = new Map([
   ["media-service", "音乐/白噪音 Media Service 的实现细节，随阶段变动，暂不上站"],
   ["media-noise-plan", "Media 2.5 + Noise 实施计划，随执行状态变动，不上站"],
   [
+    "game-runtime",
+    "游戏运行时的宿主实现细节（权威/租约/epoch、状态仓储、命令路由、验收与错误码附录），随实现变动，暂不上站",
+  ],
+  [
+    "game-runtime-webview-stability",
+    "P3 稳定性验收报告（隐藏 WebView2 / WebGL 长跑数据），随版本重测过时，不上站",
+  ],
+  [
+    "Lull Ambient Game需求澄清",
+    "Ambient Game 的产品需求澄清稿，属立项讨论而非使用说明，暂不上站",
+  ],
+  [
     "Lull Media Service & Music Library 技术设计 RFC",
     "内部设计评审稿，阶段决策与实现细节仍在变动，暂不上站",
   ],
