@@ -6,8 +6,8 @@ export function Card({ className, children }: { className?: string; children: Re
   return (
     <article
       className={cn(
-        "relative rounded-card border border-line bg-gradient-to-b from-ghost-2 to-transparent p-6",
-        "transition-[border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong",
+        "relative rounded-card border border-line bg-ink-1/60 p-6 sm:p-7",
+        "transition-[border-color,background-color] duration-200 hover:border-line-strong hover:bg-ink-2/70",
         className,
       )}
     >
@@ -18,7 +18,7 @@ export function Card({ className, children }: { className?: string; children: Re
 
 /** 卡片标题行（原 `.card h3`），可带一个线性图标 */
 export function CardTitle({ children }: { children: ReactNode }) {
-  return <h3 className="mb-2 flex items-center gap-2.5 text-h3 text-mist">{children}</h3>;
+  return <h3 className="mb-3 flex items-center gap-3 text-h3 font-medium text-mist">{children}</h3>;
 }
 
 /** 卡片正文（原 `.card p`） */
@@ -34,5 +34,5 @@ export function CardTag({ children }: { children: ReactNode }) {
 }
 
 /** 卡片栅格：三列 / 两列，断点与改造前一致 */
-export const grid3 = "grid grid-cols-3 gap-[18px] max-[940px]:grid-cols-2 max-[640px]:grid-cols-1";
-export const grid2 = "grid grid-cols-2 gap-[18px] max-[640px]:grid-cols-1";
+export const grid3 = "grid grid-cols-3 gap-3 max-[940px]:grid-cols-2 max-[640px]:grid-cols-1";
+export const grid2 = "grid grid-cols-2 gap-3 max-[640px]:grid-cols-1";

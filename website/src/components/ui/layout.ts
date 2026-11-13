@@ -6,8 +6,8 @@
  * 页面和组件都从这里取，不在各处手写像素。
  */
 
-/** 居中容器：1120px + 左右 24px（原 .container） */
-export const container = "mx-auto w-full max-w-site px-6";
+/** 居中容器：统一最大宽度与移动端边距。 */
+export const container = "mx-auto w-full max-w-site px-6 max-[480px]:px-5";
 
 /** 常规版块上下留白（原 .section） */
 export const section = "py-section";

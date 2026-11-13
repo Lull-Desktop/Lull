@@ -18,8 +18,8 @@ export default function SiteHeader({ pathname }: SiteHeaderProps) {
   const isActive = (href: string) => href.replace(/\/+$/, "") === pathname;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-ink/72 backdrop-blur-[14px] backdrop-saturate-140">
-      <div className={cn(container, "flex min-h-16 items-center gap-6 max-[720px]:gap-2.5")}>
+    <header className="sticky top-0 z-40 border-b border-line bg-ink/90 backdrop-blur-[14px]">
+      <div className={cn(container, "flex min-h-[72px] items-center gap-6 max-[720px]:gap-2.5")}>
         <a
           className="inline-flex items-baseline gap-2.5 text-mist no-underline"
           href={page("/")}

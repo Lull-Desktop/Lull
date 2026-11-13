@@ -17,25 +17,25 @@
 
 @theme {
   /* 背景由深到浅 */
-  --color-ink: #060a09;
-  --color-ink-1: #0a1110;
-  --color-ink-2: #0e1614;
+  --color-ink: #0a110e;
+  --color-ink-1: #101b16;
+  --color-ink-2: #17251d;
 
   /* 前景 */
-  --color-mist: #e6eee4;
-  --color-body: #c6d3c9;
-  --color-muted: #83968e;
-  --color-faint: #5d6f68;
+  --color-mist: #edf1e7;
+  --color-body: #d0dacf;
+  --color-muted: #a6b9a9;
+  --color-faint: #91a695;
 
   /* 强调色：竹影的雾绿 / 暮色的暖光 / 极光的冷蓝 */
-  --color-green: #9fbf96;
-  --color-green-bright: #c8e0b6;
+  --color-green: #b2cda6;
+  --color-green-bright: #d5e6c7;
   --color-dusk: #e0a878;
   --color-aurora: #8fc0d2;
 
   /* 描边与半透明底色 */
-  --color-line: rgb(190 214 186 / 0.13);
-  --color-line-strong: rgb(190 214 186 / 0.24);
+  --color-line: rgb(198 220 190 / 0.16);
+  --color-line-strong: rgb(198 220 190 / 0.3);
   --color-ghost: rgb(255 255 255 / 0.018);
   --color-ghost-2: rgb(255 255 255 / 0.028);
 
@@ -44,18 +44,18 @@
   --font-serif: ui-serif, Georgia, "Songti SC", "Source Han Serif SC", serif;
   --font-mono: ui-monospace, "Cascadia Mono", SFMono-Regular, Consolas, monospace;
 
-  --radius-card: 16px;
-  --radius-shell: 24px;
+  --radius-card: 12px;
+  --radius-shell: 18px;
 
   /* 站点栅格宽度：容器统一 max-w-site */
-  --container-site: 1120px;
+  --container-site: 1200px;
 
   --shadow-soft: 0 24px 60px -30px rgb(0 0 0 / 0.9);
   --shadow-glow: 0 0 60px -20px rgb(159 191 150 / 0.35);
 
-  /* 字体阶梯：标题用 clamp 跟随视口，和改造前一致 */
-  --text-hero: clamp(2.4rem, 5.2vw, 3.9rem);
-  --text-h2: clamp(1.65rem, 3vw, 2.3rem);
+  /* 字体阶梯：标题用 clamp 跟随视口 */
+  --text-hero: clamp(2.65rem, 5.6vw, 5rem);
+  --text-h2: clamp(1.85rem, 3.1vw, 2.65rem);
   --text-h3: 1.12rem;
   --text-lead: clamp(1.02rem, 1.6vw, 1.16rem);
   --text-eyebrow: 0.74rem;
@@ -82,8 +82,8 @@
     -webkit-font-smoothing: antialiased;
     /* 顶部一层很淡的青色光晕，模拟壁纸的雾感 */
     background-image:
-      radial-gradient(120% 60% at 50% -10%, rgb(35 84 66 / 0.4) 0%, transparent 60%),
-      radial-gradient(60% 40% at 85% 10%, rgb(224 168 120 / 0.08) 0%, transparent 70%);
+      radial-gradient(90% 45% at 80% 0%, rgb(51 86 61 / 0.2) 0%, transparent 70%),
+      linear-gradient(180deg, rgb(20 34 25 / 0.45), transparent 720px);
     background-repeat: no-repeat;
   }
 
@@ -121,6 +121,12 @@
     font-size: 0.96rem;
     line-height: 1.85;
     color: var(--color-body);
+  }
+
+  .prose :where(table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
   }
 
   .prose h2 {

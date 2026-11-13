@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  */
 const button = cva(
   [
-    "inline-flex items-center gap-2.5 whitespace-nowrap rounded-full border border-transparent",
+    "inline-flex min-h-11 items-center justify-center gap-2.5 whitespace-nowrap rounded-md border border-transparent",
     "text-[0.92rem] font-semibold tracking-[0.01em] no-underline",
     "transition-[transform,box-shadow,background-color,border-color,color] duration-200",
     "hover:-translate-y-px",
@@ -16,7 +16,7 @@ const button = cva(
   {
     variants: {
       variant: {
-        solid: "bg-green-bright text-[#08110c] hover:text-[#08110c] hover:shadow-[0_10px_30px_-12px_rgb(200_224_182/0.5)]",
+        solid: "bg-green-bright text-[#08110c] hover:bg-white hover:text-[#08110c]",
         ghost:
           "border-line-strong bg-transparent font-medium text-mist hover:border-green hover:bg-green/8 hover:text-white hover:shadow-none",
       },

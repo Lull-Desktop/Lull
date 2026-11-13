@@ -17,7 +17,7 @@ export default function DocsIndex({ groups, repoUrl }: DocsIndexProps) {
       <div className={container}>
         <div className="mb-[clamp(32px,4vw,52px)] max-w-[60ch]">
           <p className="mb-[18px] text-eyebrow font-medium uppercase tracking-[0.32em] text-green">Docs</p>
-          <h1 className="mb-2 text-hero leading-[1.25] tracking-[-0.02em] text-mist">文档</h1>
+          <h1 className="mb-4 font-serif text-hero leading-[1.25] font-normal text-mist">文档</h1>
           <p className="max-w-[46ch] text-lead text-body">
             从快速上手开始，依次介绍架构与运行时、场景与扩展内容设计与实现。每篇对应仓库中的一份原始文档，字段级细节请以原文为准。
           </p>
@@ -37,8 +37,8 @@ export default function DocsIndex({ groups, repoUrl }: DocsIndexProps) {
                   key={item.id}
                   href={page(`/docs/${item.id}/`)}
                   className={cn(
-                    "block rounded-card border border-line px-[22px] py-5 text-body no-underline",
-                    "transition-[border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:text-body",
+                    "block rounded-card border border-line bg-ink-1/60 px-6 py-6 text-body no-underline",
+                    "transition-[border-color,background-color] duration-200 hover:border-line-strong hover:bg-ink-2/70 hover:text-body",
                   )}
                 >
                   <div className="mb-1.5 text-[1rem] text-mist">{item.title}</div>

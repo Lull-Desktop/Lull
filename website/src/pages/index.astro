@@ -1,80 +1,89 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import CtaBanner from "../components/site/CtaBanner";
-import FeatureCards from "../components/site/FeatureCards";
 import HomeHero from "../components/site/HomeHero";
-import HomePrivacy from "../components/site/HomePrivacy";
+import { Button, buttonRow } from "../components/ui/Button";
 import { container, section } from "../components/ui/layout";
-import { page, repoUrl } from "../lib/site";
+import { asset, communityUrl, page, repoUrl } from "../lib/site";
 import { release } from "../lib/release";
 
-const features = [
-  {
-    title: "动态壁纸",
-    body: "竹影作为官方壁纸随安装包分发；媒体壁纸可播放本地图片 / 视频。每台显示器一个壁纸窗口，支持复制 / 独立 / 跨屏三种模式与跨屏同步动画。",
-    tag: "Core · Win32 桌面层",
-    icon: "layers" as const,
-  },
-  {
-    title: "音境 / Ambient Sound",
-    body: "雨、雷、风、海浪、篝火各自独立混音，主音量、静音与助眠定时互不干扰，关掉哪一层都不会塌。",
-    tag: "音境",
-    icon: "wave" as const,
-  },
-  {
-    title: "番茄钟",
-    body: "液态时间沙漏，专注 / 短休 / 长休节奏可调，偏好自动保存，下次打开接着走。",
-    tag: "专注",
-    icon: "hourglass" as const,
-  },
-  {
-    title: "播放器",
-    body: "液态黑胶浮窗，在线氛围声与本地曲目共用一套播放控制，不抢焦点、不挡视线。",
-    tag: "音频",
-    icon: "disc" as const,
-  },
-  {
-    title: "托盘常驻",
-    body: "关闭窗口只是隐藏，只有托盘「退出」才结束进程；托盘「扩展」子菜单直接打开已启用的工具扩展。",
-    tag: "窗口",
-    icon: "tray" as const,
-  },
-  {
-    title: "可扩展内容",
-    body: "外部场景包通过 catalog.json 被发现，支持静态 HTML/CSS 与沙箱脚本场景；zip 拖入安装，装前复核清单与整包摘要。",
-    tag: "Extensions",
-    icon: "puzzle" as const,
-  },
+const moments = [
+  { number: "01", title: "工作时，给自己一点空间", body: "动态壁纸在桌面背景里流动，音境与本地音乐为专注作伴。需要时打开组件，不需要时收起。", tag: "FOCUS / 专注" },
+  { number: "02", title: "休息时，看看世界变化", body: "让一个小世界留在桌面。偶尔打开控制器看看、互动一下，游戏无需占据你的整个屏幕。", tag: "PLAY / 陪伴" },
+  { number: "03", title: "多一块屏，多一种风景", body: "复制同一画面、每屏选择不同场景，或让一幅画面跨屏展开，让桌面适应你的使用方式。", tag: "DISPLAY / 多屏" },
+];
+
+const steps = [
+  { number: "01", title: "从一个想法开始", body: "想要一片动态森林，或一个顺手的桌面小工具？先决定它是场景还是组件。" },
+  { number: "02", title: "用熟悉的 Web 技术制作", body: "使用 HTML、CSS、JavaScript 和 SDK；AI Skill 可辅助创建场景和组件的骨架、校验与打包。" },
+  { number: "03", title: "安装到自己的桌面", body: "将打包好的扩展导入 Lull，在扩展中心查看信息、启用并管理权限。" },
 ];
 ---
 
 <BaseLayout>
-  {/* 首屏：SplitText 逐字升起标题，唯一用 client:load 的岛 */}
-  <HomeHero version={release.version} client:load />
+  <HomeHero version={release.version} />
 
-  <section class={section}>
-    <div class={container}>
-      <div class="mb-[clamp(32px,4vw,52px)] max-w-[60ch]">
-        <p class="mb-[18px] text-eyebrow font-medium uppercase tracking-[0.32em] text-green">All in one place</p>
-        <h2 class="mb-2.5 text-h2 leading-[1.25] text-mist">桌面上的一整套安静</h2>
-        <p class="text-muted">
-          壁纸、音境、计时、播放器不是四个 App，而是同一个窗口体系里的四层。关掉任何一个都不影响其他继续工作。
-        </p>
-      </div>
-      <FeatureCards items={features} client:visible />
+  <section class="border-y border-line bg-ink-1/40" aria-label="产品特点">
+    <div class={`${container} flex flex-wrap items-center justify-between gap-x-8 gap-y-3 py-5 text-[0.75rem] tracking-[0.12em] text-muted`}>
+      <span><span class="mr-2 text-green">✳</span> 动态壁纸</span><span><span class="mr-2 text-green">✳</span> 环境式桌面游戏</span><span><span class="mr-2 text-green">✳</span> WEB 组件</span><span><span class="mr-2 text-green">✳</span> 开源与本地优先</span>
     </div>
   </section>
 
-  <CtaBanner
-    client:visible
-    eyebrow="Open source"
-    title="场景可以用 HTML + CSS 写"
-    body="Lull 的桌面运行时、场景 SDK、内容格式分层解耦。第三方场景包无需改核心代码，静态包只跑 CSS，脚本包可拿到宿主下发的参数、几何与同步相位。"
-    actions={[
-      { label: "写一个场景", href: page("/docs/scene-sdk/") },
-      { label: "看源码", href: repoUrl, variant: "ghost", external: true },
-    ]}
-  />
+  <section class={section} id="experience">
+    <div class={container}>
+      <div class="mb-12 grid grid-cols-[1fr_0.8fr] items-end gap-8 max-[760px]:grid-cols-1">
+        <div><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">01 / THE EXPERIENCE</p><h2 class="font-serif text-h2 leading-[1.3] font-normal text-mist">桌面不止是<br />一张背景图。</h2></div>
+        <p class="max-w-[38rem] text-lead text-muted">从一片会流动的风景，到一个可以慢慢探索的小世界。Lull 把画面、声音和工具放进同一个桌面空间。</p>
+      </div>
 
-  <HomePrivacy />
+      <div class="grid grid-cols-2 gap-4 max-[760px]:grid-cols-1">
+        <article class="group overflow-hidden rounded-shell border border-line bg-ink-1">
+          <div class="relative overflow-hidden"><img class="aspect-[1.75] w-full object-cover transition-transform duration-700 group-hover:scale-[1.025]" src={asset("images/scene-bamboo.jpg")} alt="竹影动态壁纸实机画面" width="1440" height="810" loading="lazy" /><span class="absolute bottom-4 left-4 rounded-full border border-white/20 bg-ink/80 px-3 py-1 text-[0.68rem] text-mist">官方壁纸 · 实机画面</span></div>
+          <div class="p-7 sm:p-8"><p class="mb-3 text-[0.7rem] tracking-[0.18em] text-green">01 / WALLPAPER</p><h3 class="mb-3 text-[1.45rem] font-medium text-mist">让风景，留在桌面</h3><p class="max-w-[38rem] text-muted">从竹影到自己的图片、视频与 Web 场景，让壁纸在桌面图标下流动。支持复制、独立和跨屏三种显示模式。</p></div>
+        </article>
+
+        <article class="group overflow-hidden rounded-shell border border-line bg-ink-1">
+          <div class="relative overflow-hidden"><img class="aspect-[1.75] w-full object-cover transition-transform duration-700 group-hover:scale-[1.025]" src={asset("images/desktop-world-concept.svg")} alt="漂浮岛屿桌面世界概念插画" width="1000" height="700" loading="lazy" /><span class="absolute bottom-4 left-4 rounded-full border border-white/20 bg-ink/80 px-3 py-1 text-[0.68rem] text-mist">桌面游戏 · 概念示意</span><span class="absolute top-4 right-4 rounded-full bg-green-bright px-3 py-1 text-[0.67rem] font-semibold text-ink">实验阶段</span></div>
+          <div class="p-7 sm:p-8"><p class="mb-3 text-[0.7rem] tracking-[0.18em] text-green">02 / AMBIENT GAME</p><h3 class="mb-3 text-[1.45rem] font-medium text-mist">在桌面，遇见小世界</h3><p class="max-w-[38rem] text-muted">游戏画面融入壁纸，需要时通过控制器互动。游戏运行时与示例仍在实验和验证中，更多世界有待创作者共同探索。</p></div>
+        </article>
+
+        <article class="col-span-2 grid grid-cols-[1fr_1fr] items-center overflow-hidden rounded-shell border border-line bg-ink-1 max-[760px]:col-span-1 max-[760px]:grid-cols-1">
+          <div class="p-7 sm:p-8 lg:p-12"><p class="mb-3 text-[0.7rem] tracking-[0.18em] text-green">03 / WIDGETS</p><h3 class="mb-3 text-[1.45rem] font-medium text-mist">需要的工具，刚好在手边</h3><p class="max-w-[34rem] text-muted">音境和本地音乐在桌面上陪伴你。也可以安装 Web 组件，让常用工具以自己的方式出现。</p><a class="mt-6 inline-flex items-center gap-2 text-[0.9rem] text-green-bright hover:text-white" href={page("/features/")}>探索更多功能 <span aria-hidden="true">→</span></a></div>
+          <div class="relative min-h-[260px] overflow-hidden border-l border-line bg-ink-2/70 p-8 max-[760px]:border-t max-[760px]:border-l-0" aria-label="组件组合概念示意">
+            <div class="absolute top-7 right-8 text-[0.66rem] tracking-[0.14em] text-muted">组件组合 · 示意</div>
+            <div class="absolute top-[72px] left-[12%] w-[42%] rotate-[-5deg] rounded-[22px] border border-line-strong bg-ink/90 p-5 shadow-soft"><p class="text-[0.63rem] tracking-[0.16em] text-green">YOUR SOUND</p><div class="mt-5 flex h-10 items-end gap-1.5" aria-hidden="true"><span class="h-3 w-1 rounded-full bg-green/50"></span><span class="h-7 w-1 rounded-full bg-green/70"></span><span class="h-10 w-1 rounded-full bg-green"></span><span class="h-6 w-1 rounded-full bg-green/70"></span><span class="h-8 w-1 rounded-full bg-green/50"></span><span class="h-4 w-1 rounded-full bg-green/70"></span></div><p class="mt-4 text-sm text-mist">为当下调一段音境</p></div>
+            <div class="absolute top-[104px] right-[10%] w-[40%] rotate-[5deg] rounded-[22px] border border-line-strong bg-ink-1 p-5 shadow-soft"><p class="text-[0.63rem] tracking-[0.16em] text-green">YOUR SPACE</p><p class="mt-5 font-serif text-3xl text-mist">25:00</p><p class="mt-3 text-xs text-muted">专注 / 休息 / 切换</p></div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="border-y border-line bg-ink-1/50 py-section">
+    <div class={container}>
+      <div class="mb-12 max-w-[46rem]"><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">02 / MAKE IT YOURS</p><h2 class="mb-5 font-serif text-h2 leading-[1.3] font-normal text-mist">让桌面，跟着你的节奏。</h2><p class="text-lead text-muted">工作、放空，或者偶尔看一眼另一个世界。桌面应该适应你，而不是反过来。</p></div>
+      <div class="grid grid-cols-3 gap-8 max-[760px]:grid-cols-1">{moments.map((item) => <article class="border-t border-line-strong pt-6"><div class="mb-7 flex items-center justify-between font-mono text-[0.7rem] tracking-[0.12em] text-green"><span>{item.number}</span><span class="text-faint">{item.tag}</span></div><h3 class="mb-3 text-[1.15rem] font-medium text-mist">{item.title}</h3><p class="text-[0.94rem] leading-[1.8] text-muted">{item.body}</p></article>)}</div>
+    </div>
+  </section>
+
+  <section class={section}>
+    <div class={container}>
+      <div class="grid grid-cols-[.85fr_1.15fr] gap-[clamp(40px,8vw,112px)] max-[800px]:grid-cols-1">
+        <div><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">03 / CREATE WITH LULL</p><h2 class="mb-5 font-serif text-h2 leading-[1.3] font-normal text-mist">你的想法，<br />也可以住进桌面。</h2><p class="max-w-[30rem] text-muted">Lull 不只让你选择已有内容，也为创作者留出空间。用开放的 Web 技术，做一份属于自己的桌面体验。</p><div class={`${buttonRow} mt-7`}><Button href={page("/docs/extension-skill/")} variant="ghost">了解 AI Skill <span aria-hidden="true">↗</span></Button><a class="text-[0.9rem] text-green-bright hover:text-white" href={page("/docs/game-sdk/")}>Game SDK ↗</a></div></div>
+        <div class="grid gap-0">{steps.map((item) => <article class="grid grid-cols-[3rem_1fr] gap-4 border-t border-line py-6"><span class="font-mono text-[0.75rem] text-green">{item.number}</span><div><h3 class="mb-2 text-[1.08rem] font-medium text-mist">{item.title}</h3><p class="text-[0.93rem] text-muted">{item.body}</p></div></article>)}<p class="border-t border-line pt-5 text-[0.8rem] text-faint">桌面游戏可通过 Game SDK 开发；AI Skill 当前面向场景与组件。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="pb-section">
+    <div class={container}>
+      <div class="grid grid-cols-[1.2fr_.8fr] overflow-hidden rounded-shell border border-line-strong bg-ink-2 max-[800px]:grid-cols-1">
+        <div class="p-[clamp(28px,5vw,56px)]"><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">04 / BETTER TOGETHER</p><h2 class="mb-4 font-serif text-h2 leading-[1.3] font-normal text-mist">好点子，值得分享。</h2><p class="max-w-[36rem] text-muted">在 Lull 社区浏览场景与组件，发现其他人的桌面灵感；也可以前往社区了解作品提交方式。</p><div class="mt-7"><Button href={communityUrl} variant="ghost" rel="noopener">逛逛社区 <span aria-hidden="true">↗</span></Button></div></div>
+        <div class="grid content-center gap-5 border-l border-line bg-ink-1/60 p-[clamp(28px,5vw,56px)] max-[800px]:border-t max-[800px]:border-l-0"><div><h3 class="mb-1 text-[0.96rem] font-medium text-mist">开源，与你一起创造</h3><p class="text-[0.87rem] text-muted">应用与开发工具开放源码，欢迎探索、贡献。</p></div><div><h3 class="mb-1 text-[0.96rem] font-medium text-mist">本地优先，由你掌控</h3><p class="text-[0.87rem] text-muted">核心桌面体验无需账号；安装第三方扩展时可查看并管理权限。</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="border-t border-line py-section-tight">
+    <div class={`${container} flex flex-wrap items-end justify-between gap-8`}><div><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">YOUR DESKTOP AWAITS</p><h2 class="mb-3 font-serif text-h2 leading-[1.3] font-normal text-mist">从这里，开始你的桌面世界。</h2><p class="text-muted">为 Windows 而生，等待你的下一点灵感。</p></div><div class={buttonRow}><Button href={page("/download/")}>下载 Lull <span aria-hidden="true">↗</span></Button><Button href={repoUrl} variant="ghost" rel="noopener">查看源码 ↗</Button><a class="px-2 text-[0.9rem] text-green-bright hover:text-white" href={page("/docs/")}>阅读文档 →</a></div></div>
+  </section>
 </BaseLayout>

@@ -29,7 +29,7 @@ export default function CtaBanner({ eyebrow, title, body, actions }: CtaBannerPr
               "relative grid grid-cols-[minmax(0,1.4fr)_auto] items-center gap-7 overflow-hidden",
               "rounded-shell border border-line-strong bg-ink-1 p-[clamp(32px,5vw,56px)]",
               "max-[780px]:grid-cols-1",
-              "bg-[radial-gradient(90%_120%_at_12%_0%,rgb(159_191_150/0.14),transparent_60%),radial-gradient(70%_120%_at_95%_100%,rgb(224_168_120/0.12),transparent_60%)]",
+              "bg-[linear-gradient(110deg,rgb(42_66_47/0.75),transparent_75%)]",
             )}
           >
             <div>

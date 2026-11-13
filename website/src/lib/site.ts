@@ -92,9 +92,9 @@ export function toDocGroups<
 export const siteMeta = {
   name: "Lull",
   nameZh: "云栖",
-  tagline: "云栖之处，安然入眠",
+  tagline: "让桌面，拥有自己的世界",
   description:
-    "Lull（云栖）是一款开源的助眠与专注桌面应用：竹影在桌面上缓缓流动，雨声与远雷在耳边轻轻起伏。断网可用，不推送、不打扰。",
+    "Lull（云栖）是一款开源 Windows 桌面应用，让动态壁纸、桌面游戏与 Web 组件组成属于你的沉浸式桌面空间。",
 } as const;
 
 export const navItems = [

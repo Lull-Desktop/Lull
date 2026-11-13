@@ -24,7 +24,7 @@ export default function Preview({ file, alt, captionLeft, captionRight, ui, prio
       <div
         className={cn(
           "relative overflow-hidden rounded-shell border border-line-strong bg-ink-1",
-          "shadow-[var(--shadow-soft),var(--shadow-glow)]",
+          "shadow-[var(--shadow-soft)]",
           ui ? "aspect-[16/10]" : "aspect-video",
           "after:pointer-events-none after:absolute after:inset-0 after:content-['']",
           "after:bg-[linear-gradient(180deg,transparent_55%,rgb(6_10_9/0.55)_100%)]",
@@ -40,7 +40,7 @@ export default function Preview({ file, alt, captionLeft, captionRight, ui, prio
           loading={priority ? undefined : "lazy"}
         />
       </div>
-      <div className="mt-3 flex justify-between gap-3 text-[0.78rem] text-faint">
+      <div className="mt-4 flex justify-between gap-3 font-mono text-[0.72rem] tracking-[0.05em] text-faint">
         <span>{captionLeft}</span>
         <span>{captionRight}</span>
       </div>

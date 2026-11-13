@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" role="img" aria-labelledby="title desc">
+  <title id="title">漂浮岛屿概念插画</title>
+  <desc id="desc">夜空中一座有小屋、树木和溪流的漂浮岛屿，表现想象中的桌面游戏世界。</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#182e2a"/><stop offset=".54" stop-color="#10251f"/><stop offset="1" stop-color="#0a1618"/></linearGradient>
+    <radialGradient id="light"><stop stop-color="#b7d49a" stop-opacity=".32"/><stop offset="1" stop-color="#b7d49a" stop-opacity="0"/></radialGradient>
+    <linearGradient id="land" x1="0" x2="0" y1="0" y2="1"><stop stop-color="#819b69"/><stop offset="1" stop-color="#3a604b"/></linearGradient>
+    <linearGradient id="rock" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#496757"/><stop offset="1" stop-color="#1a3632"/></linearGradient>
+    <linearGradient id="river" x1="0" x2="1"><stop stop-color="#a1d0b5"/><stop offset="1" stop-color="#4b9388"/></linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="28"/></filter>
+  </defs>
+  <path fill="url(#sky)" d="M0 0h1000v700H0z"/>
+  <circle cx="515" cy="280" r="310" fill="url(#light)"/>
+  <g fill="#d8e8bb" opacity=".7"><circle cx="137" cy="133" r="2"/><circle cx="287" cy="86" r="2"/><circle cx="803" cy="117" r="2.5"/><circle cx="868" cy="280" r="2"/><circle cx="197" cy="365" r="1.5"/><circle cx="703" cy="69" r="1.5"/><circle cx="112" cy="261" r="1.5"/><circle cx="767" cy="389" r="1.5"/></g>
+  <ellipse cx="513" cy="582" rx="307" ry="43" fill="#000" opacity=".24" filter="url(#blur)"/>
+  <path d="M166 399 489 236 850 388 811 470 704 505 645 555 541 559 484 606 409 562 310 548 275 510 205 482Z" fill="url(#rock)"/>
+  <path d="M166 399 489 236 850 388 520 535Z" fill="url(#land)"/>
+  <path d="M448 253c66 42 97 56 99 81 3 30-45 33-39 63 6 28 56 37 91 58l-78 35c-28-21-76-33-82-70-7-37 39-47 34-72-4-19-38-30-69-48Z" fill="url(#river)" opacity=".88"/>
+  <g fill="none" stroke="#c0ddd0" stroke-width="3" opacity=".5"><path d="m481 354 25-11m-10 47 26-9m37 58 22-7"/></g>
+  <path d="m522 535 330-147-41 82-107 35-59 50-104 4-57 47-9-43Z" fill="#213e35" opacity=".6"/>
+  <g stroke="#223a2d" stroke-width="7" stroke-linecap="round"><path d="M304 374v-82m37 69v-104m312 94V235m46 135v-85m-452 131v-63m523 46v-77"/></g>
+  <g><path d="m270 337 34-99 35 99Z" fill="#406d50"/><path d="m301 310 40-112 43 112Z" fill="#658962"/><path d="m611 301 42-118 44 118Z" fill="#5c815a"/><path d="m664 335 35-103 37 103Z" fill="#3d6a51"/><path d="m218 391 29-89 30 89Z" fill="#537957"/><path d="m744 372 26-83 29 83Z" fill="#6c9066"/></g>
+  <path d="m355 343 73-36 76 35-74 36Z" fill="#dec394"/><path d="M355 343v70l75 35v-70Z" fill="#b49370"/><path d="m430 378 74-36v69l-74 37Z" fill="#806e5a"/>
+  <path d="m340 341 84-75 92 72-86 42Z" fill="#ce9c75"/><path d="m424 266 92 72-15 7-77-54-70 56-14-6Z" fill="#f1cba0"/>
+  <path d="M375 370v25l22 10v-25Z" fill="#f6d99f"/><path d="M449 386v43l20-10v-43Z" fill="#425848"/>
+  <g fill="#d6d7a2"><circle cx="603" cy="384" r="4"/><circle cx="620" cy="398" r="3"/><circle cx="348" cy="441" r="3"/><circle cx="688" cy="408" r="3"/><circle cx="388" cy="474" r="3"/></g>
+  <g fill="none" stroke="#c7dbb7" opacity=".25"><ellipse cx="509" cy="398" rx="377" ry="185"/><ellipse cx="509" cy="398" rx="423" ry="209" stroke-dasharray="4 12"/></g>
+</svg>

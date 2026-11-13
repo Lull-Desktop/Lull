@@ -23,10 +23,10 @@ interface DownloadHeroProps {
 }
 
 /** 下载列表的一行：左侧名称/文件名，右侧体积（等宽字体对齐） */
-function DownloadRow({ asset }: { asset: DownloadAsset }) {
+function DownloadRow({ asset, primary = false }: { asset: DownloadAsset; primary?: boolean }) {
   return (
     <a
-      className="flex items-center gap-3.5 rounded-xl border border-line bg-white/[0.02] px-4 py-3.5 text-mist no-underline transition-colors hover:border-green hover:bg-green/7 hover:text-white"
+      className={cn("flex min-h-20 items-center gap-3.5 rounded-card border px-5 py-4 text-mist no-underline transition-colors hover:border-green hover:bg-green/10 hover:text-white", primary ? "border-green/50 bg-green/10" : "border-line bg-ink-1/60")}
       href={asset.url}
       rel="noopener"
     >
@@ -61,7 +61,7 @@ export default function DownloadHero({
         <div className="grid grid-cols-[minmax(0,1fr)_320px] items-start gap-8 max-[860px]:grid-cols-1">
           <div>
             <Eyebrow>Download</Eyebrow>
-            <h1 className="mb-2 text-hero leading-[1.25] tracking-[-0.02em] text-mist">下载 Lull</h1>
+            <h1 className="mb-4 font-serif text-hero leading-[1.25] font-normal text-mist">下载 Lull</h1>
             <Lead>
               当前版本 <strong className="text-mist">{version}</strong>
               {published && <span className="text-muted"> · 发布于 {published}</span>}。
@@ -70,10 +70,10 @@ export default function DownloadHero({
 
             <div className="mt-7 grid gap-2.5">
               {primary ? (
-                <DownloadRow asset={primary} />
+                <DownloadRow asset={primary} primary />
               ) : (
                 <a
-                  className="flex items-center gap-3.5 rounded-xl border border-line bg-white/[0.02] px-4 py-3.5 text-mist no-underline transition-colors hover:border-green hover:bg-green/7 hover:text-white"
+                  className="flex min-h-20 items-center gap-3.5 rounded-card border border-green/50 bg-green/10 px-5 py-4 text-mist no-underline transition-colors hover:border-green hover:bg-green/15 hover:text-white"
                   href={releasesUrl}
                   rel="noopener"
                 >

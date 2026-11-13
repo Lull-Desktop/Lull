@@ -24,13 +24,13 @@ const current = Astro.url.pathname.replace(/\/+$/, "");
   <div
     class:list={[
       container,
-      "grid grid-cols-[216px_minmax(0,1fr)] items-start gap-[clamp(28px,4vw,56px)]",
+      "grid grid-cols-[216px_minmax(0,1fr)] items-start gap-[clamp(32px,5vw,72px)]",
       "pt-[clamp(36px,5vw,64px)] max-[900px]:grid-cols-1 max-[900px]:gap-7",
     ]}
   >
     <DocNav groups={groups} current={current} repoUrl={repoUrl} />
 
-    <div class="min-w-0 max-w-[72ch]">
+    <div class="min-w-0 max-w-[76ch] pb-12">
       <slot />
       <DocFooter
         source={source}

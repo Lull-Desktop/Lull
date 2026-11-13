@@ -15,8 +15,9 @@ const { Content } = await render(entry);
 ---
 
 <DocsLayout title={entry.data.title} description={entry.data.description} source={entry.data.source}>
-  <h1 class="mb-2 text-hero leading-[1.25] tracking-[-0.02em] text-mist">{entry.data.title}</h1>
-  <p class="mb-8 border-b border-line pb-6 text-muted">{entry.data.description}</p>
+  <p class="mb-4 text-eyebrow font-medium uppercase tracking-[0.25em] text-green">Lull / 文档</p>
+  <h1 class="mb-4 font-serif text-[clamp(2.2rem,4vw,3.5rem)] leading-[1.25] font-normal text-mist">{entry.data.title}</h1>
+  <p class="mb-10 border-b border-line pb-7 text-lead text-muted">{entry.data.description}</p>
   <div class="prose">
     <Content />
   </div>
