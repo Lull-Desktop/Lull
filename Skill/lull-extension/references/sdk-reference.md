@@ -12,6 +12,7 @@
 | `@lull/widget-sdk` 0.1.x | 1 | 1 | 0.1.x | Hand-written JS, no type declarations |
 | `@lull/scene-sdk` 0.1.x | 1 | 1 | 0.1.x | Only for `wallpaper.script` scenes |
 | `@lull/scene-sdk` 0.3.x | 1 | 1–3 | 0.3.x | Adds `wallpaper.pointer` move-only pointer channel (host API 3) |
+| `@lull/scene-sdk` 0.4.x | 1 | 1–5 | 0.3.x+ | Adds `scene.audio` (`wallpaper.audio`, host API 5): `getSnapshot` / `onData` / `onStatus` / `destroy`, `smoothAudioValue` |
 
 - During `0.x`, `minor` may bring breaking changes; read the diff before upgrading.
 - The bridge protocol `v` only increments on breaking field semantics; afterwards the host
@@ -32,7 +33,7 @@ Key files inside `dist`:
 
 ```text
 widget-sdk/dist/  index.js|.d.ts  client  errors  protocol  transport  react  vue  testing
-scene-sdk/dist/   index.js|.d.ts  client  errors  protocol  sync  transport  testing
+scene-sdk/dist/   index.js|.d.ts  audio  audio-types  client  errors  protocol  sync  transport  testing
 ```
 
 `dist` is ESM with relative imports only and no bare dependencies in the root entry, so the
@@ -126,11 +127,33 @@ Tests: `createInitMessage` / `createMemoryTransport` / `createLullWidgetClient` 
 | `onParams(fn)` | subscribe to params only, replays immediately |
 | `onVisibility(fn)` | subscribe to visibility, replays immediately |
 | `onPointer(fn)` | subscribe to move-only pointer state (`x/y/inside/moving`), replays immediately |
+| `audio` | audio response API (`getSnapshot` / `onData` / `onStatus` / `destroy`) |
 | `log(message, level?)` | forwards to the host console with prefix `[scene:<id>]` |
 | `destroy()` | unsubscribes and rejects later calls |
 
 `pointer` requires the manifest to declare `wallpaper.script` + `wallpaper.pointer` and
 `compatibility.hostApi >= 3`. There are no click/button/wheel fields.
+
+`audio` requires `wallpaper.script` + `wallpaper.audio` and `compatibility.hostApi >= 5`:
+
+```ts
+const snapshot = await scene.audio.getSnapshot();
+const off = scene.audio.onData((frame) => {
+  root.style.setProperty("--energy", String(frame.level.normalized));
+}, { sources: ["music", "noise"] });
+scene.audio.onStatus((status) => { /* available + reason */ });
+```
+
+- Frames arrive at 20Hz (`level` + five `bands`); interpolate them at render time with
+  `smoothAudioValue(current, target, dtMs)` or `createAudioEnvelope()`.
+- `bands` use a log scale with per-band AGC: each band is centered on its own ~4s average
+  (±9 dB). Sustained music sits around 0.4–0.7 and beats reach 0.8–1.0; use 0.7–0.85 for
+  accent thresholds. `bands` are visual response values, not absolute spectral energy.
+- Bands are intentionally fast (host attack/release ≈41/130ms): keep your own interpolation
+  release ≤ ~100ms or fast drum patterns will look damped.
+- `active:false` means the source is silent; decay visuals instead of snapping.
+- Old hosts (`hostApi < 5`) ignore audio messages: `onData` never fires and `getSnapshot()`
+  resolves an all-`null` snapshot (no exception).
 
 `syncedDelayMs(periodMs, epochMs)` -> negative delay in ms, aligning `animation-delay`
 across windows. Do not compute the phase yourself with `Date.now()`.

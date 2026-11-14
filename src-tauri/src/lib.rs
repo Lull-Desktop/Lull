@@ -6,6 +6,7 @@
 
 use tauri::Manager;
 
+mod audio_reactive;
 mod config;
 mod content_package;
 mod content_trust;
@@ -125,6 +126,8 @@ pub fn run() {
       media::api::commands::media_disconnect,
       media::api::commands::media_engine_ready,
       media::api::commands::media_engine_event,
+      audio_reactive::commands::audio_connect,
+      audio_reactive::commands::audio_disconnect,
       content_package::content_packages,
       game::api::games_list,
       game::api::games_config_get,
@@ -201,6 +204,7 @@ pub fn run() {
       }
       tauri::WindowEvent::Destroyed => {
         media::on_window_destroyed(window.app_handle(), window.label());
+        audio_reactive::on_window_destroyed(window.app_handle(), window.label());
         widget_package::on_window_destroyed(window.label());
         extension::slots::on_window_destroyed(window.app_handle(), window.label());
         game::on_window_destroyed(window.app_handle(), window.label());

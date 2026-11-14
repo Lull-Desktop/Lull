@@ -1,8 +1,16 @@
 import { describe, expect, test } from "vitest";
-import { SCENE_HOST_API, type SceneFrame } from "@/sdk/scene";
 import {
+  audioStatusAllFalse,
+  emptyAudioSnapshot,
+  SCENE_HOST_API,
+  type SceneFrame,
+} from "@/sdk/scene";
+import {
+  isSceneAudioPluginMessage,
   isScenePluginMessage,
   SCENE_BRIDGE_PROTOCOL,
+  sceneAudioFrameMessage,
+  sceneAudioStatusMessage,
   sceneFrameMessage,
   sceneInitMessage,
   scenePointerMessage,
@@ -78,5 +86,71 @@ describe("scene bridge protocol", () => {
       false,
     );
     expect(isScenePluginMessage(null)).toBe(false);
+  });
+
+  test("audio messages use a dedicated channel and stay out of ready/log parsing", () => {
+    const status = audioStatusAllFalse("inactive");
+    expect(sceneAudioStatusMessage(status)).toEqual({
+      v: 1,
+      type: "audio.status",
+      status,
+    });
+    expect(sceneAudioFrameMessage([])).toEqual({
+      v: 1,
+      type: "audio.frame",
+      frames: [],
+    });
+    expect(isScenePluginMessage(sceneAudioStatusMessage(status))).toBe(false);
+  });
+
+  test("accepts only well-formed audio requests from the scene", () => {
+    expect(
+      isSceneAudioPluginMessage({
+        v: 1,
+        type: "audio.subscribe",
+        options: { sources: ["music"], features: ["level"] },
+      }),
+    ).toBe(true);
+    expect(isSceneAudioPluginMessage({ v: 1, type: "audio.unsubscribe" })).toBe(
+      true,
+    );
+    expect(
+      isSceneAudioPluginMessage({
+        v: 1,
+        type: "audio.requestSnapshot",
+        requestId: "req-1",
+      }),
+    ).toBe(true);
+
+    expect(
+      isSceneAudioPluginMessage({
+        v: 1,
+        type: "audio.subscribe",
+        options: { sources: ["microphone"] },
+      }),
+    ).toBe(false);
+    expect(
+      isSceneAudioPluginMessage({
+        v: 1,
+        type: "audio.requestSnapshot",
+        requestId: "",
+      }),
+    ).toBe(false);
+    expect(
+      isSceneAudioPluginMessage({
+        v: 1,
+        type: "audio.requestSnapshot",
+        requestId: "x".repeat(65),
+      }),
+    ).toBe(false);
+    expect(isSceneAudioPluginMessage({ v: 2, type: "audio.unsubscribe" })).toBe(
+      false,
+    );
+  });
+
+  test("audio.init carries a snapshot and status", () => {
+    const snapshot = emptyAudioSnapshot(5);
+    expect(snapshot.sources.music).toBeNull();
+    expect(snapshot.protocol).toBe(1);
   });
 });

@@ -107,6 +107,8 @@ const APP_COMMANDS: &[&str] = &[
   "media_disconnect",
   "media_engine_ready",
   "media_engine_event",
+  "audio_connect",
+  "audio_disconnect",
   "content_packages",
   "games_list",
   "games_config_get",

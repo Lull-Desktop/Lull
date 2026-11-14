@@ -1,5 +1,7 @@
+import { createSceneAudioApi, type SceneAudioAPI } from "./audio.js";
 import { LullSceneError } from "./errors.js";
 import {
+  isSceneAudioHostMessage,
   SCENE_PROTOCOL,
   type SceneFrame,
   type SceneHostMessage,
@@ -27,6 +29,8 @@ export type LullSceneClient = {
   readonly visible: boolean;
   /** 最近一次鼠标位置样本；init 之后、首个样本之前为 null。 */
   readonly pointer: ScenePointer | null;
+  /** 音频响应（只读）；需要 Manifest 声明 wallpaper.audio 才会收到数据。 */
+  readonly audio: SceneAudioAPI;
 
   /** 订阅帧更新；注册时立即回放当前帧。 */
   onFrame(listener: (frame: SceneFrame) => void): () => void;
@@ -112,6 +116,11 @@ export function createLullSceneClient(
     let timer: ReturnType<typeof setTimeout> | null = null;
     let unsubscribe: (() => void) | null = null;
 
+    const audio = createSceneAudioApi({
+      send: (message) => transport.send(message),
+      hostApi: () => init?.hostApi ?? 0,
+    });
+
     const clearTimer = (): void => {
       if (timer) {
         clearTimeout(timer);
@@ -152,6 +161,9 @@ export function createLullSceneClient(
       },
       get pointer() {
         return currentPointer;
+      },
+      get audio() {
+        return audio;
       },
       onFrame(listener) {
         frameListeners.add(listener);
@@ -194,6 +206,7 @@ export function createLullSceneClient(
         if (disposed) return;
         disposed = true;
         cleanup();
+        audio.destroy();
         frameListeners.clear();
         paramListeners.clear();
         visibilityListeners.clear();
@@ -204,6 +217,13 @@ export function createLullSceneClient(
 
     const handleMessage = (message: SceneHostMessage): void => {
       if (disposed) return;
+
+      // 音频消息与 init/frame 共用传输层，但由 scene.audio 独立消费。
+      if (isSceneAudioHostMessage(message)) {
+        if (!init) return;
+        audio.handleMessage(message);
+        return;
+      }
 
       if (message.type === "init") {
         init = message;

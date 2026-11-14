@@ -1,5 +1,7 @@
 /** Rust `media::engine::ENGINE_PROTOCOL` 必须与该值一致。 */
-export const ENGINE_PROTOCOL = 2 as const;
+export const ENGINE_PROTOCOL = 3 as const;
+
+import type { AudioBands, AudioSource } from "@/sdk/scene";
 
 export type PlaybackSource = { kind: "asset"; url: string };
 
@@ -68,9 +70,25 @@ export type EngineCommand =
       noise: boolean;
       intervalMs: number;
     }
+  | {
+      v: typeof ENGINE_PROTOCOL;
+      type: "audio.analyze";
+      /** 空数组 = 停止分析（保留节点，只停读取）。 */
+      sources: AudioSource[];
+      bands: boolean;
+      intervalMs: number;
+    }
   | { v: typeof ENGINE_PROTOCOL; type: "engine.shutdown" };
 
 export type PlayerStatus = "playing" | "paused" | "ended" | "error";
+
+/** 引擎侧的原始测量；时间戳与 normalized 由 Rust 统一赋予。 */
+export type EngineAudioFrame = {
+  source: AudioSource;
+  active: boolean;
+  level: { rms: number; peak: number };
+  bands: AudioBands;
+};
 
 export type EngineEvent =
   | { type: "ready"; instanceId: string }
@@ -85,6 +103,12 @@ export type EngineEvent =
     }
   | { type: "player.progress"; loadId: string; positionMs: number }
   | { type: "levels"; player: number; noise: number }
+  | { type: "audio.frame"; frames: EngineAudioFrame[] }
+  | {
+      type: "audio.status";
+      available: boolean;
+      reason?: "not-supported" | "inactive";
+    }
   | {
       type: "error";
       scope: "player" | "noise";

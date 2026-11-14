@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "slug": "audio-demo",
+  "tags": ["音频响应", "脚本场景", "音乐可视化"],
+  "featured": false,
+  "addedAt": "2026-11-14",
+  "note": "Lull 上游示例内容包：声明 wallpaper.audio，演示音乐/音境/混合三种来源驱动的频谱、脉动与雾效。",
+  "meta": {
+    "renderType": "web",
+    "renderTech": ["css"],
+    "requiredFeatures": [
+      "wallpaper.viewport",
+      "wallpaper.script",
+      "wallpaper.audio"
+    ],
+    "optionalFeatures": ["wallpaper.canvas", "wallpaper.params"],
+    "performanceTier": "low",
+    "performanceEvidence": "manifest-declared",
+    "hardwareLevel": "basic",
+    "powerProfile": "efficient",
+    "targetFps": 60,
+    "supportsPause": null,
+    "supportsReducedMotion": true,
+    "platforms": ["windows"],
+    "requiredPermissions": [],
+    "optionalPermissions": [],
+    "backgroundPolicy": "unknown",
+    "networkPolicy": "none",
+    "recommendedUse": ["office"],
+    "sceneType": "abstract",
+    "visualStyle": ["minimal"],
+    "animationMode": "audio-reactive",
+    "qualityProfiles": ["low", "medium"],
+    "resolutionProfiles": [],
+    "multiMonitorModes": ["mirror", "span"],
+    "supportsSync": null,
+    "supportsDynamicResolution": null,
+    "supportsAdaptiveFps": null
+  }
+}

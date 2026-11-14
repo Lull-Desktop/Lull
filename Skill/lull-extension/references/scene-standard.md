@@ -72,7 +72,7 @@ Hard rules:
 | `params` | no | see §4 | `S-PARAM-*` |
 | `performance.tier` | no | `low` / `medium` / `high` | `S-PERF-TIER` |
 | `performance.targetFps` | no | integer 1-240 | `S-PERF-FPS` |
-| `compatibility.hostApi` | no | positive integer, current host `SCENE_HOST_API = 3` | `S-COMPAT-HOSTAPI` |
+| `compatibility.hostApi` | no | positive integer, current host `SCENE_HOST_API = 5` | `S-COMPAT-HOSTAPI` |
 | `compatibility.maxHostApi` | no | >= `hostApi` | `S-COMPAT-MAX` |
 | `compatibility.platforms` | no | `windows` / `macos` / `linux`, non-empty, unique | `S-COMPAT-PLATFORM` |
 | `integrity` | official catalog only | `{algorithm:"sha256", scope:"package", digest:64 hex}` | `S-INTEGRITY-*` |
@@ -87,6 +87,7 @@ Hard rules:
 | `wallpaper.params` | accepts manifest parameters | required when `params` is declared; external packages also need `wallpaper.script` |
 | `wallpaper.script` | may execute JS in a `sandbox="allow-scripts"` iframe | external packages only; without it the package loads as static (empty sandbox) |
 | `wallpaper.pointer` | receives move-only pointer state (`x/y/inside/moving`) | requires `wallpaper.script` and `compatibility.hostApi >= 3`; no click/button/wheel channel |
+| `wallpaper.audio` | reads standardized audio frames (`AudioFrame` / `AudioSnapshot`) | requires `wallpaper.script` and `compatibility.hostApi >= 5`; sources/features declared in `audio`; read-only, no PCM |
 
 A scene whose `compatibility.hostApi` exceeds the host, or whose platform does not match, is
 filtered out at the catalog layer - it simply does not appear in settings (not an error).
@@ -152,6 +153,40 @@ type SceneFrame = {
 - `reducedMotion: true` -> stop continuous animation (CSS media query + JS guard).
 - Parameter change chain: Settings -> Rust writes config -> URL hash hot-update ->
   `SceneHost` recomputes -> bridge pushes `frame`.
+
+### Audio response (`wallpaper.audio`)
+
+Declare `wallpaper.script` + `wallpaper.audio` and `compatibility.hostApi >= 5`:
+
+```json
+{
+  "capabilities": ["wallpaper.viewport", "wallpaper.script", "wallpaper.audio"],
+  "audio": { "sources": ["music", "noise"], "features": ["level", "bands"] },
+  "compatibility": { "hostApi": 5 }
+}
+```
+
+```ts
+const scene = await connectLullScene();
+const snapshot = await scene.audio.getSnapshot();
+scene.audio.onData((frame) => {
+  root.style.setProperty("--energy", String(frame.level.normalized));
+}, { sources: ["music"] });
+```
+
+- `20Hz` frames: `{ source, active, level:{rms,peak,normalized}, bands:{bass,lowMid,mid,highMid,treble} }`.
+  Always interpolate at render time (`smoothAudioValue`); `rms`/`peak` are raw, `normalized`/`bands`
+  are normalized and smoothed.
+- `bands` are on a log scale with per-band AGC: each band is centered on its own ~4s average
+  (±9 dB), so sustained music sits around 0.4–0.7 and beats reach 0.8–1.0. Use 0.7–0.85 for
+  accent thresholds and `level.normalized` for overall loudness; `bands` are not absolute
+  spectral energy.
+- Bands are intentionally fast (host attack/release ≈41/130ms): keep your own interpolation
+  release at or below ~100ms, otherwise fast drum patterns get smeared.
+- `active:false` means the source is silent (paused/stopped/muted): decay visuals, never snap to 0.
+- `master` includes global volume and mute; `mix` does not. Do not add them together.
+- Read-only: no PCM, no file paths, no playback/volume control. Scenes without the capability
+  receive no `audio.*` messages at all.
 
 ## 7. Digest and installation
 

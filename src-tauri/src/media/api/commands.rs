@@ -338,6 +338,7 @@ pub fn media_engine_ready(window: WebviewWindow) -> Result<(), String> {
   let app = window.app_handle().clone();
   playback::on_engine_ready(&app);
   noise::on_engine_ready(&app);
+  crate::audio_reactive::on_engine_ready(&app);
   Ok(())
 }
 
@@ -345,6 +346,15 @@ pub fn media_engine_ready(window: WebviewWindow) -> Result<(), String> {
 pub fn media_engine_event(window: WebviewWindow, event: Value) -> Result<(), String> {
   if window.label() != ENGINE_LABEL {
     return Err("只有媒体引擎窗口可以上报事件".to_string());
+  }
+  // 音频分析事件与播放事件共用同一条上报通道，但由 Audio Reactive Service 独立解析；
+  // 这样 EngineEvent 不需要认识 audio.*，未知类型也不会影响现有播放事件。
+  if event
+    .get("type")
+    .and_then(Value::as_str)
+    .is_some_and(|kind| kind.starts_with("audio."))
+  {
+    return crate::audio_reactive::ingest_engine_event(&window.app_handle().clone(), &event);
   }
   let event: EngineEvent = serde_json::from_value(event).map_err(|error| error.to_string())?;
   playback::handle_engine_event(&window, event).map_err(|error| error.to_string())

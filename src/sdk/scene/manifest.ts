@@ -5,6 +5,15 @@
  * 内置场景与社区静态内容包共用同一份清单格式。
  */
 
+import {
+  type AudioFeature,
+  type AudioSource,
+  DEFAULT_AUDIO_FEATURES,
+  DEFAULT_AUDIO_SOURCES,
+  isAudioFeature,
+  isAudioSource,
+} from "./audio";
+
 export const SCENE_SCHEMA_VERSION = 1 as const;
 
 /**
@@ -13,8 +22,9 @@ export const SCENE_SCHEMA_VERSION = 1 as const;
  * 破坏性变更才递增；新增参数类型属于能力扩展，声明它的场景必须写更高的
  * `compatibility.hostApi`，旧宿主会把该场景当作不兼容跳过（清单层拒绝）。
  * 4：新增 `text` 参数类型（多行文本，面板支持从本地文本文件载入）。
+ * 5：新增 `wallpaper.audio` 音频响应与 `audio` 声明（`scene.audio`）。
  */
-export const SCENE_HOST_API = 4 as const;
+export const SCENE_HOST_API = 5 as const;
 
 export const SCENE_CAPABILITIES = [
   "wallpaper.viewport",
@@ -33,6 +43,13 @@ export const SCENE_CAPABILITIES = [
    * 只对脚本桥场景有效，必须同时声明 wallpaper.script，且 compatibility.hostApi >= 3。
    */
   "wallpaper.pointer",
+  /**
+   * 场景读取宿主提供的标准化音频响应数据（AudioFrame / AudioSnapshot）。
+   * 只读视觉能力：不暴露 PCM、不支持播放控制或音量控制；来源与数据类型由
+   * Manifest 的 `audio` 字段声明。必须同时声明 wallpaper.script 与
+   * compatibility.hostApi >= 5。
+   */
+  "wallpaper.audio",
 ] as const;
 
 export type SceneCapability = (typeof SCENE_CAPABILITIES)[number];
@@ -122,6 +139,17 @@ export type SceneGameBinding = {
   role: "replica";
 };
 
+/**
+ * 音频响应声明（`wallpaper.audio`，宿主 API 5）。
+ *
+ * 只声明"读什么"，不声明"怎么画"：映射由场景自己决定。字段省略时取默认值
+ * （四来源 + level/bands）。
+ */
+export type SceneAudioBinding = {
+  sources: AudioSource[];
+  features: AudioFeature[];
+};
+
 export type SceneManifest = {
   schemaVersion: typeof SCENE_SCHEMA_VERSION;
   type: "scene";
@@ -147,6 +175,8 @@ export type SceneManifest = {
   compatibility?: SceneCompatibility;
   /** 只读游戏绑定；声明后必须同时声明 wallpaper.script。 */
   game?: SceneGameBinding;
+  /** 音频响应来源与数据类型；声明后必须同时声明 wallpaper.audio。 */
+  audio?: SceneAudioBinding;
   /** 内容包必填（官方目录由 `pnpm content:hash` 维护）；内置场景不使用。 */
   integrity?: SceneIntegrity;
 };
@@ -187,6 +217,7 @@ const MANIFEST_KEYS = new Set([
   "performance",
   "compatibility",
   "game",
+  "audio",
   "integrity",
 ]);
 const PERFORMANCE_TIERS = ["low", "medium", "high"] as const;
@@ -498,6 +529,55 @@ function parseGameBinding(
   return { id, role: "replica" };
 }
 
+function parseAudioBinding(
+  value: unknown,
+  where: string,
+): SceneAudioBinding | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) fail(where, "audio 必须是对象或省略");
+  for (const field of Object.keys(value)) {
+    if (field !== "sources" && field !== "features") {
+      fail(where, `audio 含未知字段: ${field}`);
+    }
+  }
+
+  const readList = (
+    raw: unknown,
+    field: "sources" | "features",
+    isKnown: (item: unknown) => boolean,
+    knownLabel: string,
+  ): string[] | undefined => {
+    if (raw === undefined || raw === null) return undefined;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      fail(`${where}.audio`, `${field} 必须是非空数组或省略`);
+    }
+    const out: string[] = [];
+    for (const item of raw) {
+      if (!isKnown(item)) {
+        fail(`${where}.audio`, `未知${knownLabel}: ${String(item)}`);
+      }
+      if (out.includes(item as string)) {
+        fail(`${where}.audio`, `${field} 重复: ${String(item)}`);
+      }
+      out.push(item as string);
+    }
+    return out;
+  };
+
+  const sources = readList(value.sources, "sources", isAudioSource, "音频来源");
+  const features = readList(
+    value.features,
+    "features",
+    isAudioFeature,
+    "音频特征",
+  );
+
+  return {
+    sources: (sources ?? [...DEFAULT_AUDIO_SOURCES]) as AudioSource[],
+    features: (features ?? [...DEFAULT_AUDIO_FEATURES]) as AudioFeature[],
+  };
+}
+
 /** 校验静态内容入口：必须是相对路径、不得逃逸内容根目录、必须是 .html。 */ export function isSafeContentEntry(
   entry: string,
 ): boolean {
@@ -606,6 +686,16 @@ export function parseSceneManifest(
   if (game && options.requireEntry !== true) {
     fail(where, "内置场景不能声明 game 绑定");
   }
+  const audio = parseAudioBinding(input.audio, where);
+  if (audio && !has("wallpaper.audio")) {
+    fail(where, "声明 audio 时必须同时声明 wallpaper.audio");
+  }
+  if (has("wallpaper.audio") && !has("wallpaper.script")) {
+    fail(where, "wallpaper.audio 必须同时声明 wallpaper.script");
+  }
+  if (has("wallpaper.audio") && options.requireEntry !== true) {
+    fail(where, "内置场景不能声明音频响应");
+  }
   const compatibility = parseCompatibility(input.compatibility, where);
   if (game && (compatibility === undefined || compatibility.hostApi < 2)) {
     fail(where, "声明 game 绑定时必须声明 compatibility.hostApi >= 2");
@@ -616,6 +706,13 @@ export function parseSceneManifest(
     (compatibility === undefined || compatibility.hostApi < 3)
   ) {
     fail(where, "声明 wallpaper.pointer 时必须声明 compatibility.hostApi >= 3");
+  }
+  // 音频响应属于宿主 API 5；显式要求让旧宿主在清单层把它当作不兼容场景跳过。
+  if (
+    has("wallpaper.audio") &&
+    (compatibility === undefined || compatibility.hostApi < 5)
+  ) {
+    fail(where, "声明 wallpaper.audio 时必须声明 compatibility.hostApi >= 5");
   }
   // text 参数属于宿主 API 4（旧宿主不认识该类型，会在清单层拒绝整份清单）。
   const hasTextParam = params?.some((param) => param.type === "text") ?? false;
@@ -642,6 +739,7 @@ export function parseSceneManifest(
     performance: parsePerformance(input.performance, where),
     compatibility,
     game,
+    audio,
     integrity: parseIntegrity(input.integrity, where),
   };
 }
@@ -671,4 +769,24 @@ export function sceneSupportsSync(manifest: SceneManifest): boolean {
 /** 场景是否声明了鼠标位置通道；外部场景还需要脚本桥才能收到样本。 */
 export function sceneSupportsPointer(manifest: SceneManifest): boolean {
   return manifest.capabilities.includes("wallpaper.pointer");
+}
+
+/** 场景是否声明了音频响应通道；外部场景还需要脚本桥才能收到帧。 */
+export function sceneSupportsAudio(manifest: SceneManifest): boolean {
+  return manifest.capabilities.includes("wallpaper.audio");
+}
+
+/**
+ * 宿主实际下发给场景的音频来源与特征。
+ *
+ * 未声明 `audio` 字段时回落到默认值；声明了 capability 但省略字段，等价于
+ * "四来源 + level/bands"。调用方仍需按 capability 做授权判断。
+ */
+export function sceneAudioConfig(manifest: SceneManifest): SceneAudioBinding {
+  return (
+    manifest.audio ?? {
+      sources: [...DEFAULT_AUDIO_SOURCES],
+      features: [...DEFAULT_AUDIO_FEATURES],
+    }
+  );
 }

@@ -9,6 +9,8 @@ import {
   isSafeContentEntry,
   parseSceneCatalog,
   parseSceneManifest,
+  sceneAudioConfig,
+  sceneSupportsAudio,
   sceneSupportsPointer,
 } from "./index";
 
@@ -433,6 +435,95 @@ describe("scene manifest", () => {
     expect(() =>
       parseSceneManifest(validManifest({ theme: { background: "black" } })),
     ).toThrow(/background/);
+  });
+});
+
+describe("scene audio binding", () => {
+  function audioManifest(overrides: Record<string, unknown> = {}) {
+    return validManifest({
+      capabilities: [
+        "wallpaper.viewport",
+        "wallpaper.script",
+        "wallpaper.audio",
+      ],
+      compatibility: { hostApi: 5 },
+      ...overrides,
+    });
+  }
+
+  test("defaults to all sources and level/bands", () => {
+    const manifest = parseSceneManifest(audioManifest(), {
+      requireEntry: true,
+    });
+    expect(sceneSupportsAudio(manifest)).toBe(true);
+    expect(sceneAudioConfig(manifest)).toEqual({
+      sources: ["music", "noise", "mix", "master"],
+      features: ["level", "bands"],
+    });
+  });
+
+  test("narrows sources and features when declared", () => {
+    const manifest = parseSceneManifest(
+      audioManifest({
+        audio: {
+          sources: ["music", "noise"],
+          features: ["level", "bands", "spectrum"],
+        },
+      }),
+      { requireEntry: true },
+    );
+    expect(sceneAudioConfig(manifest)).toEqual({
+      sources: ["music", "noise"],
+      features: ["level", "bands", "spectrum"],
+    });
+  });
+
+  test("requires wallpaper.script and hostApi >= 5", () => {
+    expect(() =>
+      parseSceneManifest(
+        audioManifest({
+          capabilities: ["wallpaper.viewport", "wallpaper.audio"],
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/wallpaper.script/);
+    expect(() =>
+      parseSceneManifest(audioManifest({ compatibility: { hostApi: 4 } }), {
+        requireEntry: true,
+      }),
+    ).toThrow(/hostApi >= 5/);
+  });
+
+  test("audio field requires the capability", () => {
+    expect(() =>
+      parseSceneManifest(
+        validManifest({
+          capabilities: ["wallpaper.viewport"],
+          audio: { sources: ["music"] },
+        }),
+        { requireEntry: true },
+      ),
+    ).toThrow(/wallpaper.audio/);
+  });
+
+  test("rejects unknown sources, duplicate entries and empty arrays", () => {
+    for (const audio of [
+      { sources: ["microphone"] },
+      { sources: ["music", "music"] },
+      { sources: [] },
+      { features: ["tempo"] },
+      { sources: ["music"], extra: true },
+    ]) {
+      expect(() =>
+        parseSceneManifest(audioManifest({ audio }), { requireEntry: true }),
+      ).toThrow(/audio/);
+    }
+  });
+
+  test("built-in scenes cannot declare audio response", () => {
+    expect(() => parseSceneManifest(audioManifest())).toThrow(
+      /内置场景不能声明音频响应/,
+    );
   });
 });
 

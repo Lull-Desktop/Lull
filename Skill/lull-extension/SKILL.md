@@ -227,9 +227,11 @@ Full standard in `references/extension-standard.md`; these are the ones people t
 
 11. `catalog.json` holds **exactly one** scene; unknown fields are rejected; `license` is required.
 12. Declaring `params` requires `wallpaper.params`; for external packages `wallpaper.params` /
-    `wallpaper.sync` / `wallpaper.pointer` also require `wallpaper.script` - without the
-    script bridge the values cannot reach the scene. `wallpaper.pointer` additionally requires
-    `compatibility.hostApi >= 3`; it carries move-only `x/y/inside/moving`, never clicks.
+    `wallpaper.sync` / `wallpaper.pointer` / `wallpaper.audio` also require `wallpaper.script` -
+    without the script bridge the values cannot reach the scene. `wallpaper.pointer` additionally
+    requires `compatibility.hostApi >= 3`; it carries move-only `x/y/inside/moving`, never clicks.
+    `wallpaper.audio` requires `compatibility.hostApi >= 5`; its `audio` block lists
+    `sources` (`music/noise/mix/master`) and `features` (`level/bands/spectrum/waveform`).
 13. A package without `wallpaper.script` runs in an empty sandbox, so it **must not contain
     `<script>`** (the validator errors on it).
 14. `vendor/` for a script scene must sit next to the entry (the digest only covers the entry

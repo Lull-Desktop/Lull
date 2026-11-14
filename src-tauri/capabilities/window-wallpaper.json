@@ -16,6 +16,8 @@
     "allow-media-attach",
     "allow-media-detach",
     "allow-media-degrade",
+    "allow-audio-connect",
+    "allow-audio-disconnect",
     "allow-game-connect",
     "allow-game-auto-start",
     "allow-game-snapshot-get",

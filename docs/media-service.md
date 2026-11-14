@@ -225,6 +225,40 @@ Media Service（Rust）
   `player_smart_shuffle` 自动迁移为「我的配置」）。profile 切换不清空轮次袋，只影响下一次选曲。
 - 算法缺口与校准记录见 [Smart Shuffle](smart-shuffle.md)。
 
+### 3.4 音频响应（Audio Reactive）
+
+音乐与音境共用同一张 `Shared AudioGraph`（musicBus / noiseBus / master / limiter）。
+音频响应在图上新增四个分析点，供壁纸场景消费；**不新建播放服务、不改变现有播放业务**。
+
+```text
+musicBus → musicAnalyser ┐
+                         ├→ mix → mixAnalyser → master → masterAnalyser → limiter → output
+noiseBus → noiseAnalyser ┘
+```
+
+| 来源 | 分析点 | 语义 |
+| --- | --- | --- |
+| `music` | musicBus 总线音量之后 | 音乐可视化、节奏响应 |
+| `noise` | noiseBus 总线音量之后 | 雨/海浪/风的缓慢环境响应 |
+| `mix` | 两总线汇合、master 音量之前 | 综合环境强度 |
+| `master` | master 音量之后、limiter 之前 | “用户听到多少就响应多少”（静音即静止） |
+
+- 引擎协议 v3 新增命令 `{v:3,type:"audio.analyze",sources,bands,intervalMs}` 与事件
+  `{type:"audio.frame",frames}` / `{type:"audio.status",available,reason}`；`sources=[]`
+  表示停止分析（节点保留，不反复创建/销毁）。
+- 特征提取在 Media Engine 完成：RMS、Peak、五段频段（bass/lowMid/mid/highMid/treble）；
+  频段读取 `getFloatFrequencyData` 的 dB 值做能量平均，映射到 −70…−6 dBFS 的对数刻度
+  （字节频谱在 −30 dBFS 以上会截断，不能用于视觉响应）；Rust 侧每个频段再做约 4s 的
+  逐段 AGC（±9 dB），持续段落停在中段、快节奏有完整摆幅，静音门限避免抬高底噪。
+  归一化、平滑、订阅与多显示器分发在 Rust `audio_reactive` 完成。
+- 每 tick（50ms，20Hz）一条批量 IPC（≤4 帧），不传 PCM、不传原始 FFT。
+- 现有 `media_connect({topics,levels})` 的 `player.level` / `noise.level` 不变；音频响应
+  是独立通道，不混入 `media:event`。
+- 壁纸窗通过 `audio_connect` / `audio_disconnect` 订阅，Rust 用定向事件
+  `wallpaper-audio` 分发同一份 `timestamp/sequence`；没有订阅者时引擎停止分析。
+- 暂停/停止/静音由帧内 `active=false` 表达；场景侧负责衰减，不做时间戳对齐到
+  `scene.sync.epochMs`。
+
 ## 4. 前端 SDK
 
 `packages/media-sdk`（Apache-2.0）：

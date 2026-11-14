@@ -24,7 +24,7 @@ export const WIDGET_SCHEMA_VERSION = 2;
 export const WIDGET_HOST_API = 1;
 export const SCENE_SCHEMA_VERSION = 1;
 /** Must match `src/sdk/scene/manifest.ts` SCENE_HOST_API. */
-export const SCENE_HOST_API = 4;
+export const SCENE_HOST_API = 5;
 
 export const WIDGET_CAPABILITIES = [
   "widget.ui",
@@ -91,7 +91,10 @@ export const SCENE_CAPABILITIES = [
   "wallpaper.params",
   "wallpaper.script",
   "wallpaper.pointer",
+  "wallpaper.audio",
 ];
+export const AUDIO_SOURCES = ["music", "noise", "mix", "master"];
+export const AUDIO_FEATURES = ["level", "bands", "spectrum", "waveform"];
 export const SCENE_PLATFORMS = ["windows", "macos", "linux"];
 export const SCENE_PARAM_TYPES = ["number", "boolean", "string", "color", "enum", "text"];
 
@@ -139,6 +142,7 @@ const SCENE_KNOWN_KEYS = new Set([
   "params",
   "performance",
   "compatibility",
+  "audio",
   "integrity",
 ]);
 
@@ -659,12 +663,13 @@ function validateScene(root, report, add, files) {
       !hasScript &&
       (seen.has("wallpaper.params") ||
         seen.has("wallpaper.sync") ||
-        seen.has("wallpaper.pointer"))
+        seen.has("wallpaper.pointer") ||
+        seen.has("wallpaper.audio"))
     ) {
       add(
         "error",
         "S-CAPS-SCRIPT",
-        "External packages must also declare wallpaper.script when using wallpaper.params / wallpaper.sync / wallpaper.pointer",
+        "External packages must also declare wallpaper.script when using wallpaper.params / wallpaper.sync / wallpaper.pointer / wallpaper.audio",
       );
     }
     if (seen.has("wallpaper.pointer")) {
@@ -676,6 +681,18 @@ function validateScene(root, report, add, files) {
           "wallpaper.pointer requires compatibility.hostApi >= 3",
         );
       }
+    }
+    if (seen.has("wallpaper.audio")) {
+      const hostApi = scene.compatibility?.hostApi;
+      if (!Number.isInteger(hostApi) || hostApi < 5) {
+        add(
+          "error",
+          "S-COMPAT-AUDIO",
+          "wallpaper.audio requires compatibility.hostApi >= 5",
+        );
+      }
+    } else if (scene.audio !== undefined) {
+      add("error", "S-AUDIO-CAP", "audio requires the wallpaper.audio capability");
     }
     if (!seen.has("wallpaper.viewport") && !seen.has("wallpaper.canvas")) {
       add(
@@ -706,6 +723,7 @@ function validateScene(root, report, add, files) {
 
   validateSceneParams(scene, caps, add);
   validateSceneTheme(scene.theme, add);
+  validateSceneAudio(scene.audio, add);
   validateScenePerformance(scene.performance, add);
   validateSceneCompatibility(scene.compatibility, add);
 
@@ -905,6 +923,40 @@ function validateSceneParams(scene, caps, add) {
       add("error", "S-PARAM-OPTIONS-TYPE", `${at}: options only applies to enum params`);
     }
   });
+}
+
+function validateSceneAudio(audio, add) {
+  if (audio === undefined || audio === null) return;
+  if (!isRecord(audio)) {
+    add("error", "S-AUDIO-SHAPE", "audio must be an object");
+    return;
+  }
+  for (const key of Object.keys(audio)) {
+    if (key !== "sources" && key !== "features") {
+      add("error", "S-AUDIO-FIELD", `audio has an unknown field "${key}"`);
+    }
+  }
+  for (const [field, allowed] of [
+    ["sources", AUDIO_SOURCES],
+    ["features", AUDIO_FEATURES],
+  ]) {
+    const value = audio[field];
+    if (value === undefined) continue;
+    if (!Array.isArray(value) || value.length === 0) {
+      add("error", "S-AUDIO-LIST", `audio.${field} must be a non-empty array`);
+      continue;
+    }
+    const seen = new Set();
+    for (const item of value) {
+      if (!allowed.includes(item)) {
+        add("error", "S-AUDIO-VALUE", `audio.${field} has an unknown value: ${JSON.stringify(item)}`);
+      } else if (seen.has(item)) {
+        add("error", "S-AUDIO-DUP", `audio.${field} has a duplicate entry: ${item}`);
+      } else {
+        seen.add(item);
+      }
+    }
+  }
 }
 
 function validateSceneTheme(theme, add) {

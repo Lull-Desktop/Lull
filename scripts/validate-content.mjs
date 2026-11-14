@@ -24,7 +24,10 @@ const CAPABILITIES = new Set([
   "wallpaper.params",
   "wallpaper.script",
   "wallpaper.pointer",
+  "wallpaper.audio",
 ]);
+const AUDIO_SOURCES = new Set(["music", "noise", "mix", "master"]);
+const AUDIO_FEATURES = new Set(["level", "bands", "spectrum", "waveform"]);
 const ID = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const ENTRY = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9][A-Za-z0-9._/-]*\.html$/;
@@ -48,6 +51,7 @@ const MANIFEST_KEYS = new Set([
   "params",
   "performance",
   "compatibility",
+  "audio",
   "integrity",
 ]);
 
@@ -253,6 +257,41 @@ function checkIntegrity(scene, where) {
 const errors = [];
 const fail = (message) => errors.push(message);
 
+/** `audio` 声明的来源/特征必须是已知枚举，且非空、去重。 */
+function checkAudio(scene, where) {
+  if (scene.audio === undefined) return;
+  if (!isObject(scene.audio)) {
+    fail(`${where}.audio 必须是对象`);
+    return;
+  }
+  for (const key of Object.keys(scene.audio)) {
+    if (key !== "sources" && key !== "features") {
+      fail(`${where}.audio 含未知字段: ${key}`);
+    }
+  }
+  for (const [field, allowed] of [
+    ["sources", AUDIO_SOURCES],
+    ["features", AUDIO_FEATURES],
+  ]) {
+    const value = scene.audio[field];
+    if (value === undefined) continue;
+    if (!Array.isArray(value) || value.length === 0) {
+      fail(`${where}.audio.${field} 必须是非空数组`);
+      continue;
+    }
+    const seen = new Set();
+    for (const item of value) {
+      if (!allowed.has(item)) {
+        fail(`${where}.audio.${field} 含未知值: ${String(item)}`);
+      } else if (seen.has(item)) {
+        fail(`${where}.audio.${field} 重复: ${item}`);
+      } else {
+        seen.add(item);
+      }
+    }
+  }
+}
+
 let catalog;
 try {
   catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
@@ -280,6 +319,7 @@ for (const [index, scene] of (catalog.scenes ?? []).entries()) {
   }
   checkParams(scene, where);
   checkMetadata(scene, where);
+  checkAudio(scene, where);
   if (scene.schemaVersion !== 1) fail(`${where}.schemaVersion 必须是 1`);
   if (scene.type !== "scene") fail(`${where}.type 必须是 "scene"`);
   if (typeof scene.id !== "string" || !ID.test(scene.id)) {
@@ -308,15 +348,16 @@ for (const [index, scene] of (catalog.scenes ?? []).entries()) {
     }
     const hasCapability = (capability) =>
       scene.capabilities.includes(capability);
-    // 外部场景只有脚本桥能收到参数/相位/指针；没有 script 就不能声明这些能力。
+    // 外部场景只有脚本桥能收到参数/相位/指针/音频；没有 script 就不能声明这些能力。
     if (
       !hasCapability("wallpaper.script") &&
       (hasCapability("wallpaper.params") ||
         hasCapability("wallpaper.sync") ||
-        hasCapability("wallpaper.pointer"))
+        hasCapability("wallpaper.pointer") ||
+        hasCapability("wallpaper.audio"))
     ) {
       fail(
-        `${where}.capabilities: wallpaper.params / wallpaper.sync / wallpaper.pointer 必须同时声明 wallpaper.script`,
+        `${where}.capabilities: wallpaper.params / wallpaper.sync / wallpaper.pointer / wallpaper.audio 必须同时声明 wallpaper.script`,
       );
     }
     if (hasCapability("wallpaper.pointer")) {
@@ -326,6 +367,16 @@ for (const [index, scene] of (catalog.scenes ?? []).entries()) {
           `${where}.capabilities: wallpaper.pointer 需要 compatibility.hostApi >= 3`,
         );
       }
+    }
+    if (hasCapability("wallpaper.audio")) {
+      const hostApi = scene.compatibility?.hostApi;
+      if (!Number.isInteger(hostApi) || hostApi < 5) {
+        fail(
+          `${where}.capabilities: wallpaper.audio 需要 compatibility.hostApi >= 5`,
+        );
+      }
+    } else if (scene.audio !== undefined) {
+      fail(`${where}.audio 需要同时声明 wallpaper.audio`);
     }
     if (
       Array.isArray(scene.params) &&

@@ -20,8 +20,10 @@ prints these codes directly), section 2 is toolchain trouble, section 3 is host 
 | `S-SINGLE-SCENE` | `scenes` has more than one entry | v1 allows exactly one |
 | `S-UNKNOWN-FIELD` | a misspelled scene field | Unknown fields are rejected, never ignored |
 | `W-CAPS-*` | unknown / duplicate capability, or `widget.window` / `widget.native` | Only the 7 allowlisted values |
-| `S-CAPS-*` | unknown / duplicate capability, or `params`/`sync`/`pointer` without `script` | Add `wallpaper.script` or drop the declaration |
+| `S-CAPS-*` | unknown / duplicate capability, or `params`/`sync`/`pointer`/`audio` without `script` | Add `wallpaper.script` or drop the declaration |
 | `S-COMPAT-POINTER` | `wallpaper.pointer` with `compatibility.hostApi < 3` | Declare `hostApi: 3` or remove the capability |
+| `S-COMPAT-AUDIO` | `wallpaper.audio` with `compatibility.hostApi < 5` | Declare `hostApi: 5` or remove the capability |
+| `S-AUDIO-*` | `audio` field with unknown sources/features, empty/duplicate arrays, or without the capability | Use `music/noise/mix/master` + `level/bands/spectrum/waveform`, and declare `wallpaper.audio` |
 | `W-CHROME-CAP` | `chrome: "custom"` without `widget.chrome` | Add the capability or go back to `host` |
 | `W-NET-CAP` | `network` and `widget.network` are not both present | Add or remove both together |
 | `W-NET-SOURCE` | origin is not `https://` / `http://localhost:` | Give the exact origin, no wildcards |

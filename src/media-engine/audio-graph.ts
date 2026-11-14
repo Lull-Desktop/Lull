@@ -3,13 +3,23 @@
  *
  * 一个 AudioContext、两条业务总线、一个 master 与 limiter：
  *
- *   musicBus ─┐
- *             ├─ master ─ limiter ─ destination
- *   noiseBus ─┘
+ *   musicBus ─ musicAnalyser ─┐
+ *                             ├─ mix ─ mixAnalyser ─ master ─ masterAnalyser ─ limiter ─ destination
+ *   noiseBus ─ noiseAnalyser ─┘
  *
  * 业务层只设置音量/静音，不直接连接 destination；设备切换由 host 重载引擎后
  * 由 Rust 全量 resync。
+ *
+ * 四个 AnalyserNode 都是 pass-through：只读信号，不改变音质与增益语义。
+ * music/noise 分析点位于各自总线音量之后；mix 位于两总线汇合、master 音量之前；
+ * master 位于 master 音量之后、limiter 之前。
  */
+import type { AudioBands, AudioSource } from "@/sdk/scene";
+import {
+  bandValuesFromDb,
+  isAudioActive,
+  timeDomainMetrics,
+} from "./audio-metrics";
 import { busGain, clamp01, noiseBusGain, outputGain } from "./gain";
 
 type BrowserAudioContext = typeof AudioContext;
@@ -50,6 +60,30 @@ function rmsLevel(
   };
 }
 
+/** 频段分析统一使用的 FFT 大小：2048 → 1024 bin（约 47Hz/bin @48k）。 */
+const ANALYSER_FFT_SIZE = 2048;
+/**
+ * 频谱平滑系数。0.82 的时间常数约 250ms，会把快速鼓点抹平；0.5 约 70ms，
+ * 仍能压住逐帧抖动，但保留 20Hz 采样下的瞬态细节。场景侧还有一层平滑，
+ * 不要把这里调回 0.8 以上。
+ */
+const ANALYSER_SMOOTHING = 0.5;
+
+const SILENT_BANDS: AudioBands = {
+  bass: 0,
+  lowMid: 0,
+  mid: 0,
+  highMid: 0,
+  treble: 0,
+};
+
+export type AudioReadResult = {
+  source: AudioSource;
+  active: boolean;
+  level: { rms: number; peak: number };
+  bands: AudioBands;
+};
+
 export class AudioGraph {
   private context: AudioContext | null = null;
   private musicGain: GainNode | null = null;
@@ -57,8 +91,18 @@ export class AudioGraph {
   private masterGain: GainNode | null = null;
   private musicAnalyser: AnalyserNode | null = null;
   private noiseAnalyser: AnalyserNode | null = null;
+  private mixAnalyser: AnalyserNode | null = null;
+  private masterAnalyser: AnalyserNode | null = null;
   private musicSamples: Uint8Array<ArrayBuffer> | null = null;
   private noiseSamples: Uint8Array<ArrayBuffer> | null = null;
+  private readonly audioTimeBuffers = new Map<
+    AudioSource,
+    Uint8Array<ArrayBuffer>
+  >();
+  private readonly audioFreqBuffers = new Map<
+    AudioSource,
+    Float32Array<ArrayBuffer>
+  >();
   private readonly mediaSources = new Set<MediaElementAudioSourceNode>();
   private musicVolume = 1;
   private musicMuted = false;
@@ -76,15 +120,23 @@ export class AudioGraph {
     const context = new Ctor();
     const musicGain = context.createGain();
     const noiseGain = context.createGain();
+    const mixGain = context.createGain();
     const masterGain = context.createGain();
     const limiter = context.createDynamicsCompressor();
     const musicAnalyser = context.createAnalyser();
     const noiseAnalyser = context.createAnalyser();
+    const mixAnalyser = context.createAnalyser();
+    const masterAnalyser = context.createAnalyser();
 
-    musicAnalyser.fftSize = 512;
-    musicAnalyser.smoothingTimeConstant = 0.82;
-    noiseAnalyser.fftSize = 512;
-    noiseAnalyser.smoothingTimeConstant = 0.82;
+    for (const analyser of [
+      musicAnalyser,
+      noiseAnalyser,
+      mixAnalyser,
+      masterAnalyser,
+    ]) {
+      analyser.fftSize = ANALYSER_FFT_SIZE;
+      analyser.smoothingTimeConstant = ANALYSER_SMOOTHING;
+    }
 
     limiter.threshold.value = -6;
     limiter.knee.value = 0;
@@ -94,13 +146,17 @@ export class AudioGraph {
 
     musicGain.gain.value = busGain(this.musicVolume, this.musicMuted);
     noiseGain.gain.value = noiseBusGain(this.noiseVolume, this.noiseMuted);
+    mixGain.gain.value = 1;
     masterGain.gain.value = outputGain(this.outputVolume, this.outputMuted);
 
     musicGain.connect(musicAnalyser);
-    musicAnalyser.connect(masterGain);
+    musicAnalyser.connect(mixGain);
     noiseGain.connect(noiseAnalyser);
-    noiseAnalyser.connect(masterGain);
-    masterGain.connect(limiter);
+    noiseAnalyser.connect(mixGain);
+    mixGain.connect(mixAnalyser);
+    mixAnalyser.connect(masterGain);
+    masterGain.connect(masterAnalyser);
+    masterAnalyser.connect(limiter);
     limiter.connect(context.destination);
 
     this.context = context;
@@ -109,6 +165,8 @@ export class AudioGraph {
     this.masterGain = masterGain;
     this.musicAnalyser = musicAnalyser;
     this.noiseAnalyser = noiseAnalyser;
+    this.mixAnalyser = mixAnalyser;
+    this.masterAnalyser = masterAnalyser;
     return context;
   }
 
@@ -190,6 +248,60 @@ export class AudioGraph {
     return result.level;
   }
 
+  /**
+   * 读取单个来源的音频特征；未初始化或该来源没有分析节点时返回静音。
+   *
+   * `withBands=false` 时跳过频域读取，供只需要电平的订阅使用。
+   */
+  readAudio(source: AudioSource, withBands: boolean): AudioReadResult {
+    const analyser = this.analyserFor(source);
+    const context = this.context;
+    if (!analyser || !context) {
+      return {
+        source,
+        active: false,
+        level: { rms: 0, peak: 0 },
+        bands: { ...SILENT_BANDS },
+      };
+    }
+
+    const time =
+      this.audioTimeBuffers.get(source) ?? new Uint8Array(analyser.fftSize);
+    this.audioTimeBuffers.set(source, time);
+    analyser.getByteTimeDomainData(time);
+    const metrics = timeDomainMetrics(time);
+
+    let bands: AudioBands = { ...SILENT_BANDS };
+    if (withBands) {
+      const bins = analyser.frequencyBinCount;
+      const frequency =
+        this.audioFreqBuffers.get(source) ?? new Float32Array(bins);
+      this.audioFreqBuffers.set(source, frequency);
+      analyser.getFloatFrequencyData(frequency);
+      bands = bandValuesFromDb(frequency, context.sampleRate, analyser.fftSize);
+    }
+
+    return {
+      source,
+      active: isAudioActive(metrics.rms),
+      level: metrics,
+      bands,
+    };
+  }
+
+  private analyserFor(source: AudioSource): AnalyserNode | null {
+    switch (source) {
+      case "music":
+        return this.musicAnalyser;
+      case "noise":
+        return this.noiseAnalyser;
+      case "mix":
+        return this.mixAnalyser;
+      case "master":
+        return this.masterAnalyser;
+    }
+  }
+
   dispose(): void {
     for (const source of this.mediaSources) {
       try {
@@ -206,8 +318,12 @@ export class AudioGraph {
     this.masterGain = null;
     this.musicAnalyser = null;
     this.noiseAnalyser = null;
+    this.mixAnalyser = null;
+    this.masterAnalyser = null;
     this.musicSamples = null;
     this.noiseSamples = null;
+    this.audioTimeBuffers.clear();
+    this.audioFreqBuffers.clear();
     if (context) void context.close().catch(() => {});
   }
 

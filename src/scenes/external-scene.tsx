@@ -10,22 +10,39 @@
  * - 资源协议按文档下发 nonce CSP，默认禁止远程连接；
  * - 宿主只接受 `event.source === iframe.contentWindow` 的消息。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useGameReplica } from "@/games/bridge/use-game-replica";
 import {
+  type AudioSource,
+  type AudioStatus,
+  audioStatusAllFalse,
+  emptyAudioSnapshot,
+  normalizeAudioSources,
   type SceneCatalogEntry,
   type SceneFrame,
   type ScenePointer,
+  sceneAudioConfig,
   sceneRunsScript,
+  sceneSupportsAudio,
   sceneSupportsPointer,
 } from "@/sdk/scene";
+import {
+  connectWallpaperAudio,
+  type WallpaperAudioConnection,
+} from "./audio-stream";
 import { pointerForFrame } from "./pointer";
 import { listenWallpaperPointer } from "./pointer-stream";
 import {
+  isSceneAudioPluginMessage,
   isSceneGamePluginMessage,
   isScenePluginMessage,
   SCENE_READY_TIMEOUT_MS,
+  type SceneAudioHostMessage,
   type SceneHostMessage,
+  sceneAudioFrameMessage,
+  sceneAudioInitMessage,
+  sceneAudioSnapshotMessage,
+  sceneAudioStatusMessage,
   sceneFrameMessage,
   sceneInitMessage,
   scenePointerMessage,
@@ -102,6 +119,17 @@ function ScriptedScene({
   const lastPointerRef = useRef<ScenePointer | null>(null);
   const [ready, setReady] = useState(false);
   const pointerEnabled = sceneSupportsPointer(entry.manifest);
+  const audioEnabled = sceneSupportsAudio(entry.manifest);
+  const audioConfig = useMemo(
+    () => (audioEnabled ? sceneAudioConfig(entry.manifest) : null),
+    [audioEnabled, entry.manifest],
+  );
+  const audioConnectionRef = useRef<WallpaperAudioConnection | null>(null);
+  const audioStatusRef = useRef<AudioStatus>(audioStatusAllFalse("inactive"));
+  const audioSubscribedRef = useRef(false);
+  const audioAllowedSourcesRef = useRef<Set<AudioSource>>(
+    new Set(audioConfig?.sources ?? []),
+  );
   const { handleSceneGameMessage, resetForReload } = useGameReplica({
     gameId: entry.manifest.game?.id ?? null,
     sceneId: entry.manifest.id,
@@ -113,9 +141,12 @@ function ScriptedScene({
   frameRef.current = frame;
   onReadyRef.current = onReady;
 
-  const send = useCallback((message: SceneHostMessage): void => {
-    iframeRef.current?.contentWindow?.postMessage(message, "*");
-  }, []);
+  const send = useCallback(
+    (message: SceneHostMessage | SceneAudioHostMessage): void => {
+      iframeRef.current?.contentWindow?.postMessage(message, "*");
+    },
+    [],
+  );
 
   const sendInit = useCallback((): void => {
     const visible =
@@ -135,9 +166,59 @@ function ScriptedScene({
     readyRef.current = false;
     setReady(false);
     lastPointerRef.current = null;
+    audioSubscribedRef.current = false;
     resetForReload();
     sendInit();
   }, [resetForReload, sendInit]);
+
+  // 音频连接与 iframe 生命周期解耦：iframe 重载时连接保留，ready 后重发 audio.init。
+  useEffect(() => {
+    if (!audioConfig) return;
+    const connection = connectWallpaperAudio({
+      sources: audioConfig.sources,
+      features: audioConfig.features,
+    });
+    audioConnectionRef.current = connection;
+    audioStatusRef.current = connection.getStatus();
+    audioAllowedSourcesRef.current = new Set(audioConfig.sources);
+    audioSubscribedRef.current = false;
+
+    const offFrames = connection.subscribeFrames((frames) => {
+      if (!readyRef.current || !audioSubscribedRef.current) return;
+      if (document.visibilityState !== "visible") return;
+      const allowed = audioAllowedSourcesRef.current;
+      // 空集合表示场景显式收窄到"不接收任何来源"，不能回退成全部转发。
+      const selected = frames.filter((frame) => allowed.has(frame.source));
+      if (selected.length === 0) return;
+      send(sceneAudioFrameMessage(selected));
+    });
+    const offStatus = connection.subscribeStatus((status) => {
+      audioStatusRef.current = status;
+      if (!readyRef.current) return;
+      send(sceneAudioStatusMessage(status));
+    });
+
+    void connection.whenReady.then(() => {
+      if (audioConnectionRef.current !== connection) return;
+      audioStatusRef.current = connection.getStatus();
+      if (readyRef.current) {
+        send(
+          sceneAudioInitMessage(
+            connection.getSnapshot(),
+            connection.getStatus(),
+          ),
+        );
+        send(sceneAudioStatusMessage(connection.getStatus()));
+      }
+    });
+
+    return () => {
+      offFrames();
+      offStatus();
+      connection.disconnect();
+      audioConnectionRef.current = null;
+    };
+  }, [audioConfig, send]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -150,12 +231,54 @@ function ScriptedScene({
         handleSceneGameMessage(event.data);
         return;
       }
+      // 音频响应只对声明 wallpaper.audio 的场景开放；未授权场景的消息直接丢弃。
+      if (isSceneAudioPluginMessage(event.data)) {
+        if (!audioEnabled) return;
+        const message = event.data;
+        if (message.type === "audio.subscribe") {
+          const allowed = audioConfig?.sources ?? [];
+          const allowedSet = new Set<AudioSource>(allowed);
+          // 场景只能在 Manifest 声明的来源内收窄；未声明的来源一律拒绝。
+          const granted = normalizeAudioSources(
+            message.options.sources,
+            allowed,
+          ).filter((source) => allowedSet.has(source));
+          audioAllowedSourcesRef.current = new Set(granted);
+          audioSubscribedRef.current = true;
+          send(sceneAudioStatusMessage(audioStatusRef.current));
+          return;
+        }
+        if (message.type === "audio.unsubscribe") {
+          audioSubscribedRef.current = false;
+          audioAllowedSourcesRef.current = new Set<AudioSource>(
+            audioConfig?.sources ?? [],
+          );
+          return;
+        }
+        send(
+          sceneAudioSnapshotMessage(
+            message.requestId,
+            audioConnectionRef.current?.getSnapshot() ?? emptyAudioSnapshot(),
+          ),
+        );
+        return;
+      }
       if (!isScenePluginMessage(event.data)) return;
       const message = event.data;
       if (message.type === "ready") {
         readyRef.current = true;
         setReady(true);
         sendInit();
+        // 初始化时给一份快照，避免场景等下一次音频事件（连接可能尚未就绪，
+        // whenReady 之后会再补一次 audio.init）。
+        if (audioEnabled) {
+          send(
+            sceneAudioInitMessage(
+              audioConnectionRef.current?.getSnapshot() ?? emptyAudioSnapshot(),
+              audioStatusRef.current,
+            ),
+          );
+        }
         onReadyRef.current?.();
         return;
       }
@@ -169,7 +292,14 @@ function ScriptedScene({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [entry.manifest.id, handleSceneGameMessage, sendInit]);
+  }, [
+    audioConfig,
+    audioEnabled,
+    entry.manifest.id,
+    handleSceneGameMessage,
+    sendInit,
+    send,
+  ]);
 
   // frame 变化（参数 / 布局 / 窗口尺寸）时推给场景；ready 之前的更新跳过，
   // 首帧由 ready 后的 init 补上。
@@ -196,6 +326,10 @@ function ScriptedScene({
       if (!readyRef.current) return;
       const visible = document.visibilityState === "visible";
       send(sceneVisibilityMessage(visible));
+      if (visible && audioEnabled) {
+        // 恢复显示时立即同步一次状态，下一 tick（≤50ms）就会续上音频帧。
+        send(sceneAudioStatusMessage(audioStatusRef.current));
+      }
       // 隐藏时补一条取消样本，避免场景停在 moving=true 的状态上。
       if (!visible && pointerEnabled && lastPointerRef.current) {
         const last = lastPointerRef.current;
@@ -212,7 +346,7 @@ function ScriptedScene({
     document.addEventListener("visibilitychange", sendVisibility);
     return () =>
       document.removeEventListener("visibilitychange", sendVisibility);
-  }, [pointerEnabled, send]);
+  }, [audioEnabled, pointerEnabled, send]);
 
   // span / mirror 切换时 iframe 容器尺寸会变，但未必触发 window resize。
   useEffect(() => {

@@ -1,7 +1,33 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import type { SceneCatalogEntry, SceneFrame, SceneManifest } from "@/sdk/scene";
+import type {
+  AudioFrame,
+  AudioSnapshot,
+  AudioStatus,
+  SceneCatalogEntry,
+  SceneFrame,
+  SceneManifest,
+} from "@/sdk/scene";
 import { ExternalScene } from "./external-scene";
+
+type AudioHarnessConnection = {
+  options: { sources: string[]; features: string[] };
+  snapshot: AudioSnapshot;
+  status: AudioStatus;
+  whenReady: Promise<void>;
+  getSnapshot(): AudioSnapshot;
+  getStatus(): AudioStatus;
+  subscribeFrames(listener: (frames: AudioFrame[]) => void): () => void;
+  subscribeStatus(listener: (status: AudioStatus) => void): () => void;
+  disconnect: () => void;
+  setSnapshot(next: AudioSnapshot): void;
+  emitFrames(frames: AudioFrame[]): void;
+  emitStatus(next: AudioStatus): void;
+};
+
+const audioHarness = vi.hoisted(() => ({
+  connections: [] as AudioHarnessConnection[],
+}));
 
 const pointerHarness = vi.hoisted(() => ({
   handlers: [] as Array<
@@ -29,8 +55,61 @@ vi.mock("./pointer-stream", () => ({
   },
 }));
 
+vi.mock("./audio-stream", () => ({
+  connectWallpaperAudio: (options: {
+    sources: string[];
+    features: string[];
+  }): AudioHarnessConnection => {
+    const frameListeners = new Set<(frames: AudioFrame[]) => void>();
+    const statusListeners = new Set<(status: AudioStatus) => void>();
+    const connection: AudioHarnessConnection = {
+      options,
+      snapshot: {
+        protocol: 1,
+        timestamp: 0,
+        sources: { music: null, noise: null, mix: null, master: null },
+      },
+      status: {
+        available: false,
+        sources: { music: false, noise: false, mix: false, master: false },
+        reason: "inactive",
+      },
+      whenReady: Promise.resolve(),
+      getSnapshot() {
+        return connection.snapshot;
+      },
+      getStatus() {
+        return connection.status;
+      },
+      subscribeFrames(listener) {
+        frameListeners.add(listener);
+        return () => frameListeners.delete(listener);
+      },
+      subscribeStatus(listener) {
+        statusListeners.add(listener);
+        listener(connection.status);
+        return () => statusListeners.delete(listener);
+      },
+      disconnect: vi.fn(),
+      setSnapshot(next) {
+        connection.snapshot = next;
+      },
+      emitFrames(frames) {
+        for (const listener of [...frameListeners]) listener(frames);
+      },
+      emitStatus(next) {
+        connection.status = next;
+        for (const listener of [...statusListeners]) listener(next);
+      },
+    };
+    audioHarness.connections.push(connection);
+    return connection;
+  },
+}));
+
 beforeEach(() => {
   pointerHarness.handlers.length = 0;
+  audioHarness.connections.length = 0;
 });
 
 function manifest(): SceneManifest {
@@ -228,5 +307,201 @@ describe("ExternalScene", () => {
     });
     visibility.mockRestore();
     postMessage.mockRestore();
+  });
+});
+
+function audioFrame(source: AudioFrame["source"], timestamp = 10): AudioFrame {
+  return {
+    protocol: 1,
+    timestamp,
+    sequence: 1,
+    source,
+    active: true,
+    level: { rms: 0.2, peak: 0.4, normalized: 0.5 },
+    bands: { bass: 0.5, lowMid: 0.4, mid: 0.3, highMid: 0.2, treble: 0.1 },
+  };
+}
+
+function audioEntry(): SceneCatalogEntry {
+  return {
+    ...ENTRY,
+    manifest: {
+      ...manifest(),
+      capabilities: [...manifest().capabilities, "wallpaper.audio"],
+      audio: { sources: ["music", "noise"], features: ["level", "bands"] },
+      compatibility: { hostApi: 5, platforms: ["windows"] },
+    } as SceneManifest,
+  };
+}
+
+describe("ExternalScene 音频响应", () => {
+  test("声明 wallpaper.audio 的场景连接后收到 audio.init，订阅后只转发声明的来源", async () => {
+    render(<ExternalScene entry={audioEntry()} frame={FRAME} />);
+    const iframe = screen.getByTestId("external-scene") as HTMLIFrameElement;
+    const contentWindow = iframe.contentWindow;
+    if (!contentWindow) return;
+    const postMessage = vi.spyOn(contentWindow, "postMessage");
+    await Promise.resolve();
+
+    const connection = audioHarness.connections[0];
+    expect(connection?.options.sources).toEqual(["music", "noise"]);
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: contentWindow,
+        data: { v: 1, type: "ready", protocol: 1 },
+      }),
+    );
+    let sent = postMessage.mock.calls.map(([message]) => message) as Array<{
+      type?: string;
+      frames?: AudioFrame[];
+    }>;
+    expect(
+      sent.filter((message) => message.type === "audio.init"),
+    ).toHaveLength(1);
+
+    // 场景收窄到 music；noise 帧不应被转发。
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: contentWindow,
+        data: {
+          v: 1,
+          type: "audio.subscribe",
+          options: { sources: ["music"], features: ["level"] },
+        },
+      }),
+    );
+    connection?.emitFrames([audioFrame("music"), audioFrame("noise")]);
+
+    sent = postMessage.mock.calls.map(([message]) => message) as Array<{
+      type?: string;
+      frames?: AudioFrame[];
+    }>;
+    const frameMessage = sent.find((message) => message.type === "audio.frame");
+    expect(frameMessage?.frames?.map((frame) => frame.source)).toEqual([
+      "music",
+    ]);
+    postMessage.mockRestore();
+  });
+
+  test("未声明 wallpaper.audio 的脚本场景不建立连接，也丢弃音频请求", async () => {
+    render(<ExternalScene entry={ENTRY} frame={FRAME} />);
+    const iframe = screen.getByTestId("external-scene") as HTMLIFrameElement;
+    const contentWindow = iframe.contentWindow;
+    if (!contentWindow) return;
+    const postMessage = vi.spyOn(contentWindow, "postMessage");
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: contentWindow,
+        data: { v: 1, type: "ready", protocol: 1 },
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: contentWindow,
+        data: { v: 1, type: "audio.subscribe", options: {} },
+      }),
+    );
+
+    expect(audioHarness.connections).toHaveLength(0);
+    const sent = postMessage.mock.calls.map(([message]) => message) as Array<{
+      type?: string;
+    }>;
+    expect(sent.some((message) => message.type?.startsWith("audio."))).toBe(
+      false,
+    );
+    postMessage.mockRestore();
+  });
+
+  test("audio.requestSnapshot 返回当前缓存快照", async () => {
+    render(<ExternalScene entry={audioEntry()} frame={FRAME} />);
+    const iframe = screen.getByTestId("external-scene") as HTMLIFrameElement;
+    const contentWindow = iframe.contentWindow;
+    if (!contentWindow) return;
+    const postMessage = vi.spyOn(contentWindow, "postMessage");
+    await Promise.resolve();
+
+    const connection = audioHarness.connections[0];
+    connection?.setSnapshot({
+      protocol: 1,
+      timestamp: 12,
+      sources: {
+        music: audioFrame("music", 12),
+        noise: null,
+        mix: null,
+        master: null,
+      },
+    });
+    await Promise.resolve();
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: contentWindow,
+        data: { v: 1, type: "ready", protocol: 1 },
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: contentWindow,
+        data: { v: 1, type: "audio.requestSnapshot", requestId: "req-1" },
+      }),
+    );
+
+    const sent = postMessage.mock.calls.map(([message]) => message) as Array<{
+      type?: string;
+      requestId?: string;
+      snapshot?: AudioSnapshot;
+    }>;
+    const reply = sent.find((message) => message.type === "audio.snapshot");
+    expect(reply?.requestId).toBe("req-1");
+    expect(reply?.snapshot?.sources.music?.timestamp).toBe(12);
+    postMessage.mockRestore();
+  });
+
+  test("订阅未声明的来源时拒绝转发，而不是回退成全量", async () => {
+    render(<ExternalScene entry={audioEntry()} frame={FRAME} />);
+    const iframe = screen.getByTestId("external-scene") as HTMLIFrameElement;
+    const contentWindow = iframe.contentWindow;
+    if (!contentWindow) return;
+    const postMessage = vi.spyOn(contentWindow, "postMessage");
+    await Promise.resolve();
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: contentWindow,
+        data: { v: 1, type: "ready", protocol: 1 },
+      }),
+    );
+    const before = postMessage.mock.calls.length;
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: contentWindow,
+        data: {
+          v: 1,
+          type: "audio.subscribe",
+          options: { sources: ["master"] },
+        },
+      }),
+    );
+    audioHarness.connections[0]?.emitFrames([
+      audioFrame("music"),
+      audioFrame("noise"),
+    ]);
+    const sent = postMessage.mock.calls
+      .slice(before)
+      .map(([message]) => message) as Array<{ type?: string }>;
+    expect(sent.some((message) => message.type === "audio.frame")).toBe(false);
+    postMessage.mockRestore();
+  });
+
+  test("卸载时断开音频连接", async () => {
+    const { unmount } = render(
+      <ExternalScene entry={audioEntry()} frame={FRAME} />,
+    );
+    await Promise.resolve();
+    const connection = audioHarness.connections[0];
+    unmount();
+    expect(connection?.disconnect).toHaveBeenCalled();
   });
 });

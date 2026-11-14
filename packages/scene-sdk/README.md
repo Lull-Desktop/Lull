@@ -137,6 +137,7 @@ Setting 页会按 `params` 自动渲染控件；改值后经 `wallpaper_set_scen
 | `onParams(fn)` | 只订阅参数；注册时立即回放 |
 | `onVisibility(fn)` | 订阅窗口显隐；注册时立即回放 |
 | `onPointer(fn)` | 订阅鼠标位置（仅移动）；注册时回放当前值 |
+| `audio` | 音频响应 API：`getSnapshot` / `onData` / `onStatus` / `destroy` |
 | `log(message, level?)` | 转发到宿主控制台，前缀 `[scene:<id>]` |
 | `destroy()` | 退订全部监听 |
 
@@ -211,6 +212,75 @@ scene.onPointer((pointer) => {
 - 壁纸窗口保持 `WS_EX_TRANSPARENT`，场景永远收不到真实点击，也不可能阻止桌面交互。
 - 浏览器预览没有 Tauri 事件系统，`onPointer` 不会触发；请用壁纸窗口验证。
 
+### 音频响应（`wallpaper.audio`）
+
+场景必须声明 `wallpaper.script` + `wallpaper.audio` 与 `compatibility.hostApi >= 5`，
+并可在 `audio` 字段里收窄来源（省略 = 四来源全开）：
+
+```json
+{
+  "capabilities": [
+    "wallpaper.viewport",
+    "wallpaper.script",
+    "wallpaper.audio"
+  ],
+  "audio": {
+    "sources": ["music", "noise", "mix"],
+    "features": ["level", "bands"]
+  },
+  "compatibility": { "hostApi": 5, "platforms": ["windows"] }
+}
+```
+
+```ts
+const scene = await connectLullScene();
+const snapshot = await scene.audio.getSnapshot();
+
+const bass = scene.audio.onData(
+  (frame) => {
+    // 20Hz 数据；连续视觉量请按渲染帧插值（smoothAudioValue）。
+    document.documentElement.style.setProperty(
+      "--bass",
+      String(frame.bands.bass),
+    );
+  },
+  { sources: ["music"] },
+);
+
+scene.audio.onStatus((status) => {
+  // available=false 时 reason: not-authorized / not-supported / suspended / inactive
+  console.log("audio:", status.available, status.reason);
+});
+```
+
+```ts
+type AudioFrame = {
+  protocol: 1;
+  timestamp: number; // 全局单调 ms；同一 tick 的所有来源一致
+  sequence: number; // 每 tick 自增；帧可能跳号
+  source: "music" | "noise" | "mix" | "master";
+  active: boolean; // 当前来源是否有有效信号
+  level: { rms: number; peak: number; normalized: number }; // 0–1
+  bands: {
+    bass: number;
+    lowMid: number;
+    mid: number;
+    highMid: number;
+    treble: number;
+  };
+};
+```
+
+- 数据以 20Hz 更新；帧率仍由场景自己的 `requestAnimationFrame` 决定。
+- `level.rms` / `level.peak` 是未平滑的原始测量；`level.normalized` 与 `bands` 已由
+  宿主做归一化 + 平滑。`normalized` 是视觉刻度，不是 dB SPL，不能跨来源比较响度。
+- `active=false` 时应让视觉在约 300–800ms 内衰减到静止，不要瞬间归零。
+- 推荐映射：`normalized` → 整体强度/亮度；`peak` → 短时闪光；`bass` → 低频起伏；
+  `lowMid` → 柔和运动/雾；`mid` → 主体动态；`highMid` → 粒子/光柱；`treble` → 细节闪烁。
+- `master` 包含全局音量与静音（静音即静止）；`mix` 不包含 master 音量。两者不要叠加。
+- 只读能力：不包含 PCM、音频文件路径、播放控制或音量控制。
+- 旧宿主（`hostApi < 5`）会忽略音频消息，`onData` 不触发，`getSnapshot()` 返回全 `null`。
+
 错误统一是 `LullSceneError`，用 `code` 分支：
 
 | code | 场景 |
@@ -221,8 +291,10 @@ scene.onPointer((pointer) => {
 
 ## 桥方法
 
-宿主 → 场景：`init` / `frame` / `visibility` / `pointer`（全部带 `v: 1`）。
-场景 → 宿主：`ready` / `log`。
+宿主 → 场景：`init` / `frame` / `visibility` / `pointer` / `audio.init` /
+`audio.frame` / `audio.status` / `audio.snapshot`（全部带 `v: 1`）。
+场景 → 宿主：`ready` / `log` / `audio.subscribe` / `audio.unsubscribe` /
+`audio.requestSnapshot`。
 
 `init` 载荷：
 

@@ -3,8 +3,9 @@
 //! 引擎是宿主受信任代码，不是可替换 Widget；业务状态仍由 Rust 持有。所有命令
 //! 通过定向事件发送，页面通过 `media_engine_event` 上报。
 //!
-//! Engine protocol v2：Music 与 Noise 共用同一个 `AudioGraph`（musicBus /
-//! noiseBus / master / limiter），Rust 只描述期望状态，不接触 PCM。
+//! Engine protocol v3：Music 与 Noise 共用同一个 `AudioGraph`（musicBus /
+//! noiseBus / master / limiter），并在同一张图上提供 music/noise/mix/master
+//! 四个分析点。Rust 只描述期望状态，不接触 PCM。
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -16,7 +17,7 @@ static CREATING: AtomicBool = AtomicBool::new(false);
 
 pub const ENGINE_LABEL: &str = "media-engine";
 pub const COMMAND_EVENT: &str = "media-engine-command";
-pub const ENGINE_PROTOCOL: u32 = 2;
+pub const ENGINE_PROTOCOL: u32 = 3;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(
@@ -173,6 +174,18 @@ pub fn meters(player: bool, noise: bool, interval_ms: u64) -> Value {
   })
 }
 
+/// 音频响应分析开关；`sources` 为空表示停止读取（分析节点保留，不反复建节点）。
+#[must_use]
+pub fn audio_analyze(sources: &[&str], bands: bool, interval_ms: u64) -> Value {
+  json!({
+    "v": ENGINE_PROTOCOL,
+    "type": "audio.analyze",
+    "sources": sources,
+    "bands": bands,
+    "intervalMs": interval_ms,
+  })
+}
+
 #[must_use]
 pub fn shutdown() -> Value {
   json!({ "v": ENGINE_PROTOCOL, "type": "engine.shutdown" })
@@ -239,6 +252,11 @@ mod tests {
     assert_eq!(player_volume(0.5, true)["muted"], true);
     assert_eq!(output_volume(0.8, false)["type"], "output.volume");
     assert_eq!(meters(true, false, 500)["intervalMs"], 500);
+    let analyze = audio_analyze(&["music", "mix"], true, 50);
+    assert_eq!(analyze["v"], json!(ENGINE_PROTOCOL));
+    assert_eq!(analyze["type"], "audio.analyze");
+    assert_eq!(analyze["sources"], json!(["music", "mix"]));
+    assert_eq!(analyze["intervalMs"], 50);
     assert_eq!(shutdown()["type"], "engine.shutdown");
     let noise = noise_session_sync(
       "playing",

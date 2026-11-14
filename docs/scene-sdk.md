@@ -91,8 +91,9 @@ WebView2 可能把 Tauri 初始化脚本注入子帧；壁纸窗口的 ACL 只�
 | `wallpaper.params` | 场景接受 Manifest 声明的参数 | 声明 `params` 时必填；外部场景还必须同时声明 `wallpaper.script`；Setting 只对声明该能力的场景渲染参数控件 |
 | `wallpaper.script` | 外部场景在 `sandbox="allow-scripts"` 的 iframe 内执行 JS，并通过 Scene SDK 桥读取帧 | 只对内容包有效；没有该能力的外部包仍按静态包加载（空 sandbox） |
 | `wallpaper.pointer` | 场景接受宿主动态下发的鼠标移动位置（`x/y/inside/moving`，无点击/按键） | 必须同时声明 `wallpaper.script` 与 `compatibility.hostApi >= 3`；宿主只在光标位于桌面层时下发 |
+| `wallpaper.audio` | 场景读取宿主标准化的音频响应数据（`AudioFrame` / `AudioSnapshot`） | 必须同时声明 `wallpaper.script` 与 `compatibility.hostApi >= 5`；来源与特征由 Manifest 的 `audio` 字段声明；只读视觉能力，不暴露 PCM |
 
-`compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。当前宿主为 **`SCENE_HOST_API = 4`**；声明 `game` 绑定的场景必须声明 `compatibility.hostApi: 2`（或更高），声明 `wallpaper.pointer` 的场景必须声明 `compatibility.hostApi: 3`（或更高），声明 `text` 参数（见 §2.2）的场景必须声明 `compatibility.hostApi: 4`（或更高）。
+`compatibility.hostApi` 超出当前宿主 API 或不支持当前平台的场景会在目录层被过滤，不会出现在设置页。当前宿主为 **`SCENE_HOST_API = 5`**；声明 `game` 绑定的场景必须声明 `compatibility.hostApi: 2`（或更高），声明 `wallpaper.pointer` 的场景必须声明 `compatibility.hostApi: 3`（或更高），声明 `text` 参数（见 §2.2）的场景必须声明 `compatibility.hostApi: 4`（或更高），声明 `wallpaper.audio` 的场景必须声明 `compatibility.hostApi: 5`（或更高）。
 
 ### 2.2 参数类型
 
@@ -211,6 +212,9 @@ host        → scene: { v:1, type:"init", hostApi:3, id, frame, visible }
 host        → scene: { v:1, type:"frame", frame }        # 参数/几何/布局变化
 host        → scene: { v:1, type:"visibility", visible }
 host        → scene: { v:1, type:"pointer", pointer }    # 仅移动；声明 wallpaper.pointer 时
+host        → scene: { v:1, type:"audio.init", snapshot, status }   # 仅 audio.init 之后
+host        → scene: { v:1, type:"audio.frame", frames }            # 20Hz，声明 wallpaper.audio 时
+scene       → host : { v:1, type:"audio.subscribe", options }
 scene       → host : { v:1, type:"log", level, message }
 ```
 
@@ -311,13 +315,87 @@ Win32 GetPhysicalCursorPos / WindowFromPoint（Rust 30Hz 采样、去重、idle 
 - 单击/双击但未移动时坐标不变，去重后零消息；壁纸窗口不 `SetCapture`、不抢焦点，
   点击始终由桌面/其他窗口处理。
 
+#### 音频响应（`wallpaper.audio`）
+
+声明 `wallpaper.script` + `wallpaper.audio` 与 `compatibility.hostApi >= 5` 的场景，
+可以读取宿主对 Music / Noise 共享 AudioGraph 的分析结果：
+
+```json
+{
+  "capabilities": [
+    "wallpaper.viewport",
+    "wallpaper.script",
+    "wallpaper.audio"
+  ],
+  "audio": {
+    "sources": ["music", "noise", "mix"],
+    "features": ["level", "bands"]
+  },
+  "compatibility": { "hostApi": 5, "platforms": ["windows"] }
+}
+```
+
+```ts
+const scene = await connectLullScene();
+const snapshot = await scene.audio.getSnapshot();
+
+scene.audio.onData(
+  (frame) => {
+    document.documentElement.style.setProperty(
+      "--energy",
+      String(frame.level.normalized),
+    );
+  },
+  { sources: ["music"] },
+);
+
+scene.audio.onStatus((status) => {
+  console.log("audio:", status.available, status.reason);
+});
+```
+
+数据流：
+
+```text
+Media Engine（Shared AudioGraph 的 music/noise/mix/master 分析点，20Hz 特征提取）
+  → invoke media_engine_event { type: "audio.frame" }
+  → Rust Audio Reactive Service（归一化 + 平滑 + 订阅 + 多屏共享）
+  → Tauri 定向事件 wallpaper-audio（每个壁纸窗一份）
+  → 壁纸顶层页按 Manifest 授权裁剪
+  → postMessage { v:1, type:"audio.frame", frames }
+  → @lull/scene-sdk 校验并回调 scene.audio.onData
+```
+
+- 消息：宿主 → 场景 `audio.init` / `audio.frame` / `audio.status` / `audio.snapshot`；
+  场景 → 宿主 `audio.subscribe` / `audio.unsubscribe` / `audio.requestSnapshot`。
+  音频不进入 `SceneFrame`，因为它以 20Hz 更新且包含多个独立来源。
+- 数据频率 20Hz；渲染仍由 `requestAnimationFrame` 驱动，连续量用 SDK 的
+  `smoothAudioValue` / `createAudioEnvelope` 插值。
+- 频段使用比整体电平更快的 attack/release（约 41/130ms，电平约 82/281ms），
+  以保留快速鼓点；场景侧的插值 release 建议不超过约 100ms，否则会再次抹平瞬态。
+- `level.rms` / `level.peak` 是原始测量；`level.normalized` 与 `bands` 已归一化 + 平滑。
+  `normalized` 是视觉刻度，不等于 dB SPL，也不能跨来源比较响度。
+- `bands` 使用对数刻度 + 逐段 AGC：Media Engine 把 FFT 的 dB 值按能量平均后映射到
+  −70…−6 dBFS → 0–1，Rust 侧每个频段再围绕自己约 4s 的近期平均做 ±9 dB 归一化，
+  并混入绝对分量。持续段落通常停在 0.4–0.7，鼓点可推到 0.8–1.0，暂停/静音会回落到
+  接近 0。阈值 0.7–0.85 适合做瞬态强调；`bands` 不能当成绝对频谱能量，比较整体响度
+  请用 `level.normalized`。
+- `active=false` 表示当前来源无有效信号（暂停/停止/静音）；场景应让视觉在约
+  300–800ms 内淡出，不要瞬间归零。
+- `master` 包含全局音量与静音（静音即静止），`mix` 不包含 master 音量；两者不要叠加。
+- 场景只能读取宿主裁剪后的数据；未声明 `wallpaper.audio` 的场景收不到任何 `audio.*`
+  消息。旧宿主在清单层拒绝该能力，不会出现半可用状态。
+- 浏览器预览没有 Tauri 事件系统，`onData` 不会触发；`getSnapshot()` 返回全 `null` 快照。
+
 完整可安装示例：
 - [`examples/scenes/param-demo`](../examples/scenes/param-demo)：`glow / tint / pulse`，
   1.1.0 新增 `blur / hue / ring`，可验证覆盖更新；
 - [`examples/scenes/three-scene`](../examples/scenes/three-scene)：Three.js / WebGL，
   `speed / particles / tint / wireframe / tilt` 参数热更；
 - [`examples/scenes/pointer-demo`](../examples/scenes/pointer-demo)：`wallpaper.pointer`
-  驱动跟随光晕，验证“移动有反馈、点击落桌面”。
+  驱动跟随光晕，验证“移动有反馈、点击落桌面”；
+- [`examples/scenes/audio-demo`](../examples/scenes/audio-demo)：`wallpaper.audio`
+  驱动五段频谱、整体呼吸与瞬时光效。
 
 ### 4.4 画布与 iframe
 
@@ -340,6 +418,8 @@ Win32 GetPhysicalCursorPos / WindowFromPoint（Rust 30Hz 采样、去重、idle 
   没有安装/窗口/壁纸命令；
 - `wallpaper.pointer` 只读取光标坐标：不装鼠标钩子、不读按键，协议没有点击类消息；
   壁纸窗口保持输入穿透，场景既收不到也拦不住桌面点击；
+- `wallpaper.audio` 只下发标准化后的 `AudioFrame`：没有 PCM、没有音频文件路径、
+  没有播放/音量控制；未声明该能力的场景收不到任何音频消息；
 - 每个包有 `integrity` 摘要，目录有签名；第三方包没有发布者签名，摘要只证明
   “包没被改过”，不证明来源；
 - WebView2 可能把 Tauri 初始化脚本注入子帧，脚本场景里仍可能看到
@@ -429,8 +509,10 @@ pnpm extensions:check # 校验官方场景摘要 / 清单 / 产物边界
 - manifest 必填字段、未知字段、id/版本格式、capability 白名单；
 - `params` 的类型、默认值、唯一 key、number 范围与 enum 选项；
 - 声明 `params` 必须同时有 `wallpaper.params`；外部场景的 `wallpaper.params` /
-  `wallpaper.sync` / `wallpaper.pointer` 必须同时有 `wallpaper.script`；
+  `wallpaper.sync` / `wallpaper.pointer` / `wallpaper.audio` 必须同时有 `wallpaper.script`；
 - `wallpaper.pointer` 必须声明 `compatibility.hostApi >= 3`；
+- `wallpaper.audio` 必须声明 `compatibility.hostApi >= 5`；`audio.sources` /
+  `audio.features` 必须是已知枚举、非空且去重；
 - `performance` 档位与 `targetFps`；
 - `compatibility` 的 hostApi 范围与平台；
 - entry 相对路径安全性与文件存在性；
@@ -446,6 +528,8 @@ Vitest 还会解析随包目录与示例场景，防止文档与实现漂移。
 - 宿主读到不支持的版本会拒绝该目录并保留内置媒体场景，不崩溃。
 - 内容包 `version` 独立于 Lull 版本；`compatibility.hostApi` 声明最低宿主 API，`maxHostApi` 声明最高可用版本，`platforms` 声明平台。
 - `wallpaper.pointer` 属于场景宿主 API 3；老宿主不认这个能力，会在目录层跳过该场景。
+- `wallpaper.audio` 属于场景宿主 API 5；老宿主在清单层拒绝该能力（整场景跳过），
+  新 SDK 遇到旧宿主则降级为 `getSnapshot()` 全空、`onData` 不触发。
 - 场景 id 一经发布不要修改；改名视为新场景。
 - 同 id 安装新版本会**覆盖**旧目录（先备份再替换），壁纸按 manifest `version`
   重建 iframe；没有版本大小比较、回滚或降级保护，发布前先在测试环境验证。

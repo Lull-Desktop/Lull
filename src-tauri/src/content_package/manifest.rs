@@ -30,6 +30,7 @@ pub const CAPABILITIES: &[&str] = &[
   "wallpaper.params",
   "wallpaper.script",
   "wallpaper.pointer",
+  "wallpaper.audio",
 ];
 
 const MAX_ID_LEN: usize = 64;
@@ -218,12 +219,24 @@ fn parse_capabilities(scene: &serde_json::Map<String, Value>) -> Result<Vec<Stri
 
   let has = |capability: &str| capabilities.iter().any(|known| known == capability);
   if !has("wallpaper.script")
-    && (has("wallpaper.params") || has("wallpaper.sync") || has("wallpaper.pointer"))
+    && (has("wallpaper.params")
+      || has("wallpaper.sync")
+      || has("wallpaper.pointer")
+      || has("wallpaper.audio"))
   {
     return Err(
-      "外部内容包的 wallpaper.params / wallpaper.sync / wallpaper.pointer 必须同时声明 wallpaper.script"
+      "外部内容包的 wallpaper.params / wallpaper.sync / wallpaper.pointer / wallpaper.audio 必须同时声明 wallpaper.script"
         .to_string(),
     );
+  }
+  if has("wallpaper.audio") {
+    let host_api = scene
+      .get("compatibility")
+      .and_then(|value| value.get("hostApi"))
+      .and_then(Value::as_u64);
+    if host_api.is_none_or(|host_api| host_api < 5) {
+      return Err("wallpaper.audio 需要 compatibility.hostApi >= 5".to_string());
+    }
   }
   if let Some(params) = scene.get("params").filter(|value| !value.is_null()) {
     let Some(items) = params.as_array() else {
@@ -393,6 +406,30 @@ mod tests {
     );
     assert!(write_catalog(&bundle, &pointer_with_script).is_ok());
     assert!(parse(&bundle).is_ok(), "pointer + script 必须通过");
+
+    let audio_no_script = base.replace(
+      "\"wallpaper.viewport\"",
+      "\"wallpaper.viewport\", \"wallpaper.audio\"",
+    );
+    assert!(write_catalog(&bundle, &audio_no_script).is_ok());
+    assert!(parse(&bundle).is_err(), "audio 没有 script 必须拒绝");
+
+    let audio_no_host_api = audio_no_script.replace(
+      "\"wallpaper.audio\"]",
+      "\"wallpaper.audio\", \"wallpaper.script\"]",
+    );
+    assert!(write_catalog(&bundle, &audio_no_host_api).is_ok());
+    assert!(parse(&bundle).is_err(), "audio 没有 hostApi 5 必须拒绝");
+
+    let audio_ok = audio_no_host_api.replace(
+      "\"capabilities\"",
+      "\"compatibility\": {\"hostApi\": 5}, \"capabilities\"",
+    );
+    assert!(write_catalog(&bundle, &audio_ok).is_ok());
+    assert!(
+      parse(&bundle).is_ok(),
+      "audio + script + hostApi 5 必须通过"
+    );
 
     let _ = std::fs::remove_dir_all(&bundle);
   }

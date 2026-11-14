@@ -7,10 +7,11 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { AudioSource } from "@/sdk/scene";
 import { AudioGraph } from "./audio-graph";
 import { NoiseEngine } from "./noise-engine";
 import { PlayerEngine } from "./player-engine";
-import type { EngineCommand, EngineEvent } from "./protocol";
+import type { EngineAudioFrame, EngineCommand, EngineEvent } from "./protocol";
 
 let started = false;
 let reloading = false;
@@ -33,6 +34,10 @@ export async function startMediaEngineHost(): Promise<void> {
   }, graph);
   const noise = new NoiseEngine(graph);
   let levelTimer = 0;
+  let audioTimer = 0;
+  let audioSources: AudioSource[] = [];
+  let audioBands = false;
+  let audioIntervalMs = 50;
 
   const updateLevels = (): void => {
     if (levelTimer !== 0) return;
@@ -51,8 +56,71 @@ export async function startMediaEngineHost(): Promise<void> {
     levelTimer = 0;
   };
 
+  const tickAudio = (): void => {
+    if (audioSources.length === 0) return;
+    const frames: EngineAudioFrame[] = [];
+    for (const source of audioSources) {
+      const result = graph.readAudio(source, audioBands);
+      frames.push({
+        source: result.source,
+        active: result.active,
+        level: result.level,
+        bands: result.bands,
+      });
+    }
+    void send({ type: "audio.frame", frames });
+  };
+
+  const updateAudio = (): void => {
+    if (audioTimer !== 0) return;
+    audioTimer = window.setInterval(tickAudio, audioIntervalMs);
+  };
+
+  const stopAudio = (): void => {
+    if (audioTimer === 0) return;
+    window.clearInterval(audioTimer);
+    audioTimer = 0;
+  };
+
+  const applyAudioCommand = (command: {
+    sources: string[];
+    bands: boolean;
+    intervalMs: number;
+  }): void => {
+    const known = new Set<AudioSource>(["music", "noise", "mix", "master"]);
+    const sources = command.sources.filter((source): source is AudioSource =>
+      known.has(source as AudioSource),
+    );
+    const interval = Math.min(200, Math.max(50, command.intervalMs || 50));
+    const restart = interval !== audioIntervalMs && audioTimer !== 0;
+    audioSources = sources;
+    audioBands = command.bands;
+    audioIntervalMs = interval;
+
+    if (sources.length === 0) {
+      stopAudio();
+      return;
+    }
+    try {
+      graph.ensure();
+    } catch {
+      stopAudio();
+      void send({
+        type: "audio.status",
+        available: false,
+        reason: "not-supported",
+      });
+      return;
+    }
+    if (restart) {
+      stopAudio();
+    }
+    updateAudio();
+  };
+
   const dispose = (): void => {
     stopLevels();
+    stopAudio();
     player.dispose();
     noise.dispose();
     graph.dispose();
@@ -103,6 +171,9 @@ export async function startMediaEngineHost(): Promise<void> {
       case "meters":
         if (command.player || command.noise) updateLevels();
         else stopLevels();
+        return;
+      case "audio.analyze":
+        applyAudioCommand(command);
         return;
       case "engine.shutdown":
         dispose();

@@ -9,6 +9,13 @@
  * ```
  */
 import {
+  AUDIO_PROTOCOL,
+  type AudioFrame,
+  type AudioSnapshot,
+  type AudioSource,
+  type AudioStatus,
+} from "./audio-types.js";
+import {
   isSceneHostMessage,
   SCENE_PROTOCOL,
   type SceneClientMessage,
@@ -96,4 +103,67 @@ export function createScenePointer(
     moving: true,
     ...overrides,
   };
+}
+
+/** 构造一个合法的 `AudioFrame`；默认 music、有信号。 */
+export function createAudioFrame(
+  overrides: Partial<AudioFrame> = {},
+): AudioFrame {
+  return {
+    protocol: AUDIO_PROTOCOL,
+    timestamp: 100,
+    sequence: 1,
+    source: "music",
+    active: true,
+    ...overrides,
+    level: {
+      rms: 0.25,
+      peak: 0.5,
+      normalized: 0.6,
+      ...overrides.level,
+    },
+    bands: {
+      bass: 0.6,
+      lowMid: 0.5,
+      mid: 0.4,
+      highMid: 0.3,
+      treble: 0.2,
+      ...overrides.bands,
+    },
+  };
+}
+
+export function createAudioSnapshot(
+  overrides: Partial<AudioSnapshot> = {},
+): AudioSnapshot {
+  return {
+    protocol: AUDIO_PROTOCOL,
+    timestamp: 100,
+    sources: { music: null, noise: null, mix: null, master: null },
+    ...overrides,
+  };
+}
+
+export function createAudioStatus(
+  overrides: Partial<AudioStatus> = {},
+): AudioStatus {
+  return {
+    available: true,
+    sources: { music: true, noise: true, mix: true, master: true },
+    ...overrides,
+  };
+}
+
+/** 构造 `audio.frame` 宿主消息，便于注入内存 transport。 */
+export function createAudioFrameMessage(
+  frames: AudioFrame[],
+): SceneHostMessage {
+  return { v: SCENE_PROTOCOL, type: "audio.frame", frames };
+}
+
+export function audioFrameFor(
+  source: AudioSource,
+  overrides: Partial<AudioFrame> = {},
+): AudioFrame {
+  return createAudioFrame({ source, ...overrides });
 }

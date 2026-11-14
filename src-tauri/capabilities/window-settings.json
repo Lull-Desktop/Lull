@@ -17,6 +17,8 @@
     "core:window:allow-set-size",
     "core:window:allow-outer-position",
     "core:window:allow-set-position",
+    "allow-audio-connect",
+    "allow-audio-disconnect",
     "allow-content-packages",
     "allow-content-trust-policy-get",
     "allow-content-trust-policy-set",

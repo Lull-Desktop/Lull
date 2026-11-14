@@ -39,6 +39,7 @@ const SAMPLES = [
   { dir: "param-demo", entry: "src/main.ts" },
   { dir: "three-scene", entry: "src/main.ts" },
   { dir: "pointer-demo", entry: "src/main.ts" },
+  { dir: "audio-demo", entry: "src/main.ts" },
 ];
 
 let built = 0;

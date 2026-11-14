@@ -1,4 +1,40 @@
 export {
+  AUDIO_HOST_API,
+  AUDIO_SNAPSHOT_TIMEOUT_MS,
+  createAudioEnvelope,
+  type SceneAudioAPI,
+  smoothAudioValue,
+} from "./audio.js";
+export {
+  AUDIO_FEATURES,
+  AUDIO_PROTOCOL,
+  AUDIO_SOURCES,
+  type AudioBands,
+  type AudioFeature,
+  type AudioFrame,
+  type AudioLevel,
+  type AudioSnapshot,
+  type AudioSource,
+  type AudioStatus,
+  type AudioStatusReason,
+  type AudioSubscribeOptions,
+  audioStatusAllFalse,
+  audioStatusAllTrue,
+  DEFAULT_AUDIO_FEATURES,
+  DEFAULT_AUDIO_SOURCES,
+  emptyAudioSnapshot,
+  isAudioBands,
+  isAudioFeature,
+  isAudioFrame,
+  isAudioLevel,
+  isAudioSnapshot,
+  isAudioSource,
+  isAudioStatus,
+  isAudioSubscribeOptions,
+  normalizeAudioFeatures,
+  normalizeAudioSources,
+} from "./audio-types.js";
+export {
   type ConnectLullSceneOptions,
   connectLullScene,
   createLullSceneClient,
@@ -6,7 +42,10 @@ export {
 } from "./client.js";
 export { LullSceneError, type LullSceneErrorCode } from "./errors.js";
 export {
+  isSceneAudioHostMessage,
   SCENE_PROTOCOL,
+  type SceneAudioHostMessage,
+  type SceneAudioPluginMessage,
   type SceneClientMessage,
   type SceneDisplayMode,
   type SceneFrame,

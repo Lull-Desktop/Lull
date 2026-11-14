@@ -448,6 +448,9 @@ const wallpaperCapability = {
     "allow-media-attach",
     "allow-media-detach",
     "allow-media-degrade",
+    // 音频响应：壁纸顶层页按场景 Manifest 订阅，定向事件由 Rust 分发。
+    "allow-audio-connect",
+    "allow-audio-disconnect",
     // 游戏渲染副本：只读快照与副本注册；写权限永远不会出现在壁纸窗。
     ...GAME_REPLICA_PERMISSIONS,
   ],

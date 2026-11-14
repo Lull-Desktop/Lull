@@ -35,12 +35,14 @@ pub fn on_window_destroyed(app: &tauri::AppHandle, label: &str) {
   playback::on_window_destroyed(app, label);
   if label == engine::ENGINE_LABEL {
     noise::on_engine_lost(app);
+    crate::audio_reactive::on_engine_lost(app);
   }
 }
 
 /// 应用退出：先让引擎停止发声，再保存播放/Noise 偏好并关闭资料库/视频运行时。
 pub fn shutdown(app: &tauri::AppHandle) {
   engine::send(app, engine::shutdown());
+  crate::audio_reactive::shutdown();
   if let Ok(pool) = library::pool() {
     let pool = pool.clone();
     let _ = tauri::async_runtime::block_on(output::persist(&pool));

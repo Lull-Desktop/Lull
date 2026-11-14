@@ -64,7 +64,7 @@ Rust 通过 URL 哈希把画面参数传给 WebView：
 | `view` | 当前窗口对应的桌面矩形 |
 | `params` | JSON 后再 URI 编码的场景参数（字符串键值）；为空时省略。independent 下按屏解析：`monitors[device].sceneParams[scene]` 覆盖优先（空覆盖 = 显式默认值），无覆盖回退全局 `display.sceneParams[scene]`；mirror/span 一律用全局 |
 
-前端 `src/core/wallpaper/params.ts` 负责解析与几何换算，`src/scenes/frame.ts` 负责合成本地帧（默认参数、能力与兼容性），`src/scenes/host.tsx` 负责选择内置组件或外部 iframe；`src/scenes/external-scene.tsx` + `scene-bridge.ts` 把帧推给声明 `wallpaper.script` 的外部场景，声明 `wallpaper.pointer` 的场景还会经 Rust `wallpaper/pointer.rs` 的 30Hz 位置采样、Tauri 定向事件与 `pointer` 消息收到只读鼠标位置（不含点击）。协议是纯函数，Rust/前端都有回归测试。
+前端 `src/core/wallpaper/params.ts` 负责解析与几何换算，`src/scenes/frame.ts` 负责合成本地帧（默认参数、能力与兼容性），`src/scenes/host.tsx` 负责选择内置组件或外部 iframe；`src/scenes/external-scene.tsx` + `scene-bridge.ts` 把帧推给声明 `wallpaper.script` 的外部场景，声明 `wallpaper.pointer` 的场景还会经 Rust `wallpaper/pointer.rs` 的 30Hz 位置采样、Tauri 定向事件与 `pointer` 消息收到只读鼠标位置（不含点击）。声明 `wallpaper.audio` 的场景经 `src/scenes/audio-stream.ts` 订阅 Rust `audio_reactive` 的定向事件 `wallpaper-audio`，由 `audio.frame` 消息收到 20Hz 标准化 `AudioFrame`（不进入 `SceneFrame`）。协议是纯函数，Rust/前端都有回归测试。
 
 ## 3. 分层与依赖规则
 
@@ -97,6 +97,8 @@ app/(wallpaper) ──► scenes/host ──► hooks/use-scene-catalog ──�
        │                ├──► scenes/registry ─┴──► sdk/scene ──► core/wallpaper
        │                ├──► scenes/media-surface ──► core/media（会话/配置/asset URL）
        │                └──► scenes/external-scene ──► scene-bridge ──► postMessage（脚本场景）
+       │                          │                         ▲
+       │                          └──► scenes/audio-stream ──┘（Tauri wallpaper-audio → audio.*）
        │
 app/(control) ──► components/settings ──► widgets/registry ──► widgets/manifests/*.json
        │                └──► components/settings/media-panel ──► core/media
@@ -166,6 +168,11 @@ lib.rs
  ├─ build.rs（校验 widgets/manifests，生成 $OUT_DIR/widget_specs.rs）
  ├─ window_frame.rs（原子 SetWindowPos）
  ├─ config（display.json 模型 / 迁移 / 原子写盘；含 display.media）
+ ├─ audio_reactive（Audio Reactive Service：归一化 / 平滑 / 订阅 / 多屏分发）
+ │    ├─ model.rs（AudioFrame/Snapshot/Status 与引擎 DTO）
+ │    ├─ processor.rs / normalizer.rs / smoothing.rs（20Hz 标准化）
+ │    ├─ subscription.rs / dispatcher.rs（wallpaper-* 订阅与 `wallpaper-audio` 定向事件）
+ │    └─ commands.rs（audio_connect / audio_disconnect）
  ├─ media（Lull Media 平台；音乐资料库与视频壁纸运行时分开）
  │    ├─ video（原视频壁纸 Media Runtime）
  │    │    ├─ engine.rs（SessionKey → Session、Surface 映射；默认 HTML，可切 native）
@@ -177,7 +184,7 @@ lib.rs
  │    │    ├─ native_bridge.rs（可选 `native-media`：lull_native.dll 的 lull_media_* FFI）
  │    │    └─ config.rs（MediaConfig 归一化）
  │    ├─ api（`media_call`、MediaRequest/Response、DTO/错误码、组合快照）
- │    ├─ engine（隐藏 `media-engine` 窗口、engine protocol v2、命令/事件）
+ │    ├─ engine（隐藏 `media-engine` 窗口、engine protocol v3、命令/事件；含音频分析启停）
  │    ├─ events（`media:event` 订阅、revision/eventId）
  │    ├─ output（Music + Noise 共享的全局输出音量）
  │    ├─ library（音乐资料库门面、lofty 元数据、扫描进度/取消、封面/歌词资产、revision 事件）
@@ -194,7 +201,7 @@ lib.rs
  │    └─ ffi.rs（DLL 加载 / C ABI / 日志）
 ```
 
-依赖方向：`runtime → windows → protocol/topology → ffi`；`watchdog → ffi + windows`；`config` 不依赖任何壁纸模块；`media::video` 只通过 `wallpaper::runtime` 的配置/目标快照与 `windows` 生命周期钩子交互，不直接操作窗口。`media::library` 只依赖 `media::repository` 与 `media::api`，不依赖 `video`；`media::playback` 依赖 `repository`/`api`、`media::engine`、`media::events` 与 `media::output`，不依赖 `video`；`media::engine`/`media::events` 不依赖视频或 Noise 业务。
+依赖方向：`runtime → windows → protocol/topology → ffi`；`watchdog → ffi + windows`；`config` 不依赖任何壁纸模块；`media::video` 只通过 `wallpaper::runtime` 的配置/目标快照与 `windows` 生命周期钩子交互，不直接操作窗口。`media::library` 只依赖 `media::repository` 与 `media::api`，不依赖 `video`；`media::playback` 依赖 `repository`/`api`、`media::engine`、`media::events` 与 `media::output`，不依赖 `video`；`media::engine`/`media::events` 不依赖视频或 Noise 业务。`audio_reactive` 只依赖 `media::engine` 的命令构造与 `wallpaper::runtime` 的可见性配置，不反向被 `media::playback` 或 `media::noise` 依赖。
 
 ## 4. IPC 合约
 
@@ -259,7 +266,8 @@ lib.rs
 | `media_status` / `media_stats` | — | `MediaSessionView[]` / `MediaStats` | `media::video`（settings） |
 | `media_call` | `request: {protocol,requestId,namespace,method,args}` | `{ok,result?,error?,revision}` | `media::api`（settings/player/noise/library） |
 | `media_connect` / `media_disconnect` | `request: {topics?,progressMs?,levels?}` | `PlaybackSnapshot` / `()` | `media::playback`（player/noise/settings/library） |
-| `media_engine_ready` / `media_engine_event` | `event: EngineEvent` | `()` | `media::playback`（仅 media-engine） |
+| `media_engine_ready` / `media_engine_event` | `event: EngineEvent \| audio.*` | `()` | `media::playback` + `audio_reactive`（仅 media-engine） |
+| `audio_connect` / `audio_disconnect` | `request: {sources?,features?,intervalMs?}` | `{snapshot,status}` / `()` | `audio_reactive::commands`（仅 wallpaper-*） |
 | `content_packages` | — | `ContentPackageInfo[]`（含 `origin: bundled/user`） | `content_package`（壁纸窗只读） |
 | `games_list` / `games_config_get` / `games_config_set` / `game_runtime_diagnostics` / `game_start` / `game_stop` / `game_suspend` / `game_resume` / `game_set_background` / `game_flush` / `game_save_delete` | `gameId` 等 | `GameView[]` / `GamesConfig` / `GameRuntimeDiagnostics` / `GameInstanceView` / `()` | `game::api`（settings；启停用走扩展中心命令） |
 | `game_auto_start` | `gameId` | `GameInstanceView \| null` | `game::api`（壁纸窗专用，按 `games.json.autoStartWithWallpaper`） |
@@ -286,6 +294,7 @@ lib.rs
 | `media-degraded` | Rust（原生路径失败） | 壁纸 MediaSurface 切换 HTML 回退 |
 | `media:event` | Rust（资料库 revision、扫描进度、歌单/收藏/历史、播放/队列、Noise Session/Track/Library、输出音量） | 音乐管理窗口、音境管理窗口、已订阅的播放器/音境窗口 |
 | `media-engine-command` | Rust（`media::engine`） | 隐藏 `media-engine` 窗口 |
+| `wallpaper-audio` | Rust（`audio_reactive::dispatcher`） | 已订阅的 `wallpaper-*` 顶层页面（定向投递 `audio.frame` / `audio.status`） |
 | `games-changed` | Rust（安装 / 启停 / 失败 / 授权变化） | 设置页「游戏」页签、扩展中心 |
 | `game:snapshot` / `game:event` / `game:render` | Rust（`game::manager`） | 游戏 authority / replica / controller 窗口（定向投递） |
 | `game:lifecycle` / `game:command` / `game:command-result` / `game:tick` | Rust（`game::manager`） | authority、replica、controller（按窗口角色定向） |

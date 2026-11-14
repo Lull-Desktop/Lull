@@ -5,6 +5,16 @@
  * `client.test.ts` 的契约断言，否则已发布的场景包会静默失效。
  */
 
+import {
+  type AudioFrame,
+  type AudioSnapshot,
+  type AudioStatus,
+  type AudioSubscribeOptions,
+  isAudioFrame,
+  isAudioSnapshot,
+  isAudioStatus,
+} from "./audio-types.js";
+
 export const SCENE_PROTOCOL = 1 as const;
 
 export type SceneParamValue = string | number | boolean;
@@ -95,11 +105,51 @@ export type ScenePointerMessage = {
   pointer: ScenePointer;
 };
 
+// ---------------------------------------------------------------------------
+// 音频响应（wallpaper.audio，宿主 API 5）
+// ---------------------------------------------------------------------------
+
+/**
+ * 宿主 → 场景的音频消息；与 `SceneFrame` 分离，因为更新频率和来源语义不同。
+ *
+ * `audio.frame` 每个分析 tick（20Hz）一条，批量携带所有订阅来源。
+ */
+export type SceneAudioHostMessage =
+  | {
+      v: typeof SCENE_PROTOCOL;
+      type: "audio.init";
+      snapshot: AudioSnapshot;
+      status: AudioStatus;
+    }
+  | { v: typeof SCENE_PROTOCOL; type: "audio.frame"; frames: AudioFrame[] }
+  | { v: typeof SCENE_PROTOCOL; type: "audio.status"; status: AudioStatus }
+  | {
+      v: typeof SCENE_PROTOCOL;
+      type: "audio.snapshot";
+      requestId: string;
+      snapshot: AudioSnapshot;
+    };
+
+/** 场景 → 宿主的音频消息；由 client 的 `scene.audio` API 自动发送。 */
+export type SceneAudioPluginMessage =
+  | {
+      v: typeof SCENE_PROTOCOL;
+      type: "audio.subscribe";
+      options: AudioSubscribeOptions;
+    }
+  | { v: typeof SCENE_PROTOCOL; type: "audio.unsubscribe" }
+  | {
+      v: typeof SCENE_PROTOCOL;
+      type: "audio.requestSnapshot";
+      requestId: string;
+    };
+
 export type SceneHostMessage =
   | SceneInitMessage
   | SceneFrameMessage
   | SceneVisibilityMessage
-  | ScenePointerMessage;
+  | ScenePointerMessage
+  | SceneAudioHostMessage;
 
 export type SceneReadyMessage = {
   v: typeof SCENE_PROTOCOL;
@@ -114,7 +164,10 @@ export type SceneLogMessage = {
   message: string;
 };
 
-export type SceneClientMessage = SceneReadyMessage | SceneLogMessage;
+export type SceneClientMessage =
+  | SceneReadyMessage
+  | SceneLogMessage
+  | SceneAudioPluginMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -173,8 +226,33 @@ export function isSceneFrame(value: unknown): value is SceneFrame {
   return true;
 }
 
+/** 音频响应消息的协议校验（`audio.init/frame/status/snapshot`）。 */
+export function isSceneAudioHostMessage(
+  value: unknown,
+): value is SceneAudioHostMessage {
+  if (!isRecord(value) || value.v !== SCENE_PROTOCOL) return false;
+  switch (value.type) {
+    case "audio.init":
+      return isAudioSnapshot(value.snapshot) && isAudioStatus(value.status);
+    case "audio.frame":
+      return Array.isArray(value.frames) && value.frames.every(isAudioFrame);
+    case "audio.status":
+      return isAudioStatus(value.status);
+    case "audio.snapshot":
+      return (
+        typeof value.requestId === "string" &&
+        value.requestId.length > 0 &&
+        value.requestId.length <= 64 &&
+        isAudioSnapshot(value.snapshot)
+      );
+    default:
+      return false;
+  }
+}
+
 export function isSceneHostMessage(value: unknown): value is SceneHostMessage {
   if (!isRecord(value) || value.v !== SCENE_PROTOCOL) return false;
+  if (isSceneAudioHostMessage(value)) return true;
   if (value.type === "init") {
     return (
       value.protocol === SCENE_PROTOCOL &&

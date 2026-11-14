@@ -5,11 +5,15 @@
  * 改字段必须同时改这两处与宿主测试。
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { AudioStatus } from "./audio-types.js";
 import { createLullSceneClient } from "./client.js";
 import { LullSceneError } from "./errors.js";
 import { SCENE_PROTOCOL, type ScenePointer } from "./protocol.js";
 import { syncedDelayMs } from "./sync.js";
 import {
+  createAudioFrame,
+  createAudioSnapshot,
+  createAudioStatus,
   createMemorySceneTransport,
   createSceneFrame,
   createSceneInitMessage,
@@ -208,5 +212,172 @@ describe("同步相位", () => {
     expect(syncedDelayMs(13000, 1234)).toBe(-1234);
     expect(syncedDelayMs(13000, 26000)).toBe(0);
     expect(syncedDelayMs(0, 1234)).toBe(0);
+  });
+});
+
+describe("音频响应", () => {
+  async function connectAudio(hostApi = 5) {
+    const transport = createMemorySceneTransport();
+    const pending = createLullSceneClient({ transport });
+    transport.receive(createSceneInitMessage({ hostApi }));
+    const client = await pending;
+    return { transport, client };
+  }
+
+  test("旧宿主（hostApi < 5）降级为 not-supported 且不发音频消息", async () => {
+    const { transport, client } = await connectAudio(1);
+    const statuses: AudioStatus[] = [];
+    client.audio.onStatus((status) => statuses.push(status));
+    expect(statuses.at(-1)).toMatchObject({
+      available: false,
+      reason: "inactive",
+    });
+
+    const snapshot = await client.audio.getSnapshot();
+    expect(snapshot.sources.music).toBeNull();
+    expect(statuses.at(-1)).toMatchObject({ reason: "not-supported" });
+
+    client.audio.onData(() => {});
+    await Promise.resolve();
+    expect(
+      transport.sent.some((message) => message.type.startsWith("audio.")),
+    ).toBe(false);
+  });
+
+  test("getSnapshot 走 requestSnapshot / audio.snapshot", async () => {
+    const { transport, client } = await connectAudio();
+    const pending = client.audio.getSnapshot();
+    const request = transport.sent.at(-1);
+    expect(request?.type).toBe("audio.requestSnapshot");
+    if (request?.type !== "audio.requestSnapshot") return;
+
+    const snapshot = createAudioSnapshot({
+      timestamp: 5,
+      sources: {
+        music: createAudioFrame({ timestamp: 5 }),
+        noise: null,
+        mix: null,
+        master: null,
+      },
+    });
+    transport.receive({
+      v: 1,
+      type: "audio.snapshot",
+      requestId: request.requestId,
+      snapshot,
+    });
+    await expect(pending).resolves.toEqual(snapshot);
+  });
+
+  test("audio.init 提供首帧快照与状态", async () => {
+    const { transport, client } = await connectAudio();
+    const snapshot = createAudioSnapshot({
+      timestamp: 9,
+      sources: {
+        music: createAudioFrame({ timestamp: 9 }),
+        noise: null,
+        mix: null,
+        master: null,
+      },
+    });
+    const status = createAudioStatus();
+    transport.receive({ v: 1, type: "audio.init", snapshot, status });
+
+    await expect(client.audio.getSnapshot()).resolves.toEqual(snapshot);
+    const statuses: AudioStatus[] = [];
+    client.audio.onStatus((value) => statuses.push(value));
+    expect(statuses.at(-1)).toEqual(status);
+  });
+
+  test("onData 合并订阅、按来源分发、退订时收窄", async () => {
+    const { transport, client } = await connectAudio();
+    const music: number[] = [];
+    const noise: number[] = [];
+    const offMusic = client.audio.onData(
+      (frame) => music.push(frame.timestamp),
+      {
+        sources: ["music"],
+      },
+    );
+    const offNoise = client.audio.onData(
+      (frame) => noise.push(frame.timestamp),
+      {
+        sources: ["noise"],
+      },
+    );
+
+    await Promise.resolve();
+    const subscribe = transport.sent.at(-1);
+    expect(subscribe?.type).toBe("audio.subscribe");
+    if (subscribe?.type !== "audio.subscribe") return;
+    expect(subscribe.options.sources).toEqual(["music", "noise"]);
+
+    transport.receive({
+      v: 1,
+      type: "audio.frame",
+      frames: [
+        createAudioFrame({ timestamp: 10 }),
+        createAudioFrame({ source: "noise", timestamp: 10 }),
+      ],
+    });
+    expect(music).toEqual([10]);
+    expect(noise).toEqual([10]);
+
+    offMusic();
+    await Promise.resolve();
+    const narrowed = transport.sent.at(-1);
+    expect(narrowed?.type).toBe("audio.subscribe");
+    if (narrowed?.type !== "audio.subscribe") return;
+    expect(narrowed.options.sources).toEqual(["noise"]);
+
+    offNoise();
+    await Promise.resolve();
+    expect(transport.sent.at(-1)?.type).toBe("audio.unsubscribe");
+  });
+
+  test("onData 注册时回放快照中的匹配帧", async () => {
+    const { transport, client } = await connectAudio();
+    transport.receive({
+      v: 1,
+      type: "audio.init",
+      snapshot: createAudioSnapshot({
+        timestamp: 3,
+        sources: {
+          music: createAudioFrame({ timestamp: 3 }),
+          noise: null,
+          mix: null,
+          master: null,
+        },
+      }),
+      status: createAudioStatus(),
+    });
+
+    const seen: number[] = [];
+    client.audio.onData((frame) => seen.push(frame.timestamp), {
+      sources: ["music"],
+    });
+    expect(seen).toEqual([3]);
+  });
+
+  test("destroy 清理监听并停止后续分发", async () => {
+    const { transport, client } = await connectAudio();
+    const seen: number[] = [];
+    client.audio.onData((frame) => seen.push(frame.timestamp), {
+      sources: ["music"],
+    });
+    await Promise.resolve();
+
+    client.audio.destroy();
+    transport.receive({
+      v: 1,
+      type: "audio.frame",
+      frames: [createAudioFrame({ timestamp: 99 })],
+    });
+    expect(seen).toEqual([]);
+
+    const before = transport.sent.length;
+    client.audio.onData(() => {});
+    await Promise.resolve();
+    expect(transport.sent.length).toBe(before);
   });
 });
