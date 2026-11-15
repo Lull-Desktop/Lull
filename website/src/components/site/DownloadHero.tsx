@@ -13,7 +13,7 @@ export interface DownloadAsset {
 }
 
 interface DownloadHeroProps {
-  version: string;
+  version: string | null;
   published: string;
   primary: DownloadAsset | null;
   others: DownloadAsset[];
@@ -63,9 +63,11 @@ export default function DownloadHero({
             <Eyebrow>Download</Eyebrow>
             <h1 className="mb-4 font-serif text-hero leading-[1.25] font-normal text-mist">下载 Lull</h1>
             <Lead>
-              当前版本 <strong className="text-mist">{version}</strong>
-              {published && <span className="text-muted"> · 发布于 {published}</span>}。
-              安装包由 CI 从同一份源码构建，文档与站点随版本一起更新。
+              {version ? <>
+                已发布版本 <strong className="text-mist">{version}</strong>
+                {published && <span className="text-muted"> · 发布于 {published}</span>}。
+              </> : <>暂未获取发布信息，请前往 GitHub Releases 查看最新版本。</>}
+              本站介绍当前源码中的功能，可能领先于安装包；已发布功能以对应 Release 的说明为准。
             </Lead>
 
             <div className="mt-7 grid gap-2.5">
@@ -106,13 +108,16 @@ export default function DownloadHero({
             <h3 className="mb-3.5 text-[0.95rem] leading-[1.25] text-mist">运行要求</h3>
             <ul className="m-0 grid list-none gap-2.5 p-0 text-[0.9rem] text-muted">
               <li className="relative pl-[18px] before:absolute before:top-[0.72em] before:left-0 before:size-[5px] before:rounded-full before:bg-green before:content-['']">
-                Windows 10 / 11
+                Windows 10 / 11 x64
               </li>
               <li className="relative pl-[18px] before:absolute before:top-[0.72em] before:left-0 before:size-[5px] before:rounded-full before:bg-green before:content-['']">
-                约 20–40 MB 磁盘占用
+                Windows 桌面外壳（Explorer）
+              </li>
+              <li className="relative pl-[18px] before:absolute before:top-[0.72em] before:left-0 before:size-[5px] before:rounded-full before:bg-green before:content-['']">
+                Microsoft Edge WebView2 Runtime
               </li>
             </ul>
-            <p className="mt-4 mb-0 text-[0.86rem] leading-[1.7] text-muted">Lull 目前只支持 Windows</p>
+            <p className="mt-4 mb-0 text-[0.86rem] leading-[1.7] text-muted">安装器可引导安装 WebView2；便携版需要本机已有运行时。Lull 目前只支持 Windows。</p>
           </aside>
         </div>
       </div>

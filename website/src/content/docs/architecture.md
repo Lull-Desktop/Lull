@@ -15,7 +15,8 @@ source: docs/architecture.md
 | **Community** | `content/schema` + `public/content` + 校验脚本 + `content_package` | 内容包格式、包摘要、目录签名、本地安装器 |
 | **Services** | 计划中 | 内容索引、同步、发布服务；不影响本地核心运行 |
 
-设计理念：方便第三方生态扩展(壁纸内容+Widget插件)
+设计理念：让第三方通过 Scene、Widget、Media 与 Game SDK 创作壁纸、工具、替代播放器与实验性桌面游戏。
+SDK 独立演进，当前均处于 Experimental 阶段。
 
 ## 壁纸模块
 

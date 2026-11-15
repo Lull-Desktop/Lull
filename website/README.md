@@ -124,8 +124,11 @@ pnpm preview    # 预览构建产物
 - **站内链接一律走 `src/lib/site.ts` 的 `page()` / `asset()`**。站点部署在
   `/Lull/` 子路径下，手写 `/features/` 在线上会 404。文档之间的相对链接用 `../<slug>/`
   （目录式输出，`trailingSlash: "always"`）。
-- **版本号不写死**。`scripts/sync-release.mjs` 在构建前从根 `package.json` 与 GitHub Release
-  读取，写进 `src/data/release.json`（不入库）。
+- **发布版本以 Release 为准**。`scripts/sync-release.mjs` 在构建前读取 GitHub Release，
+  写进 `src/data/release.json`（不入库）。离线或拉取失败时只保留源码版本兜底；
+  `hasRelease: false` 时，首页隐藏版本，下载页提示去 `/releases/latest` 查询，不能将源码版本展示为已发布版本。
+- **内容与 README 对齐**。首页先介绍壁纸、本地音乐与音境，开发入口覆盖 Scene / Widget / Media / Game；
+  四类 SDK 均为 Experimental。本站描述当前源码，安装包功能另以对应 Release 为准。
 - **样式统一走 Tailwind**：令牌在 `global.css` 的 `@theme`，标记里只写工具类，
   组件复用靠 `components/ui/*`，详见上面「组件与样式」。
 - **`.astro` 管外壳、`.tsx` 管内容**：`getCollection` / `render()` / `Astro.url` / `<slot>`

@@ -14,7 +14,7 @@ export default function DocFooter({ source, sourceHref, issuesUrl, docsTreeUrl }
   return (
     <div className="mt-14 flex flex-wrap justify-between gap-3 border-t border-line pt-5 text-[0.84rem] text-faint">
       <span>
-        文档随版本一起更新，完整说明见仓库{" "}
+        本页描述当前源码，安装包功能以对应 Release 为准。完整说明见仓库{" "}
         <a
           className="text-green-bright no-underline transition-colors hover:text-[#eaf6de]"
           href={docsTreeUrl}

@@ -1,5 +1,5 @@
 ---
-title: Game SDK(Beta)
+title: Game SDK（Experimental）
 description: 用「静态 Web 包 + game.json」写一个桌面环境游戏：三个角色的分工、能力授权、Authority 接入、引擎适配与打包边界。
 order: 6
 group: 扩展开发

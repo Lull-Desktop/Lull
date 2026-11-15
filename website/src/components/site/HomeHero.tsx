@@ -3,7 +3,7 @@ import { container } from "@/components/ui/layout";
 import { asset, page } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
-export default function HomeHero({ version }: { version: string }) {
+export default function HomeHero({ version }: { version: string | null }) {
   return (
     <section className="relative overflow-hidden pt-[clamp(64px,8vw,112px)] pb-[clamp(76px,9vw,128px)]">
       <div className={cn(container, "relative grid grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)] items-center gap-[clamp(44px,6vw,84px)] max-[900px]:grid-cols-1")}>
@@ -15,13 +15,13 @@ export default function HomeHero({ version }: { version: string }) {
             让桌面，<br /><span className="whitespace-nowrap">拥有自己的<span className="text-green">世界。</span></span>
           </h1>
           <p className="max-w-[32rem] text-[clamp(1.04rem,1.5vw,1.18rem)] leading-[1.9] text-body">
-            Lull 云栖是一款开源 Windows 桌面应用。让动态壁纸、桌面游戏和 Web 组件，组成只属于你的沉浸空间。
+            Lull 云栖是一款可扩展的开源 Windows 桌面应用。让动态壁纸、本地音乐与音境陪伴日常，也为你创作场景、工具和实验性桌面游戏留出空间。
           </p>
           <div className={cn(buttonRow, "mt-9")}>
             <Button href={page("/download/")}>下载 Lull <span aria-hidden="true">↗</span></Button>
             <Button variant="ghost" href={page("/features/")}>探索功能 <span aria-hidden="true">→</span></Button>
           </div>
-          <p className="mt-7 text-[0.78rem] tracking-[0.04em] text-muted">Windows 10 / 11 · 开源 · 本地优先 <span className="mx-2 text-faint">/</span> v{version}</p>
+          <p className="mt-7 text-[0.78rem] tracking-[0.04em] text-muted">Windows 10 / 11 x64 · 开源 · 本地优先{version && <> <span className="mx-2 text-faint">/</span> 已发布 v{version}</>}</p>
         </div>
 
         <div className="relative pb-12 max-[560px]:pb-10">

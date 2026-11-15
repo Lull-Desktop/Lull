@@ -1,12 +1,12 @@
 ---
-title: Widget SDK(Beta)
+title: Widget SDK（Experimental）
 description: 这里介绍如何用 Widget SDK 写一个工具窗口组件。
 order: 4
 group: 扩展开发
 source: docs/widget-sdk.md
 ---
 
->当前仍处于 **Beta 测试阶段**，我们会尽力保持各版本之间的向后兼容性，如有重大变更会提前在社区公告。
+> 当前处于 **Experimental（实验性）** 阶段，独立于应用版本演进，不承诺跨版本兼容。请使用与宿主源码匹配的 SDK，版本以 [`packages/widget-sdk/package.json`](https://github.com/Lull-Desktop/Lull/blob/master/packages/widget-sdk/package.json) 为准。
 
 Widget 插件 = 一个 Web 包 + 一份清单。装到用户目录后，宿主为它创建一个独立窗口。  
 
@@ -61,13 +61,14 @@ widgets/<id>/
 | 字段 | 规则 |
 | --- | --- |
 | `schemaVersion` | 固定 `2`；不是 `2` 的清单直接拒绝，不做旧格式迁移 |
-| `version` | `MAJOR.MINOR.PATCH` 语义化版本，格式不对即拒绝；同 id 的新版本不能直接覆盖安装 |
+| `version` | 语义化版本；同 ID 更新必须严格高于已安装版本，同版本与降级均拒绝 |
 | `hostApi` | 当前宿主只接受 `1`；`0` 或高于宿主支持值的清单直接拒绝 |
 | `builtin` | 用户包必须 `false`；`true` 只留给编译期注册的内置工具 |
 | `id` | 与目录名一致，发布后不改名；改名等于另一个插件，授权与状态不会跟过去 |
 
-清单校验在文件落地前执行，任一不满足则拒绝安装（`manifest.field-invalid`），不留半成品目录  
-同 id 重复安装报 `manifest.id-conflict`，需先卸载（卸载会清除授权与状态 KV，升级等同重装，无数据迁移机制）
+清单校验在安装前执行。通过扩展中心预览并确认同 ID 的更高版本包即可更新，无需先卸载；
+更新失败时尝试恢复旧包，恢复失败会明确报告错误。版本更新不等于业务数据自动迁移，
+插件作者仍需处理自身状态格式的兼容。
 
 宿主扫描插件目录的容错规则：
 - 清单非法：「扩展」页标记 `invalid`（附原因），不建窗
@@ -84,7 +85,7 @@ widgets/<id>/
 | `widget.theme` | 只读流光令牌，不能改全局主题 |
 | `widget.state` | Rust 侧 KV，按窗口隔离 |
 | `widget.audio` | 未授权时静音运行 |
-| `widget.media` | 导入本地媒体前检查 |
+| `widget.media` | 通过宿主桥连接 Media Service，还需声明对应的细分媒体能力 |
 | `widget.network` | 只放行清单 `network` 里声明的 `https://` 源 |
 | `widget.chrome` | 拖动 / 最小化 / 关闭 / 切换透明**自己的**窗口 |
 | `media.noise.library.read` | Noise 素材、分类、标签、收藏读取 |
@@ -109,8 +110,12 @@ widgets/<id>/
 
 ## 与内置工具的关系
 
-内置工具（播放器 / 番茄钟 / 音境 / 设置）走的是另一套编译期契约。  
-状态后端与信任模型都不同。写插件按本文来，不要照抄内置工具的做法。
+资料库与设置使用宿主内部契约；官方播放器与音境控制器使用标准 Widget 包，
+可通过功能槽位切换为已安装的其他实现。液态番茄钟位于 `examples/widgets/liquid-pomodoro`，需要另行安装。
+
+开发替代播放器或音境控制器时，配合使用 [`@lull/media-sdk`](https://github.com/Lull-Desktop/Lull/tree/master/packages/media-sdk)，
+从 [Mini Player 示例](https://github.com/Lull-Desktop/Lull/tree/master/examples/widgets/mini-player) 开始。
+完整能力表与授权要求见[媒体服务](https://github.com/Lull-Desktop/Lull/blob/master/docs/media-service.md)。
 
 ## 接入 SDK
 
@@ -186,11 +191,13 @@ IndexedDB / Cookie，也没有 Service Worker，不能通过 `window.parent` 访
 
 ### 已知限制
 
-没有签名、在线目录与自动更新（手动放目录只会标记为“未校验”）；
+社区包已有发布者验签机制，签名与包摘要分别验证来源与内容完整性；手动放目录可能被标记为“未校验”。
+目前没有在线扩展市场与自动更新服务；
 不能创建或控制其他窗口；没有崩溃隔离（可重载）；Next.js / Nuxt 与需要 SSR 的方案不适用。
 
 ## 参考
 
+- [English quickstart：生成、校验、打包与安装首个 Widget](https://github.com/Lull-Desktop/Lull/blob/master/docs/en/getting-started.md#build-your-first-widget)。
 - 可直接安装的示例：`examples/widgets/pomodoro-js`（原生）、`pomodoro-react`（React）、
   `pomodoro-vue`（Vue 3）。
 - 字段级规范：[Widget SDK](https://github.com/Lull-Desktop/Lull/blob/master/docs/widget-sdk.md) ·

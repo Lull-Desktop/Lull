@@ -87,6 +87,9 @@ pnpm test-mode -SkipVerify -HoldSeconds 30
 - 想懂它为什么这么设计：[架构与模块](../architecture/)。
 - 想做场景：[Scene SDK](../scene-sdk/)（包结构、参数与同步、摘要签名、打包安装）。
 - 想写工具窗口：[Widget SDK](../widget-sdk/)（包结构、清单与插件侧 SDK）。
+- 想做替代播放器或音境控制器：配合使用 [Media SDK](https://github.com/Lull-Desktop/Lull/tree/master/packages/media-sdk) 与 Widget SDK，从 [Mini Player 示例](https://github.com/Lull-Desktop/Lull/tree/master/examples/widgets/mini-player) 开始。
 - 想做桌面游戏：[Game SDK](../game-sdk/)。
 - 想运行 GLSL：[着色器壁纸](../shadertoy-import/)。
 - 想用英文入门：[English quickstart](https://github.com/Lull-Desktop/Lull/blob/master/docs/en/getting-started.md)（源码启动与首个工具的打包、安装）。
+
+Scene、Widget、Media、Game 四类 SDK 均为 Experimental，独立演进；请使用与宿主源码匹配的 SDK，版本以各包配置为准。

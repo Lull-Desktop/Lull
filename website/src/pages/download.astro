@@ -5,7 +5,7 @@ import FeatureCards from "../components/site/FeatureCards";
 import InstallGuide from "../components/site/InstallGuide";
 import Rule from "../components/site/Rule";
 import { container, section } from "../components/ui/layout";
-import { page, repoUrl, releasesUrl } from "../lib/site";
+import { page, repoUrl, latestReleaseUrl } from "../lib/site";
 import { release, formatSize, formatDate } from "../lib/release";
 
 // 主推 msi；没有 release.json 时 assets 为空，DownloadHero 会退化成「去 GitHub 下载」
@@ -25,32 +25,32 @@ const published = formatDate(release.publishedAt);
 
 const notes = [
   {
-    title: "会改桌面层",
-    body: "壁纸挂在 Explorer 的 WorkerW / Progman 之下。撤销挂载、异常恢复与日志都是必需功能，不是「可选优化」。",
+    title: "关闭窗口后仍在托盘运行",
+    body: "关闭设置窗口会将它隐藏。需要结束 Lull 并卸下壁纸时，请从系统托盘菜单选择「退出」。",
   },
   {
     title: "许可不是单一许可",
-    body: "应用代码 GPL-3.0-or-later，SDK 接口 Apache-2.0，官方内容与文档 CC BY 4.0。分发改造版前请先看",
+    body: "应用采用 GPL-3.0-or-later，公开 SDK 按各包声明使用 Apache-2.0，文档及指定内容采用 CC BY 4.0；第三方素材保留各自许可。具体范围见",
     link: { label: "许可与合规", href: page("/docs/licensing/") },
     after: "。",
   },
   {
     title: "还没有在线市场",
-    body: "内容包安装是本地行为：只接受单场景包、必须声明整包摘要，暂未做第三方签名与在线更新。",
+    body: "扩展从本地包安装。同 ID 更新要求更高版本，失败时尝试恢复旧包；已有社区发布者验签机制，但尚无在线扩展市场或自动更新服务。",
   },
 ];
 ---
 
 <BaseLayout
   title="下载"
-  description="下载 Lull（云栖）：Windows 10 / 11 桌面应用。版本号与安装包来自 GitHub Release，与源码同源。"
+  description="下载 Lull（云栖）的 Windows 10 / 11 x64 安装包或便携版，了解 WebView2 运行要求与源码构建步骤。发布功能以对应 GitHub Release 为准。"
 >
   <DownloadHero
-    version={release.version}
+    version={release.hasRelease ? release.version : null}
     published={published}
     primary={primary}
     others={others}
-    releasesUrl={releasesUrl}
+    releasesUrl={latestReleaseUrl}
     notesUrl={release.notesUrl}
     allReleasesUrl={`${repoUrl}/releases`}
   />

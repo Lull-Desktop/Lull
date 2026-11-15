@@ -13,12 +13,12 @@ const modes = [
 
 const tools = [
   { number: "01", title: "调一段自己的音境", body: "雨、风、海浪等声景可分别调节，也可以加入本地音轨、保存预设，或设置睡眠定时。", tag: "音境" },
-  { number: "02", title: "让音乐陪在手边", body: "用播放器聆听本地曲目，在桌面上管理播放、进度与音量。", tag: "本地音乐" },
-  { number: "03", title: "把顺手的工具带进来", body: "通过扩展中心安装 Web 组件，例如示例中的专注计时器，按自己的习惯组合桌面工具。", tag: "WEB 组件" },
+  { number: "02", title: "让音乐陪在手边", body: "浏览本地曲库、收藏、歌单与播放队列，在音乐管理窗口维护目录、标签和智能歌单。", tag: "本地音乐" },
+  { number: "03", title: "把顺手的工具带进来", body: "切换已安装的播放器与音境控制器实现，或另行安装液态番茄钟等示例工具，组合自己的桌面。", tag: "WEB 组件" },
 ];
 ---
 
-<BaseLayout title="功能" description="探索 Lull 云栖的动态壁纸、多屏场景、实验性桌面游戏、音境与 Web 组件，以及用 SDK 和 AI Skill 创作桌面扩展的方式。">
+<BaseLayout title="功能" description="探索 Lull 云栖的动态壁纸、GLSL 着色器、本地音乐与音境，以及用四类 SDK 创作场景、工具和实验性桌面游戏的方式。">
   <section class="pt-[clamp(64px,9vw,112px)] pb-section-tight">
     <div class={container}>
       <div class="grid grid-cols-[1.05fr_.95fr] items-end gap-10 max-[800px]:grid-cols-1">
@@ -31,7 +31,7 @@ const tools = [
           <div class={`${buttonRow} mt-7`}><Button href={page("/download/")}>下载 Lull <span aria-hidden="true">↗</span></Button><a class="px-2 text-[0.9rem] text-green-bright hover:text-white" href="#wallpaper">探索功能 <span aria-hidden="true">↓</span></a></div>
         </div>
       </div>
-      <div class="mt-12 flex flex-wrap gap-x-8 gap-y-3 border-t border-line pt-5 font-mono text-[0.7rem] tracking-[0.12em] text-faint"><span>01 / WALLPAPER</span><span>02 / DESKTOP GAME</span><span>03 / WIDGETS</span><span>04 / CREATE</span></div>
+      <div class="mt-12 flex flex-wrap gap-x-8 gap-y-3 border-t border-line pt-5 font-mono text-[0.7rem] tracking-[0.12em] text-faint"><span>01 / WALLPAPER</span><span>02 / SOUND &amp; WIDGETS</span><span>03 / DESKTOP GAME</span><span>04 / CREATE</span></div>
     </div>
   </section>
 
@@ -42,6 +42,11 @@ const tools = [
         <p class="max-w-[37rem] text-muted">从竹影到自己的图片、视频与 Web 场景，让喜欢的画面在桌面图标下展开。工作时，它是背景；抬头时，它也是风景。</p>
       </div>
       <Preview file="images/scene-bamboo.jpg" alt="竹影场景渲染：月下竹林、远山、水面薄雾与萤火虫" captionLeft="竹影 · 当前场景渲染" captionRight="WALLPAPER / 01" />
+      <div class="mt-8 grid grid-cols-2 gap-6 max-[760px]:grid-cols-1">
+        <article class="border-t border-line pt-5"><h3 class="mb-3 text-mist">把 GLSL 变成壁纸</h3><p class="text-sm text-muted">粘贴 GLSL 或载入本地 .glsl / .frag 文件，运行受支持的 Shadertoy 风格与普通片元着色器、多 Pass 布局。兼容范围有限，不提供 Shadertoy 在线搜索或 API Key 下载导入。</p><a class="mt-4 inline-flex text-sm text-green-bright hover:text-white" href={page("/docs/shadertoy-import/")}>查看着色器指南 ↗</a></article>
+        <article class="border-t border-line pt-5"><h3 class="mb-3 text-mist">让场景响应音乐与音境</h3><p class="text-sm text-muted">Scene SDK 可读取 Lull 音频引擎的视觉特征，让画面随声音变化。需要宿主 API 5 与 wallpaper.audio 能力；这不包含系统声音采集。</p><a class="mt-4 inline-flex text-sm text-green-bright hover:text-white" href={`${repoUrl}/tree/master/examples/scenes/audio-demo`}>查看音频响应示例 ↗</a></article>
+      </div>
+      <p class="mt-6 text-sm text-faint">视频默认使用 HTML 播放。可选 native-media 后端需显式启用，并准备额外 FFmpeg / 原生依赖及兼容的 WebView2 环境，见 <a class="text-green-bright hover:text-white" href={`${repoUrl}/blob/master/docs/media-runtime.md`}>媒体运行时说明（中文）</a>。</p>
       <div class="mt-16 flex flex-wrap items-end justify-between gap-5"><div><p class="mb-3 text-[0.7rem] tracking-[0.18em] text-green">MULTI-DISPLAY</p><h3 class="font-serif text-[clamp(1.45rem,2.5vw,2rem)] leading-[1.3] text-mist">每一块屏幕，都有它的位置。</h3></div><p class="text-sm text-faint">三种显示模式 · 图形示意</p></div>
       <div class="mt-7 grid grid-cols-3 gap-4 max-[760px]:grid-cols-1">
         {modes.map((mode, index) => <article class="rounded-shell border border-line bg-ink/60 p-6 sm:p-7"><div class="flex items-center justify-between font-mono text-[0.67rem] tracking-[0.14em] text-green"><span>{mode.number} / {mode.label}</span><span class="text-faint">DISPLAY</span></div><div class="my-7 flex h-24 items-center justify-center gap-2" aria-hidden="true"><div class:list={["h-16 w-[42%] rounded border border-line-strong", index === 2 ? "bg-green/20" : "bg-green/15"]}><div class="m-1 h-[calc(100%-8px)] rounded-sm border border-green/20"></div></div><div class:list={["h-16 w-[42%] rounded border border-line-strong", index === 1 ? "bg-aurora/15" : "bg-green/15"]}><div class="m-1 h-[calc(100%-8px)] rounded-sm border border-green/20"></div></div></div><h4 class="mb-2 text-[1.1rem] font-medium text-mist">{mode.title}</h4><p class="text-[0.9rem] leading-[1.8] text-muted">{mode.body}</p></article>)}
@@ -49,19 +54,9 @@ const tools = [
     </div>
   </section>
 
-  <section class={section} id="game">
-    <div class={container}>
-      <div class="grid grid-cols-[.8fr_1.2fr] items-center gap-[clamp(32px,5vw,68px)] max-[800px]:grid-cols-1">
-        <div><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">02 / AMBIENT GAME</p><h2 class="mb-5 font-serif text-h2 leading-[1.3] font-normal text-mist">有些世界，<br />可以慢慢相处。</h2><p class="text-muted">想象一个留在桌面的世界：它融入背景，偶尔打开控制器，就能与它互动。适合在工作的间隙看一眼，给自己一点放空的时间。</p><p class="mt-5 rounded-card border border-line bg-ink-1 px-4 py-3 text-[0.86rem] text-muted"><span class="mr-2 text-green-bright">实验阶段</span>游戏运行时与示例仍在开发和验证中，画面为概念示意。</p><a href={page("/docs/game-sdk/")} class="mt-6 inline-flex text-[0.9rem] text-green-bright hover:text-white">了解 Game SDK <span class="ml-2" aria-hidden="true">↗</span></a></div>
-        <figure class="overflow-hidden rounded-shell border border-line-strong bg-ink-1 shadow-soft"><div class="relative"><img src={asset("images/desktop-world-concept.svg")} alt="漂浮岛屿与小屋组成的桌面世界概念插画" class="aspect-[1.45] w-full object-cover" width="1000" height="700" loading="lazy" /><span class="absolute top-4 right-4 rounded-full bg-green-bright px-3 py-1 text-[0.68rem] font-semibold text-ink">实验阶段</span></div><figcaption class="flex flex-wrap justify-between gap-2 px-5 py-4 font-mono text-[0.7rem] tracking-[0.08em] text-faint"><span>桌面世界 · 概念示意</span><span>AMBIENT GAME / 02</span></figcaption></figure>
-      </div>
-      <div class="mt-12 grid grid-cols-3 gap-8 max-[760px]:grid-cols-1"><div class="border-t border-line pt-5"><p class="mb-2 text-[0.72rem] tracking-[0.15em] text-green">01 / DESKTOP</p><h3 class="mb-2 text-mist">世界留在桌面</h3><p class="text-sm text-muted">让游戏画面作为桌面壁纸的一部分呈现。</p></div><div class="border-t border-line pt-5"><p class="mb-2 text-[0.72rem] tracking-[0.15em] text-green">02 / INTERACT</p><h3 class="mb-2 text-mist">需要时再互动</h3><p class="text-sm text-muted">通过控制器与桌面世界进行低频互动。</p></div><div class="border-t border-line pt-5"><p class="mb-2 text-[0.72rem] tracking-[0.15em] text-green">03 / BUILD</p><h3 class="mb-2 text-mist">一起探索可能</h3><p class="text-sm text-muted">创作者可以通过 Game SDK 开发游戏扩展。</p></div></div>
-    </div>
-  </section>
-
   <section class="border-y border-line bg-ink-1/40 py-section" id="widgets">
     <div class={container}>
-      <div class="mb-10 max-w-[45rem]"><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">03 / SOUND &amp; WIDGETS</p><h2 class="mb-5 font-serif text-h2 leading-[1.3] font-normal text-mist">你需要的，刚好在手边。</h2><p class="text-lead text-muted">不必让桌面只负责好看。声音与工具各就各位，让专注、休息和日常切换更自然。</p></div>
+      <div class="mb-10 max-w-[45rem]"><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">02 / SOUND &amp; WIDGETS</p><h2 class="mb-5 font-serif text-h2 leading-[1.3] font-normal text-mist">你需要的，刚好在手边。</h2><p class="text-lead text-muted">不必让桌面只负责好看。声音与工具各就各位，让专注、休息和日常切换更自然。</p></div>
       <div class="grid grid-cols-[1fr_1.1fr] gap-5 max-[800px]:grid-cols-1">
         <div class="grid gap-0 rounded-shell border border-line bg-ink/50 px-7 sm:px-8">{tools.map((item) => <article class="border-b border-line py-6 last:border-b-0"><div class="mb-3 flex items-center justify-between gap-4 font-mono text-[0.68rem] tracking-[0.14em] text-green"><span>{item.number} / {item.tag}</span><span class="text-faint">✳</span></div><h3 class="mb-2 text-[1.1rem] font-medium text-mist">{item.title}</h3><p class="text-[0.9rem] leading-[1.8] text-muted">{item.body}</p></article>)}</div>
         <aside class="flex flex-col justify-between rounded-shell border border-line bg-ink-2/40 p-7 sm:p-8" aria-labelledby="your-space-title">
@@ -80,11 +75,21 @@ const tools = [
     </div>
   </section>
 
+  <section class={section} id="game">
+    <div class={container}>
+      <div class="grid grid-cols-[.8fr_1.2fr] items-center gap-[clamp(32px,5vw,68px)] max-[800px]:grid-cols-1">
+        <div><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">03 / AMBIENT GAME</p><h2 class="mb-5 font-serif text-h2 leading-[1.3] font-normal text-mist">有些世界，<br />可以慢慢相处。</h2><p class="text-muted">想象一个留在桌面的世界：它融入背景，偶尔打开控制器，就能与它互动。适合在工作的间隙看一眼，给自己一点放空的时间。</p><p class="mt-5 rounded-card border border-line bg-ink-1 px-4 py-3 text-[0.86rem] text-muted"><span class="mr-2 text-green-bright">实验阶段</span>游戏运行时与示例仍在开发和验证中，画面为概念示意。</p><a href={page("/docs/game-sdk/")} class="mt-6 inline-flex text-[0.9rem] text-green-bright hover:text-white">了解 Game SDK <span class="ml-2" aria-hidden="true">↗</span></a></div>
+        <figure class="overflow-hidden rounded-shell border border-line-strong bg-ink-1 shadow-soft"><div class="relative"><img src={asset("images/desktop-world-concept.svg")} alt="漂浮岛屿与小屋组成的桌面世界概念插画" class="aspect-[1.45] w-full object-cover" width="1000" height="700" loading="lazy" /><span class="absolute top-4 right-4 rounded-full bg-green-bright px-3 py-1 text-[0.68rem] font-semibold text-ink">实验阶段</span></div><figcaption class="flex flex-wrap justify-between gap-2 px-5 py-4 font-mono text-[0.7rem] tracking-[0.08em] text-faint"><span>桌面世界 · 概念示意</span><span>AMBIENT GAME / 03</span></figcaption></figure>
+      </div>
+      <div class="mt-12 grid grid-cols-3 gap-8 max-[760px]:grid-cols-1"><div class="border-t border-line pt-5"><p class="mb-2 text-[0.72rem] tracking-[0.15em] text-green">01 / DESKTOP</p><h3 class="mb-2 text-mist">世界留在桌面</h3><p class="text-sm text-muted">让游戏画面作为桌面壁纸的一部分呈现。</p></div><div class="border-t border-line pt-5"><p class="mb-2 text-[0.72rem] tracking-[0.15em] text-green">02 / INTERACT</p><h3 class="mb-2 text-mist">需要时再互动</h3><p class="text-sm text-muted">通过控制器与桌面世界进行低频互动。</p></div><div class="border-t border-line pt-5"><p class="mb-2 text-[0.72rem] tracking-[0.15em] text-green">03 / BUILD</p><h3 class="mb-2 text-mist">一起探索可能</h3><p class="text-sm text-muted">创作者可以通过 Game SDK 开发游戏扩展。</p></div></div>
+    </div>
+  </section>
+
   <section class={section} id="create">
     <div class={container}>
       <div class="grid grid-cols-[.85fr_1.15fr] gap-[clamp(40px,8vw,112px)] max-[800px]:grid-cols-1">
-        <div><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">04 / CREATE &amp; SHARE</p><h2 class="mb-5 font-serif text-h2 leading-[1.3] font-normal text-mist">把想法，<br />带到桌面。</h2><p class="max-w-[30rem] text-muted">一个自己的场景，一个解决小问题的工具，或者一个新的桌面世界。熟悉的 Web 技术，就是创作的起点。</p><div class={`${buttonRow} mt-7`}><Button href={page("/docs/extension-skill/")} variant="ghost">了解 AI Skill ↗</Button><a href={page("/docs/game-sdk/")} class="text-[0.9rem] text-green-bright hover:text-white">Game SDK ↗</a></div></div>
-        <div><article class="grid grid-cols-[3rem_1fr] gap-4 border-t border-line py-6"><span class="font-mono text-[0.75rem] text-green">01</span><div><h3 class="mb-2 text-mist">用 Web 技术创作</h3><p class="text-[0.93rem] text-muted">使用 HTML、CSS、JavaScript 和场景或组件 SDK，制作自己的桌面扩展。</p></div></article><article class="grid grid-cols-[3rem_1fr] gap-4 border-t border-line py-6"><span class="font-mono text-[0.75rem] text-green">02</span><div><h3 class="mb-2 text-mist">让 AI 帮你搭建与打包</h3><p class="text-[0.93rem] text-muted">AI Skill 可辅助生成场景和组件骨架、校验与打包；桌面游戏则通过独立的 Game SDK 开发。</p></div></article><article class="grid grid-cols-[3rem_1fr] gap-4 border-y border-line py-6"><span class="font-mono text-[0.75rem] text-green">03</span><div><h3 class="mb-2 text-mist">安装，也分享灵感</h3><p class="text-[0.93rem] text-muted">将扩展包从本地导入，在扩展中心查看信息并管理权限；也可以前往社区浏览作品和了解提交方式。</p></div></article><a href={communityUrl} rel="noopener" class="mt-6 inline-flex text-[0.9rem] text-green-bright hover:text-white">探索 Lull 社区 <span class="ml-2" aria-hidden="true">↗</span></a></div>
+        <div><p class="mb-4 text-eyebrow font-medium tracking-[0.22em] text-green">04 / CREATE &amp; SHARE</p><h2 class="mb-5 font-serif text-h2 leading-[1.3] font-normal text-mist">把想法，<br />带到桌面。</h2><p class="max-w-[30rem] text-muted">一个自己的场景，一个解决小问题的工具，或者一个新的桌面世界。熟悉的 Web 技术，就是创作的起点。</p><div class={`${buttonRow} mt-7`}><Button href={page("/docs/") + "#create"} variant="ghost">选择适合的 SDK ↗</Button><a href={`${repoUrl}/blob/master/docs/en/getting-started.md`} class="text-[0.9rem] text-green-bright hover:text-white">English quickstart ↗</a></div></div>
+        <div><article class="grid grid-cols-[3rem_1fr] gap-4 border-t border-line py-6"><span class="font-mono text-[0.75rem] text-green">01</span><div><h3 class="mb-2 text-mist">用 Web 技术创作</h3><p class="text-[0.93rem] text-muted">使用 Scene、Widget、Media 或 Game SDK，制作交互壁纸、音频响应场景、桌面工具、替代播放器或实验性游戏。四类 SDK 均处于 Experimental 阶段。</p></div></article><article class="grid grid-cols-[3rem_1fr] gap-4 border-t border-line py-6"><span class="font-mono text-[0.75rem] text-green">02</span><div><h3 class="mb-2 text-mist">让 AI 帮你搭建与打包</h3><p class="text-[0.93rem] text-muted">AI Skill 可辅助生成场景和组件骨架、校验与打包；桌面游戏则通过独立的 Game SDK 开发。</p></div></article><article class="grid grid-cols-[3rem_1fr] gap-4 border-y border-line py-6"><span class="font-mono text-[0.75rem] text-green">03</span><div><h3 class="mb-2 text-mist">安装，也分享灵感</h3><p class="text-[0.93rem] text-muted">将扩展包从本地导入，在扩展中心查看信息并管理权限；也可以前往社区浏览作品和了解提交方式。</p></div></article><a href={communityUrl} rel="noopener" class="mt-6 inline-flex text-[0.9rem] text-green-bright hover:text-white">探索 Lull 社区 <span class="ml-2" aria-hidden="true">↗</span></a></div>
       </div>
     </div>
   </section>

@@ -1,12 +1,12 @@
 ---
-title: Scene SDK(Beta)
+title: Scene SDK（Experimental）
 description: 这里介绍如何用 Scene SDK 写一个壁纸资源包
 order: 3
 group: 扩展开发
 source: docs/scene-sdk.md
 ---
 
-> 当前仍处于 **Beta 测试阶段**，我们会尽力保持各版本之间的向后兼容性，如有重大变更会提前在社区公告。
+> 当前处于 **Experimental（实验性）** 阶段，独立于应用版本演进，不承诺跨版本兼容。请使用与宿主源码匹配的 SDK，版本以 [`packages/scene-sdk/package.json`](https://github.com/Lull-Desktop/Lull/blob/master/packages/scene-sdk/package.json) 为准。
 
 目前已落地的能力包括**静态场景包**与声明 `wallpaper.script` 的**沙箱脚本场景包**。
 `theme` / `sound-preset` / `layout` 三种类型的清单字段已在 SDK 里预留，但宿主尚未加载，
@@ -14,7 +14,8 @@ source: docs/scene-sdk.md
 
 ## 包结构
 
-随安装包分发的内容位于 `public/content/`，构建时原样复制到 `dist/content/`：
+官方随包场景从 `extensions/official/` 构建到 `extensions/dist/`，由宿主作为资源分发。
+`public/content/` 保留内容目录协议与签名资源，不能视为所有随包场景的存放位置：
 
 ```text
 public/content/
@@ -23,9 +24,9 @@ public/content/
   keys/                 # 随包公钥
 ```
 
-> 没有登记在 `catalog.json` 里的目录不会被加载。
+> 外部场景包需要在自己的 `catalog.json` 中登记场景。
 
-`catalog.json` 是唯一的内容索引，`scenes[]` 里每条描述一个场景包：
+外部场景的 `catalog.json` 使用 `scenes[]` 描述场景清单：
 
 ## 清单字段
 
@@ -61,11 +62,13 @@ public/content/
 安装器三处只认一种格式：
 
 ```text
-scenes/<name>/
-  index.html        # 必需，entry 指向它
-  assets/           # 可选，只能相对引用
-  LICENSE           # 建议随包附带
-  README.md         # 可选
+my-scene/
+  catalog.json      # 必需，scenes 数组中恰好一条 scene
+  scenes/<name>/
+    index.html      # 必需，entry 指向它
+    assets/         # 可选，只能相对引用
+    LICENSE         # 建议随包附带
+    README.md       # 可选
 ```
 
 - `entry` 必须是 `.html`，相对包根目录，禁止 `..`、绝对路径与反斜杠。
@@ -96,8 +99,9 @@ scenes/<name>/
 并在包里打包 `@lull/scene-sdk`：
 
 ```ts
-import { scene } from "@lull/scene-sdk";
+import { connectLullScene } from "@lull/scene-sdk";
 
+const scene = await connectLullScene();
 scene.onFrame((frame) => {
   // frame.params  用户在设置里改的值
   // frame.canvas  这块屏在虚拟桌面里的位置
@@ -139,12 +143,23 @@ iframe 的 postMessage 桥 → `onPointer`。壁纸窗口保持 `WS_EX_TRANSPARE
 
 完整示例见 [`examples/scenes/pointer-demo`](https://github.com/Lull-Desktop/Lull/tree/master/examples/scenes/pointer-demo)（仓库内）。
 
+### 音频响应（`wallpaper.audio`）
+
+声明 `wallpaper.script` 与 `wallpaper.audio`，并设置 `compatibility.hostApi >= 5`，
+即可订阅 Lull 音频引擎的视觉分析数据。清单 `audio.sources` / `audio.features` 用于限定来源与特征，
+可通过 `scene.audio.getSnapshot()`、`scene.audio.onData()` 与 `scene.audio.onStatus()` 获取数据和可用状态。
+
+这不是系统音频采集，也不提供播放控制；音乐或音境暂停、静音时应让视觉平滑回落。
+完整清单与代码见 [audio-demo](https://github.com/Lull-Desktop/Lull/tree/master/examples/scenes/audio-demo)
+和[Scene SDK 原文](https://github.com/Lull-Desktop/Lull/blob/master/docs/scene-sdk.md)。
+直接使用 GLSL 源码则见[着色器壁纸指南](../shadertoy-import/)。
+
 ## 版本与兼容约定
 
 | 字段 | 规则 |
 | --- | --- |
 | `schemaVersion` | 破坏性格式变更才升；当前 `1`，不支持则拒绝 |
-| 场景 `version` | 独立语义化版本；同 id 新版本覆盖旧版本 |
+| 场景 `version` | 独立语义化版本；同 ID 更新须严格高于已安装版本，同版本与降级拒绝 |
 | `compatibility.hostApi` | 场景清单生效；超出当前宿主 API 的场景会被过滤 |
 | `dependencies` | 预留，首版不解析 |
 | `id` | 一经发布不改名，改名视为新内容 |
@@ -201,7 +216,12 @@ pnpm content:pack ./my-scene --out artifacts
 5. **落地**：通过后才 rename 到 `content/<scene-id>/`，并广播 `content-changed`。
 
 安装过程不执行代码，启用时才授权。运行时扫描会再复核一次摘要，被改动的包标记为
-`tampered` 并跳过。v1 限制：单场景包、不做第三方签名、不联网；scene 支持同 id 覆盖安装。
+`tampered` 并跳过。每包只接受一个场景；同 ID 更新需更高版本，失败时尝试恢复旧包，
+恢复失败会报告错误。目前没有在线扩展市场或自动更新服务。
+
+社区发布者签名使用包根 `.lull-signature.json`，与上面的 catalog 目录签名不同。
+宿主验签并复核摘要；无效、内容不符或已撤销的签名会阻断安装，未签名或未知密钥默认警告，
+严格模式可进一步阻断。协议见[内容包格式](https://github.com/Lull-Desktop/Lull/blob/master/docs/content-format.md)。
 
 > 别用 `Compress-Archive`：它可能把 zip 条目写成反斜杠路径，安装器会以
 > `package.unsafe-entry` 拒绝。`content:pack` 统一写正斜杠和 UTF-8。
@@ -216,7 +236,7 @@ pnpm content:pack ./my-scene --out artifacts
 - 不能调用 Win32。
 
 「能加载 HTML / 能跑沙箱脚本」不等于「安全插件系统」。它**不是**通用插件系统：
-第三方签名、在线更新与回滚都还没做。
+发布者验签与更新失败恢复不能代替能力授权，也不构成内容安全保证。
 
 ## 参考
 

@@ -3,15 +3,15 @@ import { Code, Eyebrow, TextLink } from "@/components/ui/Text";
 import { page, repoUrl } from "@/lib/site";
 
 const steps = [
-  <>下载上方的 <Code>.msi</Code> 或 <Code>.exe</Code> 安装包。</>,
-  <>双击运行。安装包尚未做代码签名，SmartScreen 可能提示「未知发布者」，选择「更多信息 → 仍要运行」。</>,
-  <>首次启动后壁纸可能需要在设置里手动打开「显示壁纸」（debug 构建默认不接管桌面）。</>,
+  <>从 Release 下载 Windows x64 的 <Code>.msi</Code> / <Code>.exe</Code> 安装包，或解压便携版使用。</>,
+  <>安装并运行。安装包尚未签名，Windows 可能提示「未知发布者」；便携版需预先安装 WebView2 Runtime。</>,
+  <>从托盘打开设置，在「壁纸」页选择场景并开启「显示壁纸」；需要音乐或音境时打开对应工具。</>,
   <>关闭窗口只是隐藏，退出请用托盘菜单的「退出」。</>,
 ];
 
 const sourceCommands = `git clone https://github.com/Lull-Desktop/Lull.git
 cd Lull
-pnpm install
+pnpm install --frozen-lockfile
 & "C:\\Program Files\\Git\\bin\\bash.exe" src-tauri/native/build-shim.sh
 pnpm build`;
 
@@ -39,7 +39,7 @@ export default function InstallGuide() {
             <Eyebrow>From source</Eyebrow>
             <h2 className="mb-2.5 text-h2 leading-[1.25] text-mist">从源码构建</h2>
             <p className="text-[0.86rem] leading-[1.7] text-muted">
-              需要 Node 22+、pnpm 11、Rust stable（MSVC 工具链）、Visual Studio「使用 C++ 的桌面开发」与 Git Bash。
+              需要 Node.js 22、根 package.json 声明的 pnpm、Rust MSVC 工具链、Visual Studio「使用 C++ 的桌面开发」与 Windows SDK，以及 Git Bash。官网的 Node 要求独立维护。
             </p>
             <pre className="mt-4 mb-4 overflow-x-auto rounded-xl border border-line bg-white/[0.03] px-5 py-[18px] font-mono text-[0.84rem] leading-[1.7] text-body">
               {sourceCommands}

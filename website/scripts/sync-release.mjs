@@ -3,7 +3,7 @@
  * 生成网站用的发布元数据：website/src/data/release.json
  *
  * 为什么要有这一步：下载页的版本号与文件名不写死在任何页面里。
- * - 版本号的唯一事实源是仓库根 `package.json`（与 `src-tauri/tauri.conf.json` 同值）。
+ * - 发布版本以 GitHub Release tag 为准；仓库根 `package.json` 只提供源码版本兜底。
  * - 安装包文件名只有 GitHub Release 上才有，构建时向 GitHub API 查最新 release，
  *   查不到（还没有发布过 / 网络不通 / fork 上没有 token）就退化成「去 Release 页面下载」。
  *
@@ -64,7 +64,7 @@ let payload = {
   notesUrl: "",
   downloadUrl: latestUrl,
   assets: [],
-  /** GitHub 上是否真的存在可下载的 release；false 时页面显示「尚未发布」而不是死链 */
+  /** 是否成功获取发布信息；false 不代表尚未发布，页面须引导读者去 Releases 查询 */
   hasRelease: false,
   /** 元数据来源：github-api / offline / fallback */
   source: offline ? "offline" : "fallback",

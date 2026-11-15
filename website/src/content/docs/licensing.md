@@ -1,6 +1,6 @@
 ---
 title: 许可与合规
-description: 为什么应用是 GPL-3.0-or-later、SDK 是 Apache-2.0、内容是 CC BY 4.0，以及分发时要注意什么。
+description: 应用、公开 SDK、文档及指定内容的许可范围，以及第三方素材与商标的独立声明。
 order: 12
 group: 项目
 source: docs/licensing.md
@@ -13,8 +13,8 @@ source: docs/licensing.md
 | 范围 | 许可 | SPDX | 文件 |
 | --- | --- | --- | --- |
 | 应用代码：Rust / C++ / Next.js / React / 脚本 | GPL-3.0-or-later | `GPL-3.0-or-later` | `LICENSE` |
-| Scene / Widget / Content SDK 公开接口 | Apache-2.0 | `Apache-2.0` | `SDK-LICENSE.md` |
-| 官方内容：catalog / schema / 外部示例 | CC BY 4.0 | `CC-BY-4.0` | `CONTENT-LICENSE.md` |
+| 公开 SDK：Scene / Widget / Media / Game 等 | Apache-2.0 | `Apache-2.0` | `SDK-LICENSE.md` 列明的范围及各 SDK 包声明 |
+| 指定内容：`public/content/**`、`content/schema/**`、`examples/scenes/**`、`content/README.md` | CC BY 4.0 | `CC-BY-4.0` | `CONTENT-LICENSE.md` |
 | 文档 | CC BY 4.0 | `CC-BY-4.0` | 本文与 `docs/**` |
 | 字体 | SIL OFL 1.1 | `OFL-1.1` | `LICENSES/OFL-1.1.txt` |
 | 名称 / Logo | 商标政策，非 OSI 许可 | — | `TRADEMARK.md` |
@@ -29,7 +29,7 @@ source: docs/licensing.md
 
 ## 为什么 SDK 用 Apache-2.0
 
-`src/sdk/**` 是场景与工具作者直接接触的公开契约。Apache-2.0 允许第三方在自有项目里复用类型与协议、
+公开 SDK 是扩展作者直接接触的契约，范围以 `SDK-LICENSE.md` 和各包声明为准。Apache-2.0 允许第三方在自有项目里复用类型与协议、
 含明确的专利授权、不强迫每个主题或工具都采用 GPL。
 
 注意：Lull 应用整体仍是 GPL。SDK 的 Apache-2.0 只覆盖 SDK 源文件本身；
@@ -37,8 +37,8 @@ source: docs/licensing.md
 
 ## 为什么内容用 CC BY 4.0
 
-内容包需要署名但不强制 share-alike，便于传播；官方示例可作为模板被修改；第三方内容仍可自选许可，
-只需在 manifest 里声明。
+上表指定内容使用 CC BY 4.0；不要据此推定所有官方场景、示例或素材都使用同一许可。
+第三方内容保留自己的许可，清单与随包声明应准确反映其范围。
 
 内置媒体场景（`src/scenes/video`）与官方竹影场景包（`extensions/official/bamboo/**`）
 是应用代码，仍为 GPL，不要把它们当作 CC BY 内容。
@@ -57,7 +57,7 @@ source: docs/licensing.md
 
 ## 贡献政策
 
-- 应用代码按 `GPL-3.0-or-later` 接收，`src/sdk/**` 按 `Apache-2.0` 接收，文档与内容按 `CC-BY-4.0` 接收。
+- 贡献遵循所修改文件的现有许可；应用、SDK、文档与指定内容的范围以上表及对应许可文件为准。
 - 采用 **DCO**（`git commit -s`）而不是 CLA；如果未来要做商业双许可，再评估 CLA。
 
 ## SPDX 头

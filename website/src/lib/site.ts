@@ -24,6 +24,7 @@ export function asset(path: string): string {
 /** 仓库相关的外链 */
 export const repoUrl = "https://github.com/Lull-Desktop/Lull";
 export const releasesUrl = `${repoUrl}/releases`;
+export const latestReleaseUrl = `${releasesUrl}/latest`;
 export const issuesUrl = `${repoUrl}/issues`;
 
 /**
@@ -94,7 +95,7 @@ export const siteMeta = {
   nameZh: "云栖",
   tagline: "让桌面，拥有自己的世界",
   description:
-    "Lull（云栖）是一款开源 Windows 桌面应用，让动态壁纸、桌面游戏与 Web 组件组成属于你的沉浸式桌面空间。",
+    "Lull（云栖）是一款可扩展的开源 Windows 桌面应用，将动态壁纸、本地音乐与音境带到桌面，并支持用 Web 技术创作场景、工具和实验性桌面游戏。",
 } as const;
 
 export const navItems = [

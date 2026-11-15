@@ -4,11 +4,11 @@
  * 数据由 `scripts/sync-release.mjs` 在构建前生成到 `src/data/release.json`：
  * - CI 里带 token 查 GitHub Release，拿到真实的安装包文件名；
  * - 本地构建没有这个文件时，退化为读取仓库根 package.json 的版本号，
- *   页面上显示「前往 Release 页面」而不是一个猜出来的死链。
+ *   hasRelease 为 false，页面只显示「前往 Release 页面」，不将源码版本展示为发布版本。
  *
- * 页面只认这里的类型，不直接 import JSON，避免文件缺失时整个构建失败。
+ * 可选元数据在构建期通过 glob 载入，避免打包后 import.meta.url 的路径变化，也允许文件缺失。
  */
-import { existsSync, readFileSync } from "node:fs";
+import appPackage from "../../../package.json";
 
 export interface ReleaseAsset {
   name: string;
@@ -33,33 +33,18 @@ export interface ReleaseInfo {
   generatedAt: string;
 }
 
-function readJson(url: URL): unknown {
-  try {
-    if (!existsSync(url)) return null;
-    return JSON.parse(readFileSync(url, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function repoVersion(): string {
-  for (const path of ["../../../package.json", "../../../src-tauri/tauri.conf.json"]) {
-    const json = readJson(new URL(path, import.meta.url)) as { version?: string } | null;
-    if (json?.version) return json.version;
-  }
-  return "0.0.0";
-}
-
-const generated = readJson(new URL("../data/release.json", import.meta.url)) as ReleaseInfo | null;
-const version = generated?.version ?? repoVersion();
+const generated = Object.values(
+  import.meta.glob<ReleaseInfo>("../data/release.json", { eager: true, import: "default" }),
+)[0];
+const version = appPackage.version;
 
 export const release: ReleaseInfo = generated ?? {
   version,
   tag: `v${version}`,
   name: "",
   publishedAt: "",
-  notesUrl: "https://github.com/Lull-Desktop/Lull/releases",
-  downloadUrl: "https://github.com/Lull-Desktop/Lull/releases",
+  notesUrl: "https://github.com/Lull-Desktop/Lull/releases/latest",
+  downloadUrl: "https://github.com/Lull-Desktop/Lull/releases/latest",
   assets: [],
   hasRelease: false,
   source: "none",

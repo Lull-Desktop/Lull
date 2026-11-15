@@ -1,5 +1,5 @@
 ---
-title: Skill(Beta)
+title: AI Skill 与扩展 CLI
 description: 用一个可被 AI 代理加载的技能，把拉取 SDK、生成骨架、离线校验与打包固化成命令。
 order: 5
 group: 扩展开发
