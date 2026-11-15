@@ -20,9 +20,9 @@ For developers, the same desktop is a place to build: create a wallpaper with we
 
 ## Preview
 
-![Bamboo wallpaper preview: a dark green landscape with bamboo, mountains, and a clock](docs/assets/scene-bamboo.jpg)
+![Bamboo wallpaper: moonlit bamboo leaves, layered mountains, mist over water, and fireflies](docs/assets/scene-bamboo.jpg)
 
-*Bamboo, a bundled official scene. This repository preview illustrates its visual style; the scene continues to evolve.*
+*Bamboo 1.2.0, rendered from the current official scene source with the default mist setting. [Preview details](docs/assets/README.md).*
 
 ## What you can do
 

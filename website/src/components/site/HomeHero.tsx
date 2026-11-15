@@ -31,8 +31,8 @@ export default function HomeHero({ version }: { version: string }) {
               <span className="inline-flex items-center gap-1.5" aria-hidden="true"><span className="size-1.5 rounded-full bg-green/70"/><span className="size-1.5 rounded-full bg-green/40"/><span className="size-1.5 rounded-full bg-green/20"/></span>
               <span>YOUR DESKTOP, REIMAGINED</span><span>01 / 03</span>
             </div>
-            <img className="aspect-video w-full object-cover" src={asset("images/scene-bamboo.jpg")} alt="Lull 官方竹影动态壁纸实机画面" width={1440} height={810} fetchPriority="high" />
-            <div className="flex items-center justify-between gap-3 px-4 py-3 text-[0.7rem] text-muted"><span>竹影 · 官方壁纸实机画面</span><span className="font-mono">LULL / SCENE 01</span></div>
+            <img className="aspect-video w-full object-cover" src={asset("images/scene-bamboo.jpg")} alt="竹影场景渲染：月下竹林、远山、水面薄雾与萤火虫" width={1440} height={810} fetchPriority="high" />
+            <div className="flex items-center justify-between gap-3 px-4 py-3 text-[0.7rem] text-muted"><span>竹影 · 当前场景渲染</span><span className="font-mono">LULL / SCENE 01</span></div>
           </div>
           <div className="absolute right-[-1rem] bottom-0 w-[42%] overflow-hidden rounded-card border border-line-strong bg-ink-1 shadow-soft max-[480px]:right-0 max-[480px]:w-[46%]">
             <img className="aspect-[1.7] w-full object-cover" src={asset("images/desktop-world-concept.svg")} alt="漂浮岛屿桌面游戏概念示意" width={1000} height={700} />
