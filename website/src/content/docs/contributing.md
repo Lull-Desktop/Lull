@@ -8,8 +8,7 @@ source: docs/contributing.md
 
 ## 先读什么
 
-先读[架构与模块](../architecture/)，再动代码。分层边界不是风格问题——Core 反向依赖
-`scenes` / `widgets` / `app` 会被当成架构问题退回。
+可以从问题反馈、文档与翻译、场景或工具示例开始参与。修改应用代码前先读[架构与模块](../architecture/)，保持 Core 与界面、扩展的依赖边界。源码启动与首个工具的完整流程也提供 [English quickstart](https://github.com/Lull-Desktop/Lull/blob/master/docs/en/getting-started.md)。
 
 ## 环境
 
@@ -21,26 +20,30 @@ source: docs/contributing.md
 | Rust | `stable-x86_64-pc-windows-msvc`（`rust-toolchain.toml` 固定） |
 | Visual Studio | C++ 桌面开发 + Windows SDK |
 | Git Bash | 编译 `lull_native.dll` |
+| WebView2 | Microsoft Edge WebView2 Runtime |
 | Python / uv | `pnpm test-mode` 需要 Pillow；有 `uv` 时自动准备临时环境 |
 
 ```powershell
-pnpm install
+pnpm install --frozen-lockfile
 & "C:\Program Files\Git\bin\bash.exe" src-tauri/native/build-shim.sh
 pnpm test
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+启动应用使用 `pnpm dev`。pnpm 的具体版本以根 `package.json` 为准；官网的独立环境要求见[站点开发说明](https://github.com/Lull-Desktop/Lull/blob/master/website/README.md)。
 
 ## 常用命令
 
 | 命令 | 说明 |
 | --- | --- |
 | `pnpm dev` | Tauri 开发模式（debug 默认不启用壁纸） |
-| `pnpm test` / `cargo test` | 前端（Vitest）/ Rust 单元测试 |
+| `pnpm test` / `cargo test --manifest-path src-tauri/Cargo.toml` | 从仓库根目录运行前端（Vitest）/ Rust 单元测试 |
 | `pnpm lint` / `pnpm fix` | Biome 检查 / 自动修复 |
 | `pnpm typecheck` | 全仓 TypeScript 检查 |
 | `pnpm check` | lint + typecheck + test + 内容/清单/SDK 校验一次跑完 |
 | `pnpm i18n:compile` | 编译消息文件到 `src/paraglide/`（生成物不入库） |
-| `pnpm widgets:sdk` / `pnpm scenes:sdk` | 构建两侧 SDK（TS → `dist` + `.d.ts`） |
+| `pnpm widgets:sdk` / `pnpm scenes:sdk` | 构建 Widget / Scene SDK（TS → `dist` + `.d.ts`） |
+| `pnpm media:sdk` / `pnpm game:sdk` / `pnpm game:adapters` | 构建 Media / Game SDK 与游戏渲染适配器；各包独立版本 |
 | `pnpm content:check` / `content:pack <dir>` | 内容目录校验 / 打成可安装 zip |
 | `pnpm widgets:gen` / `pnpm widgets:check` | 生成逐窗口 capability / 校验清单与命令表 |
 | `pnpm test-mode` | Windows 真机壁纸验收（原生改动必须跑） |
@@ -50,8 +53,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | 改动范围 | 许可 |
 | --- | --- |
 | 应用代码、Rust、C++、Next.js UI、脚本 | GPL-3.0-or-later |
-| `src/sdk/**` 公开接口 | Apache-2.0 |
-| 文档、官方内容、Schema、示例 | CC BY 4.0 |
+| SDK 公开接口 | 按 `SDK-LICENSE.md` 与各包声明，Apache-2.0 |
+| 文档、指定内容目录、Schema 与示例 | 按 `CONTENT-LICENSE.md` 和文件声明，CC BY 4.0；官方场景代码与第三方素材另计 |
 
 - 贡献按对应目录的许可接收，**不需要签 CLA**，但要 DCO sign-off：`git commit -s`。
 - 新增第一方文件建议加 SPDX 头，例如 `// SPDX-License-Identifier: GPL-3.0-or-later`。
@@ -66,7 +69,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - 新增工具窗只改 `src/widgets/manifests/<id>.json` 再跑 `pnpm widgets:gen`，
   不要手写 `spec.rs` 或 `capabilities/*.json`。
 - 工具组件只通过 `@/sdk/widget` 用宿主能力，不直接 import `core/window/controls`、不读 `localStorage`。
-- 外部内容包只放 `public/content/`，不要 import 进 `src/`。
+- 外部内容包可放 `public/content/` 或预构建随包目录 `extensions/bundled/`，不要 import 进 `src/`。官方源码放 `extensions/official/`，包括竹影、着色器场景，以及播放器与音境工具包。
 - 界面文案一律走消息文件，不在组件里写死中英文；键名扁平 `snake_case`，插值用 ICU 命名参数。
 
 **Rust**
@@ -93,7 +96,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | 原生宿主 | `cargo test` + `pnpm test-mode` |
 | 内容格式 | `pnpm content:check` + `pnpm test` |
 | Widget 清单 / 能力 | `pnpm widgets:gen` + `pnpm widgets:check` + `pnpm test` + `cargo test` |
-| 插件包 / 宿主桥 | `pnpm widgets:samples:build` + `install` + 真机打开 `widget-*` 窗口 |
+| 插件包 / 宿主桥 | `pnpm widgets:samples:build` + `pnpm widgets:samples:install` + 真机打开 `widget-*` 窗口 |
 | 安全配置（CSP / capability） | `pnpm test` + `cargo test` + `pnpm build` 后真机冒烟 |
 
 新增行为请补测试；修复回归先写失败用例。不要通过删测试来「修复」失败。
@@ -109,6 +112,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ## 提交与 PR
 
+- 文档改动保持英文 `README.md` 与 `README.zh-CN.md` 信息一致；版本和能力先核对源码，安装包功能另以 Release 为准。改动官网文档后运行站点 `pnpm check` 与 `pnpm build`。
 - 一个 PR 只做一类改动：命名迁移不要和 Win32 逻辑重构混在一起。
 - 提交信息建议：`feat(scene): …` / `fix(native): …` / `docs: …` / `refactor(core): …`。
 - PR 描述包含动机、改动范围、验证命令与结果、风险与回滚方式。
@@ -119,5 +123,5 @@ cargo test --manifest-path src-tauri/Cargo.toml
 桌面挂载、WebView、内容包都涉及安全边界。发现内容包逃逸 iframe、路径穿越、原生宿主导致桌面
 不可恢复、权限提升或任意命令执行，请不要公开细节，先按 `SECURITY.md` 私密报告。
 
-任务清单原文（含完整命令表、测试基线与架构检查项）见仓库
+测试数量以当前运行结果为准。任务清单原文（含完整命令表与架构检查项）见仓库
 [贡献指南](https://github.com/Lull-Desktop/Lull/blob/master/docs/contributing.md)。

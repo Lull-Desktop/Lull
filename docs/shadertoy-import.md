@@ -1,62 +1,53 @@
-# Shadertoy 导入
+# 着色器壁纸：载入 GLSL 源码
 
-## 1. 这是什么
+## 这是什么
 
-把 Shadertoy 上的公开 Shader 导入成本地的 **Shader Content Item**，之后就能在壁纸设置里选中它渲染。
+Lull 的官方着色器场景 `lull.shadertoy-wallpaper` 将用户提供的 GLSL 源码作为桌面壁纸运行。你可以粘贴源码或载入本地文件，不需要 Shadertoy API Key。
 
-链路分三层，职责不重叠：
+当前实现是随包 Scene 扩展，使用 WebGL 渲染。它不提供 Shadertoy 在线搜索、资源下载、Shader Content Item 库或独立导入器。此前文档中的这些流程不适用于当前版本。
 
-| 层 | 在哪 | 做什么 | 不做什么 |
-| --- | --- | --- | --- |
-| Import Widget（`shadertoy-importer`） | 扩展包，`widget-*` 窗口 | 搜索、看详情、发起导入、管理已导入项、填 API Key | 不联网、不读 Key、不写文件 |
-| Widget Bridge | 宿主壳页 + `shadertoy_call` / `job_*` 命令 | 校验 capability、转发请求、转发任务事件 | 不理解业务语义 |
-| Import Service（Rust） | `src-tauri/src/shadertoy/` | 调 Shadertoy API、注入 Key、下载资源、规范化、打包、写入内容库 | 不碰窗口生命周期 |
-| Host Job Manager（Rust） | `src-tauri/src/jobs/` | 任务状态、取消标记、事件推送、结果保留 | 不认识具体业务 |
+## 使用步骤
 
-交付边界只有一个：**Content Item**（见 [shader-item.md](./shader-item.md)）。Widget 不直接产出文件，Scene 也不知道 Item 从哪来。
+1. 打开“设置 → 壁纸”，将壁纸类型选为“着色器”。
+2. 在“着色器源码”参数中粘贴 GLSL 并点击“应用”，或通过“从文件载入”选择 `.glsl` / `.frag` 文件。
+3. 编译成功后显示画面；失败时壁纸显示编译诊断。不要粘贴整个网页、HTML 或 JavaScript。
+4. 按需调整渲染比例或动画开关。源码作为场景参数保存到 `display.json`，重启后恢复。
+5. “恢复默认”会清空源码并回到随包示例。没有提供源码时也会运行该示例。
 
-## 2. 如何使用
+多 Pass 源码需要用注释分节，将 Common、Buffer / Volume / Image 等部分合并到同一输入框；不能假设网页上的多个标签会被自动下载或合并。
 
-### 2.1 配置 API Key
+## 支持范围
 
-扩展中心 → 着色器导入 → 设置 → 填 Shadertoy API Key → 保存 → 测试连接。
+| 能力 | 当前行为 |
+| --- | --- |
+| Shadertoy Image | 支持 `mainImage(out vec4 fragColor, in vec2 fragCoord)` |
+| 普通片元着色器 | 支持自带 `main()` 的 GLSL 源码 |
+| 多 Pass | 支持 Common、Buffer A–D、Volume A–D、Image A–D 和最终 Image 的分节与受支持绑定 |
+| WebGL 版本 | 优先 WebGL2；只有 WebGL1 时仅运行兼容的 GLSL ES 1.00 路径 |
+| Volume Pass | 需要 WebGL2 和 `EXT_color_buffer_float`，纹理由 shader 在本地生成 |
+| 参数 | 源码长度受限；渲染比例为 0.25–1，动画开关可冻结时间 |
 
-- Key 由宿主保管，Windows 上用 DPAPI（当前用户）加密后存在 `<app_data>/shadertoy/api-key.bin`；
-- Widget 与 Scene 都拿不到 Key，请求由 Rust 代发；
-- 便携版可用环境变量 `LULL_SHADERTOY_API_KEY` 覆盖，环境变量优先且不落盘；
-- 换 Windows 用户或换机器后密文解不开，需要重新填写。
+## 输入与兼容限制
 
-### 2.2 导入
+- 它实现的是部分 Shadertoy 风格的 GLSL 运行能力，不等于完整的 Shadertoy 环境。
+- 真实纹理、音频、视频、摄像头、键盘通道和远程资源不由此场景加载；部分通道使用占位数据，依赖这些输入的画面可能与原作不同。
+- cubemap、外部 3D 纹理资源及 `#include` 不受支持；本地生成的 Volume 纹理有独立支持条件。
+- 鼠标通道只提供位置，不提供点击、拖拽、滚轮或键盘交互。
+- Scene SDK 的 `wallpaper.audio` 是另一条用于扩展开发的只读音频响应接口，不意味着任意 Shadertoy 音频输入都可直接运行。
+- 同步模式的 shader 时间在本地午夜回卷；对连续时间有依赖的作品可能出现跳变。
 
-1. 「发现」页搜索关键词（留空看热门）；
-2. 结果列表只显示名字、作者、ID、Pass 数量——**搜索不等于可导入**；
-3. 点「导入」后宿主创建任务，依次走 `fetching → validating → downloading → packaging → registering`；
-4. 进度来自宿主任务事件，关掉 Widget 任务照旧进行，重开后会按 `jobId` 恢复显示；
-5. 成功后内容项进入 Shader Library，壁纸设置 → 着色器 → 内容 里就能选中。
+## 排错
 
-### 2.3 管理
+| 现象 | 检查方式 |
+| --- | --- |
+| 源码无法编译 | 阅读壁纸上的编译日志，确认只提供 GLSL、入口正确、多 Pass 分节完整 |
+| 提示需要 WebGL2 | 当前图形环境无法提供该源码所需能力，改用 WebGL1 兼容源码或兼容环境 |
+| 画面与原作不同 | 检查是否依赖真实纹理、声音、键盘或其他外部输入；这些通道可能是占位数据 |
+| 多 Pass 输出异常 | 检查分节名称、最终显示 Pass 和通道绑定 |
+| 渲染开销较高 | 降低渲染比例；Volume 作品还需检查体积纹理尺寸与图形环境能力 |
 
-「Shader 库」页列出已导入的内容项，可以删除。正在作为壁纸使用的项不允许删除（先换内容）。
+## 源码与素材归属
 
-## 3. 注意与限制
+随包默认示例与用户载入的源码保留各自的许可。能在本地运行不表示可以重新分发；发布自己的作品或扩展时应确认相应素材声明。
 
-- **只支持一部分 Shader**：纹理与 buffer 输入可以导入；键盘、音乐、视频、Webcam、Cubemap 输入会被拒绝，并给出具体原因（`unsupported.input` / `unsupported.pass` / `unsupported.no-image`）。
-- **资源必须本地化**：Shader 引用的纹理会被下载进内容项（PNG / JPEG / WebP，按魔数校验，单张上限 16 MiB）；下载失败的资源不会被静默跳过，整个导入失败。
-- **Buffer 精度按 32F 声明**：Shadertoy 的 buffer 是浮点缓冲；拿不到 `EXT_color_buffer_float` 时渲染器会自己降级到半浮点并在控制台告警。
-- **许可保持 `unknown`**：Shadertoy API 不返回许可证，导入项只声明"本地可用"，不代表可以再分发。`source` 里保留原作者、原始 ID 与链接。
-- **不是扩展安装**：内容项没有入口 HTML、没有脚本执行面、不进场景下拉、不参与启用/卸载。
-- **不做跨重启续传**：任务只活在宿主生命周期内；重启应用后进行中的任务不会恢复（已完成的项不受影响）。
-- **重复导入会覆盖**：同一个 Shader 再次导入时按 id 覆盖旧内容项（先备份再换入），版本号由宿主维护。
-- **不伪造进度**：只有资源下载阶段能算出可信百分比，其余阶段只报阶段名。
-
-## 4. 故障排查
-
-| 现象 | 含义 | 处理 |
-| --- | --- | --- |
-| `api.no-key` | 没有配置 Key | 设置页填 Key 并「测试连接」 |
-| `api.unauthorized` | Key 无效或无权限 | 重新生成 Key |
-| `api.rate-limited` | 触发 Shadertoy 配额 | 稍后再试，不要连续重试 |
-| `api.timeout` / `api.network` | 网络不可达或超时（20s） | 检查代理/DNS |
-| `unsupported.*` | 该 Shader 用了首版不支持的输入类型 | 无法导入，属能力边界 |
-| `package.*` | 生成的包没通过内容校验 | 报 bug，附 Shader ID |
-| `library.in-use` | 内容项正在被壁纸使用 | 先在壁纸设置换内容再删 |
+完整多 Pass 语法、Bindings、uniform 与兼容细节见[场景实现说明](../extensions/official/shadertoy-wallpaper/README.md)。默认示例归属见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。

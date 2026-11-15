@@ -59,7 +59,7 @@ pnpm preview    # 预览构建产物
 
 | 站点页面 | 仓库源文档 | 分组 |
 | --- | --- | --- |
-| `/docs/getting-started/` | `README.md`（开始使用 / 本地开发） | 开始使用 |
+| `/docs/getting-started/` | `docs/guides/user-guide.zh-CN.md`（使用）、`docs/guides/development.zh-CN.md`（开发） | 开始使用 |
 | `/docs/architecture/` | `docs/architecture.md` | 架构与运行时 |
 | `/docs/i18n-plan/` | `docs/i18n-plan.md` | 架构与运行时 |
 | `/docs/scene-sdk/` | `docs/scene-sdk.md`（含已并入的 `docs/content-format.md`） | 扩展开发 |

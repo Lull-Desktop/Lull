@@ -72,7 +72,7 @@ lull-ext sdk build --ref v0.1.0        # 指定 tag / 分支
 ```
 
 产物落在 `~/.lull-skill/sdk/`（`LULL_SKILL_CACHE` 可改），`sdk-manifest.json` 记录来源
-commit、两个包的版本与 dist 摘要。`--from .` 不会改动仓库里的 `dist/`。
+commit、两个包的版本与 dist 摘要。`--from .` 会先编译仓库内 `packages/{widget,scene}-sdk/dist/`，再复制到缓存或 `--out` 指定目录；这些构建产物不入库。
 
 ### 3. 三条命令走完一轮
 
@@ -113,11 +113,11 @@ node ./Skill/lull-extension/bin/lull-ext.mjs validate ./my-tool --json
   相对导入缺失、远程资源、内联事件处理器），但不能替代真机验收——透明窗口观感、
   多屏表现、长期占用仍需自己看。
 - **SDK 会随包分发**：`vendor/` 里是 SDK 的 ESM 副本（约 100 KB），计入单包 5 MB 建议上限。
-- **没有签名与在线目录**：本地摘要锁只证明「包没被改过」，不证明来源；同 id 覆盖安装，没有回滚。
+- **摘要与签名不同**：CLI 的摘要锁用于内容完整性；宿主另有社区发布者验签机制，不能据此保证内容安全。扩展仍通过本地包安装，没有在线目录；同 ID 更新要求更高版本，失败时尝试恢复旧包，恢复失败会报告错误。
 - **宿主 API 不匹配会被过滤**：`hostApi` 超出范围时，场景不出现在设置页，插件拒绝加载。
 
 ## 相关
 
-- 写工具窗口：[Widget SDK](../widget-sdk/) · [`Skill/lull-extension/SKILL.md`](../Skill/lull-extension/SKILL.md)
-- 写壁纸场景：[Scene SDK](../scene-sdk/)
-- 扩展如何装进宿主：[扩展中心](../extension-center/)
+- 写工具窗口：[Widget SDK](widget-sdk.md) · [`Skill/lull-extension/SKILL.md`](../Skill/lull-extension/SKILL.md)
+- 写壁纸场景：[Scene SDK](scene-sdk.md)
+- 扩展如何装进宿主：[使用指南](guides/user-guide.zh-CN.md)

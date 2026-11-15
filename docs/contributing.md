@@ -1,25 +1,28 @@
 # 贡献指南
 
-感谢你愿意参与 Lull。请先读 [架构说明](architecture.md)，再开始改代码。
+欢迎通过问题反馈、文档与翻译、扩展示例、界面或宿主开发参与 Lull。应用代码改动请先读[架构说明](architecture.md)；首次启动和扩展打包见[中文开发参考](guides/development.zh-CN.md)与 [English quickstart](en/getting-started.md)。
 
 ## 1. 环境
 
 | 依赖 | 要求 |
 | --- | --- |
 | Windows | 10 / 11 |
-| Node.js | 24（`.node-version`） |
+| Node.js | 22（`.node-version`） |
 | pnpm | 11（`packageManager`） |
 | Rust | `stable-x86_64-pc-windows-msvc`（`rust-toolchain.toml`） |
 | Visual Studio | C++ 桌面开发 + Windows SDK |
 | Git Bash | 编译 `lull_native.dll` |
+| WebView2 | Microsoft Edge WebView2 Runtime |
 | Python / uv | `pnpm test-mode` 需要 Pillow；有 uv 时自动准备临时环境 |
 
 ```powershell
-pnpm install
+pnpm install --frozen-lockfile
 & "C:\Program Files\Git\bin\bash.exe" src-tauri/native/build-shim.sh
 pnpm test
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+`pnpm` 使用根 `package.json` 的 `packageManager` 指定版本。启动应用用 `pnpm dev`；官网是独立项目，环境要求见 [website/README.md](../website/README.md)。
 
 ## 2. 常用命令
 
@@ -27,12 +30,14 @@ cargo test --manifest-path src-tauri/Cargo.toml
 | --- | --- |
 | `pnpm dev` | Tauri 开发模式（debug 默认不启用壁纸） |
 | `pnpm test` | Vitest 单元测试 |
-| `cargo test` | Rust 单元测试 |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | 从仓库根目录运行 Rust 单元测试 |
 | `pnpm lint` / `pnpm fix` | Biome 检查 / 自动修复 |
 | `pnpm typecheck` | 全仓 TypeScript 检查（含 `packages/widget-sdk` 与 `examples/widgets`） |
 | `pnpm i18n:compile` | 编译 `i18n/messages/*.json` → `src/paraglide/`（生成物不入库；`dev:next` / `typecheck` / `test` / 打包前自动跑） |
 | `pnpm widgets:sdk` | 构建插件侧 SDK（TS → `dist` + `.d.ts`） |
 | `pnpm scenes:sdk` | 构建场景侧 SDK（TS → `dist` + `.d.ts`） |
+| `pnpm media:sdk` / `pnpm game:sdk` | 构建媒体 / 游戏 SDK（各包独立版本） |
+| `pnpm game:adapters` | 构建 Canvas / Phaser / PixiJS / Three.js 适配器 |
 | `pnpm scenes:samples:build` | 构建脚本场景示例的 `main.js` |
 | `pnpm scenes:samples:hash` | 重算示例场景的 `integrity` |
 | `pnpm scenes:samples:check` | 校验示例场景的 `integrity` |
@@ -55,8 +60,8 @@ Lull 采用分层许可，提交前请确认文件归属：
 | 改动范围 | 许可 |
 | --- | --- |
 | 应用代码、Rust、C++、Next.js UI、脚本 | GPL-3.0-or-later |
-| `src/sdk/**` 公开接口 | Apache-2.0 |
-| 文档、官方内容、Schema、示例 | CC BY 4.0 |
+| SDK 公开接口 | 按 `SDK-LICENSE.md` 与各包声明，Apache-2.0 |
+| 文档、指定内容目录、Schema 与示例 | 按 `CONTENT-LICENSE.md` 和文件声明，CC BY 4.0；官方场景代码与第三方素材另计 |
 | 字体 | SIL OFL 1.1 |
 
 - 贡献按对应目录的许可接收，不需要签署 CLA；
@@ -67,7 +72,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 详见 [许可说明](licensing.md)、[SDK License](../SDK-LICENSE.md) 与 [Content License](../CONTENT-LICENSE.md)。
 ## 4. 代码约定
 
-### 3.1 前端
+### 4.1 前端
 
 - 使用 Biome 格式化；提交前 `pnpm fix`。
 - 纯函数优先：几何、协议、清单校验放在 `src/core` / `src/sdk`，React 组件只做渲染。
@@ -92,7 +97,7 @@ Lull 采用分层许可，提交前请确认文件归属：
   - 渲染文案的组件调用 `useLocale()` 订阅语言变化；首帧可能早于注入语言时用 `useLocaleReady()` 挡住预渲染内容。
   - 语言自称（简体中文 / English）不翻译，统一走 `localeLabel()`。
 
-### 3.2 Rust
+### 4.2 Rust
 
 - 2 空格缩进（`.rustfmt.toml`）。
 - `lib.rs` 只做接线；业务逻辑进 `wallpaper` / `window_host` / `config`。
@@ -101,7 +106,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 - `unsafe` 只允许出现在 `wallpaper/ffi.rs`、`wallpaper/{runtime,windows,watchdog}.rs` 等已声明的模块，新增时在模块顶部说明安全前提。
 - 原生 ABI 变更必须同步 Rust 绑定、构建脚本、`tauri.conf.json`、验收工具与文档。
 
-### 3.3 原生
+### 4.3 原生
 
 - C++ 不依赖 React / Tauri / 内容包。
 - 不改变 `lull_native_*` 导出签名而不更新 Rust。
@@ -122,11 +127,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 | 安全配置（CSP / capability） | `pnpm test` + `cargo test` + `pnpm build` 后真机冒烟 |
 | 构建链 | `pnpm build:next`，必要时 `pnpm build` |
 
-当前基线（会随测试增加）：
-
-- 前端：38 个测试文件 / 213 项（含 Widget / Scene SDK 契约、参数滑条、zip 打包与更新预览）；
-- Rust：100 项；
-- 内容：1 个随包静态场景 + 1 个可安装脚本场景示例。
+测试数量与示例集合以当前运行结果和 `package.json` 的脚本为准，PR 中记录实际执行命令、结果与未覆盖的验证。
 
 新增行为请补测试；修复回归请先写失败用例。不要通过删除测试来“修复”失败。
 
@@ -147,7 +148,7 @@ Lull 采用分层许可，提交前请确认文件归属：
 
 - 内置壁纸：只保留 `src/scenes/video` 的媒体场景（需要 MediaSurface / 原生会话）。
 - 官方壁纸：`extensions/official/<id>/`（`catalog.json` + `index.html` + `src/`），
-  用 `pnpm extensions:build` 生成 `extensions/dist/<scene-id>`；当前只有竹影。
+  用 `pnpm extensions:build` 生成 `extensions/dist/<scene-id>`；当前包括竹影与着色器壁纸，播放器和音境为官方 Widget 扩展。
 - 外部静态场景：`public/content/scenes/<id>/index.html` + `catalog.json` + `pnpm content:check`。
 - 外部脚本场景：声明 `wallpaper.script`（参数/同步再加对应能力），用 `@lull/scene-sdk`
   打包进包内 ESM；改桥协议要同时改 `src/scenes/scene-bridge.ts`、`packages/scene-sdk` 与两边测试。
@@ -158,6 +159,8 @@ Lull 采用分层许可，提交前请确认文件归属：
 
 ## 8. 提交与 PR
 
+- 文档改动保持 `README.md`（英文）与 `README.zh-CN.md` 信息一致；深度说明放入专题文档，首页保留入口。版本、命令和功能描述先核对配置与代码，再核对安装包对应的 Release。
+- 新增 `docs/` 根目录文档时同步官网文档映射；`docs/en/` 和 `docs/guides/` 是仓库指南，由首页和站点入口显式链接。改动官网文档时执行站点的 `pnpm check` 与 `pnpm build`。
 - 一个 PR 只做一类改动：命名迁移不要和 Win32 逻辑重构混在一起。
 - 提交信息建议：`feat(scene): ...` / `fix(native): ...` / `docs: ...` / `refactor(core): ...`。
 - PR 描述包含：动机、改动范围、验证命令与结果、风险/回滚方式。

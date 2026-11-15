@@ -40,7 +40,8 @@
           "wallpaper.sync",
           "wallpaper.params",
           "wallpaper.script",
-          "wallpaper.pointer"
+          "wallpaper.pointer",
+          "wallpaper.audio"
         ]
       }
     },
@@ -96,6 +97,25 @@
           "pattern": "^[a-z0-9][a-z0-9._-]{2,63}$"
         },
         "role": { "const": "replica" }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "description": "音频响应来源与数据类型（宿主 API 5）；声明时必须同时声明 wallpaper.audio。",
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["music", "noise", "mix", "master"] }
+        },
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["level", "bands", "spectrum", "waveform"] }
+        }
       }
     },
     "integrity": {
