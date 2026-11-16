@@ -6,6 +6,10 @@
  * 本地文件用 `<audio>` 接入共享 `noiseBus`。
  */
 import type { AudioGraph } from "./audio-graph";
+import {
+  intensityWeights,
+  validateIntensityAnchors,
+} from "./environment-intensity";
 import { trackGain } from "./gain";
 import type { NoiseSessionCommand, NoiseTrackCommand } from "./protocol";
 
@@ -424,34 +428,59 @@ export class NoiseEngine {
     const now = engine.context.currentTime;
     const live = new Set<string>();
     for (const track of command.tracks) {
-      live.add(track.trackId);
-      let voice = engine.tracks.get(track.trackId);
-      if (!voice) {
-        voice =
-          track.source.kind === "procedural"
-            ? buildVoice(
-                engine.context,
-                track.source.profile,
-                engine.buffers,
-                this.graph.noiseBus,
-              )
-            : buildAssetVoice(this.graph, track, this.graph.noiseBus);
-        engine.tracks.set(track.trackId, voice);
-      }
-      const active = track.enabled && command.state === "playing";
-      if (voice.kind === "asset") {
-        voice.audio.loop = track.loop;
-        if (active && voice.audio.paused) {
-          void voice.audio.play().catch(() => {});
-        } else if (!active && !voice.audio.paused) {
-          voice.audio.pause();
+      const environment = track.environment;
+      const anchors =
+        environment && validateIntensityAnchors(environment.anchors)
+          ? environment.anchors
+          : null;
+      const weights =
+        anchors && environment
+          ? intensityWeights(anchors, environment.intensity)
+          : [1];
+      const sources = anchors ?? [
+        { assetId: track.assetId, source: track.source },
+      ];
+      for (const [index, layer] of sources.entries()) {
+        // Include the source identity so editing an anchor replaces the old voice.
+        const voiceId = JSON.stringify([
+          track.trackId,
+          layer.assetId,
+          layer.source,
+        ]);
+        live.add(voiceId);
+        let voice = engine.tracks.get(voiceId);
+        if (!voice) {
+          voice =
+            layer.source.kind === "procedural"
+              ? buildVoice(
+                  engine.context,
+                  layer.source.profile,
+                  engine.buffers,
+                  this.graph.noiseBus,
+                )
+              : buildAssetVoice(
+                  this.graph,
+                  { ...track, source: layer.source },
+                  this.graph.noiseBus,
+                );
+          engine.tracks.set(voiceId, voice);
         }
+        const active = track.enabled && command.state === "playing";
+        if (voice.kind === "asset") {
+          voice.audio.loop = track.loop;
+          if (active && voice.audio.paused) {
+            void voice.audio.play().catch(() => {});
+          } else if (!active && !voice.audio.paused) {
+            voice.audio.pause();
+          }
+        }
+        ramp(
+          voice.gain.gain,
+          trackGain(track.volume, track.enabled, command.state === "playing") *
+            (weights[index] ?? 0),
+          now,
+        );
       }
-      ramp(
-        voice.gain.gain,
-        trackGain(track.volume, track.enabled, command.state === "playing"),
-        now,
-      );
     }
     for (const [trackId, voice] of engine.tracks) {
       if (!live.has(trackId)) {

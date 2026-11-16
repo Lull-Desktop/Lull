@@ -25,6 +25,16 @@ export type NoiseTrackCommand = {
   fadeInMs: number | null;
   fadeOutMs: number | null;
   state: "playing" | "paused" | "stopped";
+  /** Optional multi-source environment curve; ordinary tracks retain their existing source. */
+  environment?: {
+    type: string;
+    intensity: number;
+    anchors: Array<{
+      assetId: string;
+      intensity: number;
+      source: NoiseTrackSource;
+    }>;
+  };
 };
 
 export type NoiseSessionCommand = {
