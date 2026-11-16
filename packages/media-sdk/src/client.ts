@@ -45,6 +45,7 @@ import type {
   NoiseState,
   NoiseTag,
   NoiseTrack,
+  NoiseTrackEnvironment,
   Page,
   PlaybackSnapshot,
   PlayerState,
@@ -246,6 +247,8 @@ export interface LullMediaClient {
     };
     tracks: {
       add(assetId: string): Promise<NoiseTrack>;
+      configureEnvironment(trackId: string, environment: NoiseTrackEnvironment): Promise<void>;
+      setIntensity(trackId: string, intensity: number): Promise<void>;
       remove(trackId: string): Promise<void>;
       setVolume(trackId: string, volume: number): Promise<void>;
       setEnabled(trackId: string, enabled: boolean): Promise<void>;
@@ -766,6 +769,12 @@ export function createMediaClient(
     tracks: {
       add: (assetId: string) =>
         call<NoiseTrack>("noise", "addTrack", { assetId }),
+      configureEnvironment: async (trackId: string, environment: NoiseTrackEnvironment) => {
+        await call<NoiseSession>("noise", "configureTrackEnvironment", { trackId, environment });
+      },
+      setIntensity: async (trackId: string, intensity: number) => {
+        await call<NoiseSession>("noise", "setTrackIntensity", { trackId, intensity });
+      },
       remove: async (trackId: string) => {
         await call<NoiseSession>("noise", "removeTrack", { trackId });
       },

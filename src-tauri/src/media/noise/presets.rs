@@ -393,6 +393,9 @@ pub async fn call(
       let description = validate_description(args.get("description").and_then(Value::as_str))?;
       let cover = validate_cover(args.get("cover").and_then(Value::as_str))?;
       let snapshot = session::snapshot()?;
+      if snapshot.tracks.iter().any(|track| track.environment.is_some()) {
+        return Err(MediaError::new("noise.preset.environment-unsupported", "环境强度音轨暂不支持保存为预设"));
+      }
       if snapshot.tracks.is_empty() {
         return Err(MediaError::new(
           "noise.session.empty",

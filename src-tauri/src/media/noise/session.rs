@@ -14,6 +14,7 @@ use tauri::{AppHandle, Manager};
 
 use super::dto::{
   NoiseLayerView, NoiseSessionView, NoiseSleepView, NoiseStateView, NoiseTrackError, NoiseTrackView,
+  TrackEnvironment,
 };
 use super::repository;
 use crate::media::api::errors::MediaError;
@@ -43,6 +44,13 @@ struct Track {
   fade_in_ms: Option<i64>,
   fade_out_ms: Option<i64>,
   error: Option<NoiseTrackError>,
+  environment: Option<EnvironmentTrack>,
+}
+
+#[derive(Debug, Clone)]
+struct EnvironmentTrack {
+  config: TrackEnvironment,
+  sources: Vec<TrackSource>,
 }
 
 struct Session {
@@ -204,6 +212,7 @@ async fn load_preset_tracks(pool: &SqlitePool, preset_id: &str) -> Result<Vec<Tr
       fade_in_ms: row.fade_in_ms,
       fade_out_ms: row.fade_out_ms,
       error,
+      environment: None,
     });
   }
   if tracks.is_empty() {
@@ -220,6 +229,7 @@ async fn load_preset_tracks(pool: &SqlitePool, preset_id: &str) -> Result<Vec<Tr
         fade_in_ms: Some(80),
         fade_out_ms: Some(120),
         error,
+        environment: None,
       });
     }
   }
@@ -334,7 +344,15 @@ fn track_view(session: &Session, track: &Track, order: usize) -> NoiseTrackView 
     fade_in_ms: track.fade_in_ms,
     fade_out_ms: track.fade_out_ms,
     order,
-    error: track.error.clone(),
+    error: track.error.clone().or_else(|| {
+      track.environment.as_ref().and_then(|environment| {
+        environment.sources.iter().any(|source| matches!(source, TrackSource::Missing)).then(|| NoiseTrackError {
+          code: "noise.asset.missing".to_string(),
+          message: "部分环境素材不可用".to_string(),
+        })
+      })
+    }),
+    environment: track.environment.as_ref().map(|env| env.config.clone()),
   }
 }
 
@@ -394,34 +412,45 @@ fn legacy_view(session: &Session) -> NoiseStateView {
   }
 }
 
+fn engine_source(app: &AppHandle, asset_id: &str, source: &TrackSource) -> Option<Value> {
+  match source {
+    TrackSource::Procedural { profile, version } => Some(json!({
+      "kind": "procedural", "profile": profile, "version": version,
+    })),
+    TrackSource::File { storage_key } => {
+      let path = super::assets::path_for(app, storage_key);
+      if !path.is_file() { return None; }
+      app.asset_protocol_scope().allow_file(&path).ok()?;
+      let window = app.get_webview_window(engine::ENGINE_LABEL)?;
+      let url = window.convert_file_src(&path, None).ok()?;
+      Some(json!({ "kind": "asset", "assetKey": asset_id, "url": url }))
+    }
+    TrackSource::Missing => None,
+  }
+}
+
 fn engine_tracks(app: &AppHandle, session: &Session) -> Vec<Value> {
   session
     .tracks
     .iter()
     .filter(|track| track.error.is_none())
     .filter_map(|track| {
-      let source = match &track.source {
-        TrackSource::Procedural { profile, version } => json!({
-          "kind": "procedural",
-          "profile": profile,
-          "version": version,
-        }),
-        TrackSource::File { storage_key } => {
-          let path = super::assets::path_for(app, storage_key);
-          if !path.is_file() {
-            return None;
-          }
-          app.asset_protocol_scope().allow_file(&path).ok()?;
-          let window = app.get_webview_window(engine::ENGINE_LABEL)?;
-          let url = window.convert_file_src(&path, None).ok()?;
-          json!({
-            "kind": "asset",
-            "assetKey": track.asset_id,
-            "url": url,
-          })
-        }
-        TrackSource::Missing => return None,
-      };
+      let source = engine_source(app, &track.asset_id, &track.source).or_else(|| {
+        track.environment.as_ref()?.config.anchors.iter().zip(&track.environment.as_ref()?.sources)
+          .find_map(|(anchor, source)| engine_source(app, &anchor.asset_id, source))
+      })?;
+      let environment = track.environment.as_ref().map(|environment| {
+        let anchors: Vec<Value> = environment.config.anchors.iter().zip(&environment.sources)
+          .filter_map(|(anchor, source)| Some(json!({
+            "assetId": anchor.asset_id,
+            "intensity": anchor.intensity,
+            "source": engine_source(app, &anchor.asset_id, source)?,
+          }))).collect();
+        json!({ "type": environment.config.environment_type, "intensity": environment.config.intensity, "anchors": anchors })
+      });
+      if environment.as_ref().is_some_and(|value| value["anchors"].as_array().is_none_or(Vec::is_empty)) {
+        return None;
+      }
       Some(json!({
         "trackId": track.id,
         "assetId": track.asset_id,
@@ -432,6 +461,7 @@ fn engine_tracks(app: &AppHandle, session: &Session) -> Vec<Value> {
         "fadeInMs": track.fade_in_ms,
         "fadeOutMs": track.fade_out_ms,
         "state": track_state(&session.state, track),
+        "environment": environment,
       }))
     })
     .collect()
@@ -714,6 +744,7 @@ pub async fn add_track(app: &AppHandle, asset_id: &str) -> Result<NoiseTrackView
       fade_in_ms: Some(80),
       fade_out_ms: Some(120),
       error,
+      environment: None,
     };
     session.tracks.push(track.clone());
     touch(&mut session);
@@ -733,6 +764,70 @@ pub async fn add_track(app: &AppHandle, asset_id: &str) -> Result<NoiseTrackView
   );
   emit_all(app);
   Ok(track_view)
+}
+
+fn validate_environment(config: &TrackEnvironment) -> Result<(), MediaError> {
+  if config.environment_type.trim().is_empty() || config.environment_type.len() > 64
+    || !config.intensity.is_finite() || !(0.0..=1.0).contains(&config.intensity)
+    || !(2..=8).contains(&config.anchors.len()) {
+    return Err(MediaError::invalid("环境类型、强度或素材数量无效"));
+  }
+  let mut previous = -1.0;
+  let mut ids = std::collections::HashSet::new();
+  for anchor in &config.anchors {
+    if anchor.asset_id.is_empty() || !ids.insert(&anchor.asset_id)
+      || !anchor.intensity.is_finite() || !(0.0..=1.0).contains(&anchor.intensity)
+      || anchor.intensity <= previous {
+      return Err(MediaError::invalid("环境素材必须不同且按强度递增"));
+    }
+    previous = anchor.intensity;
+  }
+  Ok(())
+}
+
+pub async fn configure_environment(
+  app: &AppHandle, track_id: &str, config: TrackEnvironment,
+) -> Result<NoiseSessionView, MediaError> {
+  validate_environment(&config)?;
+  let pool = crate::media::library::pool()?;
+  let mut sources = Vec::with_capacity(config.anchors.len());
+  for anchor in &config.anchors {
+    let asset = repository::asset(pool, &anchor.asset_id).await?
+      .ok_or_else(|| MediaError::new("noise.asset.not-found", "环境素材不存在"))?;
+    let (source, error) = source_from_asset(&asset);
+    if error.is_some() { return Err(MediaError::new("noise.asset.missing", "环境素材不可用")); }
+    sources.push(source);
+  }
+  {
+    let mut session = lock()?;
+    let track = session.tracks.iter_mut().find(|track| track.id == track_id)
+      .ok_or_else(|| MediaError::new("noise.track.not-found", "Noise 音轨不存在"))?;
+    track.environment = Some(EnvironmentTrack { config, sources });
+    touch(&mut session);
+  }
+  sync_engine(app);
+  emit_all(app);
+  snapshot()
+}
+
+pub fn set_environment_intensity(
+  app: &AppHandle, track_id: &str, intensity: f64,
+) -> Result<NoiseSessionView, MediaError> {
+  if !intensity.is_finite() || !(0.0..=1.0).contains(&intensity) {
+    return Err(MediaError::invalid("环境强度必须在 0–1"));
+  }
+  {
+    let mut session = lock()?;
+    let track = session.tracks.iter_mut().find(|track| track.id == track_id)
+      .ok_or_else(|| MediaError::new("noise.track.not-found", "Noise 音轨不存在"))?;
+    let environment = track.environment.as_mut()
+      .ok_or_else(|| MediaError::invalid("该音轨未配置环境强度"))?;
+    environment.config.intensity = intensity;
+    touch(&mut session);
+  }
+  sync_engine(app);
+  emit_all(app);
+  snapshot()
 }
 
 pub fn remove_track(app: &AppHandle, track_id: &str) -> Result<NoiseSessionView, MediaError> {
@@ -763,8 +858,17 @@ pub fn remove_track(app: &AppHandle, track_id: &str) -> Result<NoiseSessionView,
 pub fn remove_tracks_for_asset(app: &AppHandle, asset_id: &str) {
   let changed = if let Ok(mut session) = lock() {
     let before = session.tracks.len();
-    session.tracks.retain(|track| track.asset_id != asset_id);
-    if session.tracks.len() == before {
+    let mut modified = false;
+    for track in &mut session.tracks {
+      if let Some(environment) = &mut track.environment {
+        for (anchor, source) in environment.config.anchors.iter().zip(&mut environment.sources) {
+          if anchor.asset_id == asset_id { *source = TrackSource::Missing; modified = true; }
+        }
+        if track.asset_id == asset_id { track.source = TrackSource::Missing; modified = true; }
+      }
+    }
+    session.tracks.retain(|track| track.environment.is_some() || track.asset_id != asset_id);
+    if session.tracks.len() == before && !modified {
       false
     } else {
       if session.tracks.is_empty() {
@@ -977,6 +1081,7 @@ pub fn replace_with_preset(
       fade_in_ms: request.fade_in_ms,
       fade_out_ms: request.fade_out_ms,
       error,
+      environment: None,
     });
   }
   {
@@ -1063,6 +1168,28 @@ mod tests {
   use crate::media::repository::db;
 
   #[test]
+  fn environment_requires_distinct_ordered_anchors_and_normalized_intensity() {
+    use crate::media::noise::dto::EnvironmentAnchor;
+    let mut config = TrackEnvironment {
+      environment_type: "rain".to_string(),
+      intensity: 0.5,
+      anchors: vec![
+        EnvironmentAnchor { asset_id: "drizzle".to_string(), intensity: 0.0 },
+        EnvironmentAnchor { asset_id: "storm".to_string(), intensity: 1.0 },
+      ],
+    };
+    assert!(validate_environment(&config).is_ok());
+    config.anchors[1].asset_id = "drizzle".to_string();
+    assert!(validate_environment(&config).is_err());
+    config.anchors[1].asset_id = "storm".to_string();
+    config.anchors[1].intensity = 0.0;
+    assert!(validate_environment(&config).is_err());
+    config.anchors[1].intensity = 1.0;
+    config.intensity = f64::NAN;
+    assert!(validate_environment(&config).is_err());
+  }
+
+  #[test]
   fn session_view_maps_legacy_sound_ids() {
     let session = Session {
       id: "session".to_string(),
@@ -1084,6 +1211,7 @@ mod tests {
         fade_in_ms: None,
         fade_out_ms: None,
         error: None,
+        environment: None,
       }],
       sleep_minutes: 0,
       sleep_ends_at: None,

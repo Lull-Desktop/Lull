@@ -28,6 +28,22 @@ pub struct NoiseTrackError {
   pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvironmentAnchor {
+  pub asset_id: String,
+  pub intensity: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackEnvironment {
+  #[serde(rename = "type")]
+  pub environment_type: String,
+  pub intensity: f64,
+  pub anchors: Vec<EnvironmentAnchor>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoiseTrackView {
@@ -47,6 +63,8 @@ pub struct NoiseTrackView {
   pub order: usize,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<NoiseTrackError>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub environment: Option<TrackEnvironment>,
 }
 
 #[derive(Debug, Clone, Serialize)]

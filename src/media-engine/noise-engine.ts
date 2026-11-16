@@ -430,7 +430,9 @@ export class NoiseEngine {
     for (const track of command.tracks) {
       const environment = track.environment;
       const anchors =
-        environment && validateIntensityAnchors(environment.anchors)
+        environment &&
+        (validateIntensityAnchors(environment.anchors) ||
+          environment.anchors.length === 1)
           ? environment.anchors
           : null;
       const weights =

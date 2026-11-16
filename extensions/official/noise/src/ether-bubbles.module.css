@@ -342,6 +342,18 @@
   display: none;
 }
 
+.intensityControl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.intensityControl input {
+  width: 100%;
+  max-width: 100px;
+}
+
 /* 两列：标签（1fr，吃掉缎带剩下的宽）+ 轨道列（定宽）。
    标签列**不能**用 max-content：每行是各自独立的 grid，会按本行文案各算一份宽度，
    于是状态文案一变（开/关、音量百分比、读数）气泡就左右跳。

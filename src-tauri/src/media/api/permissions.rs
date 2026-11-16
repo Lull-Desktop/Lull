@@ -67,7 +67,7 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
         VOLUME_WRITE
       }
       "addTrack" | "removeTrack" | "setTrackEnabled" | "setTrackLoop" | "reorderTracks"
-      | "setLayer" => TRACKS_WRITE,
+      | "setLayer" | "configureTrackEnvironment" | "setTrackIntensity" => TRACKS_WRITE,
       "listAssets" | "getAsset" | "getCategories" | "getTags" | "setAssetFavorite" => {
         NOISE_LIBRARY_READ
       }

@@ -315,6 +315,15 @@ describe("media client", () => {
     await media.noise.session.getCurrent();
     await media.noise.session.play();
     await media.noise.tracks.add("noise:builtin:rain");
+    await media.noise.tracks.configureEnvironment("track-1", {
+      type: "rain",
+      intensity: 0.5,
+      anchors: [
+        { assetId: "drizzle", intensity: 0 },
+        { assetId: "storm", intensity: 1 },
+      ],
+    });
+    await media.noise.tracks.setIntensity("track-1", 0.8);
     await media.noise.tracks.setVolume("track-1", 0.4);
     await media.noise.tracks.setEnabled("track-1", false);
     await media.noise.tracks.reorder("track-1", 0);
@@ -323,6 +332,8 @@ describe("media client", () => {
       "getSession",
       "playSession",
       "addTrack",
+      "configureTrackEnvironment",
+      "setTrackIntensity",
       "setTrackVolume",
       "setTrackEnabled",
       "reorderTracks",
@@ -330,11 +341,16 @@ describe("media client", () => {
     expect(transport.requests[2]?.args).toEqual({
       assetId: "noise:builtin:rain",
     });
-    expect(transport.requests[3]?.args).toEqual({
+    expect(transport.requests[3]?.args).toMatchObject({
+      trackId: "track-1",
+      environment: { type: "rain", intensity: 0.5 },
+    });
+    expect(transport.requests[4]?.args).toEqual({ trackId: "track-1", intensity: 0.8 });
+    expect(transport.requests[5]?.args).toEqual({
       trackId: "track-1",
       volume: 0.4,
     });
-    expect(transport.requests[4]?.args).toEqual({
+    expect(transport.requests[6]?.args).toEqual({
       trackId: "track-1",
       enabled: false,
     });

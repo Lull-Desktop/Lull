@@ -207,6 +207,20 @@ pub async fn call(
       serde_json::to_value(session::add_track(&app, asset_id).await?)
         .map_err(|error| MediaError::internal(format!("序列化 Noise 音轨失败：{error}")))
     }
+    "configureTrackEnvironment" => {
+      let track_id = string_arg(args, "trackId")?;
+      let config = serde_json::from_value(args.get("environment").cloned()
+        .ok_or_else(|| MediaError::invalid("缺少 environment"))?)
+        .map_err(|error| MediaError::invalid(format!("环境配置无效：{error}")))?;
+      serde_json::to_value(session::configure_environment(&app, track_id, config).await?)
+        .map_err(|error| MediaError::internal(format!("序列化 Noise Session 失败：{error}")))
+    }
+    "setTrackIntensity" => {
+      let track_id = string_arg(args, "trackId")?;
+      let intensity = f64_arg(args, "intensity")?;
+      serde_json::to_value(session::set_environment_intensity(&app, track_id, intensity)?)
+        .map_err(|error| MediaError::internal(format!("序列化 Noise Session 失败：{error}")))
+    }
     "removeTrack" => {
       let track_id = string_arg(args, "trackId")?;
       serde_json::to_value(session::remove_track(&app, track_id)?)

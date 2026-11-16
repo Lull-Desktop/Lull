@@ -14,6 +14,7 @@ describe("environment intensity anchors", () => {
     expect(intensityWeights(anchors, 0.3)[1]).toBeCloseTo(0.5);
     expect(intensityWeights(anchors, 0.5)).toEqual([0, 1, 0]);
     expect(intensityWeights(anchors, 1)).toEqual([0, 0, 1]);
+    expect(intensityWeights([anchors[1]], 0.8)).toEqual([1]);
   });
 
   test("rejects duplicates, unordered and non-finite anchors", () => {

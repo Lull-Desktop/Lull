@@ -27,6 +27,10 @@ export function intensityWeights(
   intensity: number,
 ): number[] {
   const weights = anchors.map(() => 0);
+  if (anchors.length === 1 && Number.isFinite(anchors[0].intensity)) {
+    weights[0] = 1;
+    return weights;
+  }
   if (!validateIntensityAnchors(anchors)) return weights;
   const value = Number.isFinite(intensity) ? Math.max(0, Math.min(1, intensity)) : 0;
   if (value <= anchors[0].intensity) {

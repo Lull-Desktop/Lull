@@ -58,6 +58,7 @@ export type {
   NoiseState,
   NoiseTag,
   NoiseTrack,
+  NoiseTrackEnvironment,
   NoiseTrackError,
   NoiseTrackState,
   Page,

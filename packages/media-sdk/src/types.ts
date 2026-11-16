@@ -343,6 +343,12 @@ export interface NoiseTrackError {
   message: string;
 }
 
+export interface NoiseTrackEnvironment {
+  type: string;
+  intensity: number;
+  anchors: Array<{ assetId: string; intensity: number }>;
+}
+
 export interface NoiseTrack {
   id: string;
   assetId: string;
@@ -356,6 +362,7 @@ export interface NoiseTrack {
   fadeOutMs?: number;
   order: number;
   error?: NoiseTrackError;
+  environment?: NoiseTrackEnvironment;
 }
 
 export interface NoiseAssetCategory {
