@@ -99,6 +99,7 @@ function applyFrame(frame: SceneFrame | null): void {
     sensitivity = Math.min(2, Math.max(0.2, value));
   }
   root.dataset.palette = String(frame.params.palette ?? "tide");
+  root.dataset.reducedMotion = String(frame.reducedMotion);
 }
 
 function applyAudio(frame: AudioFrame): void {
@@ -195,12 +196,13 @@ try {
     if (!status.available) resetTargets();
   });
   scene.onVisibility((visible) => {
+    root.dataset.visible = String(visible);
     if (!visible) resetTargets();
   });
 
   requestAnimationFrame(render);
 } catch (error) {
-  // 不在壁纸窗口（例如直接用浏览器打开）时静默降级为静态画面。
+  // 无宿主时频谱归零；CSS 装饰呼吸仍可运行，不模拟音频数据。
   console.error("[audio-demo] Scene host unavailable", error);
   root.dataset.audio = "unavailable";
   requestAnimationFrame(render);

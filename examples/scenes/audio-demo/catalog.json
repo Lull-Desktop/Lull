@@ -6,7 +6,7 @@
       "type": "scene",
       "id": "demo.audio-scene",
       "name": "声之潮汐（音频响应）",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "演示 wallpaper.audio：音乐驱动频谱与脉动，音境驱动雾与背景，混合信号驱动整体呼吸。",
       "author": "Lull Demo",
       "license": "CC-BY-4.0",
@@ -19,8 +19,8 @@
       ],
       "entry": "scenes/audio-demo/index.html",
       "theme": {
-        "background": "#04121a",
-        "accent": "#7fd4c8"
+        "background": "#010609",
+        "accent": "#6bcbe8"
       },
       "audio": {
         "sources": [
@@ -74,7 +74,7 @@
       "integrity": {
         "algorithm": "sha256",
         "scope": "package",
-        "digest": "c8fe412d7282a55e8e6fab846b5ba309336d8723b5fc8bb0c4eb40aaaa633e64"
+        "digest": "bf3faa23705671f306a8724bb0ce66b8aef5cc07f479205f397f2337b5b6447e"
       }
     }
   ]
