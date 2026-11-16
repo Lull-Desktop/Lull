@@ -33,6 +33,10 @@ pub struct NoiseTrackError {
 pub struct EnvironmentAnchor {
   pub asset_id: String,
   pub intensity: f64,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub asset_hash: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub expected_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -314,6 +318,8 @@ pub struct NoisePresetTrackView {
   pub status: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub asset_name: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub environment: Option<TrackEnvironment>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -327,6 +333,8 @@ pub struct NoisePresetDetail {
 #[serde(rename_all = "camelCase")]
 pub struct NoisePresetMissing {
   pub preset_track_id: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub anchor_index: Option<usize>,
   pub expected_name: String,
   pub candidates: Vec<NoiseAssetView>,
 }

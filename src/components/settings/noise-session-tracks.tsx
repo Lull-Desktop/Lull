@@ -17,6 +17,7 @@ import type {
 } from "@lull/media-sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { NoiseEnvironmentEditor } from "@/components/settings/noise-environment-editor";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useLocale } from "@/i18n/locale";
@@ -263,6 +264,7 @@ export function NoiseSessionTracks({
                     {m.noise_track_remove()}
                   </Button>
                 </div>
+                <NoiseEnvironmentEditor client={client} track={track} />
               </div>
             );
           })

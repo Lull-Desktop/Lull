@@ -781,6 +781,7 @@ pub struct PresetTrackRecord {
   pub fade_in_ms: Option<i64>,
   pub fade_out_ms: Option<i64>,
   pub sort_order: i64,
+  pub environment_json: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -803,6 +804,7 @@ pub struct NewPresetTrack {
   pub fade_in_ms: Option<i64>,
   pub fade_out_ms: Option<i64>,
   pub sort_order: i64,
+  pub environment_json: Option<String>,
 }
 
 pub struct NewPreset {
@@ -884,7 +886,7 @@ pub async fn preset_records(
 ) -> Result<Vec<PresetTrackRecord>, MediaError> {
   sqlx::query_as::<_, PresetTrackRecord>(
     "SELECT id, asset_id, asset_hash, asset_source_type, asset_source_id, expected_name, \
-       volume, enabled, loop AS loop_, fade_in_ms, fade_out_ms, sort_order \
+       volume, enabled, loop AS loop_, fade_in_ms, fade_out_ms, sort_order, environment_json \
      FROM noise_preset_tracks WHERE preset_id = ? ORDER BY sort_order, id",
   )
   .bind(preset_id)
@@ -968,8 +970,8 @@ pub async fn insert_preset(pool: &SqlitePool, preset: &NewPreset) -> Result<(), 
     sqlx::query(
       "INSERT INTO noise_preset_tracks \
        (id, preset_id, asset_id, asset_hash, asset_source_type, asset_source_id, \
-        expected_name, volume, enabled, loop, fade_in_ms, fade_out_ms, sort_order) \
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        expected_name, volume, enabled, loop, fade_in_ms, fade_out_ms, sort_order, environment_json) \
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&track.id)
     .bind(&preset.id)
@@ -984,6 +986,7 @@ pub async fn insert_preset(pool: &SqlitePool, preset: &NewPreset) -> Result<(), 
     .bind(track.fade_in_ms)
     .bind(track.fade_out_ms)
     .bind(track.sort_order)
+    .bind(&track.environment_json)
     .execute(&mut *tx)
     .await
     .map_err(|error| MediaError::internal(format!("写入 Noise 预设轨道失败：{error}")))?;
@@ -1089,5 +1092,15 @@ pub async fn map_preset_track(
       "Noise 预设轨道不存在",
     ));
   }
+  Ok(())
+}
+
+pub async fn update_preset_environment(
+  pool: &SqlitePool, preset_id: &str, track_id: &str, environment_json: &str,
+) -> Result<(), MediaError> {
+  let result = sqlx::query("UPDATE noise_preset_tracks SET environment_json = ? WHERE preset_id = ? AND id = ?")
+    .bind(environment_json).bind(preset_id).bind(track_id).execute(pool).await
+    .map_err(|error| MediaError::internal(format!("映射环境素材失败：{error}")))?;
+  if result.rows_affected() == 0 { return Err(MediaError::new("noise.preset.track-not-found", "Noise 预设轨道不存在")); }
   Ok(())
 }

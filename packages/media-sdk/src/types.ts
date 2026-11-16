@@ -346,7 +346,7 @@ export interface NoiseTrackError {
 export interface NoiseTrackEnvironment {
   type: string;
   intensity: number;
-  anchors: Array<{ assetId: string; intensity: number }>;
+  anchors: Array<{ assetId: string; intensity: number; assetHash?: string; expectedName?: string }>;
 }
 
 export interface NoiseTrack {
@@ -487,6 +487,7 @@ export interface NoisePresetTrack {
   sortOrder: number;
   status: "resolved" | "missing";
   assetName?: string;
+  environment?: NoiseTrackEnvironment;
 }
 
 export interface NoisePresetDetail {
@@ -504,6 +505,7 @@ export interface NoisePresetQuery {
 
 export interface NoisePresetMissing {
   presetTrackId: string;
+  anchorIndex?: number;
   expectedName: string;
   candidates: NoiseAsset[];
 }

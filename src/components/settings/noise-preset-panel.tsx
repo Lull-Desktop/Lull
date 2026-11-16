@@ -238,13 +238,14 @@ export function NoisePresetPanel() {
   }, [client, run]);
 
   const mapTrack = useCallback(
-    (presetId: string, presetTrackId: string, assetId: string): void => {
+    (presetId: string, presetTrackId: string, assetId: string, anchorIndex?: number): void => {
       if (!client) return;
       void run("map", async () => {
         const detail = await client.noise.presets.mapPresetTrack(
           presetId,
           presetTrackId,
           assetId,
+          anchorIndex,
         );
         setSelected(detail);
         setLoadResult((previous) =>
@@ -252,7 +253,7 @@ export function NoisePresetPanel() {
             ? {
                 ...previous,
                 missing: previous.missing.filter(
-                  (item) => item.presetTrackId !== presetTrackId,
+                  (item) => item.presetTrackId !== presetTrackId || item.anchorIndex !== anchorIndex,
                 ),
               }
             : null,
@@ -541,7 +542,7 @@ export function NoisePresetPanel() {
                 <Label>缺失轨道映射</Label>
                 {loadResult.missing.map((missing) => (
                   <div
-                    key={missing.presetTrackId}
+                    key={`${missing.presetTrackId}:${missing.anchorIndex ?? "track"}`}
                     className="rounded-md border border-amber-300 p-2"
                   >
                     <p className="text-sm font-medium">
@@ -565,6 +566,7 @@ export function NoisePresetPanel() {
                                 selected.preset.id,
                                 missing.presetTrackId,
                                 candidate.id,
+                                missing.anchorIndex,
                               )
                             }
                           >

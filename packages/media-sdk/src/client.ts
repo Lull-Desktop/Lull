@@ -329,6 +329,7 @@ export interface LullMediaClient {
         presetId: string,
         presetTrackId: string,
         assetId: string,
+        anchorIndex?: number,
       ): Promise<NoisePresetDetail>;
       setPresetFavorite(
         presetId: string,
@@ -901,11 +902,13 @@ export function createMediaClient(
         presetId: string,
         presetTrackId: string,
         assetId: string,
+        anchorIndex?: number,
       ) =>
         call<NoisePresetDetail>("noise", "mapPresetTrack", {
           presetId,
           presetTrackId,
           assetId,
+          ...(anchorIndex === undefined ? {} : { anchorIndex }),
         }),
       setPresetFavorite: (presetId: string, favorite: boolean) =>
         call<NoisePresetSummary>("noise", "setPresetFavorite", {

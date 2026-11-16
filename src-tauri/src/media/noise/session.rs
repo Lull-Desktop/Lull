@@ -766,7 +766,7 @@ pub async fn add_track(app: &AppHandle, asset_id: &str) -> Result<NoiseTrackView
   Ok(track_view)
 }
 
-fn validate_environment(config: &TrackEnvironment) -> Result<(), MediaError> {
+pub(super) fn validate_environment(config: &TrackEnvironment) -> Result<(), MediaError> {
   if config.environment_type.trim().is_empty() || config.environment_type.len() > 64
     || !config.intensity.is_finite() || !(0.0..=1.0).contains(&config.intensity)
     || !(2..=8).contains(&config.anchors.len()) {
@@ -1051,7 +1051,9 @@ pub async fn activate(app: &AppHandle) -> Result<NoiseSessionView, MediaError> {
 
 /// N4 Preset 已解析的一条轨道；AssetRow 由 presets 模块查询后传入。
 pub struct PresetSessionTrack {
-  pub asset: repository::AssetRow,
+  pub asset: Option<repository::AssetRow>,
+  pub asset_id: String,
+  pub environment: Option<(TrackEnvironment, Vec<Option<repository::AssetRow>>)>,
   pub name: String,
   pub volume: f64,
   pub enabled: bool,
@@ -1069,10 +1071,14 @@ pub fn replace_with_preset(
 ) -> Result<NoiseSessionView, MediaError> {
   let mut next_tracks = Vec::with_capacity(tracks.len());
   for request in tracks {
-    let (source, error) = source_from_asset(&request.asset);
+    let (source, error) = request.asset.as_ref().map(source_from_asset).unwrap_or((TrackSource::Missing, None));
+    let environment = request.environment.map(|(config, assets)| EnvironmentTrack {
+      config,
+      sources: assets.iter().map(|asset| asset.as_ref().map(|asset| source_from_asset(asset).0).unwrap_or(TrackSource::Missing)).collect(),
+    });
     next_tracks.push(Track {
       id: new_id("noise_track"),
-      asset_id: request.asset.id,
+      asset_id: request.asset_id,
       name: request.name,
       source,
       volume: clamp_volume(request.volume),
@@ -1081,7 +1087,7 @@ pub fn replace_with_preset(
       fade_in_ms: request.fade_in_ms,
       fade_out_ms: request.fade_out_ms,
       error,
-      environment: None,
+      environment,
     });
   }
   {
@@ -1174,8 +1180,8 @@ mod tests {
       environment_type: "rain".to_string(),
       intensity: 0.5,
       anchors: vec![
-        EnvironmentAnchor { asset_id: "drizzle".to_string(), intensity: 0.0 },
-        EnvironmentAnchor { asset_id: "storm".to_string(), intensity: 1.0 },
+        EnvironmentAnchor { asset_id: "drizzle".to_string(), intensity: 0.0, asset_hash: None, expected_name: None },
+        EnvironmentAnchor { asset_id: "storm".to_string(), intensity: 1.0, asset_hash: None, expected_name: None },
       ],
     };
     assert!(validate_environment(&config).is_ok());

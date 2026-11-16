@@ -19,7 +19,7 @@ use crate::media::api::dto::Page;
 use crate::media::api::errors::MediaError;
 use crate::media::repository::new_id;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 const PRESET_TYPE: &str = "lull-noise-preset";
 const MAX_TRACKS: usize = 32;
 const MAX_NAME_CHARS: usize = 80;
@@ -105,13 +105,15 @@ fn summary(row: repository::PresetRow) -> NoisePresetSummary {
 fn track_view(
   row: repository::PresetTrackRecord,
   asset_name: Option<String>,
-) -> NoisePresetTrackView {
+) -> Result<NoisePresetTrackView, MediaError> {
   let status = if asset_name.is_some() {
     "resolved"
   } else {
     "missing"
   };
-  NoisePresetTrackView {
+  let environment = row.environment_json.as_deref().map(serde_json::from_str)
+    .transpose().map_err(|error| MediaError::internal(format!("环境轨配置损坏：{error}")))?;
+  Ok(NoisePresetTrackView {
     id: row.id,
     asset_id: row.asset_id,
     asset_hash: row.asset_hash,
@@ -126,7 +128,8 @@ fn track_view(
     sort_order: row.sort_order,
     status: status.to_string(),
     asset_name,
-  }
+    environment,
+  })
 }
 
 async fn summary_or_error(
@@ -144,7 +147,7 @@ async fn detail(pool: &sqlx::SqlitePool, preset_id: &str) -> Result<NoisePresetD
   let mut views = Vec::with_capacity(tracks.len());
   for track in tracks {
     let asset_name = resolve_asset(pool, &track).await?.map(|asset| asset.name);
-    views.push(track_view(track, asset_name));
+    views.push(track_view(track, asset_name)?);
   }
   Ok(NoisePresetDetail {
     preset: summary(row),
@@ -248,6 +251,8 @@ struct PresetFileTrack {
   fade_out_ms: Option<i64>,
   #[serde(default)]
   order: Option<i64>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  environment: Option<super::dto::TrackEnvironment>,
 }
 
 fn default_schema() -> u32 {
@@ -281,6 +286,7 @@ fn preset_file(detail: &NoisePresetDetail) -> Result<PresetFile, MediaError> {
       fade_in_ms: track.fade_in_ms,
       fade_out_ms: track.fade_out_ms,
       order: Some(i64::try_from(index).unwrap_or(i64::MAX)),
+      environment: track.environment.clone(),
     });
   }
   Ok(PresetFile {
@@ -303,7 +309,7 @@ fn preset_file(detail: &NoisePresetDetail) -> Result<PresetFile, MediaError> {
 }
 
 fn validate_file(mut file: PresetFile) -> Result<PresetFile, MediaError> {
-  if file.schema_version != SCHEMA_VERSION || file.kind != PRESET_TYPE {
+  if !(1..=SCHEMA_VERSION).contains(&file.schema_version) || file.kind != PRESET_TYPE {
     return Err(MediaError::new(
       "noise.preset.version",
       "不支持的 Noise Preset 文件版本",
@@ -318,6 +324,10 @@ fn validate_file(mut file: PresetFile) -> Result<PresetFile, MediaError> {
   }
   let mut orders = HashSet::new();
   for track in &mut file.tracks {
+    if let Some(environment) = &track.environment {
+      if file.schema_version < 2 { return Err(MediaError::invalid("旧版预设不能包含环境轨")); }
+      session::validate_environment(environment)?;
+    }
     track.expected_name = validate_name(&track.expected_name)?;
     track.volume = validate_volume(track.volume)?;
     track.fade_in_ms = validate_fade(track.fade_in_ms)?;
@@ -393,9 +403,6 @@ pub async fn call(
       let description = validate_description(args.get("description").and_then(Value::as_str))?;
       let cover = validate_cover(args.get("cover").and_then(Value::as_str))?;
       let snapshot = session::snapshot()?;
-      if snapshot.tracks.iter().any(|track| track.environment.is_some()) {
-        return Err(MediaError::new("noise.preset.environment-unsupported", "环境强度音轨暂不支持保存为预设"));
-      }
       if snapshot.tracks.is_empty() {
         return Err(MediaError::new(
           "noise.session.empty",
@@ -406,9 +413,18 @@ pub async fn call(
       let mut tracks = Vec::with_capacity(snapshot.tracks.len());
       for (index, track) in snapshot.tracks.iter().enumerate() {
         let identity = repository::asset_identity(pool, &track.asset_id).await?;
+        let mut environment = track.environment.clone();
+        if let Some(environment) = &mut environment {
+          for anchor in &mut environment.anchors {
+            if let Some(asset) = repository::asset(pool, &anchor.asset_id).await? {
+              anchor.expected_name = Some(asset.name);
+              anchor.asset_hash = repository::asset_identity(pool, &anchor.asset_id).await?.and_then(|identity| identity.content_hash);
+            }
+          }
+        }
         tracks.push(repository::NewPresetTrack {
           id: new_id("noise_preset_track"),
-          asset_id: Some(track.asset_id.clone()),
+          asset_id: identity.as_ref().map(|_| track.asset_id.clone()),
           asset_hash: identity.as_ref().and_then(|item| item.content_hash.clone()),
           asset_source_type: identity.as_ref().map(|item| item.source_type.clone()),
           asset_source_id: identity.as_ref().map(|item| item.source_id.clone()),
@@ -419,6 +435,8 @@ pub async fn call(
           fade_in_ms: track.fade_in_ms,
           fade_out_ms: track.fade_out_ms,
           sort_order: i64::try_from(index).unwrap_or(i64::MAX),
+          environment_json: environment.map(|value| serde_json::to_string(&value)).transpose()
+            .map_err(|error| MediaError::internal(format!("序列化环境轨失败：{error}")))?,
         });
       }
       let preset_id = new_id("noise_preset");
@@ -522,9 +540,34 @@ pub async fn call(
       let mut resolved = Vec::new();
       let mut missing = Vec::new();
       for track in tracks {
-        if let Some(asset) = resolve_asset(pool, &track).await? {
+        let base_asset = resolve_asset(pool, &track).await?;
+        let mut environment: Option<super::dto::TrackEnvironment> = track.environment_json.as_deref()
+          .map(serde_json::from_str).transpose().map_err(|error| MediaError::internal(format!("环境轨配置损坏：{error}")))?;
+        let mut environment_assets = Vec::new();
+        if let Some(config) = &mut environment {
+          session::validate_environment(config)?;
+          for (index, anchor) in config.anchors.iter_mut().enumerate() {
+            let mut asset = repository::asset(pool, &anchor.asset_id).await?.filter(|asset| asset.status == "available");
+            if asset.is_none() {
+              if let Some(hash) = &anchor.asset_hash {
+                asset = repository::asset_by_hash(pool, hash).await?.filter(|asset| asset.status == "available");
+              }
+            }
+            if let Some(found) = &asset {
+              anchor.asset_id = found.id.clone();
+            } else {
+              let name = anchor.expected_name.clone().unwrap_or_else(|| anchor.asset_id.clone());
+              missing.push(NoisePresetMissing { preset_track_id: track.id.clone(), anchor_index: Some(index), candidates: candidates(pool, &name).await?, expected_name: name });
+            }
+            environment_assets.push(asset);
+          }
+        }
+        if base_asset.is_some() || environment.is_some() {
+          let asset_id = base_asset.as_ref().map(|asset| asset.id.clone()).or_else(|| track.asset_id.clone()).unwrap_or_default();
           resolved_tracks.push(session::PresetSessionTrack {
-            asset,
+            asset: base_asset,
+            asset_id,
+            environment: environment.map(|config| (config, environment_assets)),
             name: track.expected_name,
             volume: track.volume,
             enabled: track.enabled != 0,
@@ -537,6 +580,7 @@ pub async fn call(
           let candidates = candidates(pool, &track.expected_name).await?;
           missing.push(NoisePresetMissing {
             preset_track_id: track.id,
+            anchor_index: None,
             expected_name: track.expected_name,
             candidates,
           });
@@ -575,7 +619,24 @@ pub async fn call(
       if asset.status != "available" {
         return Err(MediaError::new("noise.asset.missing", "Noise 素材不可用"));
       }
-      repository::map_preset_track(pool, preset_id, preset_track_id, asset_id).await?;
+      if let Some(index) = args.get("anchorIndex").and_then(Value::as_u64) {
+        let records = repository::preset_records(pool, preset_id).await?;
+        let record = records.into_iter().find(|record| record.id == preset_track_id)
+          .ok_or_else(|| MediaError::new("noise.preset.track-not-found", "Noise 预设轨道不存在"))?;
+        let mut environment: super::dto::TrackEnvironment = serde_json::from_str(record.environment_json.as_deref()
+          .ok_or_else(|| MediaError::invalid("该预设轨道没有环境配置"))?)
+          .map_err(|error| MediaError::internal(format!("环境轨配置损坏：{error}")))?;
+        let anchor = environment.anchors.get_mut(usize::try_from(index).unwrap_or(usize::MAX))
+          .ok_or_else(|| MediaError::invalid("环境素材索引无效"))?;
+        anchor.asset_id = asset.id.clone();
+        anchor.expected_name = Some(asset.name.clone());
+        anchor.asset_hash = repository::asset_identity(pool, asset_id).await?.and_then(|identity| identity.content_hash);
+        session::validate_environment(&environment)?;
+        let text = serde_json::to_string(&environment).map_err(|error| MediaError::internal(format!("序列化环境轨失败：{error}")))?;
+        repository::update_preset_environment(pool, preset_id, preset_track_id, &text).await?;
+      } else {
+        repository::map_preset_track(pool, preset_id, preset_track_id, asset_id).await?;
+      }
       emit_preset(app, "noise.preset.updated", preset_id, &existing.name);
       serde_json::to_value(detail(pool, preset_id).await?)
         .map_err(|error| MediaError::internal(format!("序列化 Noise Preset 失败：{error}")))
@@ -644,9 +705,13 @@ pub async fn call(
       let preset_id = new_id("noise_preset");
       let mut tracks = Vec::with_capacity(file.tracks.len());
       for (index, track) in file.tracks.iter().enumerate() {
+        let local_asset_id = match track.asset_id.as_deref() {
+          Some(id) if repository::asset(pool, id).await?.is_some() => Some(id.to_string()),
+          _ => None,
+        };
         tracks.push(repository::NewPresetTrack {
           id: new_id("noise_preset_track"),
-          asset_id: track.asset_id.clone(),
+          asset_id: local_asset_id,
           asset_hash: track.asset_hash.clone(),
           asset_source_type: track.asset_source_type.clone(),
           asset_source_id: track.asset_source_id.clone(),
@@ -657,6 +722,8 @@ pub async fn call(
           fade_in_ms: track.fade_in_ms,
           fade_out_ms: track.fade_out_ms,
           sort_order: i64::try_from(index).unwrap_or(i64::MAX),
+          environment_json: track.environment.as_ref().map(serde_json::to_string).transpose()
+            .map_err(|error| MediaError::internal(format!("序列化环境轨失败：{error}")))?,
         });
       }
       repository::insert_preset(
@@ -765,6 +832,7 @@ mod tests {
           fade_in_ms: Some(80),
           fade_out_ms: Some(120),
           order: Some(0),
+          environment: None,
         },
         PresetFileTrack {
           asset_id: None,
@@ -778,13 +846,16 @@ mod tests {
           fade_in_ms: None,
           fade_out_ms: None,
           order: Some(0),
+          environment: None,
         },
       ],
     };
     assert!(validate_file(file.clone()).is_err());
     file.tracks[1].order = Some(1);
     assert!(validate_file(file.clone()).is_ok());
-    file.schema_version = 2;
+    file.schema_version = 1;
+    assert!(validate_file(file.clone()).is_ok());
+    file.schema_version = 3;
     assert!(validate_file(file).is_err());
   }
 
@@ -829,6 +900,14 @@ mod tests {
         sort_order: 0,
         status: "resolved".to_string(),
         asset_name: Some("Rain".to_string()),
+        environment: Some(super::super::dto::TrackEnvironment {
+          environment_type: "rain".to_string(),
+          intensity: 0.4,
+          anchors: vec![
+            super::super::dto::EnvironmentAnchor { asset_id: "small".into(), intensity: 0.0, asset_hash: Some("hash-small".into()), expected_name: Some("Small".into()) },
+            super::super::dto::EnvironmentAnchor { asset_id: "large".into(), intensity: 1.0, asset_hash: None, expected_name: Some("Large".into()) },
+          ],
+        }),
       }],
     };
     let file = preset_file(&detail).expect("file");
@@ -838,6 +917,10 @@ mod tests {
     let parsed: PresetFile = serde_json::from_str(&text).expect("deserialize");
     assert_eq!(parsed.name, "Night");
     assert_eq!(parsed.tracks[0].expected_name, "Rain");
+    let environment = parsed.tracks[0].environment.as_ref().expect("environment");
+    assert_eq!(environment.anchors[0].asset_hash.as_deref(), Some("hash-small"));
+    assert_eq!(environment.intensity, 0.4);
+    assert!(validate_file(parsed).is_ok());
   }
 
   #[test]
@@ -906,6 +989,7 @@ mod tests {
             fade_in_ms: Some(80),
             fade_out_ms: Some(120),
             sort_order: 0,
+            environment_json: Some("{\"type\":\"rain\",\"intensity\":0.4,\"anchors\":[{\"assetId\":\"a\",\"intensity\":0},{\"assetId\":\"b\",\"intensity\":1}]}".into()),
           }],
         },
       )
@@ -918,6 +1002,9 @@ mod tests {
       assert_eq!(user.name, "User");
       assert_eq!(user.track_count, 1);
       assert_eq!(user.source_type, "user");
+      let saved = repository::preset_records(&pool, user_id).await.expect("saved records");
+      let saved_environment: super::super::dto::TrackEnvironment = serde_json::from_str(saved[0].environment_json.as_deref().expect("environment json")).expect("environment");
+      assert_eq!(saved_environment.environment_type, "rain");
 
       repository::map_preset_track(&pool, user_id, "track", "noise:builtin:wind")
         .await

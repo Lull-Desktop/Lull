@@ -606,7 +606,7 @@ describe("media client", () => {
     await media.noise.presets.loadPreset("preset-1");
     await media.noise.presets.exportPreset("preset-1", "out.json");
     await media.noise.presets.importPreset("in.json");
-    await media.noise.presets.mapPresetTrack("preset-1", "track-1", "asset-1");
+    await media.noise.presets.mapPresetTrack("preset-1", "track-1", "asset-1", 1);
     await media.noise.presets.setPresetFavorite("preset-1", true);
 
     expect(transport.requests.map((request) => request.method)).toEqual([
@@ -629,6 +629,7 @@ describe("media client", () => {
       presetId: "preset-1",
       presetTrackId: "track-1",
       assetId: "asset-1",
+      anchorIndex: 1,
     });
   });
 });
