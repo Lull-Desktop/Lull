@@ -4,6 +4,41 @@
   inherits: true;
   initial-value: 0.7deg;
 }
+@property --rain-light-speed {
+  syntax: "<time>";
+  inherits: true;
+  initial-value: 2.2s;
+}
+@property --rain-medium-speed {
+  syntax: "<time>";
+  inherits: true;
+  initial-value: 1.7s;
+}
+@property --rain-heavy-speed {
+  syntax: "<time>";
+  inherits: true;
+  initial-value: 1.35s;
+}
+@property --rain-ripple-speed {
+  syntax: "<time>";
+  inherits: true;
+  initial-value: 2.4s;
+}
+@property --rain-light-length {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 12px;
+}
+@property --rain-medium-length {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 18px;
+}
+@property --rain-heavy-length {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 24px;
+}
 :root {
   color-scheme: dark;
   font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
@@ -31,9 +66,19 @@ body {
   background: #07110f;
   color: #e9efe4;
   --sway-angle: 0.7deg;
-  transition: --sway-angle 3s ease;
+  transition:
+    --sway-angle 3s ease,
+    --rain-light-speed 1.4s ease,
+    --rain-medium-speed 1.4s ease,
+    --rain-heavy-speed 1.4s ease,
+    --rain-ripple-speed 1.4s ease,
+    --rain-light-length 1.4s ease,
+    --rain-medium-length 1.4s ease,
+    --rain-heavy-length 1.4s ease;
   --rain-light: 0;
+  --rain-medium: 0;
   --rain-heavy: 0;
+  --rain-ambience: 0;
   --rain-tilt: -6deg;
   --wordmark-size: 40px;
   --clock-size: 88px;
@@ -73,6 +118,8 @@ body {
     transparent 72%
   );
   animation: lull-breath 9s ease-in-out infinite;
+  filter: brightness(calc(1 - var(--rain-ambience) * 0.28));
+  transition: filter 1.8s ease;
 }
 .moon-disc {
   width: 32%;
@@ -85,6 +132,8 @@ body {
 .stars {
   position: absolute;
   inset: 0;
+  opacity: calc(1 - var(--rain-ambience) * 0.72);
+  transition: opacity 1.8s ease;
 }
 .stars span {
   position: absolute;
@@ -104,49 +153,172 @@ body {
   height: 100%;
 }
 
-/* 两层雨滴以独立透明度变化，强雨增加密度而非只提高亮度。 */
+/* CSS tile textures keep a fixed particle budget at every rain intensity. */
 .rain {
   position: absolute;
-  inset: -20%;
+  inset: -24%;
   pointer-events: none;
   transform: rotate(var(--rain-tilt));
-  transition: transform 3s ease;
+  transition: transform 1.8s ease;
 }
 .rain-light,
+.rain-medium,
 .rain-heavy {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  transition: opacity 3s ease;
+  transition: opacity 1.4s ease, background-size 1.4s ease;
 }
 .rain-light {
-  opacity: var(--rain-light);
-  background-image: radial-gradient(
-    ellipse 1px 18px at center,
-    rgba(203, 222, 215, 0.32),
-    transparent
-  );
-  background-size: 53px 91px;
-  --rain-step: 91px;
-  animation: lull-rain 1.2s linear infinite;
+  opacity: calc(var(--rain-light) * 0.58);
+  background-image:
+    radial-gradient(
+      ellipse 0.75px var(--rain-light-length) at 22% 24%,
+      rgba(205, 222, 218, 0.58),
+      transparent 78%
+    ),
+    radial-gradient(
+      ellipse 0.65px var(--rain-light-length) at 72% 73%,
+      rgba(191, 213, 210, 0.42),
+      transparent 78%
+    );
+  background-size: var(--rain-light-gap-x) var(--rain-light-gap-y);
+  background-position: 0 0, 29px 43px;
+  animation: lull-rain-light var(--rain-light-speed) linear infinite;
+}
+.rain-medium {
+  opacity: calc(var(--rain-medium) * 0.5);
+  background-image:
+    radial-gradient(
+      ellipse 1px var(--rain-medium-length) at 31% 17%,
+      rgba(205, 223, 219, 0.64),
+      transparent 78%
+    ),
+    radial-gradient(
+      ellipse 0.85px var(--rain-medium-length) at 78% 68%,
+      rgba(185, 209, 205, 0.48),
+      transparent 78%
+    );
+  background-size: var(--rain-medium-gap-x) var(--rain-medium-gap-y);
+  background-position: 0 0, 37px 51px;
+  animation: lull-rain-medium var(--rain-medium-speed) linear infinite;
 }
 .rain-heavy {
-  opacity: var(--rain-heavy);
-  background-image: radial-gradient(
-    ellipse 1px 22px at center,
-    rgba(208, 225, 221, 0.38),
-    transparent
-  );
-  background-size: 23px 67px;
-  --rain-step: 67px;
-  animation: lull-rain 0.65s linear infinite;
+  opacity: calc(var(--rain-heavy) * 0.42);
+  background-image:
+    radial-gradient(
+      ellipse 1.35px var(--rain-heavy-length) at 18% 30%,
+      rgba(218, 230, 227, 0.68),
+      transparent 78%
+    ),
+    radial-gradient(
+      ellipse 1.15px var(--rain-heavy-length) at 69% 78%,
+      rgba(195, 216, 213, 0.54),
+      transparent 78%
+    );
+  background-size: var(--rain-heavy-gap-x) var(--rain-heavy-gap-y);
+  background-position: 0 0, 41px 59px;
+  animation: lull-rain-heavy var(--rain-heavy-speed) linear infinite;
 }
-@keyframes lull-rain {
+.rain-atmosphere {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(119, 145, 146, 0.15), rgba(75, 111, 110, 0.11));
+  opacity: calc(var(--rain-ambience) * 0.56);
+  pointer-events: none;
+  transition: opacity 1.8s ease;
+}
+.rain-impacts {
+  position: absolute;
+  top: 68%;
+  right: 20%;
+  bottom: 6%;
+  left: 20%;
+  opacity: var(--rain-light);
+  pointer-events: none;
+  transition: opacity 1.2s ease;
+}
+.rain-impacts i {
+  position: absolute;
+  width: 20px;
+  height: 7px;
+  border: 1px solid rgba(199, 222, 216, 0.58);
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(0.45);
+  animation: lull-ripple var(--rain-ripple-speed) ease-out infinite;
+}
+.rain-impacts i:nth-child(1) {
+  left: 12%;
+  top: 24%;
+  animation-delay: -1.7s;
+}
+.rain-impacts i:nth-child(2) {
+  left: 35%;
+  top: 62%;
+  animation-delay: -0.8s;
+}
+.rain-impacts i:nth-child(3) {
+  left: 58%;
+  top: 32%;
+  animation-delay: -2.2s;
+}
+.rain-impacts i:nth-child(4) {
+  left: 83%;
+  top: 70%;
+  animation-delay: -1.2s;
+}
+.rain-impacts i:nth-child(5) {
+  left: 72%;
+  top: 12%;
+  animation-delay: -0.4s;
+}
+.scene[data-raining="false"] .rain-light,
+.scene[data-raining="false"] .rain-medium,
+.scene[data-raining="false"] .rain-heavy,
+.scene[data-raining="false"] .rain-impacts i {
+  animation-play-state: paused;
+}
+@keyframes lull-rain-light {
   to {
-    background-position: 0 var(--rain-step);
+    transform: translate3d(
+      var(--rain-light-gap-x),
+      var(--rain-light-gap-y),
+      0
+    );
   }
 }
-
+@keyframes lull-rain-medium {
+  to {
+    transform: translate3d(
+      var(--rain-medium-gap-x),
+      var(--rain-medium-gap-y),
+      0
+    );
+  }
+}
+@keyframes lull-rain-heavy {
+  to {
+    transform: translate3d(
+      var(--rain-heavy-gap-x),
+      var(--rain-heavy-gap-y),
+      0
+    );
+  }
+}
+@keyframes lull-ripple {
+  0% {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+  14% {
+    opacity: 0.48;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.35);
+  }
+}
 .mist-veil {
   position: absolute;
   inset: 0;
@@ -260,6 +432,8 @@ body {
   inset: 0;
   animation: lull-fireflies 12s ease-in-out infinite;
   pointer-events: none;
+  filter: brightness(calc(1 - var(--rain-ambience) * 0.72));
+  transition: filter 1.8s ease;
 }
 .fireflies i {
   position: absolute;
@@ -429,20 +603,48 @@ body {
   }
 }
 [data-reduced-motion="true"] .rain-light,
+[data-reduced-motion="true"] .rain-medium,
 [data-reduced-motion="true"] .rain-heavy,
+[data-reduced-motion="true"] .rain-impacts i,
 [data-reduced-motion="true"] .moon,
 [data-reduced-motion="true"] .mist-band,
 [data-reduced-motion="true"] .stalk,
 [data-reduced-motion="true"] .fireflies {
   animation: none !important;
 }
+.scene[data-reduced-motion="true"],
+[data-reduced-motion="true"] .rain,
+[data-reduced-motion="true"] .rain-light,
+[data-reduced-motion="true"] .rain-medium,
+[data-reduced-motion="true"] .rain-heavy,
+[data-reduced-motion="true"] .rain-atmosphere,
+[data-reduced-motion="true"] .rain-impacts,
+[data-reduced-motion="true"] .moon,
+[data-reduced-motion="true"] .stars,
+[data-reduced-motion="true"] .fireflies {
+  transition: none !important;
+}
 @media (prefers-reduced-motion: reduce) {
   .rain-light,
+  .rain-medium,
   .rain-heavy,
+  .rain-impacts i,
   .moon,
   .mist-band,
   .stalk,
   .fireflies {
     animation: none !important;
+  }
+  .scene,
+  .rain,
+  .rain-light,
+  .rain-medium,
+  .rain-heavy,
+  .rain-atmosphere,
+  .rain-impacts,
+  .moon,
+  .stars,
+  .fireflies {
+    transition: none !important;
   }
 }

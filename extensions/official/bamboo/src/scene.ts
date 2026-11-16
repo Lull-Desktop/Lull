@@ -40,9 +40,42 @@ export const STALKS: readonly Stalk[] = [
 const MOON_PERIOD_MS = 9000;
 const FIREFLY_PERIOD_MS = 12000;
 const DEFAULT_MIST = 0.5;
+const RAIN_PROFILE = {
+  lightVisibleAt: 1 / 3,
+  medium: [0.12, 0.72],
+  heavy: [0.52, 1],
+  spacing: {
+    lightX: [142, 66],
+    lightY: [112, 94],
+    mediumX: [126, 64],
+    mediumY: [106, 86],
+    heavyX: [154, 82],
+    heavyY: [128, 102],
+  },
+  streakLength: {
+    light: [12, 17],
+    medium: [18, 28],
+    heavy: [24, 38],
+  },
+  speed: {
+    light: [2.2, 1.04],
+    medium: [1.7, 0.75],
+    heavy: [1.35, 0.63],
+    ripple: [2.4, 1],
+  },
+} as const;
 
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
+}
+
+function smoothstep(start: number, end: number, value: number): number {
+  const t = clamp01((value - start) / (end - start));
+  return t * t * (3 - 2 * t);
+}
+
+function interpolate(range: readonly [number, number], amount: number): number {
+  return range[0] + (range[1] - range[0]) * amount;
 }
 
 function mistFrom(frame: SceneFrame): number {
@@ -79,13 +112,61 @@ export function applyEnvironment(
   };
   const wind = read("wind");
   const rain = read("rain");
+  scene.dataset.raining = String(rain > 0);
   scene.style.setProperty("--sway-angle", `${0.7 + wind * 3.3}deg`);
-  scene.style.setProperty("--rain-light", String(Math.min(1, rain * 3)));
+  scene.style.setProperty(
+    "--rain-light",
+    String(clamp01(rain / RAIN_PROFILE.lightVisibleAt)),
+  );
+  scene.style.setProperty(
+    "--rain-medium",
+    String(smoothstep(...RAIN_PROFILE.medium, rain)),
+  );
   scene.style.setProperty(
     "--rain-heavy",
-    String(Math.max(0, (rain - 0.25) / 0.75)),
+    String(smoothstep(...RAIN_PROFILE.heavy, rain)),
   );
+  scene.style.setProperty("--rain-ambience", String(rain));
   scene.style.setProperty("--rain-tilt", `${-6 - wind * 12}deg`);
+
+  const px = (value: number): string => `${value.toFixed(1)}px`;
+  const seconds = (value: number): string => `${value.toFixed(2)}s`;
+  const spacing = [
+    ["light-gap-x", RAIN_PROFILE.spacing.lightX],
+    ["light-gap-y", RAIN_PROFILE.spacing.lightY],
+    ["medium-gap-x", RAIN_PROFILE.spacing.mediumX],
+    ["medium-gap-y", RAIN_PROFILE.spacing.mediumY],
+    ["heavy-gap-x", RAIN_PROFILE.spacing.heavyX],
+    ["heavy-gap-y", RAIN_PROFILE.spacing.heavyY],
+  ] as const;
+  for (const [key, range] of spacing) {
+    scene.style.setProperty(`--rain-${key}`, px(interpolate(range, rain)));
+  }
+
+  const lengths = [
+    ["light", RAIN_PROFILE.streakLength.light],
+    ["medium", RAIN_PROFILE.streakLength.medium],
+    ["heavy", RAIN_PROFILE.streakLength.heavy],
+  ] as const;
+  for (const [key, range] of lengths) {
+    scene.style.setProperty(
+      `--rain-${key}-length`,
+      px(interpolate(range, rain)),
+    );
+  }
+
+  const speeds = [
+    ["light", RAIN_PROFILE.speed.light],
+    ["medium", RAIN_PROFILE.speed.medium],
+    ["heavy", RAIN_PROFILE.speed.heavy],
+    ["ripple", RAIN_PROFILE.speed.ripple],
+  ] as const;
+  for (const [key, range] of speeds) {
+    scene.style.setProperty(
+      `--rain-${key}-speed`,
+      seconds(interpolate(range, rain)),
+    );
+  }
 }
 
 /** 把一帧写到页面上；重复调用是幂等的。 */

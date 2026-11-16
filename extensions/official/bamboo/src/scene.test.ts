@@ -152,15 +152,57 @@ describe("竹影画布布局", () => {
 });
 
 describe("竹影环境目标", () => {
-  test("雨和风独立映射，缺失时恢复无雨和原有摆幅", () => {
+  test("小雨时保留细雨、雨线速度与风力倾斜", () => {
+    applyEnvironment(document, {
+      targets: { rain: 0.1, wind: 1 },
+      timestamp: 1,
+      revision: 1,
+    });
+    expect(styleOf("scene").getPropertyValue("--sway-angle")).toBe("4deg");
+    expect(Number(styleOf("scene").getPropertyValue("--rain-light"))).toBeCloseTo(0.3);
+    expect(styleOf("scene").getPropertyValue("--rain-medium")).toBe("0");
+    expect(styleOf("scene").getPropertyValue("--rain-heavy")).toBe("0");
+    expect(styleOf("scene").getPropertyValue("--rain-tilt")).toBe("-18deg");
+    expect(styleOf("scene").getPropertyValue("--rain-light-speed")).toBe("2.08s");
+    expect(document.getElementById("scene")?.dataset.raining).toBe("true");
+  });
+
+  test("中雨到大雨渐进启用更密、更快的雨层与水面反馈", () => {
+    applyEnvironment(document, {
+      targets: { rain: 0.45 },
+      timestamp: 1,
+      revision: 1,
+    });
+    const medium = Number(styleOf("scene").getPropertyValue("--rain-medium"));
+    expect(medium).toBeGreaterThan(0);
+    expect(medium).toBeLessThan(1);
+    expect(styleOf("scene").getPropertyValue("--rain-heavy")).toBe("0");
+    const mediumGap = Number.parseFloat(styleOf("scene").getPropertyValue("--rain-medium-gap-x"));
+    expect(mediumGap).toBeLessThan(126);
+
+    applyEnvironment(document, {
+      targets: { rain: 0.8 },
+      timestamp: 2,
+      revision: 2,
+    });
+    const heavy = Number(styleOf("scene").getPropertyValue("--rain-heavy"));
+    expect(heavy).toBeGreaterThan(0);
+    expect(heavy).toBeLessThan(1);
+    expect(Number.parseFloat(styleOf("scene").getPropertyValue("--rain-heavy-gap-x"))).toBeLessThan(mediumGap);
+    expect(styleOf("scene").getPropertyValue("--rain-heavy-speed")).toBe("0.77s");
+    expect(styleOf("scene").getPropertyValue("--rain-ambience")).toBe("0.8");
+  });
+
+  test("强雨封顶，缺失时重置降雨层与氛围", () => {
     applyEnvironment(document, {
       targets: { rain: 1, wind: 1 },
       timestamp: 1,
       revision: 1,
     });
-    expect(styleOf("scene").getPropertyValue("--sway-angle")).toBe("4deg");
     expect(styleOf("scene").getPropertyValue("--rain-heavy")).toBe("1");
-    expect(styleOf("scene").getPropertyValue("--rain-tilt")).toBe("-18deg");
+    expect(styleOf("scene").getPropertyValue("--rain-heavy-speed")).toBe("0.63s");
+    expect(styleOf("scene").getPropertyValue("--rain-heavy-length")).toBe("38.0px");
+
     applyEnvironment(document, {
       targets: { rain: 0.1 },
       timestamp: 2,
@@ -173,5 +215,8 @@ describe("竹影环境目标", () => {
     expect(styleOf("scene").getPropertyValue("--rain-heavy")).toBe("0");
     applyEnvironment(document, { targets: {}, timestamp: 3, revision: 3 });
     expect(styleOf("scene").getPropertyValue("--rain-light")).toBe("0");
+    expect(styleOf("scene").getPropertyValue("--rain-medium")).toBe("0");
+    expect(styleOf("scene").getPropertyValue("--rain-ambience")).toBe("0");
+    expect(document.getElementById("scene")?.dataset.raining).toBe("false");
   });
 });
