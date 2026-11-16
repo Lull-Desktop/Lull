@@ -1,7 +1,7 @@
 /**
  * EtherBubbles（白噪音）：悬浮式环境声混音器，音轨行如实反映后端 Session 配置。
  *
- * 交互：点击泡泡开关声音，滚轮 / 上下拖动调节音量；点击主泡静音，滚轮调总音量。
+ * 交互：点击泡泡开关声音，滚轮 / 上下拖动调节环境强度或普通轨音量；主泡控制总音量。
  * 齿轮不再展开窗内二级菜单，而是把设置窗口唤起到「音境」页签——睡眠定时、预设、
  * 音轨明细都在那里，窗内只留混音本体。
  * 视觉：玻璃泡 + 发光液体 + 体积环；声场运行时由分析器驱动液体涟漪与呼吸。
@@ -238,12 +238,13 @@ function SoundBubble({
   const [dragging, setDragging] = useState(false);
   const track = view.track;
   const level = view.effective;
-  const active = playing && level > 0;
+  const active = playing && (track.environment ? track.enabled : level > 0);
+  const controlName = track.environment ? "环境强度" : "音量";
   const Icon = TRACK_ICONS[view.icon];
   const errorPrefix = track.error ? "素材缺失 · " : "";
   const status = active
-    ? `音量 ${level}%`
-    : track.enabled && view.level > 0
+    ? `${controlName} ${level}%`
+    : track.enabled && (track.environment || view.level > 0)
       ? "待播放"
       : "已关闭";
 
@@ -350,7 +351,7 @@ function SoundBubble({
         type="button"
         className={styles.bubbleButton}
         data-ether-wheel="true"
-        aria-label={`${view.label}，${errorPrefix}${status}。点击${active ? "关闭" : "开启"}，滚轮或上下拖动调节音量`}
+        aria-label={`${view.label}，${errorPrefix}${status}。点击${active ? "关闭" : "开启"}，滚轮或上下拖动调节${controlName}`}
         aria-pressed={active}
         onWheel={wheel}
         onPointerDown={pointerDown}
@@ -526,6 +527,7 @@ export function EtherBubbles() {
   const clientRef = useRef(peekMediaClient());
   const [session, setSession] = useState<NoiseSession>(buildDemoSession);
   const sessionRef = useRef<NoiseSession>(session);
+  const pendingIntensityRef = useRef(new Map<string, { intensity: number; token: object }>());
   /** 首个真实快照到达前，不把演示轨的 id 发给后端。 */
   const sessionReadyRef = useRef(false);
   const [awake, setAwake] = useState(false);
@@ -570,7 +572,14 @@ export function EtherBubbles() {
       const current = sessionRef.current;
       if (current && next.revision < current.revision) return;
       sessionReadyRef.current = true;
-      commitSession(next);
+      // 后端逐条确认拖动请求时保留最新手势值，避免旧回包让泡泡倒退。
+      const tracks = next.tracks.map((track) => {
+        const pending = pendingIntensityRef.current.get(track.id);
+        return pending && track.environment
+          ? { ...track, environment: { ...track.environment, intensity: pending.intensity } }
+          : track;
+      });
+      commitSession({ ...next, tracks });
       setMaster(Math.round(next.masterVolume * 100));
       setMuted(next.muted);
       setAwake(next.state === "playing");
@@ -744,43 +753,55 @@ export function EtherBubbles() {
   );
 
   const intensityQueue = useRef<Promise<void>>(Promise.resolve());
-  const setTrackIntensity = useCallback(
-    (track: NoiseTrack, value: number): void => {
-      if (!track.environment) return;
-      const intensity = clampLevel(value) / 100;
-      patchLocalTrack(track.id, {
-        environment: { ...track.environment, intensity },
-      });
-      const client = clientRef.current;
-      if (!client || !sessionReadyRef.current) return;
-      intensityQueue.current = intensityQueue.current
-        .catch(() => {})
-        .then(() => client.noise.tracks.setIntensity(track.id, intensity))
-        .catch(async () => {
-          try {
-            applySession(await client.noise.session.getCurrent());
-          } catch {
-            // The next session update will reconcile the optimistic value.
-          }
-        });
-    },
-    [applySession, patchLocalTrack],
-  );
-
   const setTrackVolume = useCallback(
     (track: NoiseTrack, value: number): void => {
       const level = clampLevel(value);
-      const enabled = track.environment ? track.enabled : level > 0;
+      const current = sessionRef.current.tracks.find((item) => item.id === track.id) ?? track;
+      const client = clientRef.current;
+      if (current.environment) {
+        const intensity = level / 100;
+        // 0 表示该环境最弱的素材锚点，不代表静音或关闭音轨。
+        patchLocalTrack(current.id, {
+          enabled: true,
+          environment: { ...current.environment, intensity },
+        });
+        setMuted(false);
+        markReadout(current.id);
+        if (!client || !sessionReadyRef.current) return;
+        const token = {};
+        pendingIntensityRef.current.set(current.id, { intensity, token });
+        intensityQueue.current = intensityQueue.current
+          .catch(() => {})
+          .then(async () => {
+            await client.noise.tracks.setIntensity(current.id, intensity);
+            if (!current.enabled) await client.noise.tracks.setEnabled(current.id, true);
+            applySession(await ensurePlaying(client));
+            const next = await client.noise.session.setMuted(false);
+            if (pendingIntensityRef.current.get(current.id)?.token === token) {
+              pendingIntensityRef.current.delete(current.id);
+            }
+            applySession(next);
+          })
+          .catch(async () => {
+            if (pendingIntensityRef.current.get(current.id)?.token === token) {
+              pendingIntensityRef.current.delete(current.id);
+            }
+            try {
+              applySession(await client.noise.session.getCurrent());
+            } catch {
+              // 下一次会话更新会重新同步乐观值。
+            }
+          });
+        return;
+      }
+      const enabled = level > 0;
       patchLocalTrack(track.id, { volume: level / 100, enabled });
       setMuted(false);
       markReadout(track.id);
-      const client = clientRef.current;
       if (!client || !sessionReadyRef.current) return;
       void (async () => {
         await client.noise.tracks.setVolume(track.id, level / 100);
-        if (!track.environment) {
-          await client.noise.tracks.setEnabled(track.id, enabled);
-        }
+        await client.noise.tracks.setEnabled(track.id, enabled);
         const next = await ensurePlaying(client);
         applySession(next);
         applySession(await client.noise.session.setMuted(false));
@@ -795,6 +816,20 @@ export function EtherBubbles() {
         ? sessionRef.current.state === "playing"
         : awake;
       const enabled = playing ? !track.enabled : true;
+      if (track.environment) {
+        patchLocalTrack(track.id, { enabled });
+        setMuted(false);
+        markReadout(track.id);
+        const client = clientRef.current;
+        if (!client || !sessionReadyRef.current) return;
+        void (async () => {
+          await client.noise.tracks.setEnabled(track.id, enabled);
+          const next = enabled ? await ensurePlaying(client) : await client.noise.session.getCurrent();
+          applySession(next);
+          applySession(await client.noise.session.setMuted(false));
+        })().catch(() => {});
+        return;
+      }
       const currentLevel = clampLevel(track.volume * 100);
       const level = enabled && currentLevel < 5 ? 50 : currentLevel;
       patchLocalTrack(track.id, { enabled, volume: level / 100 });
@@ -1038,31 +1073,20 @@ export function EtherBubbles() {
                   <div
                     className={styles.soundRow}
                     key={track.id}
-                    data-active={awake && view.effective > 0 ? "true" : "false"}
+                    data-active={awake && (track.environment ? track.enabled : view.effective > 0) ? "true" : "false"}
                     data-error={track.error ? "true" : "false"}
                   >
                     <div className={styles.rowLabel} data-ether-label="true">
                       <span className={styles.glyphTitle}>{view.glyph}</span>
                       <span className={styles.rowMeta}>
                         {awake
-                          ? `${view.effective}% · ${trackMood(view)}`
-                          : track.enabled && view.level > 0
+                          ? track.environment && track.enabled
+                            ? `${view.effective}% · 环境强度`
+                            : `${view.effective}% · ${trackMood(view)}`
+                          : track.enabled && (track.environment || view.level > 0)
                             ? "待播放"
                             : "静默"}
                       </span>
-                      {track.environment && (
-                        <label className={styles.intensityControl}>
-                          环境强度 {Math.round(track.environment.intensity * 100)}%
-                          <input
-                            aria-label={`${view.label}环境强度`}
-                            type="range"
-                            min="0"
-                            max="100"
-                            value={Math.round(track.environment.intensity * 100)}
-                            onChange={(event) => setTrackIntensity(track, Number(event.currentTarget.value))}
-                          />
-                        </label>
-                      )}
                     </div>
                     <div className={styles.rowBubble}>
                       <SoundBubble

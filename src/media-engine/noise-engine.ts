@@ -8,6 +8,7 @@
 import type { AudioGraph } from "./audio-graph";
 import {
   intensityWeights,
+  rainDetailParameters,
   validateIntensityAnchors,
 } from "./environment-intensity";
 import { trackGain } from "./gain";
@@ -17,6 +18,8 @@ type Buffers = {
   white: AudioBuffer;
   brown: AudioBuffer;
   crackle: AudioBuffer;
+  rainDrops: AudioBuffer;
+  rainHeavyDrops: AudioBuffer;
 };
 
 type ProceduralVoice = {
@@ -24,6 +27,7 @@ type ProceduralVoice = {
   gain: GainNode;
   sources: AudioScheduledSourceNode[];
   nodes: AudioNode[];
+  detailRate?: AudioParam;
 };
 
 type AssetVoice = {
@@ -72,12 +76,11 @@ function makeNoiseBuffer(
   return buffer;
 }
 
-function makeCrackleBuffer(context: AudioContext): AudioBuffer {
+function makeCrackleBuffer(context: AudioContext, density = 0.00042): AudioBuffer {
   const seconds = 5;
   const length = Math.floor(context.sampleRate * seconds);
   const buffer = context.createBuffer(1, length, context.sampleRate);
   const data = buffer.getChannelData(0);
-  const density = 0.00042;
   const grain = Math.floor(context.sampleRate * 0.018);
 
   for (let i = 0; i < length; i += 1) {
@@ -159,6 +162,30 @@ function buildChannel(
   voice: ProceduralVoice,
 ): void {
   switch (id) {
+    case "rain-detail": {
+      const source = loopSource(context, buffers.rainHeavyDrops, voice);
+      const filter = context.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.value = 2100;
+      filter.Q.value = 0.8;
+      source.connect(filter);
+      filter.connect(destination);
+      voice.nodes.push(filter);
+      voice.detailRate = source.playbackRate;
+      break;
+    }
+    case "rain-drizzle": {
+      connectLayer(context, buffers.white, "highpass", 2500, 0.7, 0.11, destination, voice);
+      connectLayer(context, buffers.rainDrops, "bandpass", 2300, 0.8, 0.8, destination, voice);
+      break;
+    }
+    case "rain-storm": {
+      connectLayer(context, buffers.white, "lowpass", 3200, 0.6, 0.42, destination, voice);
+      connectLayer(context, buffers.brown, "lowpass", 500, 0.7, 0.18, destination, voice);
+      const drops = connectLayer(context, buffers.rainHeavyDrops, "bandpass", 1500, 0.7, 0.65, destination, voice);
+      addLfo(context, drops.gain.gain, 0.09, 0.14, 0.65, voice);
+      break;
+    }
     case "rain": {
       connectLayer(
         context,
@@ -206,6 +233,19 @@ function buildChannel(
         voice,
       );
       addLfo(context, sub.gain.gain, 0.027, 0.18, 0.38, voice);
+      break;
+    }
+    case "wind-breeze": {
+      const breeze = connectLayer(context, buffers.white, "bandpass", 700, 0.7, 0.16, destination, voice);
+      addLfo(context, breeze.filter.frequency, 0.04, 100, 700, voice);
+      addLfo(context, breeze.gain.gain, 0.06, 0.05, 0.16, voice);
+      break;
+    }
+    case "wind-gust": {
+      const gust = connectLayer(context, buffers.brown, "bandpass", 360, 0.9, 0.48, destination, voice);
+      addLfo(context, gust.filter.frequency, 0.1, 200, 360, voice);
+      addLfo(context, gust.gain.gain, 0.12, 0.24, 0.48, voice);
+      connectLayer(context, buffers.white, "highpass", 1700, 0.7, 0.18, destination, voice);
       break;
     }
     case "wind": {
@@ -381,6 +421,8 @@ function ensureBuffers(context: AudioContext): Buffers {
     white: makeNoiseBuffer(context, "white"),
     brown: makeNoiseBuffer(context, "brown"),
     crackle: makeCrackleBuffer(context),
+    rainDrops: makeCrackleBuffer(context, 0.00012),
+    rainHeavyDrops: makeCrackleBuffer(context, 0.003),
   };
 }
 
@@ -442,6 +484,30 @@ export class NoiseEngine {
       const sources = anchors ?? [
         { assetId: track.assetId, source: track.source },
       ];
+      // The built-in rain set includes an independent droplet layer whose event
+      // density changes with intensity; custom tracks are never altered implicitly.
+      if (
+        environment?.type === "rain" &&
+        anchors?.some((anchor) => anchor.assetId === "noise:builtin:rain-drizzle") &&
+        anchors.some((anchor) => anchor.assetId === "noise:builtin:rain-storm")
+      ) {
+        const detailId = JSON.stringify([track.trackId, "builtin-rain-detail"]);
+        live.add(detailId);
+        let detail = engine.tracks.get(detailId);
+        if (!detail) {
+          detail = buildVoice(engine.context, "rain-detail", engine.buffers, this.graph.noiseBus);
+          engine.tracks.set(detailId, detail);
+        }
+        const parameters = rainDetailParameters(environment.intensity);
+        if (detail.kind === "procedural" && detail.detailRate) {
+          ramp(detail.detailRate, parameters.rate, now);
+        }
+        ramp(
+          detail.gain.gain,
+          trackGain(track.volume, track.enabled, command.state === "playing") * parameters.gain,
+          now,
+        );
+      }
       for (const [index, layer] of sources.entries()) {
         // Include the source identity so editing an anchor replaces the old voice.
         const voiceId = JSON.stringify([

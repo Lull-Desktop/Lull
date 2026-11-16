@@ -49,6 +49,8 @@ export {
   type SceneClientMessage,
   type SceneDisplayMode,
   type SceneFrame,
+  type SceneEnvironmentSnapshot,
+  type SceneEnvironmentMessage,
   type SceneFrameMessage,
   type SceneHostMessage,
   type SceneInitMessage,

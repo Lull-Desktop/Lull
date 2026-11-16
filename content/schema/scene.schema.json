@@ -41,7 +41,8 @@
           "wallpaper.params",
           "wallpaper.script",
           "wallpaper.pointer",
-          "wallpaper.audio"
+          "wallpaper.audio",
+  "wallpaper.environment"
         ]
       }
     },

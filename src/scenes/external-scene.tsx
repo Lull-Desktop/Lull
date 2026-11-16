@@ -30,6 +30,7 @@ import {
   connectWallpaperAudio,
   type WallpaperAudioConnection,
 } from "./audio-stream";
+import { listenWallpaperEnvironment } from "./environment-stream";
 import { pointerForFrame } from "./pointer";
 import { listenWallpaperPointer } from "./pointer-stream";
 import {
@@ -44,6 +45,8 @@ import {
   sceneAudioSnapshotMessage,
   sceneAudioStatusMessage,
   sceneFrameMessage,
+  sceneEnvironmentMessage,
+  type EnvironmentSnapshot,
   sceneInitMessage,
   scenePointerMessage,
   sceneVisibilityMessage,
@@ -120,6 +123,8 @@ function ScriptedScene({
   const [ready, setReady] = useState(false);
   const pointerEnabled = sceneSupportsPointer(entry.manifest);
   const audioEnabled = sceneSupportsAudio(entry.manifest);
+  const environmentEnabled = entry.manifest.capabilities.includes("wallpaper.environment");
+  const environmentRef = useRef<EnvironmentSnapshot | null>(null);
   const audioConfig = useMemo(
     () => (audioEnabled ? sceneAudioConfig(entry.manifest) : null),
     [audioEnabled, entry.manifest],
@@ -170,6 +175,15 @@ function ScriptedScene({
     resetForReload();
     sendInit();
   }, [resetForReload, sendInit]);
+
+  useEffect(() => {
+    environmentRef.current = null;
+    if (!environmentEnabled) return;
+    return listenWallpaperEnvironment((snapshot) => {
+      environmentRef.current = snapshot;
+      if (readyRef.current) send(sceneEnvironmentMessage(snapshot));
+    });
+  }, [environmentEnabled, send]);
 
   // 音频连接与 iframe 生命周期解耦：iframe 重载时连接保留，ready 后重发 audio.init。
   useEffect(() => {
@@ -269,6 +283,7 @@ function ScriptedScene({
         readyRef.current = true;
         setReady(true);
         sendInit();
+        if (environmentEnabled && environmentRef.current) send(sceneEnvironmentMessage(environmentRef.current));
         // 初始化时给一份快照，避免场景等下一次音频事件（连接可能尚未就绪，
         // whenReady 之后会再补一次 audio.init）。
         if (audioEnabled) {
@@ -295,6 +310,7 @@ function ScriptedScene({
   }, [
     audioConfig,
     audioEnabled,
+    environmentEnabled,
     entry.manifest.id,
     handleSceneGameMessage,
     sendInit,

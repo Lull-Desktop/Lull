@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 3,
   "source": {
     "id": "noise_src_builtin",
     "name": "Lull 内置声景"
@@ -42,20 +42,62 @@
     }
   ],
   "tags": [
-    { "id": "noise_tag_nature", "name": "自然" },
-    { "id": "noise_tag_rain", "name": "雨" },
-    { "id": "noise_tag_water", "name": "水" },
-    { "id": "noise_tag_warm", "name": "暖" },
-    { "id": "noise_tag_focus", "name": "专注" }
+    {
+      "id": "noise_tag_nature",
+      "name": "自然"
+    },
+    {
+      "id": "noise_tag_rain",
+      "name": "雨"
+    },
+    {
+      "id": "noise_tag_water",
+      "name": "水"
+    },
+    {
+      "id": "noise_tag_warm",
+      "name": "暖"
+    },
+    {
+      "id": "noise_tag_focus",
+      "name": "专注"
+    }
   ],
   "assets": [
+    {
+      "id": "noise:builtin:rain-drizzle",
+      "name": "细雨",
+      "description": "稀疏的雨滴与轻柔的雨雾。",
+      "profile": "rain-drizzle",
+      "categoryId": "noise_cat_weather",
+      "tags": [
+        "noise_tag_nature",
+        "noise_tag_rain"
+      ],
+      "sortOrder": 5
+    },
+    {
+      "id": "noise:builtin:rain-storm",
+      "name": "暴雨",
+      "description": "密集雨滴、宽阔雨幕与低频水声。",
+      "profile": "rain-storm",
+      "categoryId": "noise_cat_weather",
+      "tags": [
+        "noise_tag_nature",
+        "noise_tag_rain"
+      ],
+      "sortOrder": 6
+    },
     {
       "id": "noise:builtin:rain",
       "name": "雨声",
       "description": "持续的细雨与树叶摩擦声。",
       "profile": "rain",
       "categoryId": "noise_cat_weather",
-      "tags": ["noise_tag_nature", "noise_tag_rain"],
+      "tags": [
+        "noise_tag_nature",
+        "noise_tag_rain"
+      ],
       "sortOrder": 0
     },
     {
@@ -64,8 +106,32 @@
       "description": "低沉、缓慢的雷声与空气震动。",
       "profile": "thunder",
       "categoryId": "noise_cat_weather",
-      "tags": ["noise_tag_nature"],
+      "tags": [
+        "noise_tag_nature"
+      ],
       "sortOrder": 1
+    },
+    {
+      "id": "noise:builtin:wind-breeze",
+      "name": "微风",
+      "description": "轻柔的林间气流。",
+      "profile": "wind-breeze",
+      "categoryId": "noise_cat_nature",
+      "tags": [
+        "noise_tag_nature"
+      ],
+      "sortOrder": 2
+    },
+    {
+      "id": "noise:builtin:wind-gust",
+      "name": "疾风",
+      "description": "低沉且变化明显的强风。",
+      "profile": "wind-gust",
+      "categoryId": "noise_cat_nature",
+      "tags": [
+        "noise_tag_nature"
+      ],
+      "sortOrder": 2
     },
     {
       "id": "noise:builtin:wind",
@@ -73,7 +139,9 @@
       "description": "穿过林间的风与轻微的气流。",
       "profile": "wind",
       "categoryId": "noise_cat_nature",
-      "tags": ["noise_tag_nature"],
+      "tags": [
+        "noise_tag_nature"
+      ],
       "sortOrder": 2
     },
     {
@@ -82,7 +150,10 @@
       "description": "缓慢涨落的海浪与远处的潮声。",
       "profile": "waves",
       "categoryId": "noise_cat_water",
-      "tags": ["noise_tag_nature", "noise_tag_water"],
+      "tags": [
+        "noise_tag_nature",
+        "noise_tag_water"
+      ],
       "sortOrder": 3
     },
     {
@@ -91,22 +162,129 @@
       "description": "木柴燃烧的低鸣与细碎爆裂。",
       "profile": "fire",
       "categoryId": "noise_cat_fire",
-      "tags": ["noise_tag_warm"],
+      "tags": [
+        "noise_tag_warm"
+      ],
       "sortOrder": 4
     }
   ],
   "presets": [
+    {
+      "id": "noise:preset:bamboo-weather",
+      "name": "竹林风雨",
+      "description": "独立调节雨势与风势，驱动竹影壁纸。",
+      "masterVolume": 0.75,
+      "tracks": [
+        {
+          "assetId": "noise:builtin:rain",
+          "volume": 0.7,
+          "enabled": true,
+          "environment": {
+            "type": "rain",
+            "intensity": 0.5,
+            "anchors": [
+              {
+                "assetId": "noise:builtin:rain-drizzle",
+                "intensity": 0
+              },
+              {
+                "assetId": "noise:builtin:rain",
+                "intensity": 0.5
+              },
+              {
+                "assetId": "noise:builtin:rain-storm",
+                "intensity": 1
+              }
+            ]
+          }
+        },
+        {
+          "assetId": "noise:builtin:wind",
+          "volume": 0.45,
+          "enabled": true,
+          "environment": {
+            "type": "wind",
+            "intensity": 0.4,
+            "anchors": [
+              {
+                "assetId": "noise:builtin:wind-breeze",
+                "intensity": 0
+              },
+              {
+                "assetId": "noise:builtin:wind",
+                "intensity": 0.5
+              },
+              {
+                "assetId": "noise:builtin:wind-gust",
+                "intensity": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "noise:preset:rain-intensity",
+      "name": "渐变雨境",
+      "description": "从细雨到暴雨，拖动环境强度改变雨势。",
+      "masterVolume": 0.75,
+      "tracks": [
+        {
+          "assetId": "noise:builtin:rain",
+          "volume": 0.7,
+          "enabled": true,
+          "environment": {
+            "type": "rain",
+            "intensity": 0.5,
+            "anchors": [
+              {
+                "assetId": "noise:builtin:rain-drizzle",
+                "intensity": 0
+              },
+              {
+                "assetId": "noise:builtin:rain",
+                "intensity": 0.5
+              },
+              {
+                "assetId": "noise:builtin:rain-storm",
+                "intensity": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
     {
       "id": "noise:preset:default",
       "name": "默认混音",
       "description": "雨、风与篝火的初始声场。",
       "masterVolume": 0.75,
       "tracks": [
-        { "assetId": "noise:builtin:rain", "volume": 0.7, "enabled": true },
-        { "assetId": "noise:builtin:thunder", "volume": 0.45, "enabled": false },
-        { "assetId": "noise:builtin:wind", "volume": 0.3, "enabled": true },
-        { "assetId": "noise:builtin:waves", "volume": 0.4, "enabled": false },
-        { "assetId": "noise:builtin:fire", "volume": 0.5, "enabled": true }
+        {
+          "assetId": "noise:builtin:rain",
+          "volume": 0.7,
+          "enabled": true
+        },
+        {
+          "assetId": "noise:builtin:thunder",
+          "volume": 0.45,
+          "enabled": false
+        },
+        {
+          "assetId": "noise:builtin:wind",
+          "volume": 0.3,
+          "enabled": true
+        },
+        {
+          "assetId": "noise:builtin:waves",
+          "volume": 0.4,
+          "enabled": false
+        },
+        {
+          "assetId": "noise:builtin:fire",
+          "volume": 0.5,
+          "enabled": true
+        }
       ]
     },
     {
@@ -115,9 +293,21 @@
       "description": "细雨、远雷与壁炉。",
       "masterVolume": 0.8,
       "tracks": [
-        { "assetId": "noise:builtin:rain", "volume": 0.65, "enabled": true },
-        { "assetId": "noise:builtin:thunder", "volume": 0.25, "enabled": true },
-        { "assetId": "noise:builtin:fire", "volume": 0.35, "enabled": true }
+        {
+          "assetId": "noise:builtin:rain",
+          "volume": 0.65,
+          "enabled": true
+        },
+        {
+          "assetId": "noise:builtin:thunder",
+          "volume": 0.25,
+          "enabled": true
+        },
+        {
+          "assetId": "noise:builtin:fire",
+          "volume": 0.35,
+          "enabled": true
+        }
       ]
     },
     {
@@ -126,9 +316,21 @@
       "description": "潮声、风与很轻的雨。",
       "masterVolume": 0.8,
       "tracks": [
-        { "assetId": "noise:builtin:waves", "volume": 0.7, "enabled": true },
-        { "assetId": "noise:builtin:wind", "volume": 0.2, "enabled": true },
-        { "assetId": "noise:builtin:rain", "volume": 0.2, "enabled": true }
+        {
+          "assetId": "noise:builtin:waves",
+          "volume": 0.7,
+          "enabled": true
+        },
+        {
+          "assetId": "noise:builtin:wind",
+          "volume": 0.2,
+          "enabled": true
+        },
+        {
+          "assetId": "noise:builtin:rain",
+          "volume": 0.2,
+          "enabled": true
+        }
       ]
     },
     {
@@ -137,9 +339,21 @@
       "description": "篝火、微风与远雷的暖场。",
       "masterVolume": 0.8,
       "tracks": [
-        { "assetId": "noise:builtin:fire", "volume": 0.6, "enabled": true },
-        { "assetId": "noise:builtin:wind", "volume": 0.15, "enabled": true },
-        { "assetId": "noise:builtin:thunder", "volume": 0.1, "enabled": true }
+        {
+          "assetId": "noise:builtin:fire",
+          "volume": 0.6,
+          "enabled": true
+        },
+        {
+          "assetId": "noise:builtin:wind",
+          "volume": 0.15,
+          "enabled": true
+        },
+        {
+          "assetId": "noise:builtin:thunder",
+          "volume": 0.1,
+          "enabled": true
+        }
       ]
     }
   ]

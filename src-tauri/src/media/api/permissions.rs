@@ -54,7 +54,7 @@ pub const WIDGET_READ_CAPABILITIES: &[&str] = &[
 pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> {
   match namespace {
     "noise" => Some(match method {
-      "getState" | "getSession" | "getSounds" => SESSION_READ,
+      "getState" | "getSession" | "getSounds" | "getEnvironmentTargets" => SESSION_READ,
       "createSession"
       | "playSession"
       | "pauseSession"
@@ -72,7 +72,7 @@ pub fn widget_capability(namespace: &str, method: &str) -> Option<&'static str> 
         NOISE_LIBRARY_READ
       }
       "listPresets" | "getPreset" => PRESETS_READ,
-      "savePreset" | "updatePreset" | "deletePreset" | "loadPreset" | "mapPresetTrack"
+      "savePreset" | "updatePreset" | "duplicatePreset" | "deletePreset" | "loadPreset" | "mapPresetTrack"
       | "setPresetFavorite" => PRESETS_WRITE,
       // 文件导入/导出、Asset 编辑/删除只属于设置窗。
       _ => return None,
@@ -411,6 +411,9 @@ mod tests {
     assert!(official_noise_allowed("settings", "importAssets").is_ok());
     assert!(official_noise_allowed("noise-library", "importAssets").is_ok());
     assert!(official_noise_allowed("noise-library", "importPreset").is_ok());
+    assert!(official_noise_allowed("noise-library", "duplicatePreset").is_ok());
+    assert!(official_noise_allowed("library", "duplicatePreset").is_err());
+    assert_eq!(widget_capability("noise", "duplicatePreset"), Some(PRESETS_WRITE));
     assert!(official_noise_allowed("noise", "playSession").is_ok());
     assert!(official_noise_allowed("noise", "importAssets").is_err());
     assert!(official_noise_allowed("library", "listAssets").is_ok());

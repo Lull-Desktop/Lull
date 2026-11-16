@@ -1,4 +1,9 @@
 /* 竹影：层叠的山、水、薄雾与月下竹林。动画由宿主相位对齐。 */
+@property --sway-angle {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 0.7deg;
+}
 :root {
   color-scheme: dark;
   font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
@@ -25,6 +30,11 @@ body {
   overflow: hidden;
   background: #07110f;
   color: #e9efe4;
+  --sway-angle: 0.7deg;
+  transition: --sway-angle 3s ease;
+  --rain-light: 0;
+  --rain-heavy: 0;
+  --rain-tilt: -6deg;
   --wordmark-size: 40px;
   --clock-size: 88px;
   --subtitle-size: 20px;
@@ -92,6 +102,49 @@ body {
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+/* 两层雨滴以独立透明度变化，强雨增加密度而非只提高亮度。 */
+.rain {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  transform: rotate(var(--rain-tilt));
+  transition: transform 3s ease;
+}
+.rain-light,
+.rain-heavy {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 3s ease;
+}
+.rain-light {
+  opacity: var(--rain-light);
+  background-image: radial-gradient(
+    ellipse 1px 18px at center,
+    rgba(203, 222, 215, 0.32),
+    transparent
+  );
+  background-size: 53px 91px;
+  --rain-step: 91px;
+  animation: lull-rain 1.2s linear infinite;
+}
+.rain-heavy {
+  opacity: var(--rain-heavy);
+  background-image: radial-gradient(
+    ellipse 1px 22px at center,
+    rgba(208, 225, 221, 0.38),
+    transparent
+  );
+  background-size: 23px 67px;
+  --rain-step: 67px;
+  animation: lull-rain 0.65s linear infinite;
+}
+@keyframes lull-rain {
+  to {
+    background-position: 0 var(--rain-step);
+  }
 }
 
 .mist-veil {
@@ -358,10 +411,10 @@ body {
 @keyframes lull-sway {
   0%,
   100% {
-    transform: rotate(-0.7deg);
+    transform: rotate(calc(-1 * var(--sway-angle)));
   }
   50% {
-    transform: rotate(0.7deg);
+    transform: rotate(var(--sway-angle));
   }
 }
 @keyframes lull-fireflies {
@@ -375,6 +428,8 @@ body {
     transform: translate3d(8px, -12px, 0);
   }
 }
+[data-reduced-motion="true"] .rain-light,
+[data-reduced-motion="true"] .rain-heavy,
 [data-reduced-motion="true"] .moon,
 [data-reduced-motion="true"] .mist-band,
 [data-reduced-motion="true"] .stalk,
@@ -382,6 +437,8 @@ body {
   animation: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
+  .rain-light,
+  .rain-heavy,
   .moon,
   .mist-band,
   .stalk,

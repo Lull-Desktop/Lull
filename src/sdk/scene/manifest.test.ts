@@ -536,3 +536,11 @@ describe("shipped content catalog", () => {
     expect(catalog.scenes).toEqual([]);
   });
 });
+
+
+test("environment capability requires script and host API 6", () => {
+  const base = { capabilities: ["wallpaper.viewport", "wallpaper.script", "wallpaper.environment"], compatibility: { hostApi: 6 } };
+  expect(parseSceneManifest(validManifest(base), { requireEntry: true }).capabilities).toContain("wallpaper.environment");
+  expect(() => parseSceneManifest(validManifest({ ...base, compatibility: { hostApi: 5 } }), { requireEntry: true })).toThrow(/hostApi >= 6/);
+  expect(() => parseSceneManifest(validManifest({ ...base, capabilities: ["wallpaper.viewport", "wallpaper.environment"] }), { requireEntry: true })).toThrow(/wallpaper.script/);
+});

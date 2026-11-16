@@ -25,6 +25,7 @@ const CAPABILITIES = new Set([
   "wallpaper.script",
   "wallpaper.pointer",
   "wallpaper.audio",
+  "wallpaper.environment",
 ]);
 const AUDIO_SOURCES = new Set(["music", "noise", "mix", "master"]);
 const AUDIO_FEATURES = new Set(["level", "bands", "spectrum", "waveform"]);
@@ -354,7 +355,8 @@ for (const [index, scene] of (catalog.scenes ?? []).entries()) {
       (hasCapability("wallpaper.params") ||
         hasCapability("wallpaper.sync") ||
         hasCapability("wallpaper.pointer") ||
-        hasCapability("wallpaper.audio"))
+        hasCapability("wallpaper.audio") ||
+        hasCapability("wallpaper.environment"))
     ) {
       fail(
         `${where}.capabilities: wallpaper.params / wallpaper.sync / wallpaper.pointer / wallpaper.audio 必须同时声明 wallpaper.script`,
@@ -367,6 +369,9 @@ for (const [index, scene] of (catalog.scenes ?? []).entries()) {
           `${where}.capabilities: wallpaper.pointer 需要 compatibility.hostApi >= 3`,
         );
       }
+    }
+    if (hasCapability("wallpaper.environment") && (!Number.isInteger(scene.compatibility?.hostApi) || scene.compatibility.hostApi < 6)) {
+      fail(`${where}.capabilities: wallpaper.environment 需要 compatibility.hostApi >= 6`);
     }
     if (hasCapability("wallpaper.audio")) {
       const hostApi = scene.compatibility?.hostApi;

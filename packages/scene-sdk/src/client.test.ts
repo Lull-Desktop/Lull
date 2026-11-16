@@ -381,3 +381,19 @@ describe("音频响应", () => {
     expect(transport.sent.length).toBe(before);
   });
 });
+
+
+test("环境目标回放最新值，忽略过期及非法消息并支持退订", async () => {
+  const { transport, client } = await connect();
+  const seen: number[] = [];
+  transport.receive({ v: 1, type: "environment.targets", snapshot: { targets: { rain: 0.6 }, revision: 2, timestamp: 2 } });
+  const off = client.onEnvironment(s => seen.push(s.targets.rain ?? 0));
+  transport.receive({ v: 1, type: "environment.targets", snapshot: { targets: { rain: 0.2 }, revision: 1, timestamp: 1 } });
+  transport.receive({ v: 1, type: "environment.targets", snapshot: { targets: { rain: 2 }, revision: 3, timestamp: 3 } });
+  expect(seen).toEqual([0.6]);
+  off();
+  transport.receive({ v: 1, type: "environment.targets", snapshot: { targets: {}, revision: 4, timestamp: 4 } });
+  expect(seen).toEqual([0.6]);
+  expect(client.environment?.targets).toEqual({});
+  client.destroy();
+});

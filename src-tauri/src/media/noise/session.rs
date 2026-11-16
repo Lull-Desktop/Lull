@@ -10,11 +10,11 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::dto::{
   NoiseLayerView, NoiseSessionView, NoiseSleepView, NoiseStateView, NoiseTrackError, NoiseTrackView,
-  TrackEnvironment,
+  EnvironmentTargetSnapshot, TrackEnvironment,
 };
 use super::repository;
 use crate::media::api::errors::MediaError;
@@ -294,6 +294,26 @@ pub fn snapshot() -> Result<NoiseSessionView, MediaError> {
   Ok(session_view(&session))
 }
 
+fn environment_targets(session: &Session) -> std::collections::BTreeMap<String, f64> {
+  let mut targets = std::collections::BTreeMap::<String, f64>::new();
+  if session.state != "playing" { return targets; }
+  for track in &session.tracks {
+    if !track.enabled { continue; }
+    if let Some(environment) = &track.environment {
+      if environment.sources.iter().all(|source| matches!(source, TrackSource::Missing)) { continue; }
+      let value = environment.config.intensity;
+      targets.entry(environment.config.environment_type.clone())
+        .and_modify(|current| *current = current.max(value)).or_insert(value);
+    }
+  }
+  targets
+}
+
+pub fn environment_target_snapshot() -> Result<EnvironmentTargetSnapshot, MediaError> {
+  let session = lock()?;
+  Ok(EnvironmentTargetSnapshot { targets: environment_targets(&session), timestamp: now_ms(), revision: session.revision })
+}
+
 pub fn snapshots() -> Result<(NoiseSessionView, NoiseStateView), MediaError> {
   let session = lock()?;
   Ok((session_view(&session), legacy_view(&session)))
@@ -507,14 +527,20 @@ pub fn on_engine_lost(app: &AppHandle) {
 }
 
 fn emit_all(app: &AppHandle) {
-  let (session_view, legacy, revision) = match lock() {
+  let (session_view, legacy, revision, environment) = match lock() {
     Ok(session) => (
       session_view(&session),
       legacy_view(&session),
       session.revision,
+      EnvironmentTargetSnapshot { targets: environment_targets(&session), timestamp: now_ms(), revision: session.revision },
     ),
     Err(_) => return,
   };
+  for (label, window) in app.webview_windows() {
+    if label.starts_with("wallpaper-") {
+      let _ = window.emit("wallpaper-environment", &environment);
+    }
+  }
   events::emit(
     app,
     "noise.state",
@@ -1232,6 +1258,33 @@ mod tests {
     let session_view = session_view(&session);
     assert_eq!(session_view.tracks[0].state, "playing");
     assert_eq!(session_view.revision, 3);
+  }
+
+  #[test]
+  fn environment_targets_use_max_and_ignore_volume_and_mute() {
+    let source = TrackSource::Procedural { profile: "rain".into(), version: 1 };
+    let make_track = |intensity, enabled| Track {
+      id: format!("track-{intensity}"), asset_id: "rain".into(), name: "rain".into(),
+      source: source.clone(), volume: 0.0, enabled, loop_: true, fade_in_ms: None,
+      fade_out_ms: None, error: None,
+      environment: Some(EnvironmentTrack {
+        config: TrackEnvironment { environment_type: "rain".into(), intensity, anchors: vec![] },
+        sources: vec![source.clone()],
+      }),
+    };
+    let mut session = Session {
+      id: "test".into(), name: None, state: "playing".into(), master_volume: 0.0,
+      muted: true, tracks: vec![make_track(0.3, true), make_track(0.7, true), make_track(0.9, false)],
+      sleep_minutes: 0, sleep_ends_at: None, created_at: 0, revision: 0,
+      sleep_generation: 0, last_preset_id: None,
+    };
+    assert_eq!(environment_targets(&session).get("rain"), Some(&0.7));
+    session.tracks.remove(1);
+    assert_eq!(environment_targets(&session).get("rain"), Some(&0.3));
+    session.state = "paused".into();
+    assert!(environment_targets(&session).is_empty());
+    session.state = "idle".into();
+    assert!(environment_targets(&session).is_empty());
   }
 
   #[test]

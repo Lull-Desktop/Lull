@@ -212,6 +212,23 @@ scene.onPointer((pointer) => {
 - 壁纸窗口保持 `WS_EX_TRANSPARENT`，场景永远收不到真实点击，也不可能阻止桌面交互。
 - 浏览器预览没有 Tauri 事件系统，`onPointer` 不会触发；请用壁纸窗口验证。
 
+### 环境强度（`wallpaper.environment`）
+
+声明 `wallpaper.script`、`wallpaper.environment` 和 `compatibility.hostApi >= 6` 后，
+可通过独立的只读通道接收音境中各环境类型的目标强度：
+
+```ts
+scene.onEnvironment(({ targets }) => {
+  const rain = targets.rain ?? 0;
+  const wind = targets.wind ?? 0;
+  // 映射到场景效果；自行对视觉变化做平滑。
+});
+```
+
+`scene.environment` 保存最近的快照，订阅时立即回放。每个值为 0–1；同类型的
+启用轨取最大值，暂停或停止时为空。静音和音量不改变强度。此数据是**目标值**，
+不是声音响度，也不是引擎过渡后的实时值。浏览器预览没有环境状态源。
+
 ### 音频响应（`wallpaper.audio`）
 
 场景必须声明 `wallpaper.script` + `wallpaper.audio` 与 `compatibility.hostApi >= 5`，

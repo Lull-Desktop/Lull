@@ -15,7 +15,7 @@ import type {
   NoisePresetSummary,
 } from "@lull/media-sdk";
 import { Download, Loader2, Save, Star, Trash2, Upload } from "lucide-react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,6 +30,11 @@ import { Switch } from "@/components/ui/switch";
 import { getMediaClient } from "@/hooks/use-media-client";
 import { useLocale } from "@/i18n/locale";
 import { m } from "@/paraglide/messages";
+import {
+  NoisePresetEditor,
+  type PresetLeaveGuard,
+  type RegisterPresetGuard,
+} from "./noise-preset-editor";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -41,7 +46,11 @@ function sourceLabel(source: string): string {
   return "用户";
 }
 
-export function NoisePresetPanel() {
+export function NoisePresetPanel({
+  registerGuard: registerWindowGuard,
+}: {
+  registerGuard?: RegisterPresetGuard;
+}) {
   useLocale();
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   // 同一窗口可能挂载多份面板，表单控件 id 必须实例唯一。
@@ -56,8 +65,6 @@ export function NoisePresetPanel() {
     null,
   );
   const [saveName, setSaveName] = useState("我的音境混音");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -90,14 +97,67 @@ export function NoisePresetPanel() {
     };
   }, [client, favoriteOnly, page, version]);
 
+  const leaveGuard = useRef<PresetLeaveGuard | null>(null);
+  const [editorDirty, setEditorDirty] = useState(false);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const selecting = useRef(0);
+  const active = useRef(true);
+  const running = useRef(false);
+  const asking = useRef(false);
+  const registerGuard = useCallback<RegisterPresetGuard>(
+    (guard) => {
+      leaveGuard.current = guard;
+      registerWindowGuard?.(guard);
+      if (!guard) {
+        setEditorDirty(false);
+        setEditorSaving(false);
+      }
+    },
+    [registerWindowGuard],
+  );
+  const onEditState = useCallback((dirty: boolean, saving: boolean) => {
+    setEditorDirty(dirty);
+    setEditorSaving(saving);
+  }, []);
+  const onSaved = useCallback(
+    (detail: NoisePresetDetail) => {
+      setSelected(detail);
+      refresh();
+    },
+    [refresh],
+  );
+  const allowLeave = useCallback(async () => {
+    if (asking.current || running.current) return false;
+    asking.current = true;
+    try {
+      return await (leaveGuard.current?.() ?? true);
+    } finally {
+      asking.current = false;
+    }
+  }, []);
   useEffect(() => {
-    if (!selected) return;
-    setName(selected.preset.name);
-    setDescription(selected.preset.description ?? "");
-  }, [selected]);
+    active.current = true;
+    return () => {
+      active.current = false;
+      selecting.current++;
+    };
+  }, []);
+  useEffect(
+    () =>
+      client?.events.on((event) => {
+        if (event.topic.startsWith("noise.preset.")) refresh();
+      }),
+    [client, refresh],
+  );
 
   const run = useCallback(
     async (label: string, action: () => Promise<unknown>): Promise<void> => {
+      if (running.current || editorSaving) return;
+      if ((label === "save" || label === "import") && !(await allowLeave()))
+        return;
+      if (!active.current) return;
+      running.current = true;
+      selecting.current++;
       setBusy(label);
       setError("");
       setNotice("");
@@ -107,24 +167,41 @@ export function NoisePresetPanel() {
       } catch (reason) {
         setError(errorText(reason));
       } finally {
-        setBusy("");
+        running.current = false;
+        if (active.current) setBusy("");
       }
     },
-    [refresh],
+    [refresh, editorSaving, allowLeave],
   );
 
   const selectPreset = useCallback(
     (presetId: string): void => {
-      if (!client) return;
-      void client.noise.presets
-        .getPreset(presetId)
-        .then((detail) => {
+      if (!client || busy || editorSaving || selected?.preset.id === presetId)
+        return;
+      const token = ++selecting.current;
+      void (async () => {
+        if (
+          !(await allowLeave()) ||
+          token !== selecting.current ||
+          !active.current
+        )
+          return;
+        setBusy("select");
+        try {
+          const detail = await client.noise.presets.getPreset(presetId);
+          if (!active.current || token !== selecting.current) return;
           setSelected(detail);
           setLoadResult(null);
-        })
-        .catch((reason: unknown) => setError(errorText(reason)));
+          setError("");
+        } catch (reason) {
+          if (active.current && token === selecting.current)
+            setError(errorText(reason));
+        } finally {
+          if (active.current && token === selecting.current) setBusy("");
+        }
+      })();
     },
-    [client],
+    [client, busy, editorSaving, selected?.preset.id, allowLeave],
   );
 
   const savePreset = useCallback((): void => {
@@ -140,20 +217,24 @@ export function NoisePresetPanel() {
     });
   }, [client, run, saveName]);
 
-  const updatePreset = useCallback((): void => {
+  const duplicatePreset = useCallback(() => {
     if (!client || !selected) return;
-    void run("update", async () => {
-      const detail = await client.noise.presets.updatePreset(
+    void run("duplicate", async () => {
+      const suffix = m.env_preset_copy_suffix();
+      const name =
+        [...selected.preset.name].slice(0, 80 - [...suffix].length).join("") +
+        suffix;
+      const detail = await client.noise.presets.duplicatePreset(
         selected.preset.id,
-        {
-          name: name.trim(),
-          description: description.trim() || null,
-        },
+        { name },
       );
+      if (!active.current) return;
       setSelected(detail);
-      setNotice("Preset 信息已保存");
+      setLoadResult(null);
+      setPage(1);
+      setNotice(m.env_preset_copy_saved());
     });
-  }, [client, description, name, run, selected]);
+  }, [client, selected, run]);
 
   const loadPreset = useCallback(
     (presetId: string): void => {
@@ -238,7 +319,12 @@ export function NoisePresetPanel() {
   }, [client, run]);
 
   const mapTrack = useCallback(
-    (presetId: string, presetTrackId: string, assetId: string, anchorIndex?: number): void => {
+    (
+      presetId: string,
+      presetTrackId: string,
+      assetId: string,
+      anchorIndex?: number,
+    ): void => {
       if (!client) return;
       void run("map", async () => {
         const detail = await client.noise.presets.mapPresetTrack(
@@ -253,7 +339,9 @@ export function NoisePresetPanel() {
             ? {
                 ...previous,
                 missing: previous.missing.filter(
-                  (item) => item.presetTrackId !== presetTrackId || item.anchorIndex !== anchorIndex,
+                  (item) =>
+                    item.presetTrackId !== presetTrackId ||
+                    item.anchorIndex !== anchorIndex,
                 ),
               }
             : null,
@@ -281,7 +369,7 @@ export function NoisePresetPanel() {
             />
             <Button
               type="button"
-              disabled={busy !== "" || !saveName.trim()}
+              disabled={busy !== "" || editorSaving || !saveName.trim()}
               onClick={savePreset}
             >
               {busy === "save" ? (
@@ -294,7 +382,7 @@ export function NoisePresetPanel() {
             <Button
               type="button"
               variant="outline"
-              disabled={busy !== ""}
+              disabled={busy !== "" || editorSaving}
               onClick={importPreset}
             >
               <Upload className="mr-2 h-4 w-4" />
@@ -331,6 +419,7 @@ export function NoisePresetPanel() {
                 >
                   <button
                     type="button"
+                    disabled={busy !== "" || editorSaving}
                     aria-label={preset.favorite ? "取消收藏" : "收藏"}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -349,6 +438,7 @@ export function NoisePresetPanel() {
                   <button
                     type="button"
                     className="min-w-0 flex-1 text-left"
+                    disabled={busy !== "" || editorSaving}
                     aria-pressed={selected?.preset.id === preset.id}
                     onClick={() => selectPreset(preset.id)}
                   >
@@ -365,10 +455,10 @@ export function NoisePresetPanel() {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    disabled={busy !== ""}
+                    disabled={busy !== "" || editorSaving || editorDirty}
                     onClick={(event) => {
                       event.stopPropagation();
-                      loadPreset(preset.id);
+                      if (!editorDirty) loadPreset(preset.id);
                     }}
                   >
                     加载
@@ -377,10 +467,10 @@ export function NoisePresetPanel() {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    disabled={busy !== ""}
+                    disabled={busy !== "" || editorSaving || editorDirty}
                     onClick={(event) => {
                       event.stopPropagation();
-                      exportPreset(preset.id);
+                      if (!editorDirty) exportPreset(preset.id);
                     }}
                   >
                     <Download className="h-4 w-4" />
@@ -391,7 +481,7 @@ export function NoisePresetPanel() {
                       size="sm"
                       variant="ghost"
                       className="text-red-600"
-                      disabled={busy !== ""}
+                      disabled={busy !== "" || editorSaving}
                       onClick={(event) => {
                         event.stopPropagation();
                         deletePreset(preset);
@@ -434,110 +524,20 @@ export function NoisePresetPanel() {
       </Card>
 
       {selected && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              Preset「{selected.preset.name}」
-            </CardTitle>
-            <CardDescription>
-              {sourceLabel(selected.preset.sourceType)} · schema v
-              {selected.preset.schemaVersion} · {selected.preset.trackCount}{" "}
-              条轨道
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor={`${formId}-preset-name`}>名称</Label>
-                <input
-                  id={`${formId}-preset-name`}
-                  className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
-                  value={name}
-                  disabled={selected.preset.sourceType === "builtin"}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor={`${formId}-preset-description`}>描述</Label>
-                <input
-                  id={`${formId}-preset-description`}
-                  className="h-9 w-full rounded-md border border-line bg-paper px-3 text-sm"
-                  value={description}
-                  disabled={selected.preset.sourceType === "builtin"}
-                  onChange={(event) => setDescription(event.target.value)}
-                />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                disabled={
-                  busy !== "" || selected.preset.sourceType === "builtin"
-                }
-                onClick={updatePreset}
-              >
-                保存名称/描述
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy !== ""}
-                onClick={() => loadPreset(selected.preset.id)}
-              >
-                {m.noise_preset_load_to_mix()}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy !== ""}
-                onClick={() => exportPreset(selected.preset.id)}
-              >
-                导出文件
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <Label>轨道</Label>
-              <div className="divide-y divide-line rounded-md border border-line">
-                {selected.tracks.length === 0 ? (
-                  <p className="p-4 text-sm text-ink-faint">
-                    {loadResult
-                      ? "加载结果见下方缺失映射。"
-                      : "暂无轨道详情，点击列表中的 Preset 载入。"}
-                  </p>
-                ) : (
-                  selected.tracks.map((track) => (
-                    <div
-                      key={track.id}
-                      className="flex items-center gap-2 px-3 py-2 text-sm"
-                    >
-                      <span className="min-w-0 flex-1 truncate">
-                        {track.expectedName}
-                        {track.assetName &&
-                        track.assetName !== track.expectedName
-                          ? `（${track.assetName}）`
-                          : ""}
-                      </span>
-                      <span className="text-xs text-ink-faint">
-                        {Math.round(track.volume * 100)}% ·{" "}
-                        {track.enabled ? "启用" : "停用"}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] ${
-                          track.status === "resolved"
-                            ? "bg-emerald-500/10 text-emerald-700"
-                            : "bg-amber-500/10 text-amber-700"
-                        }`}
-                      >
-                        {track.status === "resolved" ? "已解析" : "缺失"}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {loadResult && loadResult.missing.length > 0 && (
+        <NoisePresetEditor
+          key={selected.preset.id}
+          client={client}
+          detail={selected}
+          busy={busy !== ""}
+          onSaved={onSaved}
+          onEditState={onEditState}
+          registerGuard={registerGuard}
+          onLoad={() => loadPreset(selected.preset.id)}
+          onExport={() => exportPreset(selected.preset.id)}
+          onDuplicate={duplicatePreset}
+          renderMissing={(mappingDisabled) =>
+            loadResult &&
+            loadResult.missing.length > 0 && (
               <div className="space-y-2">
                 <Label>缺失轨道映射</Label>
                 {loadResult.missing.map((missing) => (
@@ -560,7 +560,7 @@ export function NoisePresetPanel() {
                             type="button"
                             size="sm"
                             variant="outline"
-                            disabled={busy !== ""}
+                            disabled={mappingDisabled}
                             onClick={() =>
                               mapTrack(
                                 selected.preset.id,
@@ -578,9 +578,9 @@ export function NoisePresetPanel() {
                   </div>
                 ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
+            )
+          }
+        />
       )}
       {confirmDialog}
     </div>

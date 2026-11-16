@@ -23,8 +23,9 @@ export const SCENE_SCHEMA_VERSION = 1 as const;
  * `compatibility.hostApi`，旧宿主会把该场景当作不兼容跳过（清单层拒绝）。
  * 4：新增 `text` 参数类型（多行文本，面板支持从本地文本文件载入）。
  * 5：新增 `wallpaper.audio` 音频响应与 `audio` 声明（`scene.audio`）。
+ * 6：新增 `wallpaper.environment` 只读环境目标。
  */
-export const SCENE_HOST_API = 5 as const;
+export const SCENE_HOST_API = 6 as const;
 
 export const SCENE_CAPABILITIES = [
   "wallpaper.viewport",
@@ -50,6 +51,7 @@ export const SCENE_CAPABILITIES = [
    * compatibility.hostApi >= 5。
    */
   "wallpaper.audio",
+  "wallpaper.environment",
 ] as const;
 
 export type SceneCapability = (typeof SCENE_CAPABILITIES)[number];
@@ -687,6 +689,9 @@ export function parseSceneManifest(
     fail(where, "内置场景不能声明 game 绑定");
   }
   const audio = parseAudioBinding(input.audio, where);
+  if (has("wallpaper.environment") && !has("wallpaper.script")) {
+    fail(where, "wallpaper.environment 必须同时声明 wallpaper.script");
+  }
   if (audio && !has("wallpaper.audio")) {
     fail(where, "声明 audio 时必须同时声明 wallpaper.audio");
   }
@@ -697,6 +702,9 @@ export function parseSceneManifest(
     fail(where, "内置场景不能声明音频响应");
   }
   const compatibility = parseCompatibility(input.compatibility, where);
+  if (has("wallpaper.environment") && (!compatibility?.hostApi || compatibility.hostApi < 6)) {
+    fail(where, "wallpaper.environment 需要 compatibility.hostApi >= 6");
+  }
   if (game && (compatibility === undefined || compatibility.hostApi < 2)) {
     fail(where, "声明 game 绑定时必须声明 compatibility.hostApi >= 2");
   }

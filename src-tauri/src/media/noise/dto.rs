@@ -48,6 +48,15 @@ pub struct TrackEnvironment {
   pub anchors: Vec<EnvironmentAnchor>,
 }
 
+/// Configured target values, not audio levels or the engine's smoothed values.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvironmentTargetSnapshot {
+  pub targets: std::collections::BTreeMap<String, f64>,
+  pub timestamp: i64,
+  pub revision: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoiseTrackView {

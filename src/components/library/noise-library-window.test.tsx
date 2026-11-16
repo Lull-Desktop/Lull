@@ -2,7 +2,11 @@
 /**
  * 白噪音库窗口：三个子页签与“窗口级单次连接”的所有权。
  */
-import type { LullMediaClient, PlaybackSnapshot } from "@lull/media-sdk";
+import type {
+  LullMediaClient,
+  NoisePresetDetail,
+  PlaybackSnapshot,
+} from "@lull/media-sdk";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { NoiseLibraryWindow } from "./noise-library-window";
@@ -157,4 +161,94 @@ test("连接失败时显示窗口级错误横幅", async () => {
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("音境服务连接失败");
   expect(alert.textContent).toContain("media_connect denied");
+});
+
+test("preset copying, save isolation and tab changes respect the preset draft", async () => {
+  const client = createClient();
+  const builtin: NoisePresetDetail = {
+    preset: {
+      id: "builtin",
+      name: "Builtin rain",
+      sourceType: "builtin",
+      trackCount: 0,
+      schemaVersion: 2,
+      masterVolume: 0.5,
+      favorite: false,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    tracks: [],
+  };
+  const copy: NoisePresetDetail = {
+    ...builtin,
+    preset: {
+      ...builtin.preset,
+      id: "copy",
+      name: "Builtin rain（副本）",
+      sourceType: "user",
+      updatedAt: 2,
+    },
+  };
+  client.noise.presets.listPresets = vi.fn(async () => ({
+    items: [builtin.preset],
+    total: 1,
+    page: 1,
+    pageSize: 50,
+    hasMore: false,
+  }));
+  client.noise.presets.getPreset = vi.fn(async () => builtin);
+  client.noise.presets.duplicatePreset = vi.fn(async () => copy);
+  client.noise.presets.updatePreset = vi.fn(async (_id, patch) => ({
+    ...copy,
+    preset: { ...copy.preset, name: patch.name!, updatedAt: 3 },
+  }));
+  client.noise.presets.loadPreset = vi.fn();
+  mediaState.client = client;
+  render(<NoiseLibraryWindow />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Builtin rain.*内置/ }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "创建可编辑副本" }),
+  );
+  await screen.findByRole("heading", {
+    name: "预设编辑：Builtin rain（副本）",
+  });
+  expect(client.noise.presets.duplicatePreset).toHaveBeenCalledWith("builtin", {
+    name: "Builtin rain（副本）",
+  });
+  await waitFor(() =>
+    expect((screen.getByLabelText("名称") as HTMLInputElement).disabled).toBe(
+      false,
+    ),
+  );
+  fireEvent.change(screen.getByLabelText("名称"), {
+    target: { value: "Edited copy" },
+  });
+  expect(screen.getByText("有未保存的修改")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "分类与标签" }));
+  fireEvent.click(await screen.findByRole("button", { name: "继续编辑" }));
+  expect((screen.getByLabelText("名称") as HTMLInputElement).value).toBe(
+    "Edited copy",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "保存预设" }));
+  await screen.findByText("预设已保存；加载到当前混音后生效。");
+  expect(client.noise.presets.updatePreset).toHaveBeenCalledWith("copy", {
+    name: "Edited copy",
+    description: null,
+    expectedUpdatedAt: 2,
+  });
+  expect(client.noise.presets.loadPreset).not.toHaveBeenCalled();
+  expect(client.noise.session.getCurrent).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("名称"), {
+    target: { value: "Discarded" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "分类与标签" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "放弃修改并继续" }),
+  );
+  await waitFor(() =>
+    expect(screen.queryByTestId("noise-preset-editor")).toBeNull(),
+  );
+  expect(client.connect).toHaveBeenCalledTimes(1);
 });

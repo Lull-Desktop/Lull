@@ -71,6 +71,8 @@ struct CatalogPresetTrack {
   asset_id: String,
   volume: f64,
   enabled: bool,
+  #[serde(default)]
+  environment: Option<super::dto::TrackEnvironment>,
 }
 
 fn catalog() -> Result<CatalogFile, MediaError> {
@@ -209,10 +211,10 @@ pub async fn seed(pool: &SqlitePool) -> Result<(), MediaError> {
       "INSERT INTO noise_presets \
        (id, origin_id, name, description, source_type, author, schema_version, \
         master_volume, cover_ref, created_at, updated_at) \
-       VALUES (?, NULL, ?, ?, 'builtin', 'Lull', 1, ?, NULL, ?, ?) \
+       VALUES (?, NULL, ?, ?, 'builtin', 'Lull', 2, ?, NULL, ?, ?) \
        ON CONFLICT(id) DO UPDATE SET name = excluded.name, \
          description = excluded.description, master_volume = excluded.master_volume, \
-         source_type = 'builtin', author = 'Lull', updated_at = excluded.updated_at",
+         source_type = 'builtin', author = 'Lull', schema_version = excluded.schema_version, updated_at = excluded.updated_at",
     )
     .bind(&preset.id)
     .bind(&preset.name)
@@ -231,11 +233,14 @@ pub async fn seed(pool: &SqlitePool) -> Result<(), MediaError> {
       .map_err(|error| MediaError::internal(format!("清理 Noise 预设音轨失败：{error}")))?;
     for (index, track) in preset.tracks.iter().enumerate() {
       let track_id = format!("noise_preset_track:{}:{index}", preset.id);
+      if let Some(environment) = &track.environment { super::session::validate_environment(environment)?; }
+      let environment_json = track.environment.as_ref().map(serde_json::to_string).transpose()
+        .map_err(|error| MediaError::internal(format!("序列化内置环境轨失败：{error}")))?;
       sqlx::query(
         "INSERT INTO noise_preset_tracks \
          (id, preset_id, asset_id, asset_hash, asset_source_type, asset_source_id, \
-          expected_name, volume, enabled, loop, fade_in_ms, fade_out_ms, sort_order) \
-         VALUES (?, ?, ?, NULL, 'builtin', 'noise_src_builtin', ?, ?, ?, 1, 80, 120, ?)",
+          expected_name, volume, enabled, loop, fade_in_ms, fade_out_ms, sort_order, environment_json) \
+         VALUES (?, ?, ?, NULL, 'builtin', 'noise_src_builtin', ?, ?, ?, 1, 80, 120, ?, ?)",
       )
       .bind(&track_id)
       .bind(&preset.id)
@@ -244,6 +249,7 @@ pub async fn seed(pool: &SqlitePool) -> Result<(), MediaError> {
       .bind(track.volume.clamp(0.0, 1.0))
       .bind(if track.enabled { 1_i64 } else { 0_i64 })
       .bind(i64::try_from(index).unwrap_or(i64::MAX))
+      .bind(environment_json)
       .execute(&mut *tx)
       .await
       .map_err(|error| MediaError::internal(format!("写入 Noise 预设音轨失败：{error}")))?;
@@ -273,7 +279,7 @@ mod tests {
   #[test]
   fn catalog_is_valid_and_seed_is_idempotent() {
     let catalog = catalog().expect("catalog parses");
-    assert_eq!(catalog.assets.len(), 5);
+    assert_eq!(catalog.assets.len(), 9);
     assert!(catalog
       .presets
       .iter()
@@ -292,8 +298,22 @@ mod tests {
           .fetch_one(&pool)
           .await
           .expect("count presets");
-      assert_eq!(assets, 5);
+      assert_eq!(assets, 9);
       assert!(presets >= 4);
+      let rain = super::super::repository::preset_records(&pool, "noise:preset:rain-intensity")
+        .await.expect("rain preset");
+      let environment: super::super::dto::TrackEnvironment = serde_json::from_str(
+        rain[0].environment_json.as_deref().expect("rain environment")
+      ).expect("valid environment");
+      assert_eq!(environment.environment_type, "rain");
+      assert_eq!(environment.anchors.len(), 3);
+      super::super::session::validate_environment(&environment).expect("valid anchors");
+      let bamboo = super::super::repository::preset_records(&pool, "noise:preset:bamboo-weather").await.expect("bamboo preset");
+      assert_eq!(bamboo.len(), 2);
+      for record in bamboo {
+        let env: super::super::dto::TrackEnvironment = serde_json::from_str(record.environment_json.as_deref().expect("environment")).expect("valid environment");
+        super::super::session::validate_environment(&env).expect("valid anchors");
+      }
       db::close(&pool).await;
     });
     let _ = std::fs::remove_file(&path);

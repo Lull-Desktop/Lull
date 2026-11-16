@@ -126,6 +126,7 @@ pub fn run() {
       media::api::commands::media_disconnect,
       media::api::commands::media_engine_ready,
       media::api::commands::media_engine_event,
+      media::noise::wallpaper_environment_snapshot,
       audio_reactive::commands::audio_connect,
       audio_reactive::commands::audio_disconnect,
       content_package::content_packages,

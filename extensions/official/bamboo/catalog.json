@@ -6,7 +6,7 @@
       "type": "scene",
       "id": "lull.bamboo",
       "name": "竹影",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "description": "深夜竹林、薄雾与远山，Lull 的默认壁纸。",
       "author": "Lull",
       "license": "GPL-3.0-or-later",
@@ -15,7 +15,8 @@
         "wallpaper.canvas",
         "wallpaper.sync",
         "wallpaper.params",
-        "wallpaper.script"
+        "wallpaper.script",
+        "wallpaper.environment"
       ],
       "entry": "scenes/bamboo/index.html",
       "theme": {
@@ -39,7 +40,7 @@
         "targetFps": 60
       },
       "compatibility": {
-        "hostApi": 1,
+        "hostApi": 6,
         "platforms": ["windows"]
       }
     }

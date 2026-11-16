@@ -487,17 +487,39 @@ pub async fn call(
       } else {
         existing.cover_ref.clone()
       };
-      repository::update_preset_metadata(
+      let expected = match args.get("expectedUpdatedAt") {
+        Some(value) => value.as_i64().ok_or_else(|| MediaError::invalid("expectedUpdatedAt 必须为整数"))?,
+        None if args.get("trackEnvironments").is_some() => return Err(MediaError::invalid("环境修改需要 expectedUpdatedAt")),
+        None => existing.updated_at,
+      };
+      let environments: Vec<repository::PresetEnvironmentPatch> = match args.get("trackEnvironments") {
+        Some(value) => serde_json::from_value(value.clone()).map_err(|e| MediaError::invalid(format!("环境修改格式无效：{e}")))?,
+        None => Vec::new(),
+      };
+      if environments.len() > MAX_TRACKS { return Err(MediaError::invalid("环境轨道过多")); }
+      repository::update_preset_configuration(
         pool,
         preset_id,
         &name,
         description.as_deref(),
         cover.as_deref(),
+        expected,
+        environments,
       )
       .await?;
       emit_preset(app, "noise.preset.updated", preset_id, &name);
       serde_json::to_value(detail(pool, preset_id).await?)
         .map_err(|error| MediaError::internal(format!("序列化 Noise Preset 失败：{error}")))
+    }
+    "duplicatePreset" => {
+      require_write(label)?;
+      let source = string_arg(args, "presetId")?;
+      let name = validate_name(string_arg(args, "name")?)?;
+      let pool = crate::media::library::pool()?;
+      let id = repository::duplicate_preset(pool, source, &name).await?;
+      emit_preset(app, "noise.preset.created", &id, &name);
+      serde_json::to_value(detail(pool, &id).await?)
+        .map_err(|error| MediaError::internal(error.to_string()))
     }
     "deletePreset" => {
       require_write(label)?;
@@ -633,7 +655,7 @@ pub async fn call(
         anchor.asset_hash = repository::asset_identity(pool, asset_id).await?.and_then(|identity| identity.content_hash);
         session::validate_environment(&environment)?;
         let text = serde_json::to_string(&environment).map_err(|error| MediaError::internal(format!("序列化环境轨失败：{error}")))?;
-        repository::update_preset_environment(pool, preset_id, preset_track_id, &text).await?;
+        repository::update_preset_environment(pool, preset_id, preset_track_id, &text, existing.updated_at).await?;
       } else {
         repository::map_preset_track(pool, preset_id, preset_track_id, asset_id).await?;
       }
@@ -1023,4 +1045,59 @@ mod tests {
     let _ = std::fs::remove_file(format!("{}-wal", path.display()));
     let _ = std::fs::remove_file(format!("{}-shm", path.display()));
   }
+  #[test]
+  fn preset_environment_edits_are_atomic_and_copies_preserve_references() {
+    let path = std::env::temp_dir().join(format!("lull-preset-edit-{}.db", uuid::Uuid::now_v7()));
+    tauri::async_runtime::block_on(async {
+      let pool = crate::media::repository::db::open_at(&path).await.expect("db");
+      super::super::catalog::seed(&pool).await.expect("seed");
+      let (presets, _) = repository::list_presets(&pool, &NoisePresetQuery::default()).await.unwrap();
+      let builtin = presets.iter().find(|p| p.source_type == "builtin").unwrap();
+      let id = repository::duplicate_preset(&pool, &builtin.id, "Copy").await.unwrap();
+      let original_tracks = repository::preset_records(&pool, &builtin.id).await.unwrap();
+      let tracks = repository::preset_records(&pool, &id).await.unwrap();
+      assert_eq!(tracks.len(), original_tracks.len());
+      assert_ne!(tracks[0].id, original_tracks[0].id);
+      assert_eq!(tracks[0].environment_json, original_tracks[0].environment_json);
+      let copy = repository::preset(&pool, &id).await.unwrap().unwrap();
+      assert_eq!(copy.source_type, "user"); assert_eq!(copy.favorite, 0);
+      assert_eq!(copy.master_volume, builtin.master_volume);
+      let patch = |track: &str| repository::PresetEnvironmentPatch {
+        preset_track_id: track.to_string(),
+        environment: serde_json::from_value(json!({"type":"rain", "intensity":0.6, "anchors":[
+          {"assetId":"noise:builtin:rain","intensity":0}, {"assetId":"noise:builtin:wind","intensity":1}
+        ]})).unwrap(),
+      };
+      let failed = repository::update_preset_configuration(&pool, &id, "Not saved", None, None, copy.updated_at, vec![patch(&tracks[0].id), patch("foreign-track")]).await;
+      assert!(failed.is_err());
+      let unchanged = repository::preset(&pool, &id).await.unwrap().unwrap();
+      assert_eq!(unchanged.name, "Copy"); assert_eq!(unchanged.updated_at, copy.updated_at);
+      assert_eq!(repository::preset_records(&pool, &id).await.unwrap()[0].environment_json, tracks[0].environment_json);
+      repository::update_preset_configuration(&pool, &id, "Saved", Some("description"), None, copy.updated_at, vec![patch(&tracks[0].id)]).await.unwrap();
+      let saved = repository::preset(&pool, &id).await.unwrap().unwrap();
+      assert!(saved.updated_at > copy.updated_at);
+      let stored = repository::preset_records(&pool, &id).await.unwrap();
+      let environment: super::super::dto::TrackEnvironment = serde_json::from_str(stored[0].environment_json.as_deref().unwrap()).unwrap();
+      assert_eq!(environment.intensity, 0.6); assert!(environment.anchors[0].expected_name.is_some());
+      assert_eq!(stored[0].volume, tracks[0].volume); assert_eq!(stored[0].asset_id, tracks[0].asset_id);
+      let stale = repository::update_preset_configuration(&pool, &id, "Stale", None, None, copy.updated_at, vec![]).await.unwrap_err();
+      assert_eq!(stale.code, "noise.preset.conflict");
+      let mut missing = patch(&tracks[0].id); missing.environment.anchors[0].asset_id = "missing".into();
+      assert!(repository::update_preset_configuration(&pool, &id, "Missing", None, None, saved.updated_at, vec![missing]).await.is_err());
+      assert!(repository::update_preset_configuration(&pool, &id, "Duplicate", None, None, saved.updated_at, vec![patch(&tracks[0].id), patch(&tracks[0].id)]).await.is_err());
+      assert!(repository::update_preset_configuration(&pool, &builtin.id, "Forbidden", None, None, builtin.updated_at, vec![]).await.is_err());
+      repository::map_preset_track(&pool, &id, &tracks[0].id, "noise:builtin:wind").await.unwrap();
+      assert!(repository::preset(&pool, &id).await.unwrap().unwrap().updated_at > saved.updated_at);
+      // Copying must preserve unresolved references rather than requiring playable assets.
+      sqlx::query("UPDATE noise_preset_tracks SET asset_id = NULL, expected_name = 'Missing reference' WHERE id = ?")
+        .bind(&tracks[0].id).execute(&pool).await.unwrap();
+      let second = repository::duplicate_preset(&pool, &id, "Unresolved copy").await.unwrap();
+      let unresolved = repository::preset_records(&pool, &second).await.unwrap();
+      assert_eq!(unresolved[0].asset_id, None); assert_eq!(unresolved[0].expected_name, "Missing reference");
+      assert_eq!(unresolved[0].environment_json, stored[0].environment_json);
+      pool.close().await;
+    });
+    let _ = std::fs::remove_file(path);
+  }
+
 }

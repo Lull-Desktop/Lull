@@ -100,6 +100,7 @@
     "allow-media-status",
     "allow-wallpaper-detach",
     "allow-wallpaper-display-get",
+    "allow-wallpaper-environment-snapshot",
     "allow-wallpaper-get-visible",
     "allow-wallpaper-monitors",
     "allow-wallpaper-set-display",

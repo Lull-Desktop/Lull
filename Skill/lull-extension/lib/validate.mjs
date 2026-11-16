@@ -24,7 +24,7 @@ export const WIDGET_SCHEMA_VERSION = 2;
 export const WIDGET_HOST_API = 1;
 export const SCENE_SCHEMA_VERSION = 1;
 /** Must match `src/sdk/scene/manifest.ts` SCENE_HOST_API. */
-export const SCENE_HOST_API = 5;
+export const SCENE_HOST_API = 6;
 
 export const WIDGET_CAPABILITIES = [
   "widget.ui",
@@ -92,6 +92,7 @@ export const SCENE_CAPABILITIES = [
   "wallpaper.script",
   "wallpaper.pointer",
   "wallpaper.audio",
+  "wallpaper.environment",
 ];
 export const AUDIO_SOURCES = ["music", "noise", "mix", "master"];
 export const AUDIO_FEATURES = ["level", "bands", "spectrum", "waveform"];
@@ -664,7 +665,8 @@ function validateScene(root, report, add, files) {
       (seen.has("wallpaper.params") ||
         seen.has("wallpaper.sync") ||
         seen.has("wallpaper.pointer") ||
-        seen.has("wallpaper.audio"))
+        seen.has("wallpaper.audio") ||
+        seen.has("wallpaper.environment"))
     ) {
       add(
         "error",
@@ -681,6 +683,9 @@ function validateScene(root, report, add, files) {
           "wallpaper.pointer requires compatibility.hostApi >= 3",
         );
       }
+    }
+    if (seen.has("wallpaper.environment") && (!Number.isInteger(scene.compatibility?.hostApi) || scene.compatibility.hostApi < 6)) {
+      add("error", "S-ENV-CAP", "wallpaper.environment requires compatibility.hostApi >= 6");
     }
     if (seen.has("wallpaper.audio")) {
       const hostApi = scene.compatibility?.hostApi;

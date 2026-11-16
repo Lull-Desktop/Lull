@@ -12,10 +12,14 @@
 
 import type { LullMediaClient, PlaybackSnapshot } from "@lull/media-sdk";
 import { Tags, TestTube, Waves } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LibraryWindowFrame } from "@/components/library/library-window-frame";
 import { NoiseApiTestPanel } from "@/components/settings/noise-api-test-panel";
 import { NoiseLibraryPanel } from "@/components/settings/noise-library-panel";
+import type {
+  PresetLeaveGuard,
+  RegisterPresetGuard,
+} from "@/components/settings/noise-preset-editor";
 import { NoiseTaxonomyPanel } from "@/components/settings/noise-taxonomy-panel";
 import { getMediaClient } from "@/hooks/use-media-client";
 import { useLocale } from "@/i18n/locale";
@@ -36,6 +40,11 @@ function errorText(error: unknown): string {
 
 export function NoiseLibraryWindow() {
   useLocale();
+  const presetGuard = useRef<PresetLeaveGuard | null>(null);
+  const checkingTab = useRef(false);
+  const registerPresetGuard = useCallback<RegisterPresetGuard>((guard) => {
+    presetGuard.current = guard;
+  }, []);
   const [tab, setTab] = useState<NoiseTab>("library");
   const [client, setClient] = useState<LullMediaClient | null>(null);
   const [snapshot, setSnapshot] = useState<PlaybackSnapshot | null>(null);
@@ -84,7 +93,17 @@ export function NoiseLibraryWindow() {
       description={m.widget_noise_library_description()}
       tabs={TABS}
       activeTab={tab}
-      onSelectTab={(id) => setTab(id as NoiseTab)}
+      onSelectTab={(id) => {
+        if (id === tab || checkingTab.current) return;
+        checkingTab.current = true;
+        void (async () => {
+          try {
+            if (await (presetGuard.current?.() ?? true)) setTab(id as NoiseTab);
+          } finally {
+            checkingTab.current = false;
+          }
+        })();
+      }}
     >
       {connectError && (
         <p
@@ -96,7 +115,9 @@ export function NoiseLibraryWindow() {
       )}
 
       <section className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "library" && <NoiseLibraryPanel />}
+        {tab === "library" && (
+          <NoiseLibraryPanel registerPresetGuard={registerPresetGuard} />
+        )}
         {tab === "taxonomy" && <NoiseTaxonomyPanel />}
         {tab === "test" && (
           <NoiseApiTestPanel

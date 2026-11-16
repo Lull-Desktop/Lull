@@ -25,6 +25,9 @@ type AudioHarnessConnection = {
   emitStatus(next: AudioStatus): void;
 };
 
+const environmentHarness = vi.hoisted(() => ({ handlers: [] as Array<(snapshot: { targets: Record<string, number>; timestamp: number; revision: number }) => void>, unlisten: vi.fn() }));
+vi.mock("./environment-stream", () => ({ listenWallpaperEnvironment: (handler: typeof environmentHarness.handlers[number]) => { environmentHarness.handlers.push(handler); return environmentHarness.unlisten; } }));
+
 const audioHarness = vi.hoisted(() => ({
   connections: [] as AudioHarnessConnection[],
 }));
@@ -108,6 +111,7 @@ vi.mock("./audio-stream", () => ({
 }));
 
 beforeEach(() => {
+  environmentHarness.handlers.length = 0;
   pointerHarness.handlers.length = 0;
   audioHarness.connections.length = 0;
 });
@@ -504,4 +508,24 @@ describe("ExternalScene 音频响应", () => {
     unmount();
     expect(connection?.disconnect).toHaveBeenCalled();
   });
+});
+
+
+test("只有声明环境能力的场景收到缓存和更新", () => {
+  const entry = { ...ENTRY, manifest: { ...manifest(), capabilities: [...manifest().capabilities, "wallpaper.environment"] } as SceneManifest };
+  const view = render(<ExternalScene entry={entry} frame={FRAME} />);
+  expect(environmentHarness.handlers).toHaveLength(1);
+  const iframe = screen.getByTestId("external-scene") as HTMLIFrameElement;
+  const child = iframe.contentWindow!;
+  const sent = vi.spyOn(child, "postMessage");
+  environmentHarness.handlers[0]({ targets: { rain: 0.7 }, revision: 1, timestamp: 1 });
+  window.dispatchEvent(new MessageEvent("message", { source: child, data: { v: 1, type: "ready", protocol: 1 } }));
+  expect(sent.mock.calls.some(([m]) => m.type === "environment.targets" && m.snapshot.targets.rain === 0.7)).toBe(true);
+  environmentHarness.handlers[0]({ targets: {}, revision: 2, timestamp: 2 });
+  expect(sent.mock.calls.some(([m]) => m.type === "environment.targets" && m.snapshot.revision === 2)).toBe(true);
+  view.unmount();
+  expect(environmentHarness.unlisten).toHaveBeenCalled();
+  environmentHarness.handlers.length = 0;
+  render(<ExternalScene entry={ENTRY} frame={FRAME} />);
+  expect(environmentHarness.handlers).toHaveLength(0);
 });

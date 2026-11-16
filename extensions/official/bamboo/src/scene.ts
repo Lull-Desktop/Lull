@@ -4,7 +4,11 @@
  * 这里不依赖 React / 宿主 CSS，所有选择器都属于包内页面；测试直接拿
  * jsdom document 断言雾浓度、同步相位与画布字号，避免官方场景回归靠肉眼。
  */
-import { type SceneFrame, syncedDelayMs } from "@lull/scene-sdk";
+import {
+  type SceneEnvironmentSnapshot,
+  type SceneFrame,
+  syncedDelayMs,
+} from "@lull/scene-sdk";
 
 type MistBand = {
   id: string;
@@ -58,6 +62,30 @@ export function canvasFont(canvasW: number, base: number): number {
 
 function element(root: ParentNode, id: string): HTMLElement | null {
   return root.querySelector<HTMLElement>(`#${id}`);
+}
+
+/** 视觉自行平滑目标值；不把目标误认为音频引擎的实时平滑值。 */
+export function applyEnvironment(
+  root: Document,
+  snapshot: SceneEnvironmentSnapshot,
+): void {
+  const scene = element(root, "scene");
+  if (!scene) return;
+  const read = (key: string): number => {
+    const value = snapshot.targets[key];
+    return typeof value === "number" && Number.isFinite(value)
+      ? clamp01(value)
+      : 0;
+  };
+  const wind = read("wind");
+  const rain = read("rain");
+  scene.style.setProperty("--sway-angle", `${0.7 + wind * 3.3}deg`);
+  scene.style.setProperty("--rain-light", String(Math.min(1, rain * 3)));
+  scene.style.setProperty(
+    "--rain-heavy",
+    String(Math.max(0, (rain - 0.25) / 0.75)),
+  );
+  scene.style.setProperty("--rain-tilt", `${-6 - wind * 12}deg`);
 }
 
 /** 把一帧写到页面上；重复调用是幂等的。 */

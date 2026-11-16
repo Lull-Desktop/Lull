@@ -4,6 +4,7 @@ import {
   isSceneAudioHostMessage,
   SCENE_PROTOCOL,
   type SceneFrame,
+  type SceneEnvironmentSnapshot,
   type SceneHostMessage,
   type SceneInitMessage,
   type SceneParamValue,
@@ -31,6 +32,9 @@ export type LullSceneClient = {
   readonly pointer: ScenePointer | null;
   /** 音频响应（只读）；需要 Manifest 声明 wallpaper.audio 才会收到数据。 */
   readonly audio: SceneAudioAPI;
+  /** 按环境类型聚合的目标强度；不是音频响度或引擎平滑值。 */
+  readonly environment: SceneEnvironmentSnapshot | null;
+  onEnvironment(listener: (snapshot: SceneEnvironmentSnapshot) => void): () => void;
 
   /** 订阅帧更新；注册时立即回放当前帧。 */
   onFrame(listener: (frame: SceneFrame) => void): () => void;
@@ -106,6 +110,8 @@ export function createLullSceneClient(
     >();
     const visibilityListeners = new Set<(visible: boolean) => void>();
     const pointerListeners = new Set<(pointer: ScenePointer) => void>();
+    const environmentListeners = new Set<(snapshot: SceneEnvironmentSnapshot) => void>();
+    let environment: SceneEnvironmentSnapshot | null = null;
 
     let init: SceneInitMessage | null = null;
     let currentFrame: SceneFrame | null = null;
@@ -165,6 +171,12 @@ export function createLullSceneClient(
       get audio() {
         return audio;
       },
+      get environment() { return environment; },
+      onEnvironment(listener) {
+        environmentListeners.add(listener);
+        if (environment) listener(environment);
+        return () => { environmentListeners.delete(listener); };
+      },
       onFrame(listener) {
         frameListeners.add(listener);
         if (currentFrame) listener(currentFrame);
@@ -211,6 +223,8 @@ export function createLullSceneClient(
         paramListeners.clear();
         visibilityListeners.clear();
         pointerListeners.clear();
+        environmentListeners.clear();
+        environment = null;
         currentPointer = null;
       },
     };
@@ -222,6 +236,13 @@ export function createLullSceneClient(
       if (isSceneAudioHostMessage(message)) {
         if (!init) return;
         audio.handleMessage(message);
+        return;
+      }
+
+      if (message.type === "environment.targets") {
+        if (!init || (environment && message.snapshot.revision < environment.revision)) return;
+        environment = { ...message.snapshot, targets: { ...message.snapshot.targets } };
+        for (const listener of [...environmentListeners]) listener(environment);
         return;
       }
 

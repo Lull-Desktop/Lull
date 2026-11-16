@@ -16,6 +16,7 @@
     "allow-media-attach",
     "allow-media-detach",
     "allow-media-degrade",
+    "allow-wallpaper-environment-snapshot",
     "allow-audio-connect",
     "allow-audio-disconnect",
     "allow-game-connect",

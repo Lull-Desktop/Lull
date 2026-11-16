@@ -11,6 +11,12 @@ pub mod presets;
 mod repository;
 mod session;
 
+#[tauri::command]
+pub fn wallpaper_environment_snapshot(window: tauri::WebviewWindow) -> Result<dto::EnvironmentTargetSnapshot, String> {
+  if !window.label().starts_with("wallpaper-") { return Err("只有壁纸窗口可以读取环境状态".into()); }
+  session::environment_target_snapshot().map_err(|error| format!("{error:?}"))
+}
+
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
@@ -128,6 +134,7 @@ pub async fn call(
       | "getPreset"
       | "savePreset"
       | "updatePreset"
+      | "duplicatePreset"
       | "deletePreset"
       | "loadPreset"
       | "exportPreset"
@@ -176,6 +183,8 @@ pub async fn call(
     }
     "getSession" => serde_json::to_value(session::snapshot()?)
       .map_err(|error| MediaError::internal(format!("序列化 Noise Session 失败：{error}"))),
+    "getEnvironmentTargets" => serde_json::to_value(session::environment_target_snapshot()?)
+      .map_err(|error| MediaError::internal(format!("序列化环境目标失败：{error}"))),
     "createSession" => serde_json::to_value(session::create_session(&app)?)
       .map_err(|error| MediaError::internal(format!("序列化 Noise Session 失败：{error}"))),
     "playSession" => serde_json::to_value(session::play_session(&app)?)

@@ -32,12 +32,12 @@ export type TrackVisuals = {
   icon: TrackIconKey;
 };
 
-/** 某条轨的显示层视图：视觉派生 + 音量派生，纯函数无副作用。 */
+/** 某条轨的显示层视图：环境轨显示强度，普通轨显示音量。 */
 export type TrackView = TrackVisuals & {
   track: NoiseTrack;
-  /** clampLevel(track.volume * 100)，0-100。 */
+  /** 环境强度或音量，0-100。 */
   level: number;
-  /** 亮着的泡泡显示真实音量；熄灭的显示 0%。 */
+  /** 启用轨显示当前控制值；关闭轨显示 0%。 */
   effective: number;
 };
 
@@ -153,12 +153,12 @@ export function deriveTrackVisuals(
   };
 }
 
-/** 组装完整视图；音量派生在这层完成。 */
+/** 组装完整视图；环境轨使用强度，其他轨保持原有音量。 */
 export function toTrackView(
   track: NoiseTrack,
   meta?: LibraryMeta | null,
 ): TrackView {
-  const level = clampLevel(track.volume * 100);
+  const level = clampLevel((track.environment?.intensity ?? track.volume) * 100);
   return {
     track,
     ...deriveTrackVisuals(track.assetId, track.name, meta),

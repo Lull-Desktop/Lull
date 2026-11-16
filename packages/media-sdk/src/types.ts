@@ -346,7 +346,19 @@ export interface NoiseTrackError {
 export interface NoiseTrackEnvironment {
   type: string;
   intensity: number;
-  anchors: Array<{ assetId: string; intensity: number; assetHash?: string; expectedName?: string }>;
+  anchors: Array<{
+    assetId: string;
+    intensity: number;
+    assetHash?: string;
+    expectedName?: string;
+  }>;
+}
+
+/** Configured environment targets; these are not audio levels or smoothed playback values. */
+export interface EnvironmentTargetSnapshot {
+  targets: Record<string, number>;
+  timestamp: number;
+  revision: number;
 }
 
 export interface NoiseTrack {
@@ -493,6 +505,18 @@ export interface NoisePresetTrack {
 export interface NoisePresetDetail {
   preset: NoisePresetSummary;
   tracks: NoisePresetTrack[];
+}
+
+/** Atomic metadata / environment edits. Environment patches require the read version. */
+export interface NoisePresetUpdatePatch {
+  name?: string;
+  description?: string | null;
+  cover?: string | null;
+  expectedUpdatedAt?: number;
+  trackEnvironments?: Array<{
+    presetTrackId: string;
+    environment: NoiseTrackEnvironment;
+  }>;
 }
 
 export interface NoisePresetQuery {

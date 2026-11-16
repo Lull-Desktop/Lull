@@ -327,6 +327,7 @@ describe("media client", () => {
     await media.noise.tracks.setVolume("track-1", 0.4);
     await media.noise.tracks.setEnabled("track-1", false);
     await media.noise.tracks.reorder("track-1", 0);
+    await media.noise.session.getEnvironmentTargets();
 
     expect(transport.requests.map((request) => request.method)).toEqual([
       "getSession",
@@ -337,6 +338,7 @@ describe("media client", () => {
       "setTrackVolume",
       "setTrackEnabled",
       "reorderTracks",
+      "getEnvironmentTargets",
     ]);
     expect(transport.requests[2]?.args).toEqual({
       assetId: "noise:builtin:rain",
@@ -345,7 +347,10 @@ describe("media client", () => {
       trackId: "track-1",
       environment: { type: "rain", intensity: 0.5 },
     });
-    expect(transport.requests[4]?.args).toEqual({ trackId: "track-1", intensity: 0.8 });
+    expect(transport.requests[4]?.args).toEqual({
+      trackId: "track-1",
+      intensity: 0.8,
+    });
     expect(transport.requests[5]?.args).toEqual({
       trackId: "track-1",
       volume: 0.4,
@@ -606,7 +611,12 @@ describe("media client", () => {
     await media.noise.presets.loadPreset("preset-1");
     await media.noise.presets.exportPreset("preset-1", "out.json");
     await media.noise.presets.importPreset("in.json");
-    await media.noise.presets.mapPresetTrack("preset-1", "track-1", "asset-1", 1);
+    await media.noise.presets.mapPresetTrack(
+      "preset-1",
+      "track-1",
+      "asset-1",
+      1,
+    );
     await media.noise.presets.setPresetFavorite("preset-1", true);
 
     expect(transport.requests.map((request) => request.method)).toEqual([
@@ -631,5 +641,35 @@ describe("media client", () => {
       assetId: "asset-1",
       anchorIndex: 1,
     });
+  });
+  test("preset environment updates include the expected version and copies use persisted preset IDs", async () => {
+    const transport = createMemoryTransport(() => ({
+      preset: { id: "copy" },
+      tracks: [],
+    }));
+    const media = createMediaClient({ transport });
+    const patch = {
+      name: "Rain",
+      expectedUpdatedAt: 42,
+      trackEnvironments: [
+        {
+          presetTrackId: "preset-track",
+          environment: {
+            type: "rain",
+            intensity: 0.5,
+            anchors: [
+              { assetId: "a", intensity: 0 },
+              { assetId: "b", intensity: 1 },
+            ],
+          },
+        },
+      ],
+    };
+    await media.noise.presets.updatePreset("preset", patch);
+    await media.noise.presets.duplicatePreset("builtin", { name: "Copy" });
+    expect(transport.requests.map((r) => [r.method, r.args])).toEqual([
+      ["updatePreset", { presetId: "preset", ...patch }],
+      ["duplicatePreset", { presetId: "builtin", name: "Copy" }],
+    ]);
   });
 });

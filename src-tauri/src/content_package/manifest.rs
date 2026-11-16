@@ -31,6 +31,7 @@ pub const CAPABILITIES: &[&str] = &[
   "wallpaper.script",
   "wallpaper.pointer",
   "wallpaper.audio",
+  "wallpaper.environment",
 ];
 
 const MAX_ID_LEN: usize = 64;
@@ -222,12 +223,17 @@ fn parse_capabilities(scene: &serde_json::Map<String, Value>) -> Result<Vec<Stri
     && (has("wallpaper.params")
       || has("wallpaper.sync")
       || has("wallpaper.pointer")
-      || has("wallpaper.audio"))
+      || has("wallpaper.audio")
+      || has("wallpaper.environment"))
   {
     return Err(
       "外部内容包的 wallpaper.params / wallpaper.sync / wallpaper.pointer / wallpaper.audio 必须同时声明 wallpaper.script"
         .to_string(),
     );
+  }
+  if has("wallpaper.environment") {
+    let api = scene.get("compatibility").and_then(|v| v.get("hostApi")).and_then(Value::as_u64);
+    if api.is_none_or(|v| v < 6) { return Err("wallpaper.environment 需要 compatibility.hostApi >= 6".to_string()); }
   }
   if has("wallpaper.audio") {
     let host_api = scene

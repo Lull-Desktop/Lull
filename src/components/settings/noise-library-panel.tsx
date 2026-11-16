@@ -44,6 +44,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getMediaClient } from "@/hooks/use-media-client";
+import type { RegisterPresetGuard } from "./noise-preset-editor";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -74,7 +75,11 @@ function categoryDepth(
   return depth;
 }
 
-export function NoiseLibraryPanel() {
+export function NoiseLibraryPanel({
+  registerPresetGuard,
+}: {
+  registerPresetGuard?: RegisterPresetGuard;
+}) {
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   // 同一窗口可能挂载多份面板，表单控件 id 必须实例唯一。
   const formId = useId();
@@ -329,7 +334,7 @@ export function NoiseLibraryPanel() {
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-2 overflow-hidden">
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
         <Card className="flex flex-col overflow-hidden">
           <CardHeader>
             <CardTitle className="text-base">音境素材库</CardTitle>
@@ -665,7 +670,7 @@ export function NoiseLibraryPanel() {
           )}
         </Card>
       </div>
-      <NoisePresetPanel />
+      <NoisePresetPanel registerGuard={registerPresetGuard} />
       {confirmDialog}
     </div>
   );

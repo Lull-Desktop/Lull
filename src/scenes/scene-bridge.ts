@@ -34,7 +34,10 @@ export const SCENE_GAME_PROTOCOL = 1 as const;
 /** 场景迟迟不发 ready 时的诊断阈值；超时只记日志，不阻断壁纸渲染。 */
 export const SCENE_READY_TIMEOUT_MS = 8000;
 
+export type EnvironmentSnapshot = { targets: Record<string, number>; timestamp: number; revision: number };
+
 export type SceneHostMessage =
+  | { v: typeof SCENE_BRIDGE_PROTOCOL; type: "environment.targets"; snapshot: EnvironmentSnapshot }
   | {
       v: typeof SCENE_BRIDGE_PROTOCOL;
       type: "init";
@@ -87,6 +90,10 @@ export function sceneInitMessage(
     frame,
     visible,
   };
+}
+
+export function sceneEnvironmentMessage(snapshot: EnvironmentSnapshot): SceneHostMessage {
+  return { v: SCENE_BRIDGE_PROTOCOL, type: "environment.targets", snapshot };
 }
 
 export function sceneFrameMessage(frame: SceneFrame): SceneHostMessage {

@@ -16,8 +16,8 @@ import type {
   NoiseTrack,
 } from "@lull/media-sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { environmentTypeLabel } from "@/components/settings/noise-environment-form";
 import { Button } from "@/components/ui/button";
-import { NoiseEnvironmentEditor } from "@/components/settings/noise-environment-editor";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useLocale } from "@/i18n/locale";
@@ -66,37 +66,43 @@ export function NoiseSessionTracks({
   const [error, setError] = useState("");
   const mounted = useRef(false);
 
-  // 初始拉一次当前 session；之后靠事件同步。
+  const acceptSession = useCallback((next: NoiseSession): void => {
+    if (!mounted.current) return;
+    setSession((previous) =>
+      previous && next.revision < previous.revision ? previous : next,
+    );
+  }, []);
+
+  // Subscribe before fetching: a late initial snapshot must not replace a newer event.
   useEffect(() => {
     mounted.current = true;
-    if (!client) {
+    let alive = true;
+    setSession(null);
+    setError("");
+    if (!client)
       return () => {
+        alive = false;
         mounted.current = false;
       };
-    }
+    const accept = (next: NoiseSession) => {
+      if (alive) acceptSession(next);
+    };
+    const stop = client.events.on((event) => {
+      if (event.topic === "noise.session.changed")
+        accept(event.payload as NoiseSession);
+    });
     void client.noise.session
       .getCurrent()
-      .then((next) => {
-        if (mounted.current) setSession(next);
-      })
+      .then(accept)
       .catch((reason: unknown) => {
-        if (mounted.current) setError(errorText(reason));
+        if (alive) setError(errorText(reason));
       });
     return () => {
+      alive = false;
       mounted.current = false;
+      stop();
     };
-  }, [client]);
-
-  // 音轨增删改（含应用预设时的整体替换）后端都会发 noise.session.changed。
-  useEffect(() => {
-    if (!client) return;
-    const stop = client.events.on((event) => {
-      if (event.topic === "noise.session.changed") {
-        setSession(event.payload as NoiseSession);
-      }
-    });
-    return () => stop();
-  }, [client]);
+  }, [client, acceptSession]);
 
   const run = useCallback(
     async (label: string, action: () => Promise<unknown>): Promise<void> => {
@@ -147,7 +153,7 @@ export function NoiseSessionTracks({
             const state = statePresentation(track.state);
             return (
               <div
-                key={track.id}
+                key={`${session?.id}:${track.id}`}
                 className="grid gap-2 rounded-lg border border-border/60 p-2 md:grid-cols-[minmax(0,1.2fr)_minmax(9rem,1fr)_auto]"
               >
                 <div className="min-w-0">
@@ -264,7 +270,15 @@ export function NoiseSessionTracks({
                     {m.noise_track_remove()}
                   </Button>
                 </div>
-                <NoiseEnvironmentEditor client={client} track={track} />
+                {track.environment && (
+                  <p className="text-xs text-muted-foreground md:col-span-3">
+                    {m.env_summary({
+                      type: environmentTypeLabel(track.environment.type),
+                      value: Math.round(track.environment.intensity * 100),
+                      count: track.environment.anchors.length,
+                    })}
+                  </p>
+                )}
               </div>
             );
           })

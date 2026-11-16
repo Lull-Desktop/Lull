@@ -23,6 +23,7 @@ import type {
   ConnectOptions,
   DirectoryListing,
   DirectoryQuery,
+  EnvironmentTargetSnapshot,
   FavoriteView,
   FolderTrack,
   HistoryEntry,
@@ -39,6 +40,7 @@ import type {
   NoisePresetLoadResult,
   NoisePresetQuery,
   NoisePresetSummary,
+  NoisePresetUpdatePatch,
   NoiseRevalidateResult,
   NoiseSession,
   NoiseSound,
@@ -237,6 +239,7 @@ export interface LullMediaClient {
     reset(): Promise<NoiseState>;
     session: {
       getCurrent(): Promise<NoiseSession>;
+      getEnvironmentTargets(): Promise<EnvironmentTargetSnapshot>;
       create(): Promise<NoiseSession>;
       play(): Promise<NoiseSession>;
       pause(): Promise<NoiseSession>;
@@ -247,7 +250,10 @@ export interface LullMediaClient {
     };
     tracks: {
       add(assetId: string): Promise<NoiseTrack>;
-      configureEnvironment(trackId: string, environment: NoiseTrackEnvironment): Promise<void>;
+      configureEnvironment(
+        trackId: string,
+        environment: NoiseTrackEnvironment,
+      ): Promise<void>;
       setIntensity(trackId: string, intensity: number): Promise<void>;
       remove(trackId: string): Promise<void>;
       setVolume(trackId: string, volume: number): Promise<void>;
@@ -312,11 +318,11 @@ export interface LullMediaClient {
       }): Promise<NoisePresetDetail>;
       updatePreset(
         presetId: string,
-        patch: {
-          name?: string;
-          description?: string | null;
-          cover?: string | null;
-        },
+        patch: NoisePresetUpdatePatch,
+      ): Promise<NoisePresetDetail>;
+      duplicatePreset(
+        presetId: string,
+        input: { name: string },
       ): Promise<NoisePresetDetail>;
       deletePreset(presetId: string): Promise<void>;
       loadPreset(presetId: string): Promise<NoisePresetLoadResult>;
@@ -756,6 +762,8 @@ export function createMediaClient(
     reset: () => call<NoiseState>("noise", "reset"),
     session: {
       getCurrent: () => call<NoiseSession>("noise", "getSession"),
+      getEnvironmentTargets: () =>
+        call<EnvironmentTargetSnapshot>("noise", "getEnvironmentTargets"),
       create: () => call<NoiseSession>("noise", "createSession"),
       play: () => call<NoiseSession>("noise", "playSession"),
       pause: () => call<NoiseSession>("noise", "pauseSession"),
@@ -770,11 +778,20 @@ export function createMediaClient(
     tracks: {
       add: (assetId: string) =>
         call<NoiseTrack>("noise", "addTrack", { assetId }),
-      configureEnvironment: async (trackId: string, environment: NoiseTrackEnvironment) => {
-        await call<NoiseSession>("noise", "configureTrackEnvironment", { trackId, environment });
+      configureEnvironment: async (
+        trackId: string,
+        environment: NoiseTrackEnvironment,
+      ) => {
+        await call<NoiseSession>("noise", "configureTrackEnvironment", {
+          trackId,
+          environment,
+        });
       },
       setIntensity: async (trackId: string, intensity: number) => {
-        await call<NoiseSession>("noise", "setTrackIntensity", { trackId, intensity });
+        await call<NoiseSession>("noise", "setTrackIntensity", {
+          trackId,
+          intensity,
+        });
       },
       remove: async (trackId: string) => {
         await call<NoiseSession>("noise", "removeTrack", { trackId });
@@ -870,17 +887,15 @@ export function createMediaClient(
         description?: string;
         cover?: string;
       }) => call<NoisePresetDetail>("noise", "savePreset", input),
-      updatePreset: (
-        presetId: string,
-        patch: {
-          name?: string;
-          description?: string | null;
-          cover?: string | null;
-        },
-      ) =>
+      updatePreset: (presetId: string, patch: NoisePresetUpdatePatch) =>
         call<NoisePresetDetail>("noise", "updatePreset", {
           presetId,
           ...patch,
+        }),
+      duplicatePreset: (presetId: string, input: { name: string }) =>
+        call<NoisePresetDetail>("noise", "duplicatePreset", {
+          presetId,
+          ...input,
         }),
       deletePreset: async (presetId: string) => {
         await call<{ removed: boolean }>("noise", "deletePreset", {

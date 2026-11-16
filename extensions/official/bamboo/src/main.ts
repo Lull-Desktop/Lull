@@ -5,13 +5,14 @@
  * SceneHost 会通过 iframe 的 ready 消息判断是否真正可用。
  */
 import { connectLullScene } from "@lull/scene-sdk";
-import { applySceneFrame, startClock } from "./scene";
+import { applyEnvironment, applySceneFrame, startClock } from "./scene";
 
 startClock(document);
 
 void connectLullScene()
   .then((scene) => {
     scene.onFrame((frame) => applySceneFrame(document, frame));
+    scene.onEnvironment((snapshot) => applyEnvironment(document, snapshot));
   })
   .catch((error: unknown) => {
     console.warn("[scene:lull.bamboo] 未连接宿主，保留静态画面", error);

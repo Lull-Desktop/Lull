@@ -144,7 +144,11 @@ export type SceneAudioPluginMessage =
       requestId: string;
     };
 
+export type SceneEnvironmentSnapshot = { targets: Record<string, number>; timestamp: number; revision: number };
+export type SceneEnvironmentMessage = { v: typeof SCENE_PROTOCOL; type: "environment.targets"; snapshot: SceneEnvironmentSnapshot };
+
 export type SceneHostMessage =
+  | SceneEnvironmentMessage
   | SceneInitMessage
   | SceneFrameMessage
   | SceneVisibilityMessage
@@ -253,6 +257,10 @@ export function isSceneAudioHostMessage(
 export function isSceneHostMessage(value: unknown): value is SceneHostMessage {
   if (!isRecord(value) || value.v !== SCENE_PROTOCOL) return false;
   if (isSceneAudioHostMessage(value)) return true;
+  if (value.type === "environment.targets") {
+    const s = value.snapshot;
+    return isRecord(s) && isRecord(s.targets) && Object.values(s.targets).every(v => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1) && typeof s.timestamp === "number" && Number.isFinite(s.timestamp) && typeof s.revision === "number" && Number.isSafeInteger(s.revision) && s.revision >= 0;
+  }
   if (value.type === "init") {
     return (
       value.protocol === SCENE_PROTOCOL &&

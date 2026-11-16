@@ -107,6 +107,7 @@ const APP_COMMANDS: &[&str] = &[
   "media_disconnect",
   "media_engine_ready",
   "media_engine_event",
+  "wallpaper_environment_snapshot",
   "audio_connect",
   "audio_disconnect",
   "content_packages",
