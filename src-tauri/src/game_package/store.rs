@@ -442,6 +442,9 @@ fn inspect(dir: &Path, dir_name: &str, grants: &GrantsFile) -> GamePackageInfo {
 }
 
 /// 安装：校验清单/入口/摘要，原子落地到 `<root>/<id>`。
+/// 生产路径走 `install_from_staged_transaction`（校验完成后再提交），
+/// 这里只给测试提供一个一步到位的包装。
+#[cfg(test)]
 pub fn install_from_staged(root: &Path, staged: &install::Staged) -> Result<GameManifest, String> {
   let (manifest, replacement) = install_from_staged_transaction(root, staged)?;
   replacement.commit();
